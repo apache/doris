@@ -185,6 +185,7 @@ public class JdbcClient {
             switch (dbType) {
                 case JdbcResource.MYSQL:
                 case JdbcResource.CLICKHOUSE:
+                case JdbcResource.OCEANBASE:
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -233,6 +234,7 @@ public class JdbcClient {
             switch (dbType) {
                 case JdbcResource.MYSQL:
                 case JdbcResource.CLICKHOUSE:
+                case JdbcResource.OCEANBASE:
                     databaseNames.add(conn.getCatalog());
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -266,6 +268,7 @@ public class JdbcClient {
             String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.OCEANBASE:
                     rs = databaseMetaData.getTables(dbName, null, null, types);
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -306,6 +309,7 @@ public class JdbcClient {
             String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.OCEANBASE:
                     rs = databaseMetaData.getTables(dbName, null, tableName, types);
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -381,6 +385,7 @@ public class JdbcClient {
             //                     Can contain single-character wildcards ("_"), or multi-character wildcards ("%")
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.OCEANBASE:
                     rs = databaseMetaData.getColumns(dbName, null, tableName, null);
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -440,6 +445,8 @@ public class JdbcClient {
                 return saphanaTypeToDoris(fieldSchema);
             case JdbcResource.TRINO:
                 return trinoTypeToDoris(fieldSchema);
+            case JdbcResource.OCEANBASE:
+                return oceanbaseTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -876,6 +883,82 @@ public class JdbcClient {
         }
     }
 
+    public Type oceanbaseTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String[] typeFields = fieldSchema.getDataTypeName().split(" ");
+        String oceanbaseType = typeFields[0];
+        if (typeFields.length > 1 && "UNSIGNED".equals(typeFields[1])) {
+            switch (oceanbaseType) {
+                case "TINYINT":
+                    return Type.SMALLINT;
+                case "SMALLINT":
+                    return Type.INT;
+                case "MEDIUMINT":
+                    return Type.INT;
+                case "INT":
+                    return Type.BIGINT;
+                case "BIGINT":
+                    return Type.LARGEINT;
+                case "DECIMAL":
+                    int precision = fieldSchema.getColumnSize() + 1;
+                    int scale = fieldSchema.getDecimalDigits();
+                    return createDecimalOrStringType(precision, scale);
+                default:
+                    throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + oceanbaseType + "]");
+            }
+        }
+        switch (oceanbaseType) {
+            case "TINYINT":
+                return Type.TINYINT;
+            case "SMALLINT":
+                return Type.SMALLINT;
+            case "MEDIUMINT":
+            case "INT":
+                return Type.INT;
+            case "BIGINT":
+                return Type.BIGINT;
+            case "DATE":
+            case "YEAR":
+                return ScalarType.createDateV2Type();
+            case "TIMESTAMP":
+            case "DATETIME":
+                return ScalarType.createDatetimeV2Type(0);
+            case "FLOAT":
+                return Type.FLOAT;
+            case "DOUBLE":
+                return Type.DOUBLE;
+            case "DECIMAL":
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                return createDecimalOrStringType(precision, scale);
+            case "CHAR":
+                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+                charType.setLength(fieldSchema.columnSize);
+                return charType;
+            case "VARCHAR":
+                return ScalarType.createVarcharType(fieldSchema.columnSize);
+            case "TIME":
+            case "TINYTEXT":
+            case "TEXT":
+            case "MEDIUMTEXT":
+            case "LONGTEXT":
+            case "TINYBLOB":
+            case "BLOB":
+            case "MEDIUMBLOB":
+            case "LONGBLOB":
+            case "TINYSTRING":
+            case "STRING":
+            case "MEDIUMSTRING":
+            case "LONGSTRING":
+            case "JSON":
+            case "SET":
+            case "BINARY":
+            case "VARBINARY":
+            case "ENUM":
+                return ScalarType.createStringType();
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
 
     private Type createDecimalOrStringType(int precision, int scale) {
         if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {

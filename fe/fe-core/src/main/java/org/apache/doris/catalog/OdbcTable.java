@@ -115,6 +115,7 @@ public class OdbcTable extends Table {
     public static String databaseProperName(TOdbcTableType tableType, String name) {
         switch (tableType) {
             case MYSQL:
+            case OCEANBASE:
                 return mysqlProperName(name);
             case SQLSERVER:
                 return mssqlProperName(name);
