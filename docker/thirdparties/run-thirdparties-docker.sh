@@ -278,12 +278,12 @@ if [[ "${RUN_HUDI}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hudi/hudi.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hudi.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm -rf "${ROOT}"/docker-compose/hudi/notebooks
-        sudo mkdir "${ROOT}"/docker-compose/hudi/notebooks
-        sudo rm -rf "${ROOT}"/docker-compose/hudi/spark
-        sudo mkdir "${ROOT}"/docker-compose/hudi/spark
-        sudo rm -rf "${ROOT}"/docker-compose/hudi/warehouse
-        sudo mkdir "${ROOT}"/docker-compose/hudi/warehouse
+        sudo rm -rf "${ROOT}"/docker-compose/hudi/historyserver
+        sudo mkdir "${ROOT}"/docker-compose/hudi/historyserver
+        sudo rm -rf "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
+        sudo mkdir "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
+        sudo rm -rf "${ROOT}"/docker-compose/hudi/ws
+        sudo mkdir "${ROOT}"/docker-compose/hudi/ws
         sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hudi.env up -d
     fi
 fi

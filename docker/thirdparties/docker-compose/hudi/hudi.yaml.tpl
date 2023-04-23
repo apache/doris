@@ -88,14 +88,14 @@ services:
     env_file:
       - ./hadoop.env
     volumes:
-      - historyserver:/hadoop/yarn/timeline
+      - ./historyserver:/hadoop/yarn/timeline
     networks:
       - doris--hudi
 
   hive-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:2.3.0
     volumes:
-      - hive-metastore-postgresql:/var/lib/postgresql
+      - ./hive-metastore-postgresql:/var/lib/postgresql
     hostname: hive-metastore-postgresql
     container_name: hive-metastore-postgresql
     networks:
@@ -147,7 +147,7 @@ services:
       - "hive-metastore-postgresql"
       - "namenode"
     volumes:
-      - ${HUDI_WS}:/var/hoodie/ws
+      - ./ws:/var/hoodie/ws
     networks:
       - doris--hudi
 
