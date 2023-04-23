@@ -90,7 +90,9 @@ message PTabletWriterOpenResult {
 };
 
 message PartitionOpenRequest{
-    repeated int64 index_ids = 1;
+    required PUniqueId id = 1;
+    required int64 index_id = 2;
+    repeated PTabletWithPartition tablets = 3;
 }
 
 message PartitionOpenResult {

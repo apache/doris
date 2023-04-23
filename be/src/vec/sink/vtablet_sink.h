@@ -183,8 +183,6 @@ public:
 
     Status open_wait();
 
-    Status open_partition_wait(int64_t partition_id);
-
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
     int try_send_and_fetch_status(RuntimeState* state,
@@ -468,8 +466,6 @@ private:
 
     void _open_partition(const VOlapTablePartition* partition,uint32_t tablet_index);
 
-    Status _open_partition_wait(const VOlapTablePartition* partition,uint32_t tablet_index);
-
     std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
@@ -575,8 +571,8 @@ private:
 
     RuntimeState* _state = nullptr;
 
-    std::unordered_map<int64_t,bool> _partition_open_status;
-    std::mutex _partition_open_status_mutex;
+    std::unordered_set<int64_t> _partition_opened;
+    std::mutex _partition_opened_mutex;
 };
 
 } // namespace stream_load

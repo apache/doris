@@ -245,24 +245,17 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
 }
 
 void PInternalServiceImpl::partition_open(google::protobuf::RpcController* controller,
-                                             const PartitionOpenRequest* request,
-                                             PartitionOpenResult* response,
-                                             google::protobuf::Closure* done) {
+                                          const PartitionOpenRequest* request,
+                                          PartitionOpenResult* response,
+                                          google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
-        VLOG_RPC << "delta writer open"<< ", index_id=";
-        const auto& index_ids = request->index_ids();
-        for (auto it = index_ids.begin(); it != index_ids.end(); ++it) {
-            VLOG_RPC << *it << " ";
-        }
+        VLOG_RPC << "delta writer open"
+                 << ", index_id=" << request->index_id();
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->open_partition(*request);
         if (!st.ok()) {
             LOG(WARNING) << "load channel open failed, message=" << st
-                         << ", index_ids=";
-            const auto& index_ids = request->index_ids();
-            for (auto it = index_ids.begin(); it != index_ids.end(); ++it) {
-                VLOG_RPC << *it << " ";
-            }
+                         << ", index_ids=" << request->index_id();
         }
         st.to_protobuf(response->mutable_status());
     });

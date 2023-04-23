@@ -214,7 +214,7 @@ int64_t TabletsChannel::mem_consumption() {
     return mem_usage;
 }
 
-Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
+Status TabletsChannel::open_all_writers(const PartitionOpenRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
     for (auto& index : _schema->indexes()) {

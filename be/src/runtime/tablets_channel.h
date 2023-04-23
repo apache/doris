@@ -65,6 +65,9 @@ public:
 
     Status open(const PTabletWriterOpenRequest& request);
 
+    // open all writer
+    Status open_all_writers(const PartitionOpenRequest& request);
+
     // no-op when this channel has been closed or cancelled
     template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
     Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
@@ -100,8 +103,7 @@ private:
     template <typename Request>
     Status _get_current_seq(int64_t& cur_seq, const Request& request);
 
-    // open all writer
-    Status _open_all_writers(const PTabletWriterOpenRequest& request);
+    
 
     bool _try_to_wait_flushing();
 

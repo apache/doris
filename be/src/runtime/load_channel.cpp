@@ -70,6 +70,32 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
+Status LoadChannel::open_partition(const PartitionOpenRequest& params) {
+    int64_t index_id = params.index_id();
+    std::shared_ptr<TabletsChannel> channel;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _tablets_channels.find(index_id);
+        if (it != _tablets_channels.end()) {
+            channel = it->second;
+        } else {
+            // create a new tablets channel
+            TabletsChannelKey key(params.id(), index_id);
+            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority));
+            {
+                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                _tablets_channels.insert({index_id, channel});
+            }
+        }
+    }
+
+    RETURN_IF_ERROR(channel->open_all_writers(params));
+
+    _opened = true;
+    _last_updated_time.store(time(nullptr));
+    return Status::OK();
+}
+
 Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channel,
                                          bool& is_finished, const int64_t index_id) {
     std::lock_guard<std::mutex> l(_lock);
