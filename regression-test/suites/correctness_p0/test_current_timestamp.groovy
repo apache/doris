@@ -78,6 +78,9 @@ suite("test_current_timestamp") {
 
         time 10000 // limit inflight 10s
     }
+
+    sql "sync"
+
     qt_stream_load_csv1 """ select count(*) from ${tableName} where id > 4 and to_date(dt_0) = to_date(dt_1); """
     qt_stream_load_csv2 """ select count(*) from ${tableName} where id > 4 and to_date(dt_2) = to_date(dt_3); """
     qt_stream_load_csv3 """ select count(*) from ${tableName} where id > 4 and to_date(dt_4) = to_date(dt_5); """
@@ -98,6 +101,9 @@ suite("test_current_timestamp") {
 
         time 10000 // limit inflight 10s
     }
+
+    sql "sync"
+
     qt_stream_load_json1 """ select count(*) from ${tableName} where id > 8 and to_date(dt_0) = to_date(dt_1); """
     qt_stream_load_json2 """ select count(*) from ${tableName} where id > 8 and to_date(dt_2) = to_date(dt_3); """
     qt_stream_load_json3 """ select count(*) from ${tableName} where id > 8 and to_date(dt_4) = to_date(dt_5); """
@@ -117,6 +123,9 @@ suite("test_current_timestamp") {
         file 'test_current_timestamp_streamload.json'
         time 10000 // limit inflight 10s
     }
+
+    sql "sync"
+
     qt_stream_load_json5 """ select id, name, dt_1  from ${tableName2} order by id; """
     qt_stream_load_json6 """ select count(*) from ${tableName2} where dt_2 is not NULL; """
  }
