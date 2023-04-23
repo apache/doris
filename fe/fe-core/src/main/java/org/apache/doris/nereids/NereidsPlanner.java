@@ -291,7 +291,7 @@ public class NereidsPlanner extends Planner {
             cascadesContext.setTables(statementContext.getConnectContext().getTables());
         }
     private void initCascadesContext(LogicalPlan plan) {
-        cascadesContext = CascadesContext.newRewriteContext(statementContext, plan, null);
+        cascadesContext = CascadesContext.newRewriteContext(statementContext, plan);
     }
 
     private void analyze() {
