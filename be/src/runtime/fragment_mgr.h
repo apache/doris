@@ -165,7 +165,7 @@ private:
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
 
     // query id -> QueryContext
-    std::unordered_map<TUniqueId, std::shared_ptr<QueryContext>> _fragments_ctx_map;
+    std::unordered_map<TUniqueId, std::shared_ptr<QueryContext>> _query_ctx_map;
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;

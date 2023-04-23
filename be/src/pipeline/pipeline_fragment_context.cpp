@@ -210,7 +210,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state =
             std::make_unique<RuntimeState>(local_params, request.query_id, request.query_options,
                                            _query_ctx->query_globals, _exec_env);
-    _runtime_state->set_query_fragments_ctx(_query_ctx.get());
+    _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 

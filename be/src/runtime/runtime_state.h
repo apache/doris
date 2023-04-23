@@ -340,9 +340,9 @@ public:
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
-    void set_query_fragments_ctx(QueryContext* ctx) { _query_ctx = ctx; }
+    void set_query_ctx(QueryContext* ctx) { _query_ctx = ctx; }
 
-    QueryContext* get_query_fragments_ctx() { return _query_ctx; }
+    QueryContext* get_query_ctx() { return _query_ctx; }
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;

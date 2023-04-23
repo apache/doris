@@ -114,7 +114,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     const TQueryGlobals& query_globals =
             query_ctx == nullptr ? request.query_globals : query_ctx->query_globals;
     _runtime_state.reset(new RuntimeState(params, request.query_options, query_globals, _exec_env));
-    _runtime_state->set_query_fragments_ctx(query_ctx);
+    _runtime_state->set_query_ctx(query_ctx);
     _runtime_state->set_query_mem_tracker(query_ctx == nullptr ? _exec_env->orphan_mem_tracker()
                                                                : query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
@@ -486,7 +486,7 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     _cancel_msg = msg;
     _runtime_state->set_is_cancelled(true);
     // To notify wait_for_start()
-    _runtime_state->get_query_fragments_ctx()->set_ready_to_execute(true);
+    _runtime_state->get_query_ctx()->set_ready_to_execute(true);
 
     // must close stream_mgr to avoid dead lock in Exchange Node
     auto env = _runtime_state->exec_env();

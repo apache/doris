@@ -553,7 +553,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
 
     if (read_params.use_topn_opt) {
         auto& runtime_predicate =
-                read_params.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+                read_params.runtime_state->get_query_ctx()->get_runtime_predicate();
         runtime_predicate.set_tablet_schema(_tablet_schema);
     }
 }

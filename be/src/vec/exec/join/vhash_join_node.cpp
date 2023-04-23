@@ -452,7 +452,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
         if (state->enable_share_hash_table_for_broadcast_join()) {
             runtime_profile()->add_info_string("ShareHashTableEnabled", "true");
             _shared_hashtable_controller =
-                    state->get_query_fragments_ctx()->get_shared_hash_table_controller();
+                    state->get_query_ctx()->get_shared_hash_table_controller();
             _shared_hash_table_context = _shared_hashtable_controller->get_context(id());
             _should_build_hash_table = _shared_hashtable_controller->should_build_hash_table(
                     state->fragment_instance_id(), id());

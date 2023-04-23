@@ -57,7 +57,7 @@ public:
 
     ~QueryContext() {
         // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
-        // it is found that query already exists in _fragments_ctx_map, and query mem tracker is not used.
+        // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
         // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
         // on query mem tracker, released on other trackers.
         if (query_mem_tracker->consumption() != 0) {

@@ -346,7 +346,7 @@ FragmentMgr::~FragmentMgr() {
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.clear();
-        _fragments_ctx_map.clear();
+        _query_ctx_map.clear();
     }
 }
 
@@ -540,7 +540,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.erase(exec_state->fragment_instance_id());
         if (all_done && query_ctx) {
-            _fragments_ctx_map.erase(query_ctx->query_id);
+            _query_ctx_map.erase(query_ctx->query_id);
         }
     }
 
@@ -595,8 +595,8 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
     TUniqueId query_id;
     query_id.__set_hi(request->query_id().hi());
     query_id.__set_lo(request->query_id().lo());
-    auto search = _fragments_ctx_map.find(query_id);
-    if (search == _fragments_ctx_map.end()) {
+    auto search = _query_ctx_map.find(query_id);
+    if (search == _query_ctx_map.end()) {
         return Status::InternalError(
                 "Failed to get query fragments context. Query may be "
                 "timeout or be cancelled. host: {}",
@@ -614,7 +614,7 @@ void FragmentMgr::remove_pipeline_context(
     bool all_done = q_context->countdown();
     _pipeline_map.erase(f_context->get_fragment_instance_id());
     if (all_done) {
-        _fragments_ctx_map.erase(query_id);
+        _query_ctx_map.erase(query_id);
     }
 }
 
@@ -622,10 +622,10 @@ template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                                    std::shared_ptr<QueryContext>& query_ctx) {
     if (params.is_simplified_param) {
-        // Get common components from _fragments_ctx_map
+        // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
-        auto search = _fragments_ctx_map.find(query_id);
-        if (search == _fragments_ctx_map.end()) {
+        auto search = _query_ctx_map.find(query_id);
+        if (search == _query_ctx_map.end()) {
             return Status::InternalError(
                     "Failed to get query fragments context. Query may be "
                     "timeout or be cancelled. host: {}",
@@ -684,12 +684,12 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         {
-            // Find _fragments_ctx_map again, in case some other request has already
+            // Find _query_ctx_map again, in case some other request has already
             // create the query fragments context.
             std::lock_guard<std::mutex> lock(_lock);
-            auto search = _fragments_ctx_map.find(query_id);
-            if (search == _fragments_ctx_map.end()) {
-                _fragments_ctx_map.insert(std::make_pair(query_ctx->query_id, query_ctx));
+            auto search = _query_ctx_map.find(query_id);
+            if (search == _query_ctx_map.end()) {
+                _query_ctx_map.insert(std::make_pair(query_ctx->query_id, query_ctx));
                 LOG(INFO) << "Register query/load memory tracker, query/load id: "
                           << print_id(query_ctx->query_id)
                           << " limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
@@ -921,8 +921,8 @@ void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCan
     std::vector<TUniqueId> cancel_fragment_ids;
     {
         std::lock_guard<std::mutex> lock(_lock);
-        auto ctx = _fragments_ctx_map.find(query_id);
-        if (ctx != _fragments_ctx_map.end()) {
+        auto ctx = _query_ctx_map.find(query_id);
+        if (ctx != _query_ctx_map.end()) {
             cancel_fragment_ids = ctx->second->fragment_ids;
         }
     }
@@ -933,8 +933,8 @@ void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCan
 
 bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
     std::lock_guard<std::mutex> lock(_lock);
-    auto ctx = _fragments_ctx_map.find(query_id);
-    if (ctx != _fragments_ctx_map.end()) {
+    auto ctx = _query_ctx_map.find(query_id);
+    if (ctx != _query_ctx_map.end()) {
         for (auto it : ctx->second->fragment_ids) {
             auto exec_state_iter = _fragment_map.find(it);
             if (exec_state_iter != _fragment_map.end() && exec_state_iter->second) {
@@ -963,9 +963,9 @@ void FragmentMgr::cancel_worker() {
                     to_cancel.push_back(it.second->fragment_instance_id());
                 }
             }
-            for (auto it = _fragments_ctx_map.begin(); it != _fragments_ctx_map.end();) {
+            for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
-                    it = _fragments_ctx_map.erase(it);
+                    it = _query_ctx_map.erase(it);
                 } else {
                     ++it;
                 }
