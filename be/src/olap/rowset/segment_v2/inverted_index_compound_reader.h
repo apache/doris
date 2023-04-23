@@ -27,6 +27,7 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -82,6 +83,8 @@ public:
     int64_t fileLength(const char* name) const override;
     bool openInput(const char* name, lucene::store::IndexInput*& ret, CLuceneError& err,
                    int32_t bufferSize = -1) override;
+    bool openInput(const char* name, std::unique_ptr<lucene::store::IndexInput>& ret,
+                   CLuceneError& err, int32_t bufferSize = -1);
     void renameFile(const char* from, const char* to) override;
     void touchFile(const char* name) override;
     lucene::store::IndexOutput* createOutput(const char* name) override;
