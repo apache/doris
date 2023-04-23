@@ -120,7 +120,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-Status LoadChannelMgr::open_delta_writer(const DeltaWriterOpenRequest& params) {
+Status LoadChannelMgr::open_partition(const PartitionOpenRequest& params) {
     return Status::OK();
 }
 

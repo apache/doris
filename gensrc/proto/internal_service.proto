@@ -89,11 +89,11 @@ message PTabletWriterOpenResult {
     required PStatus status = 1;
 };
 
-message DeltaWriterOpenRequest{
+message PartitionOpenRequest{
     repeated int64 index_ids = 1;
 }
 
-message DeltaWriterOpenResult {
+message PartitionOpenResult {
     required PStatus status = 1;
 }
 
@@ -633,6 +633,7 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
+    rpc partition_open(PartitionOpenRequest) returns (PartitionOpenResult);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);

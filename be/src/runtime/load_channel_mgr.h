@@ -48,7 +48,7 @@ public:
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
-    Status open_delta_writer(const DeltaWriterOpenRequest& params);
+    Status open_partition(const PartitionOpenRequest& params);
 
     template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
     Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);

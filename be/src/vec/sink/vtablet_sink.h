@@ -177,9 +177,13 @@ public:
 
     void open();
 
+    void open_partition(int64_t partition_id);
+
     Status init(RuntimeState* state);
 
     Status open_wait();
+
+    Status open_partition_wait(int64_t partition_id);
 
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
@@ -278,6 +282,7 @@ protected:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
+    std::unordered_map<int64_t,RefCountClosure<PartitionOpenResult>*> _partition_open_closures;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in
@@ -461,6 +466,10 @@ private:
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
                        bool& stop_processing, bool& is_continue);
 
+    void _open_partition(const VOlapTablePartition* partition,uint32_t tablet_index);
+
+    Status _open_partition_wait(const VOlapTablePartition* partition,uint32_t tablet_index);
+
     std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
@@ -565,6 +574,9 @@ private:
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
 
     RuntimeState* _state = nullptr;
+
+    std::unordered_map<int64_t,bool> _partition_open_status;
+    std::mutex _partition_open_status_mutex;
 };
 
 } // namespace stream_load
