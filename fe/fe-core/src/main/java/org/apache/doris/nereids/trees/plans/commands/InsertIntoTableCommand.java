@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
@@ -95,10 +94,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         getColumns();
         getPartition();
 
-        ctx.getStatementContext().getInsertIntoContext().setTargetSchema(targetColumns.stream()
-                .filter(Column::isVisible)
-                .map(col -> DataType.fromCatalogType(col.getOriginType()))
-                .collect(Collectors.toList()));
+        ctx.getStatementContext().getInsertIntoContext().setTargetSchema(targetColumns);
         ctx.getStatementContext().getInsertIntoContext().setKeyNums(((OlapTable) table).getKeysNum());
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());

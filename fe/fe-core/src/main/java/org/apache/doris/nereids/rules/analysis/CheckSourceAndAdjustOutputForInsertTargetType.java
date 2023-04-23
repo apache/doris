@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,12 +41,15 @@ import java.util.stream.Collectors;
 public class CheckSourceAndAdjustOutputForInsertTargetType implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        List<DataType> insertTargetTypes = jobContext.getCascadesContext()
-                .getStatementContext().getInsertIntoContext().getTargetSchema();
-        if (insertTargetTypes == null) {
+        List<Column> insertTargetSchema = jobContext.getCascadesContext().getStatementContext()
+                .getInsertIntoContext().getTargetSchema();
+        if (insertTargetSchema == null) {
             // not insert into command, skip.
             return plan;
         }
+        List<DataType> insertTargetTypes = insertTargetSchema.stream()
+                .map(col -> DataType.fromCatalogType(col.getType()))
+                .collect(Collectors.toList());
         List<Slot> outputs = plan.getOutput();
         List<Expression> newSlots = Lists.newArrayListWithCapacity(outputs.size());
         check(insertTargetTypes, outputs);
