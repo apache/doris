@@ -54,7 +54,7 @@ suite("nereids_insert_aggregate_type_cast") {
             `kdtmv2` datetimev2(0) replace null,
             `kdcml32v3` decimalv3(7, 3) replace null
         ) engine=OLAP
-        agglicate key(id)
+        aggregate key(id)
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
@@ -70,16 +70,16 @@ suite("nereids_insert_aggregate_type_cast") {
 
     sql '''
         create table agg_not_null_t_type_cast (
-            `id` int null,
-            `kint` int(11) max null,
-            `kdbl` double max null,
-            `kdcml` decimal(9, 3) replace null,
-            `kvchr` varchar(10) replace null,
-            `kdt` date replace null,
-            `kdtmv2` datetimev2(0) replace null,
-            `kdcml32v3` decimalv3(7, 3) replace null
+            `id` int not null,
+            `kint` int(11) max not null,
+            `kdbl` double max not null,
+            `kdcml` decimal(9, 3) replace not null,
+            `kvchr` varchar(10) replace not null,
+            `kdt` date replace not null,
+            `kdtmv2` datetimev2(0) replace not null,
+            `kdcml32v3` decimalv3(7, 3) replace not null
         ) engine=OLAP
-        agglicate key(id)
+        aggregate key(id)
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
@@ -94,16 +94,16 @@ suite("nereids_insert_aggregate_type_cast") {
 
     sql '''
         create table agg_light_sc_not_null_t_type_cast (
-            `id` int null,
-            `kint` int(11) max null,
-            `kdbl` double max null,
-            `kdcml` decimal(9, 3) replace null,
-            `kvchr` varchar(10) replace null,
-            `kdt` date replace null,
-            `kdtmv2` datetimev2(0) replace null,
-            `kdcml32v3` decimalv3(7, 3) replace null
+            `id` int not null,
+            `kint` int(11) max not null,
+            `kdbl` double max not null,
+            `kdcml` decimal(9, 3) replace not null,
+            `kvchr` varchar(10) replace not null,
+            `kdt` date replace not null,
+            `kdtmv2` datetimev2(0) replace not null,
+            `kdcml32v3` decimalv3(7, 3) replace not null
         ) engine=OLAP
-        agglicate key(id)
+        aggregate key(id)
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
@@ -118,8 +118,8 @@ suite("nereids_insert_aggregate_type_cast") {
     '''
     // DDL end
 
-    sql 'enable_nereids_planner=false'
-    sql 'enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_planner=false'
+    sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into agg_t_type_cast
             select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src order by id, kint'''

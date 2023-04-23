@@ -70,14 +70,14 @@ suite("nereids_insert_duplicate") {
 
     sql '''
         create table dup_not_null_t_type_cast (
-            `id` int null,
-            `kint` int(11) null,
-            `kdbl` double null,
-            `kdcml` decimal(9, 3) null,
-            `kvchr` varchar(10) null,
-            `kdt` date null,
-            `kdtmv2` datetimev2(0) null,
-            `kdcml32v3` decimalv3(7, 3) null
+            `id` int not null,
+            `kint` int(11) not null,
+            `kdbl` double not null,
+            `kdcml` decimal(9, 3) not null,
+            `kvchr` varchar(10) not null,
+            `kdt` date not null,
+            `kdtmv2` datetimev2(0) not null,
+            `kdcml32v3` decimalv3(7, 3) not null
         ) engine=OLAP
         duplicate key(id)
         partition by range(id) (
@@ -94,14 +94,14 @@ suite("nereids_insert_duplicate") {
 
     sql '''
         create table dup_light_sc_not_null_t_type_cast (
-            `id` int null,
-            `kint` int(11) null,
-            `kdbl` double null,
-            `kdcml` decimal(9, 3) null,
-            `kvchr` varchar(10) null,
-            `kdt` date null,
-            `kdtmv2` datetimev2(0) null,
-            `kdcml32v3` decimalv3(7, 3) null
+            `id` int not null,
+            `kint` int(11) not null,
+            `kdbl` double not null,
+            `kdcml` decimal(9, 3) not null,
+            `kvchr` varchar(10) not null,
+            `kdt` date not null,
+            `kdtmv2` datetimev2(0) not null,
+            `kdcml32v3` decimalv3(7, 3) not null
         ) engine=OLAP
         duplicate key(id)
         partition by range(id) (
@@ -118,8 +118,8 @@ suite("nereids_insert_duplicate") {
     '''
     // DDL end
 
-    sql 'enable_nereids_planner=false'
-    sql 'enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_planner=false'
+    sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into dup_t_type_cast
             select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src order by id, kint'''

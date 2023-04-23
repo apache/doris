@@ -78,7 +78,7 @@ suite("nereids_insert_aggregate") {
             `kdcml64v3` decimalv3(10, 5) replace null,
             `kdcml128v3` decimalv3(20, 8) replace null
         ) engine=OLAP
-        agglicate key(id)
+        aggregate key(id)
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
@@ -95,27 +95,27 @@ suite("nereids_insert_aggregate") {
     sql '''
         create table agg_not_null_t (
             `id` int not null,
-            `kbool` boolean not max null,
-            `ktint` tinyint(4) not max null,
-            `ksint` smallint(6) not max null,
-            `kint` int(11) not max null,
-            `kbint` bigint(20) not max null,
-            `klint` largeint(40) not max null,
-            `kfloat` float not max null,
-            `kdbl` double not max null,
-            `kdcml` decimal(9, 3) not replace null,
-            `kchr` char(10) not replace null,
-            `kvchr` varchar(10) not replace null,
-            `kstr` string not replace null,
-            `kdt` date not replace null,
-            `kdtv2` datev2 not replace null,
-            `kdtm` datetime not replace null,
-            `kdtmv2` datetimev2(0) not replace null,
-            `kdcml32v3` decimalv3(7, 3) not replace null,
-            `kdcml64v3` decimalv3(10, 5) not replace null,
-            `kdcml128v3` decimalv3(20, 8) not replace null
+            `kbool` boolean max not null,
+            `ktint` tinyint(4) max not null,
+            `ksint` smallint(6) max not null,
+            `kint` int(11) max not null,
+            `kbint` bigint(20) max not null,
+            `klint` largeint(40) max not null,
+            `kfloat` float max not null,
+            `kdbl` double max not null,
+            `kdcml` decimal(9, 3) replace not null,
+            `kchr` char(10) replace not null,
+            `kvchr` varchar(10) replace not null,
+            `kstr` string replace not null,
+            `kdt` date replace not null,
+            `kdtv2` datev2 replace not null,
+            `kdtm` datetime replace not null,
+            `kdtmv2` datetimev2(0) replace not null,
+            `kdcml32v3` decimalv3(7, 3) replace not null,
+            `kdcml64v3` decimalv3(10, 5) replace not null,
+            `kdcml128v3` decimalv3(20, 8) replace not null
         ) engine=OLAP
-        agglicate key(id)
+        aggregate key(id)
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
@@ -131,27 +131,27 @@ suite("nereids_insert_aggregate") {
     sql '''
         create table agg_light_sc_not_null_t (
             `id` int not null,
-            `kbool` boolean not max null,
-            `ktint` tinyint(4) not max null,
-            `ksint` smallint(6) not max null,
-            `kint` int(11) not max null,
-            `kbint` bigint(20) not max null,
-            `klint` largeint(40) not max null,
-            `kfloat` float not max null,
-            `kdbl` double not max null,
-            `kdcml` decimal(9, 3) not replace null,
-            `kchr` char(10) not replace null,
-            `kvchr` varchar(10) not replace null,
-            `kstr` string not replace null,
-            `kdt` date not replace null,
-            `kdtv2` datev2 not replace null,
-            `kdtm` datetime not replace null,
-            `kdtmv2` datetimev2(0) not replace null,
-            `kdcml32v3` decimalv3(7, 3) not replace null,
-            `kdcml64v3` decimalv3(10, 5) not replace null,
-            `kdcml128v3` decimalv3(20, 8) not replace null
+            `kbool` boolean max not null,
+            `ktint` tinyint(4) max not null,
+            `ksint` smallint(6) max not null,
+            `kint` int(11) max not null,
+            `kbint` bigint(20) max not null,
+            `klint` largeint(40) max not null,
+            `kfloat` float max not null,
+            `kdbl` double max not null,
+            `kdcml` decimal(9, 3) replace not null,
+            `kchr` char(10) replace not null,
+            `kvchr` varchar(10) replace not null,
+            `kstr` string replace not null,
+            `kdt` date replace not null,
+            `kdtv2` datev2 replace not null,
+            `kdtm` datetime replace not null,
+            `kdtmv2` datetimev2(0) replace not null,
+            `kdcml32v3` decimalv3(7, 3) replace not null,
+            `kdcml64v3` decimalv3(10, 5) replace not null,
+            `kdcml128v3` decimalv3(20, 8) replace not null
         ) engine=OLAP
-        agglicate key(id)
+        aggregate key(id)
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
@@ -166,8 +166,8 @@ suite("nereids_insert_aggregate") {
     '''
     // DDL end
 
-    sql 'enable_nereids_planner=false'
-    sql 'enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_planner=false'
+    sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into agg_t
             select * except(kaint) from src order by id, kint'''
