@@ -124,7 +124,7 @@ public class CascadesContext implements ScheduleContext, PlanSource {
 
     public static CascadesContext newRewriteContext(StatementContext statementContext,
             Plan initPlan) {
-        return new CascadesContext(initPlan, null, statementContext, null);
+        return new CascadesContext(initPlan, null, statementContext);
     }
 
     public static CascadesContext newRewriteContext(StatementContext statementContext,
