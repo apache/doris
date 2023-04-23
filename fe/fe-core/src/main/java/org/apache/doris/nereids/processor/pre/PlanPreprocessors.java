@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.processor.pre;
 
-import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
@@ -29,16 +29,16 @@ import java.util.Objects;
  * PlanPreprocessors: before copy the plan into the memo, we use this rewriter to rewrite plan by visitor.
  */
 public class PlanPreprocessors {
-    private final JobContext jobContext;
+    private final StatementContext statementContext;
 
-    public PlanPreprocessors(JobContext jobContext) {
-        this.jobContext = Objects.requireNonNull(jobContext, "statementContext can not be null");
+    public PlanPreprocessors(StatementContext statementContext) {
+        this.statementContext = Objects.requireNonNull(statementContext, "statementContext can not be null");
     }
 
     public LogicalPlan process(LogicalPlan logicalPlan) {
         LogicalPlan resultPlan = logicalPlan;
         for (PlanPreprocessor processor : getProcessors()) {
-            resultPlan = (LogicalPlan) processor.rewriteRoot(resultPlan, jobContext);
+            resultPlan = (LogicalPlan) resultPlan.accept(processor, statementContext);
         }
         return resultPlan;
     }
