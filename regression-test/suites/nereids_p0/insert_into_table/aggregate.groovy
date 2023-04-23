@@ -15,34 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_insert_duplicate") {
+suite("nereids_insert_agglicate") {
     sql 'use nereids_insert_into_table_test'
 
     // DDL
     sql '''
-        create table dup_t (
+        create table agg_t (
             `id` int null,
-            `kbool` boolean null,
-            `ktint` tinyint(4) null,
-            `ksint` smallint(6) null,
-            `kint` int(11) null,
-            `kbint` bigint(20) null,
-            `klint` largeint(40) null,
-            `kfloat` float null,
-            `kdbl` double null,
-            `kdcml` decimal(9, 3) null,
-            `kchr` char(10) null,
-            `kvchr` varchar(10) null,
-            `kstr` string null,
-            `kdt` date null,
-            `kdtv2` datev2 null,
-            `kdtm` datetime null,
-            `kdtmv2` datetimev2(0) null,
-            `kdcml32v3` decimalv3(7, 3) null,
-            `kdcml64v3` decimalv3(10, 5) null,
-            `kdcml128v3` decimalv3(20, 8) null
+            `kbool` boolean null max,
+            `ktint` tinyint(4) null max,
+            `ksint` smallint(6) null max,
+            `kint` int(11) null max,
+            `kbint` bigint(20) null max,
+            `klint` largeint(40) null max,
+            `kfloat` float null max,
+            `kdbl` double null max,
+            `kdcml` decimal(9, 3) null replace,
+            `kchr` char(10) null replace,
+            `kvchr` varchar(10) null replace,
+            `kstr` string null replace,
+            `kdt` date null replace,
+            `kdtv2` datev2 null replace,
+            `kdtm` datetime null replace,
+            `kdtmv2` datetimev2(0) null replace,
+            `kdcml32v3` decimalv3(7, 3) null replace,
+            `kdcml64v3` decimalv3(10, 5) null replace,
+            `kdcml128v3` decimalv3(20, 8) null replace
         ) engine=OLAP
-        duplicate key(id)
+        aggregate key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -56,29 +56,29 @@ suite("nereids_insert_duplicate") {
     '''
 
     sql '''
-        create table dup_light_sc_t (
+        create table agg_light_sc_t (
             `id` int null,
-            `kbool` boolean null,
-            `ktint` tinyint(4) null,
-            `ksint` smallint(6) null,
-            `kint` int(11) null,
-            `kbint` bigint(20) null,
-            `klint` largeint(40) null,
-            `kfloat` float null,
-            `kdbl` double null,
-            `kdcml` decimal(9, 3) null,
-            `kchr` char(10) null,
-            `kvchr` varchar(10) null,
-            `kstr` string null,
-            `kdt` date null,
-            `kdtv2` datev2 null,
-            `kdtm` datetime null,
-            `kdtmv2` datetimev2(0) null,
-            `kdcml32v3` decimalv3(7, 3) null,
-            `kdcml64v3` decimalv3(10, 5) null,
-            `kdcml128v3` decimalv3(20, 8) null
+            `kbool` boolean null max,
+            `ktint` tinyint(4) null max,
+            `ksint` smallint(6) null max,
+            `kint` int(11) null max,
+            `kbint` bigint(20) null max,
+            `klint` largeint(40) null max,
+            `kfloat` float null max,
+            `kdbl` double null max,
+            `kdcml` decimal(9, 3) null replace,
+            `kchr` char(10) null replace,
+            `kvchr` varchar(10) null replace,
+            `kstr` string null replace,
+            `kdt` date null replace,
+            `kdtv2` datev2 null replace,
+            `kdtm` datetime null replace,
+            `kdtmv2` datetimev2(0) null replace,
+            `kdcml32v3` decimalv3(7, 3) null replace,
+            `kdcml64v3` decimalv3(10, 5) null replace,
+            `kdcml128v3` decimalv3(20, 8) null replace
         ) engine=OLAP
-        duplicate key(id)
+        agglicate key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -93,29 +93,29 @@ suite("nereids_insert_duplicate") {
     '''
 
     sql '''
-        create table dup_not_null_t (
+        create table agg_not_null_t (
             `id` int not null,
-            `kbool` boolean not null,
-            `ktint` tinyint(4) not null,
-            `ksint` smallint(6) not null,
-            `kint` int(11) not null,
-            `kbint` bigint(20) not null,
-            `klint` largeint(40) not null,
-            `kfloat` float not null,
-            `kdbl` double not null,
-            `kdcml` decimal(9, 3) not null,
-            `kchr` char(10) not null,
-            `kvchr` varchar(10) not null,
-            `kstr` string not null,
-            `kdt` date not null,
-            `kdtv2` datev2 not null,
-            `kdtm` datetime not null,
-            `kdtmv2` datetimev2(0) not null,
-            `kdcml32v3` decimalv3(7, 3) not null,
-            `kdcml64v3` decimalv3(10, 5) not null,
-            `kdcml128v3` decimalv3(20, 8) not null
+            `kbool` boolean not null max,
+            `ktint` tinyint(4) not null max,
+            `ksint` smallint(6) not null max,
+            `kint` int(11) not null max,
+            `kbint` bigint(20) not null max,
+            `klint` largeint(40) not null max,
+            `kfloat` float not null max,
+            `kdbl` double not null max,
+            `kdcml` decimal(9, 3) not null replace,
+            `kchr` char(10) not null replace,
+            `kvchr` varchar(10) not null replace,
+            `kstr` string not null replace,
+            `kdt` date not null replace,
+            `kdtv2` datev2 not null replace,
+            `kdtm` datetime not null replace,
+            `kdtmv2` datetimev2(0) not null replace,
+            `kdcml32v3` decimalv3(7, 3) not null replace,
+            `kdcml64v3` decimalv3(10, 5) not null replace,
+            `kdcml128v3` decimalv3(20, 8) not null replace
         ) engine=OLAP
-        duplicate key(id)
+        agglicate key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -129,29 +129,29 @@ suite("nereids_insert_duplicate") {
     '''
 
     sql '''
-        create table dup_light_sc_not_null_t (
+        create table agg_light_sc_not_null_t (
             `id` int not null,
-            `kbool` boolean not null,
-            `ktint` tinyint(4) not null,
-            `ksint` smallint(6) not null,
-            `kint` int(11) not null,
-            `kbint` bigint(20) not null,
-            `klint` largeint(40) not null,
-            `kfloat` float not null,
-            `kdbl` double not null,
-            `kdcml` decimal(9, 3) not null,
-            `kchr` char(10) not null,
-            `kvchr` varchar(10) not null,
-            `kstr` string not null,
-            `kdt` date not null,
-            `kdtv2` datev2 not null,
-            `kdtm` datetime not null,
-            `kdtmv2` datetimev2(0) not null,
-            `kdcml32v3` decimalv3(7, 3) not null,
-            `kdcml64v3` decimalv3(10, 5) not null,
-            `kdcml128v3` decimalv3(20, 8) not null
+            `kbool` boolean not null max,
+            `ktint` tinyint(4) not null max,
+            `ksint` smallint(6) not null max,
+            `kint` int(11) not null max,
+            `kbint` bigint(20) not null max,
+            `klint` largeint(40) not null max,
+            `kfloat` float not null max,
+            `kdbl` double not null max,
+            `kdcml` decimal(9, 3) not null replace,
+            `kchr` char(10) not null replace,
+            `kvchr` varchar(10) not null replace,
+            `kstr` string not null replace,
+            `kdt` date not null replace,
+            `kdtv2` datev2 not null replace,
+            `kdtm` datetime not null replace,
+            `kdtmv2` datetimev2(0) not null replace,
+            `kdcml32v3` decimalv3(7, 3) not null replace,
+            `kdcml64v3` decimalv3(10, 5) not null replace,
+            `kdcml128v3` decimalv3(20, 8) not null replace
         ) engine=OLAP
-        duplicate key(id)
+        agglicate key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -169,55 +169,55 @@ suite("nereids_insert_duplicate") {
     sql 'enable_nereids_planner=true'
     sql 'enable_fallback_to_original_planner=false'
 
-    sql '''insert into dup_t
+    sql '''insert into agg_t
             select * except(kaint) from src order by id, kint'''
-    qt_11 'select * from dup_t'
+    qt_11 'select * from agg_t'
 
-    sql '''insert into dup_t
+    sql '''insert into agg_t
             with cte as (select * except(kaint) from src)
             select * from cte order by id, kint'''
-    qt_12 'select * from dup_t'
+    qt_12 'select * from agg_t'
 
-    sql '''insert into dup_t partition (p1, p2) with label label_dup
+    sql '''insert into agg_t partition (p1, p2) with label label_agg
             select * except(kaint) from src order by id, kint where id < 4'''
-    qt_13 'select * from dup_t'
+    qt_13 'select * from agg_t'
 
-    sql '''insert into dup_light_sc_t
+    sql '''insert into agg_light_sc_t
             select * except(kaint) from src order by id, kint'''
-    qt_21 'select * from dup_light_sc_t'
+    qt_21 'select * from agg_light_sc_t'
 
-    sql '''insert into dup_light_sc_t
+    sql '''insert into agg_light_sc_t
             with cte as (select * except(kaint) from src)
             select * from cte order by id, kint'''
-    qt_22 'select * from dup_light_sc_t'
+    qt_22 'select * from agg_light_sc_t'
 
-    sql '''insert into dup_light_sc_t partition (p1, p2) with label label_dup_light_sc
+    sql '''insert into agg_light_sc_t partition (p1, p2) with label label_agg_light_sc
             select * except(kaint) from src order by id, kint id < 4'''
-    qt_23 'select * from dup_light_sc_t'
+    qt_23 'select * from agg_light_sc_t'
 
-    sql '''insert into dup_not_null_t
+    sql '''insert into agg_not_null_t
             select * except(kaint) from src order by id, kint where id is not null'''
-    qt_31 'select * from dup_not_null_t'
+    qt_31 'select * from agg_not_null_t'
 
-    sql '''insert into dup_not_null_t
+    sql '''insert into agg_not_null_t
             with cte as (select * except(kaint) from src)
             select * from cte order by id, kint where id is not null'''
-    qt_32 'select * from dup_not_null_t'
+    qt_32 'select * from agg_not_null_t'
 
-    sql '''insert into dup_not_null_t partition (p1, p2) with label label_dup_not_null
+    sql '''insert into agg_not_null_t partition (p1, p2) with label label_agg_not_null
             select * except(kaint) from src order by id, kint id < 4 where id is not null'''
-    qt_33 'select * from dup_not_null_t'
+    qt_33 'select * from agg_not_null_t'
 
-    sql '''insert into dup_t_light_sc_not_null_t
+    sql '''insert into agg_t_light_sc_not_null_t
             select * except(kaint) from src order by id, kint where id is not null'''
-    qt_41 'select * from dup_light_sc_not_null_t'
+    qt_41 'select * from agg_light_sc_not_null_t'
 
-    sql '''insert into dup_t_light_sc_not_null_t
+    sql '''insert into agg_t_light_sc_not_null_t
             with cte as (select * except(kaint) from src)
             select * from cte order by id, kint where id is not null'''
-    qt_42 'select * from dup_light_sc_not_null_t'
+    qt_42 'select * from agg_light_sc_not_null_t'
 
-    sql '''insert into dup_t_light_sc_not_null_t partition (p1, p2) with label label_dup_light_sc_not_null
+    sql '''insert into agg_t_light_sc_not_null_t partition (p1, p2) with label label_agg_light_sc_not_null
             select * except(kaint) from src order by id, kint where id < 4 where id is not null'''
-    qt_43 'select * from dup_light_sc_not_null_t'
+    qt_43 'select * from agg_light_sc_not_null_t'
 }
