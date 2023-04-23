@@ -234,6 +234,92 @@ private:
     uint32_t size = 0;
 };
 
+class GeometryField {
+public:
+    GeometryField() = default;
+
+    GeometryField(const char* ptr, uint32_t len) : size(len) {
+        data = new char[size];
+        if (!data) {
+            LOG(FATAL) << "new data buffer failed, size: " << size;
+        }
+        memcpy(data, ptr, size);
+    }
+
+    GeometryField(const GeometryField& x) : size(x.size) {
+        data = new char[size];
+        if (!data) {
+            LOG(FATAL) << "new data buffer failed, size: " << size;
+        }
+        memcpy(data, x.data, size);
+    }
+
+    GeometryField(GeometryField&& x) : data(x.data), size(x.size) {
+        x.data = nullptr;
+        x.size = 0;
+    }
+
+    GeometryField& operator=(const GeometryField& x) {
+        data = new char[size];
+        if (!data) {
+            LOG(FATAL) << "new data buffer failed, size: " << size;
+        }
+        memcpy(data, x.data, size);
+        return *this;
+    }
+
+    GeometryField& operator=(GeometryField&& x) {
+        if (data) {
+            delete[] data;
+        }
+        data = x.data;
+        size = x.size;
+        x.data = nullptr;
+        x.size = 0;
+        return *this;
+    }
+
+    ~GeometryField() {
+        if (data) {
+            delete[] data;
+        }
+    }
+
+    const char* get_value() const { return data; }
+    uint32_t get_size() const { return size; }
+
+    bool operator<(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+    bool operator<=(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+    bool operator==(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+    bool operator>(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+    bool operator>=(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+    bool operator!=(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+
+    const GeometryField& operator+=(const GeometryField& r) {
+        LOG(FATAL) << "Not support plus opration on GeometryField";
+    }
+
+    const GeometryField& operator-=(const GeometryField& r) {
+        LOG(FATAL) << "Not support minus opration on GeometryField";
+    }
+
+private:
+    char* data = nullptr;
+    uint32_t size = 0;
+};
+
 template <typename T>
 bool decimal_equal(T x, T y, UInt32 x_scale, UInt32 y_scale);
 template <typename T>
@@ -342,6 +428,7 @@ public:
             Decimal128I = 24,
             Map = 25,
             VariantMap = 26,
+            GEOMETRY = 27,
         };
 
         static const int MIN_NON_POD = 16;
@@ -384,6 +471,8 @@ public:
                 return "FixedLengthObject";
             case VariantMap:
                 return "VariantMap";
+            case GEOMETRY:
+                return "Geometry";
             }
 
             LOG(FATAL) << "Bad type of Field";
@@ -441,6 +530,16 @@ public:
     void assign_jsonb(const unsigned char* data, size_t size) {
         destroy();
         create_jsonb(data, size);
+    }
+
+    void assign_geometry(const char* data, size_t size) {
+        destroy();
+        create_geometry(data, size);
+    }
+
+    void assign_geometry(const unsigned char* data, size_t size) {
+        destroy();
+        create_geometry(data, size);
     }
 
     Field& operator=(const Field& rhs) {
@@ -562,6 +661,8 @@ public:
             break;
         case Types::VariantMap:
             return get<VariantMap>() < rhs.get<VariantMap>();
+        case Types::GEOMETRY:
+            return get<GeometryField>() < rhs.get<GeometryField>();
         }
 
         LOG(FATAL) << "Bad type of Field";
@@ -611,6 +712,8 @@ public:
             break;
         case Types::VariantMap:
             return get<VariantMap>() <= rhs.get<VariantMap>();
+        case Types::GEOMETRY:
+            return get<GeometryField>() <= rhs.get<GeometryField>();
         }
         LOG(FATAL) << "Bad type of Field";
         return {};
@@ -656,6 +759,8 @@ public:
             break;
         case Types::VariantMap:
             return get<VariantMap>() == rhs.get<VariantMap>();
+        case Types::GEOMETRY:
+            return get<GeometryField>() == rhs.get<GeometryField>();
         }
 
         CHECK(false) << "Bad type of Field";
@@ -667,7 +772,7 @@ private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
                          Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
                          DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
-                         DecimalField<Decimal128I>, AggregateFunctionStateData>
+                         DecimalField<Decimal128I>, AggregateFunctionStateData, GeometryField>
             storage;
 
     Types::Which which;
@@ -754,6 +859,9 @@ private:
         case Types::VariantMap:
             f(field.template get<VariantMap>());
             return;
+        case Types::GEOMETRY:
+            f(field.template get<GeometryField>());
+            return;
         }
     }
 
@@ -792,6 +900,16 @@ private:
         which = Types::JSONB;
     }
 
+    void create_geometry(const char* data, size_t size) {
+        new (&storage) GeometryField(data, size);
+        which = Types::GEOMETRY;
+    }
+
+    void create_geometry(const unsigned char* data, size_t size) {
+        new (&storage) GeometryField(reinterpret_cast<const char*>(data), size);
+        which = Types::GEOMETRY;
+    }
+
     ALWAYS_INLINE void destroy() {
         if (which < Types::MIN_NON_POD) return;
 
@@ -816,6 +934,9 @@ private:
             break;
         case Types::VariantMap:
             destroy<VariantMap>();
+            break;
+        case Types::GEOMETRY:
+            destroy<GeometryField>();
             break;
         default:
             break;
@@ -891,6 +1012,10 @@ struct Field::TypeToEnum<JsonbField> {
     static const Types::Which value = Types::JSONB;
 };
 template <>
+struct Field::TypeToEnum<GeometryField> {
+    static const Types::Which value = Types::GEOMETRY;
+};
+template <>
 struct Field::TypeToEnum<Array> {
     static constexpr Types::Which value = Types::Array;
 };
@@ -958,6 +1083,10 @@ struct Field::EnumToType<Field::Types::String> {
 template <>
 struct Field::EnumToType<Field::Types::JSONB> {
     using Type = JsonbField;
+};
+template <>
+struct Field::EnumToType<Field::Types::GEOMETRY> {
+    using Type = GeometryField;
 };
 template <>
 struct Field::EnumToType<Field::Types::Array> {
@@ -1156,6 +1285,10 @@ struct NearestFieldTypeImpl<String> {
 template <>
 struct NearestFieldTypeImpl<JsonbField> {
     using Type = JsonbField;
+};
+template <>
+struct NearestFieldTypeImpl<GeometryField> {
+    using Type = GeometryField;
 };
 template <>
 struct NearestFieldTypeImpl<Array> {

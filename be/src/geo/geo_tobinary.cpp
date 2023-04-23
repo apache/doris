@@ -36,15 +36,25 @@ bool toBinary::geo_tobinary(GeoShape* shape, std::string* result) {
     std::stringstream result_stream;
     ctx.outStream = &result_stream;
     if (toBinary::write(shape, &ctx)) {
-        std::stringstream hex_stream;
+        /*std::stringstream hex_stream;
         hex_stream << std::hex << std::setfill('0');
         result_stream.seekg(0);
         unsigned char c;
         while (result_stream.read(reinterpret_cast<char*>(&c), 1)) {
             hex_stream << std::setw(2) << static_cast<int>(c);
-        }
+        }*/
         //for compatibility with postgres
-        *result = "\\x" + hex_stream.str();
+        //*result = "\\x" + hex_stream.str();
+        *result = result_stream.str();
+        return true;
+    }
+    return false;
+}
+
+bool toBinary::geo_tobinary(GeoShape* shape, std::ostream& resStream) {
+    ToBinaryContext ctx;
+    ctx.outStream = &resStream;
+    if (toBinary::write(shape, &ctx)) {
         return true;
     }
     return false;

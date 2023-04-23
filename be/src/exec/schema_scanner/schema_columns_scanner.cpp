@@ -150,6 +150,9 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     case TPrimitiveType::JSONB: {
         return "json";
     }
+    case TPrimitiveType::GEOMETRY: {
+        return "geometry";
+    }
     case TPrimitiveType::MAP: {
         return "map";
     }
@@ -236,6 +239,9 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     }
     case TPrimitiveType::JSONB: {
         return "json";
+    }
+    case TPrimitiveType::GEOMETRY: {
+        return "geometry";
     }
     default:
         return "unknown";

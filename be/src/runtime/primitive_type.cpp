@@ -114,6 +114,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::JSONB:
         return TYPE_JSONB;
 
+    case TPrimitiveType::GEOMETRY:
+        return TYPE_GEOMETRY;
+
     case TPrimitiveType::BINARY:
         return TYPE_BINARY;
 
@@ -221,6 +224,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_JSONB:
         return TPrimitiveType::JSONB;
 
+    case TYPE_GEOMETRY:
+        return TPrimitiveType::GEOMETRY;
+
     case TYPE_BINARY:
         return TPrimitiveType::BINARY;
 
@@ -322,6 +328,9 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_JSONB:
         return "JSONB";
+
+    case TYPE_GEOMETRY:
+        return "GEOMETRY";
 
     case TYPE_BINARY:
         return "BINARY";
@@ -428,6 +437,9 @@ std::string type_to_odbc_string(PrimitiveType t) {
 
     case TYPE_JSONB:
         return "jsonb";
+
+    case TYPE_GEOMETRY:
+        return "geometry";
 
     case TYPE_BINARY:
         return "binary";

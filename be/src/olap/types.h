@@ -728,6 +728,10 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
     using CppType = Slice;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_GEOMETRY> {
+    using CppType = Slice;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL> {
     using CppType = Slice;
 };
@@ -1381,6 +1385,31 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
+    static int cmp(const void* left, const void* right) {
+        LOG(WARNING) << "can not compare JSONB values";
+        return -1; // always update ?
+    }
+
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        // TODO support schema change
+        return Status::Error<ErrorCode::INVALID_SCHEMA>();
+    }
+
+    static void set_to_min(void* buf) {
+        auto slice = reinterpret_cast<Slice*>(buf);
+        slice->size = 0;
+    }
+
+    static void set_to_max(void* buf) {
+        auto slice = reinterpret_cast<Slice*>(buf);
+        slice->size = 0;
+    }
+};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_GEOMETRY>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
     static int cmp(const void* left, const void* right) {
         LOG(WARNING) << "can not compare JSONB values";

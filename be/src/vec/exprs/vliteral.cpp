@@ -34,6 +34,7 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
+#include "runtime/geometry_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"
 #include "util/string_parser.hpp"

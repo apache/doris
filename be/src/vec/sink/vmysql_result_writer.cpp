@@ -69,6 +69,7 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "geo/geo_types.h"
 
 namespace doris {
 namespace vectorized {
@@ -125,7 +126,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
     int buf_ret = 0;
 
     if constexpr (type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_VARCHAR ||
-                  type == TYPE_JSONB) {
+                  type == TYPE_JSONB || type == TYPE_GEOMETRY ) {
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -197,6 +198,18 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     std::string json_str =
                             JsonbToJson::jsonb_to_json_string(jsonb_val.data, jsonb_val.size);
                     buf_ret = rows_buffer[i].push_string(json_str.c_str(), json_str.size());
+                }
+            }
+            if constexpr (type == TYPE_GEOMETRY) {
+                const auto geometry_val = column->get_data_at(i);
+                if (geometry_val.data == nullptr || geometry_val.size == 0) {
+                    buf_ret = rows_buffer[i].push_null();
+                } else {
+                    //std::unique_ptr<GeoShape> shape = nullptr;
+                    //GeoParseStatus status;
+                    //shape.reset(GeoShape::from_wkb(geometry_val.data, geometry_val.size, &status));
+                    //std::string geo_str = shape->as_wkt();
+                    buf_ret = rows_buffer[i].push_string(geometry_val.data, geometry_val.size);
                 }
             }
         }
