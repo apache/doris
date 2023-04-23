@@ -233,6 +233,8 @@ public:
 
     size_t get_pending_bytes() { return _pending_batches_bytes; }
 
+    
+
 protected:
     void _close_check();
     void _cancel_with_msg(const std::string& msg);
@@ -464,7 +466,7 @@ private:
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
                        bool& stop_processing, bool& is_continue);
 
-    void _open_partition(const VOlapTablePartition* partition,uint32_t tablet_index);
+    void _open_partition(const VOlapTablePartition* partition);
 
     std::shared_ptr<MemTracker> _mem_tracker;
 

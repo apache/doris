@@ -88,11 +88,7 @@ Status LoadChannel::open_partition(const PartitionOpenRequest& params) {
             }
         }
     }
-
-    RETURN_IF_ERROR(channel->open_all_writers(params));
-
-    _opened = true;
-    _last_updated_time.store(time(nullptr));
+    RETURN_IF_ERROR(channel->open_all_writers_for_partition(params));
     return Status::OK();
 }
 

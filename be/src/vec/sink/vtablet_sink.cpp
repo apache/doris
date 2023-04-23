@@ -36,6 +36,7 @@
 #include "util/debug/sanitizer_scopes.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
+#include "util/partition_open_closure.h"
 #include "util/proto_util.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -296,7 +297,6 @@ void VNodeChannel::open() {
     if (config::tablet_writer_ignore_eovercrowded) {
         _open_closure->cntl.ignore_eovercrowded();
     }
-    // Lazy open delter writer
     _stub->tablet_writer_open(&_open_closure->cntl, &request, &_open_closure->result,
                               _open_closure);
     request.release_id();
@@ -438,8 +438,8 @@ void VNodeChannel::open_partition(int64_t partition_id) {
         }
     }
 
-    RefCountClosure<PartitionOpenResult>* partition_open_closure =
-            new RefCountClosure<PartitionOpenResult>();
+    PartitionOpenClosure<PartitionOpenResult>* partition_open_closure =
+            new PartitionOpenClosure<PartitionOpenResult>(this);
     partition_open_closure->ref();
 
     // This ref is for RPC's reference
@@ -448,7 +448,6 @@ void VNodeChannel::open_partition(int64_t partition_id) {
     if (config::partition_open_ignore_eovercrowded) {
         partition_open_closure->cntl.ignore_eovercrowded();
     }
-    // Lazy open delter writer
     _stub->partition_open(&partition_open_closure->cntl, &request, &partition_open_closure->result,
                           partition_open_closure);
 }
@@ -1043,7 +1042,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void VOlapTableSink::_open_partition(const VOlapTablePartition* partition, uint32_t tablet_index) {
+void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     const auto& id = partition->id;
     auto it = _partition_opened.find(id);
@@ -1057,12 +1056,11 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition, uint3
             _partition_opened.insert(id);
         }
         for (int j = 0; j < partition->indexes.size(); ++j) {
-            auto tid = partition->indexes[j].tablets[tablet_index];
-            auto it = _channels[j]->_channels_by_tablet.find(tid);
-            DCHECK(it != _channels[j]->_channels_by_tablet.end())
-                    << "unknown tablet, tablet_id=" << tablet_index;
-            for (const auto& channel : it->second) {
-                channel->open_partition(partition->id);
+            for (const auto& tid : partition->indexes[j].tablets) {
+                auto it = _channels[j]->_channels_by_tablet.find(tid);
+                for (const auto& channel : it->second) {
+                    channel->open_partition(partition->id);
+                }
             }
         }
     }
@@ -1238,7 +1236,9 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         // each row
         _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
         // open partition
-        _open_partition(partition, tablet_index);
+        if (config::enable_lazy_open_partition) {
+            _open_partition(partition);
+        }
     }
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.

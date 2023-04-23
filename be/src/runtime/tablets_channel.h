@@ -64,9 +64,9 @@ public:
     ~TabletsChannel();
 
     Status open(const PTabletWriterOpenRequest& request);
-
-    // open all writer
-    Status open_all_writers(const PartitionOpenRequest& request);
+    
+    // Open specific partition all writers
+    Status open_all_writers_for_partition(const PartitionOpenRequest& request);
 
     // no-op when this channel has been closed or cancelled
     template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
@@ -106,8 +106,8 @@ private:
     template <typename TabletWriterAddRequest>
     Status _open_all_writers_in_partition(const int64_t& tablet_id,
                                           const TabletWriterAddRequest& request);
-
-    bool _try_to_wait_flushing();
+    // open all writer
+    Status _open_all_writers(const PTabletWriterOpenRequest& request);
 
     // deal with DeltaWriter close_wait(), add tablet to list for return.
     void _close_wait(DeltaWriter* writer,
