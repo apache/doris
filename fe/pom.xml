@@ -253,7 +253,7 @@ under the License.
         <avro.version>1.11.1</avro.version>
         <!-- hudi -->
         <hudi.version>0.10.0</hudi.version>
-        <parquet.version>1.10.1</parquet.version>
+        <parquet.version>1.13.0</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
         <commons-compress.version>1.22</commons-compress.version>
         <hibernate.validator.version>8.0.0.Final</hibernate.validator.version>
@@ -268,7 +268,7 @@ under the License.
         <aws-java-sdk.version>1.12.302</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
         <dlf-metastore-client-hive.version>0.2.14</dlf-metastore-client-hive.version>
-        <hadoop.version>3.3.4</hadoop.version>
+        <hadoop.version>3.3.5</hadoop.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
         <!--Spring boot 3.X requires at least JDK17-->
