@@ -208,9 +208,7 @@ struct AggregateFunctionCollectListData {
     void write(BufferWritable& buf) const {
         write_var_uint(size(), buf);
         buf.write(data.raw_data(), size() * sizeof(ElementType));
-        if constexpr (HasLimit::value) {
-            write_var_int(max_size, buf);
-        }
+        write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
@@ -218,9 +216,7 @@ struct AggregateFunctionCollectListData {
         read_var_uint(rows, buf);
         data.resize(rows);
         buf.read(reinterpret_cast<char*>(data.data()), rows * sizeof(ElementType));
-        if constexpr (HasLimit::value) {
-            read_var_int(max_size, buf);
-        }
+        read_var_int(max_size, buf);
     }
 
     void reset() { data.clear(); }
@@ -266,9 +262,7 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
 
         write_var_uint(col.get_chars().size(), buf);
         buf.write(col.get_chars().raw_data(), col.get_chars().size());
-        if constexpr (HasLimit::value) {
-            write_var_int(max_size, buf);
-        }
+        write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
@@ -283,9 +277,7 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
         read_var_uint(chars_size, buf);
         col.get_chars().resize(chars_size);
         buf.read(reinterpret_cast<char*>(col.get_chars().data()), chars_size);
-        if constexpr (HasLimit::value) {
-            read_var_int(max_size, buf);
-        }
+        read_var_int(max_size, buf);
     }
 
     void reset() { data->clear(); }
