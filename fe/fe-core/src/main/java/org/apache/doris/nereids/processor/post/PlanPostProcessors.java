@@ -68,7 +68,8 @@ public class PlanPostProcessors {
         }
         builder.add(new Validator());
         builder.add(new TopNScanOpt());
-        builder.add(new TwoPhaseReadOpt());
+        // TODO enable this after TwoPhaseReadOpt is fully supported by be
+        // builder.add(new TwoPhaseReadOpt());
         return builder.build();
     }
 }
