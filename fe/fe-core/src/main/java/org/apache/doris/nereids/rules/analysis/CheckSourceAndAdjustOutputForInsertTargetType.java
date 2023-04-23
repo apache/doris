@@ -48,6 +48,7 @@ public class CheckSourceAndAdjustOutputForInsertTargetType implements CustomRewr
             return plan;
         }
         List<DataType> insertTargetTypes = insertTargetSchema.stream()
+                .filter(Column::isVisible)
                 .map(col -> DataType.fromCatalogType(col.getType()))
                 .collect(Collectors.toList());
         List<Slot> outputs = plan.getOutput();
