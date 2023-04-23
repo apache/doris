@@ -93,6 +93,11 @@ public class NetUtils {
         return hostName;
     }
 
+    public static String getIpByHost(String host) throws UnknownHostException {
+        InetAddress inetAddress = InetAddress.getByName(host);
+        return inetAddress.getHostAddress();
+    }
+
     // This is the implementation is inspired by Apache camel project:
     public static boolean isPortAvailable(String host, int port, String portName, String suggestion) {
         ServerSocket ss = null;
