@@ -125,8 +125,7 @@ Status VScanNode::prepare(RuntimeState* state) {
 
     if (_is_pipeline_scan) {
         if (_shared_scan_opt) {
-            _shared_scanner_controller =
-                    state->get_query_fragments_ctx()->get_shared_scanner_controller();
+            _shared_scanner_controller = state->get_query_ctx()->get_shared_scanner_controller();
             auto [should_create_scanner, queue_id] =
                     _shared_scanner_controller->should_build_scanner_and_queue_id(id());
             _should_create_scanner = should_create_scanner;

@@ -45,7 +45,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/query_statistics.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_filter_mgr.h"
@@ -94,7 +94,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
-                                     QueryFragmentsCtx* fragments_ctx) {
+                                     QueryContext* query_ctx) {
     OpentelemetryTracer tracer = telemetry::get_noop_tracer();
     if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
         tracer = telemetry::get_tracer(print_id(_query_id));
@@ -112,12 +112,11 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals =
-            fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
+            query_ctx == nullptr ? request.query_globals : query_ctx->query_globals;
     _runtime_state.reset(new RuntimeState(params, request.query_options, query_globals, _exec_env));
-    _runtime_state->set_query_fragments_ctx(fragments_ctx);
-    _runtime_state->set_query_mem_tracker(fragments_ctx == nullptr
-                                                  ? _exec_env->orphan_mem_tracker()
-                                                  : fragments_ctx->query_mem_tracker);
+    _runtime_state->set_query_ctx(query_ctx);
+    _runtime_state->set_query_mem_tracker(query_ctx == nullptr ? _exec_env->orphan_mem_tracker()
+                                                               : query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -142,8 +141,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up desc tbl
     DescriptorTbl* desc_tbl = nullptr;
-    if (fragments_ctx != nullptr) {
-        desc_tbl = fragments_ctx->desc_tbl;
+    if (query_ctx != nullptr) {
+        desc_tbl = query_ctx->desc_tbl;
     } else {
         DCHECK(request.__isset.desc_tbl);
         RETURN_IF_ERROR(DescriptorTbl::create(obj_pool(), request.desc_tbl, &desc_tbl));
@@ -487,7 +486,7 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     _cancel_msg = msg;
     _runtime_state->set_is_cancelled(true);
     // To notify wait_for_start()
-    _runtime_state->get_query_fragments_ctx()->set_ready_to_execute(true);
+    _runtime_state->get_query_ctx()->set_ready_to_execute(true);
 
     // must close stream_mgr to avoid dead lock in Exchange Node
     auto env = _runtime_state->exec_env();

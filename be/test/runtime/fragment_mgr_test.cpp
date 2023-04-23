@@ -36,7 +36,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
 PlanFragmentExecutor::~PlanFragmentExecutor() {}
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
-                                     QueryFragmentsCtx* batch_ctx) {
+                                     QueryContext* batch_ctx) {
     return s_prepare_status;
 }
 

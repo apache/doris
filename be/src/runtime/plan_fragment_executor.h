@@ -39,7 +39,7 @@
 
 namespace doris {
 
-class QueryFragmentsCtx;
+class QueryContext;
 class ExecNode;
 class RowDescriptor;
 class DataSink;
@@ -98,9 +98,8 @@ public:
     // If request.query_options.mem_limit > 0, it is used as an approximate limit on the
     // number of bytes this query can consume at runtime.
     // The query will be aborted (MEM_LIMIT_EXCEEDED) if it goes over that limit.
-    // If fragments_ctx is not null, some components will be got from fragments_ctx.
-    Status prepare(const TExecPlanFragmentParams& request,
-                   QueryFragmentsCtx* fragments_ctx = nullptr);
+    // If query_ctx is not null, some components will be got from query_ctx.
+    Status prepare(const TExecPlanFragmentParams& request, QueryContext* query_ctx = nullptr);
 
     // Start execution. Call this prior to get_next().
     // If this fragment has a sink, open() will send all rows produced
