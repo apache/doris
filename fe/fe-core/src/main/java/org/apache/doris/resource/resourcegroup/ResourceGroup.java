@@ -25,6 +25,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineResourceGroup;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -89,7 +90,10 @@ public class ResourceGroup implements Writable {
     }
 
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        // TBD(zlw)
+        checkProperties(properties);
+        for (Map.Entry<String, String> kv : properties.entrySet()) {
+            replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
+        }
     }
 
     public long getId() {
@@ -129,4 +133,11 @@ public class ResourceGroup implements Writable {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ResourceGroup.class);
     }
+
+    private void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {
+        if (!Strings.isNullOrEmpty(value)) {
+            properties.put(key, value);
+        }
+    }
+
 }
