@@ -941,6 +941,12 @@ CONF_mInt64(max_tablet_io_errors, "-1");
 
 // Page size of row column, default 4KB
 CONF_mInt64(row_column_page_size, "4096");
+// it must be larger than or equal to 5MB
+CONF_mInt32(s3_write_buffer_size, "5242880");
+// the size of the whole s3 buffer pool, which indicates the s3 file writer
+// can at most buffer 50MB data. And the num of multi part upload task is
+// s3_write_buffer_whole_size / s3_write_buffer_size
+CONF_mInt32(s3_write_buffer_whole_size, "524288000");
 
 #ifdef BE_TEST
 // test s3
