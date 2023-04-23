@@ -20,18 +20,33 @@
 
 #include "runtime/plan_fragment_executor.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Planner_types.h>
 #include <gen_cpp/version.h>
-#include <thrift/protocol/TDebugProtocol.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/span_context.h>
+#include <opentelemetry/trace/tracer.h>
+#include <pthread.h>
+#include <stdint.h>
+#include <stdlib.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <ostream>
+#include <typeinfo>
+#include <utility>
 
-#include <unordered_map>
-
+#include "common/config.h"
+#include "common/logging.h"
 #include "exec/data_sink.h"
 #include "exec/exec_node.h"
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
-#include "runtime/result_buffer_mgr.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_statistics.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/thread_context.h"
@@ -39,6 +54,8 @@
 #include "util/defer_op.h"
 #include "util/pretty_printer.h"
 #include "util/telemetry/telemetry.h"
+#include "util/threadpool.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_es_scan_node.h"
@@ -47,6 +64,7 @@
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vmeta_scan_node.h"
+#include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 

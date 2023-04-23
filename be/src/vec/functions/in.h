@@ -18,17 +18,42 @@
 
 #pragma once
 
-#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+namespace vectorized {
+class ColumnString;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

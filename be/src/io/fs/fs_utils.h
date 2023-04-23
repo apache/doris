@@ -17,8 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <ostream>
+#include <string>
+
 #include "common/status.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 
 namespace doris {
 namespace io {

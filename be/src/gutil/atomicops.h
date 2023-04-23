@@ -72,13 +72,13 @@
 
 // ThreadSanitizer provides own implementation of atomicops.
 #if defined(THREAD_SANITIZER)
-#include "gutil/atomicops-internals-tsan.h"
+#include "gutil/atomicops-internals-tsan.h" // IWYU pragma: export
 #elif defined(__GNUC__) && (defined(__i386) || defined(__x86_64__))
-#include "gutil/atomicops-internals-x86.h"
+#include "gutil/atomicops-internals-x86.h" // IWYU pragma: export
 #elif defined(__GNUC__) && GCC_VERSION >= 40700
-#include "gutil/atomicops-internals-gcc.h"
+#include "gutil/atomicops-internals-gcc.h" // IWYU pragma: export
 #elif defined(__clang__) && CLANG_VERSION >= 30400
-#include "gutil/atomicops-internals-gcc.h"
+#include "gutil/atomicops-internals-gcc.h" // IWYU pragma: export
 #else
 #error You need to implement atomic operations for this architecture
 #endif

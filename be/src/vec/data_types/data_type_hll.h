@@ -16,12 +16,32 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+#include <typeinfo>
+
 #include "olap/hll.h"
+#include "runtime/define_primitive_type.h"
 #include "serde/data_type_hll_serde.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class BufferReadable;
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 class DataTypeHLL : public IDataType {

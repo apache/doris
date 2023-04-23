@@ -17,6 +17,12 @@
 
 #include "task_queue.h"
 
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <string>
+
+#include "common/logging.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/task_group/task_group.h"
 
 namespace doris {

@@ -16,9 +16,7 @@
 // under the License.
 #include "exec/arrow/arrow_reader.h"
 
-#include <arrow/buffer.h>
 #include <arrow/record_batch.h>
-#include <opentelemetry/common/threadlocal.h>
 
 #include <algorithm>
 // IWYU pragma: no_include <bits/chrono.h>
@@ -26,6 +24,8 @@
 #include <ostream>
 #include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "io/fs/file_reader.h"
 #include "runtime/descriptors.h"

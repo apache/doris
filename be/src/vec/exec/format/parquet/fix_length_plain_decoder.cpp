@@ -17,9 +17,33 @@
 
 #include "vec/exec/format/parquet/fix_length_plain_decoder.h"
 
+#include <gen_cpp/parquet_types.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <memory>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "gutil/endian.h"
-#include "vec/columns/column_nullable.h"
+#include "util/slice.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/format_common.h"
+#include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+namespace vectorized {
+template <typename T>
+class ColumnDecimal;
+template <typename T>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

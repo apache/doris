@@ -20,17 +20,25 @@
 
 #pragma once
 
-#include <chrono>
+#include <cstddef>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
+#include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_segment.h"
 
 namespace doris {
+class TUniqueId;
+
 namespace io {
+struct FileCacheSettings;
 
 /**
  * Local cache for remote filesystem files, represented as a set of non-overlapping non-empty file segments.

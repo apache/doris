@@ -17,15 +17,33 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <ostream>
+#include <set>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "olap/column_predicate.h"
+#include "olap/olap_common.h"
+#include "vec/columns/column.h"
+
+namespace roaring {
+class Roaring;
+} // namespace roaring
 
 namespace doris {
+class WrapperField;
 
 namespace segment_v2 {
 class BloomFilter;
-}
+class InvertedIndexIterator;
+} // namespace segment_v2
 
 // Block Column Predicate support do column predicate and support OR and AND predicate
 // Block Column Predicate will replace column predicate as a unified external vectorized interface

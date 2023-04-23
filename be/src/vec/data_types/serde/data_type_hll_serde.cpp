@@ -17,11 +17,21 @@
 
 #include "data_type_hll_serde.h"
 
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <string>
+
+#include "olap/hll.h"
+#include "util/slice.h"
 #include "vec/columns/column_complex.h"
+#include "vec/common/assert_cast.h"
 
 namespace doris {
 
 namespace vectorized {
+class IColumn;
 
 Status DataTypeHLLSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                             int end) const {

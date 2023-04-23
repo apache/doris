@@ -16,12 +16,13 @@
 // under the License.
 #pragma once
 
+#include <butil/macros.h>
+
 #include <cstdint>
 #include <map>
 #include <mutex>
 #include <string>
 
-#include "gutil/macros.h"
 #include "gutil/map-util.h"
 #include "util/spinlock.h"
 

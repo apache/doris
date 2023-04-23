@@ -17,6 +17,11 @@
 
 #include "task_group_manager.h"
 
+#include <memory>
+#include <mutex>
+
+#include "runtime/task_group/task_group.h"
+
 namespace doris::taskgroup {
 
 TaskGroupManager::TaskGroupManager() = default;

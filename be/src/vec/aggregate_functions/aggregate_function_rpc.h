@@ -17,11 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/function_service.pb.h>
+
 #include <cstdint>
 #include <memory>
 
 #include "common/status.h"
-#include "gen_cpp/Exprs_types.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "runtime/exec_env.h"

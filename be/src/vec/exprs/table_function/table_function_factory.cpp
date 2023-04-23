@@ -17,7 +17,15 @@
 
 #include "vec/exprs/table_function/table_function_factory.h"
 
+#include <utility>
+
 #include "common/object_pool.h"
+#include "vec/exprs/table_function/table_function.h"
+#include "vec/exprs/table_function/vexplode.h"
+#include "vec/exprs/table_function/vexplode_bitmap.h"
+#include "vec/exprs/table_function/vexplode_json_array.h"
+#include "vec/exprs/table_function/vexplode_numbers.h"
+#include "vec/exprs/table_function/vexplode_split.h"
 
 namespace doris::vectorized {
 

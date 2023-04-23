@@ -17,18 +17,27 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <re2/re2.h>
 #include <stdint.h>
+#include <string.h>
 
-#include <chrono>
-#include <climits>
+#include <algorithm>
 #include <cstddef>
 #include <iostream>
+#include <iterator>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <type_traits>
 
-#include "cctz/time_zone.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
 
 namespace doris {
 

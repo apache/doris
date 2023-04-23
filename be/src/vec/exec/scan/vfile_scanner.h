@@ -17,14 +17,40 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/olap_common.h"
 #include "exec/text_converter.h"
-#include "exprs/function_filter.h"
-#include "io/file_factory.h"
+#include "io/io_common.h"
+#include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
-#include "vec/exec/format/format_common.h"
+#include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class RuntimeState;
+class TFileRangeDesc;
+class TFileScanRange;
+class TFileScanRangeParams;
+
+namespace vectorized {
+class ShardedKVCache;
+class VExpr;
+class VExprContext;
+} // namespace vectorized
+struct TypeDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 

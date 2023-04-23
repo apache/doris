@@ -17,19 +17,22 @@
 
 #pragma once
 
-#include <condition_variable>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <thread>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/runtime_filter.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 
 namespace butil {
@@ -37,12 +40,12 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-class TUniqueId;
-class RuntimeFilter;
-class FragmentExecState;
-class PlanFragmentExecutor;
 class PPublishFilterRequest;
 class PMergeFilterRequest;
+class IRuntimeFilter;
+class MemTracker;
+class RuntimeState;
+enum class RuntimeFilterRole;
 
 /// producer:
 /// Filter filter;
@@ -70,7 +73,8 @@ public:
     Status get_producer_filter(const int filter_id, IRuntimeFilter** producer_filter);
     // regist filter
     Status register_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
-                           const TQueryOptions& options, int node_id = -1);
+                           const TQueryOptions& options, int node_id = -1,
+                           bool build_bf_exactly = false);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,

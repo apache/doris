@@ -17,7 +17,10 @@
 
 #include "vparquet_file_metadata.h"
 
+#include <gen_cpp/parquet_types.h>
+
 #include <sstream>
+#include <vector>
 
 #include "schema_desc.h"
 

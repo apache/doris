@@ -20,7 +20,26 @@
 
 #include "vec/functions/function_hash.h"
 
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <string>
+
+#include "common/status.h"
 #include "util/hash_util.hpp"
+#include "util/murmur_hash3.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/bit_cast.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/functions/function_variadic_arguments.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"

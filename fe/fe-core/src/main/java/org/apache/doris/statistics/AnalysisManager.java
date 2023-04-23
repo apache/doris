@@ -90,19 +90,17 @@ public class AnalysisManager {
     }
 
     // Each analyze stmt corresponding to an analysis job.
-    public void createAnalysisJob(AnalyzeStmt analyzeStmt) throws DdlException {
-        String catalogName = analyzeStmt.getCatalogName();
-        String db = analyzeStmt.getDBName();
-        TableName tbl = analyzeStmt.getTblName();
-        StatisticsUtil.convertTableNameToObjects(tbl);
-        Set<String> colNames = analyzeStmt.getColumnNames();
-        Map<Long, AnalysisTaskInfo> analysisTaskInfos = new HashMap<>();
+    public void createAnalysisJob(AnalyzeStmt stmt) throws DdlException {
         long jobId = Env.getCurrentEnv().getNextId();
-        createTaskForEachColumns(analyzeStmt, catalogName, db, tbl, colNames, analysisTaskInfos, jobId);
-        createTaskForMVIdx(analyzeStmt, catalogName, db, tbl, analysisTaskInfos, jobId);
-        persistAnalysisJob(catalogName, db, tbl, jobId);
+        AnalysisTaskInfoBuilder taskInfoBuilder = buildCommonTaskInfo(stmt, jobId);
+        Map<Long, AnalysisTaskInfo> analysisTaskInfos = new HashMap<>();
 
-        if (analyzeStmt.isSync()) {
+        // start build analysis tasks
+        createTaskForEachColumns(stmt.getColumnNames(), taskInfoBuilder, analysisTaskInfos);
+        createTaskForMVIdx(stmt.getTable(), taskInfoBuilder, analysisTaskInfos, stmt.getAnalysisType());
+        persistAnalysisJob(taskInfoBuilder);
+
+        if (stmt.isSync()) {
             syncExecute(analysisTaskInfos.values());
             return;
         }
@@ -111,42 +109,79 @@ public class AnalysisManager {
         analysisTaskInfos.values().forEach(taskScheduler::schedule);
     }
 
-    private void persistAnalysisJob(String catalogName, String db, TableName tbl,
-            long jobId) throws DdlException {
+    private AnalysisTaskInfoBuilder buildCommonTaskInfo(AnalyzeStmt stmt, long jobId) {
+        AnalysisTaskInfoBuilder taskInfoBuilder = new AnalysisTaskInfoBuilder();
+        String catalogName = stmt.getCatalogName();
+        String db = stmt.getDBName();
+        TableName tbl = stmt.getTblName();
+        StatisticsUtil.convertTableNameToObjects(tbl);
+        String tblName = tbl.getTbl();
+        int samplePercent = stmt.getSamplePercent();
+        int sampleRows = stmt.getSampleRows();
+        AnalysisType analysisType = stmt.getAnalysisType();
+        AnalysisMethod analysisMethod = stmt.getAnalysisMethod();
+
+        taskInfoBuilder.setJobId(jobId);
+        taskInfoBuilder.setCatalogName(catalogName);
+        taskInfoBuilder.setDbName(db);
+        taskInfoBuilder.setTblName(tblName);
+        taskInfoBuilder.setJobType(JobType.MANUAL);
+        taskInfoBuilder.setState(AnalysisState.PENDING);
+        taskInfoBuilder.setScheduleType(ScheduleType.ONCE);
+
+        if (analysisMethod == AnalysisMethod.SAMPLE) {
+            taskInfoBuilder.setAnalysisMethod(AnalysisMethod.SAMPLE);
+            taskInfoBuilder.setSamplePercent(samplePercent);
+            taskInfoBuilder.setSampleRows(sampleRows);
+        } else {
+            taskInfoBuilder.setAnalysisMethod(AnalysisMethod.FULL);
+        }
+
+        if (analysisType == AnalysisType.HISTOGRAM) {
+            taskInfoBuilder.setAnalysisType(AnalysisType.HISTOGRAM);
+            int numBuckets = stmt.getNumBuckets();
+            int maxBucketNum = numBuckets > 0 ? numBuckets
+                    : StatisticConstants.HISTOGRAM_MAX_BUCKET_NUM;
+            taskInfoBuilder.setMaxBucketNum(maxBucketNum);
+        } else {
+            taskInfoBuilder.setAnalysisType(AnalysisType.COLUMN);
+        }
+
+        return taskInfoBuilder;
+    }
+
+    private void persistAnalysisJob(AnalysisTaskInfoBuilder taskInfoBuilder) throws DdlException {
         try {
-            AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(
-                            jobId).setTaskId(-1)
-                    .setCatalogName(catalogName).setDbName(db)
-                    .setTblName(tbl.getTbl())
-                    .setJobType(JobType.MANUAL)
-                    .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(AnalysisType.INDEX)
-                    .setScheduleType(ScheduleType.ONCE).build();
+            AnalysisTaskInfoBuilder jobInfoBuilder = taskInfoBuilder.copy();
+            AnalysisTaskInfo analysisTaskInfo = jobInfoBuilder.setTaskId(-1).build();
             StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
         } catch (Throwable t) {
             throw new DdlException(t.getMessage(), t);
         }
     }
 
-    private void createTaskForMVIdx(AnalyzeStmt analyzeStmt, String catalogName, String db, TableName tbl,
-            Map<Long, AnalysisTaskInfo> analysisTaskInfos, long jobId) throws DdlException {
-        if (!(analyzeStmt.isWholeTbl && analyzeStmt.getTable().getType().equals(TableType.OLAP))) {
+    private void createTaskForMVIdx(TableIf table, AnalysisTaskInfoBuilder taskInfoBuilder,
+            Map<Long, AnalysisTaskInfo> analysisTaskInfos, AnalysisType analysisType) throws DdlException {
+        TableType type = table.getType();
+        if (analysisType != AnalysisType.INDEX || !type.equals(TableType.OLAP)) {
+            // not need to collect statistics for materialized view
             return;
         }
-        OlapTable olapTable = (OlapTable) analyzeStmt.getTable();
+
+        taskInfoBuilder.setAnalysisType(analysisType);
+        OlapTable olapTable = (OlapTable) table;
+
         try {
             olapTable.readLock();
             for (MaterializedIndexMeta meta : olapTable.getIndexIdToMeta().values()) {
                 if (meta.getDefineStmt() == null) {
                     continue;
                 }
+                AnalysisTaskInfoBuilder indexTaskInfoBuilder = taskInfoBuilder.copy();
+                long indexId = meta.getIndexId();
                 long taskId = Env.getCurrentEnv().getNextId();
-                AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(
-                                jobId).setTaskId(taskId)
-                        .setCatalogName(catalogName).setDbName(db)
-                        .setTblName(tbl.getTbl())
-                        .setIndexId(meta.getIndexId()).setJobType(JobType.MANUAL)
-                        .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(AnalysisType.INDEX)
-                        .setScheduleType(ScheduleType.ONCE).build();
+                AnalysisTaskInfo analysisTaskInfo = indexTaskInfoBuilder.setIndexId(indexId)
+                        .setTaskId(taskId).build();
                 try {
                     StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
                 } catch (Exception e) {
@@ -159,19 +194,14 @@ public class AnalysisManager {
         }
     }
 
-    private void createTaskForEachColumns(AnalyzeStmt analyzeStmt, String catalogName, String db, TableName tbl,
-            Set<String> colNames, Map<Long, AnalysisTaskInfo> analysisTaskInfos,
-            long jobId) throws DdlException {
+    private void createTaskForEachColumns(Set<String> colNames, AnalysisTaskInfoBuilder taskInfoBuilder,
+            Map<Long, AnalysisTaskInfo> analysisTaskInfos) throws DdlException {
         for (String colName : colNames) {
+            AnalysisTaskInfoBuilder colTaskInfoBuilder = taskInfoBuilder.copy();
+            long indexId = -1;
             long taskId = Env.getCurrentEnv().getNextId();
-            AnalysisType analType = analyzeStmt.isHistogram ? AnalysisType.HISTOGRAM : AnalysisType.COLUMN;
-            AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(jobId)
-                    .setTaskId(taskId).setCatalogName(catalogName).setDbName(db)
-                    .setTblName(tbl.getTbl()).setColName(colName)
-                    .setJobType(JobType.MANUAL)
-                    .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(analType)
-                    .setState(AnalysisState.PENDING)
-                    .setScheduleType(ScheduleType.ONCE).build();
+            AnalysisTaskInfo analysisTaskInfo = colTaskInfoBuilder.setColName(colName)
+                    .setIndexId(indexId).setTaskId(taskId).build();
             try {
                 StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
             } catch (Exception e) {

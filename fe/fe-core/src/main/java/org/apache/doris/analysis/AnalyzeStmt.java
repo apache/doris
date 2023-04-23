@@ -21,22 +21,22 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
@@ -44,35 +44,57 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
- * Collect statistics.
- *
- * syntax:
- * ANALYZE [[ db_name.tb_name ] [( column_name [, ...] )], ...] [ PROPERTIES(...) ]
- *     db_name.tb_name: collect table and column statistics from tb_name
- *     column_name: collect column statistics from column_name
- *     properties: properties of statistics jobs
+  * Column Statistics Collection Syntax:
+  *   ANALYZE [ SYNC ] TABLE table_name
+  *   [ (column_name [, ...]) ]
+  *   [ [WITH SYNC] | [WITH INCREMENTAL] | [WITH SAMPLE PERCENT | ROWS ] ]
+  *   [ PROPERTIES ('key' = 'value', ...) ];
+  *
+  * Column histogram collection syntax:
+  *   ANALYZE [ SYNC ] TABLE table_name
+  *   [ (column_name [, ...]) ]
+  *   UPDATE HISTOGRAM
+  *   [ [ WITH SYNC ][ WITH INCREMENTAL ][ WITH SAMPLE PERCENT | ROWS ][ WITH BUCKETS ] ]
+  *   [ PROPERTIES ('key' = 'value', ...) ];
+  *
+  * Illustrate：
+  * - sync：Collect statistics synchronously. Return after collecting.
+  * - incremental：Collect statistics incrementally. Incremental collection of histogram statistics is not supported.
+  * - sample percent | rows：Collect statistics by sampling. Scale and number of rows can be sampled.
+  * - buckets：Specifies the maximum number of buckets generated when collecting histogram statistics.
+  * - table_name: The purpose table for collecting statistics. Can be of the form `db_name.table_name`.
+  * - column_name: The specified destination column must be a column that exists in `table_name`,
+ *    and multiple column names are separated by commas.
+  * - properties：Properties used to set statistics tasks. Currently only the following configurations
+ *    are supported (equivalent to the with statement)
+  *    - 'sync' = 'true'
+  *    - 'incremental' = 'true'
+  *    - 'sample.percent' = '50'
+  *    - 'sample.rows' = '1000'
+  *    - 'num.buckets' = 10
  */
 public class AnalyzeStmt extends DdlStmt {
-    // time to wait for collect  statistics
-    public static final String CBO_STATISTICS_TASK_TIMEOUT_SEC = "cbo_statistics_task_timeout_sec";
+    // The properties passed in by the user through "with" or "properties('K', 'V')"
+    public static final String PROPERTY_SYNC = "sync";
+    public static final String PROPERTY_INCREMENTAL = "incremental";
+    public static final String PROPERTY_SAMPLE_PERCENT = "sample.percent";
+    public static final String PROPERTY_SAMPLE_ROWS = "sample.rows";
+    public static final String PROPERTY_NUM_BUCKETS = "num.buckets";
+    public static final String PROPERTY_ANALYSIS_TYPE = "analysis.type";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(CBO_STATISTICS_TASK_TIMEOUT_SEC)
+            .add(PROPERTY_SYNC)
+            .add(PROPERTY_INCREMENTAL)
+            .add(PROPERTY_SAMPLE_PERCENT)
+            .add(PROPERTY_SAMPLE_ROWS)
+            .add(PROPERTY_NUM_BUCKETS)
+            .add(PROPERTY_ANALYSIS_TYPE)
             .build();
 
-    private static final Predicate<Long> DESIRED_TASK_TIMEOUT_SEC = (v) -> v > 0L;
-
-    public boolean isWholeTbl;
-    public boolean isHistogram;
-    public boolean isIncrement;
-
     private final TableName tableName;
-
-    private final boolean sync;
     private final List<String> columnNames;
     private final Map<String, String> properties;
 
@@ -81,19 +103,11 @@ public class AnalyzeStmt extends DdlStmt {
     private TableIf table;
 
     public AnalyzeStmt(TableName tableName,
-                       boolean sync,
-                       List<String> columnNames,
-                       Map<String, String> properties,
-                       Boolean isWholeTbl,
-                       Boolean isHistogram,
-                       Boolean isIncrement) {
+            List<String> columnNames,
+            Map<String, String> properties) {
         this.tableName = tableName;
-        this.sync = sync;
         this.columnNames = columnNames;
         this.properties = properties;
-        this.isWholeTbl = isWholeTbl;
-        this.isHistogram = isHistogram;
-        this.isIncrement = isIncrement;
     }
 
     @Override
@@ -133,6 +147,15 @@ public class AnalyzeStmt extends DdlStmt {
         }
 
         checkProperties();
+
+        // TODO support external table
+        if (properties.containsKey(PROPERTY_SAMPLE_PERCENT)
+                || properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
+            if (!(table instanceof OlapTable)) {
+                throw new AnalysisException("Sampling statistics "
+                        + "collection of external tables is not supported");
+            }
+        }
     }
 
     @Override
@@ -153,18 +176,88 @@ public class AnalyzeStmt extends DdlStmt {
     }
 
     private void checkProperties() throws UserException {
-        if (properties != null) {
-            Optional<String> optional = properties.keySet().stream().filter(
-                    entity -> !PROPERTIES_SET.contains(entity)).findFirst();
-            if (optional.isPresent()) {
-                throw new AnalysisException(optional.get() + " is invalid property");
-            }
+        if (properties == null || properties.isEmpty()) {
+            throw new AnalysisException("analysis properties should not be empty");
+        }
 
-            long taskTimeout = ((Long) Util.getLongPropertyOrDefault(
-                    properties.get(CBO_STATISTICS_TASK_TIMEOUT_SEC),
-                    Config.max_cbo_statistics_task_timeout_sec, DESIRED_TASK_TIMEOUT_SEC,
-                    CBO_STATISTICS_TASK_TIMEOUT_SEC + " should > 0")).intValue();
-            properties.put(CBO_STATISTICS_TASK_TIMEOUT_SEC, String.valueOf(taskTimeout));
+        String msgTemplate = "%s = %s is invalid property";
+        Optional<String> optional = properties.keySet().stream().filter(
+                entity -> !PROPERTIES_SET.contains(entity)).findFirst();
+
+        if (optional.isPresent()) {
+            String msg = String.format(msgTemplate, optional.get(), properties.get(optional.get()));
+            throw new AnalysisException(msg);
+        }
+
+        if (properties.containsKey(PROPERTY_SYNC)) {
+            try {
+                Boolean.valueOf(properties.get(PROPERTY_SYNC));
+            } catch (NumberFormatException e) {
+                String msg = String.format(msgTemplate, PROPERTY_SYNC, properties.get(PROPERTY_SYNC));
+                throw new AnalysisException(msg);
+            }
+        }
+
+        if (properties.containsKey(PROPERTY_INCREMENTAL)) {
+            try {
+                Boolean.valueOf(properties.get(PROPERTY_INCREMENTAL));
+            } catch (NumberFormatException e) {
+                String msg = String.format(msgTemplate, PROPERTY_INCREMENTAL, properties.get(PROPERTY_INCREMENTAL));
+                throw new AnalysisException(msg);
+            }
+        }
+
+        if (properties.containsKey(PROPERTY_SAMPLE_PERCENT)
+                && properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
+            throw new AnalysisException("only one sampling parameter can be specified simultaneously");
+        }
+
+        if (properties.containsKey(PROPERTY_SAMPLE_PERCENT)) {
+            checkNumericProperty(PROPERTY_SAMPLE_PERCENT, properties.get(PROPERTY_SAMPLE_PERCENT),
+                    0, 100, false, "should be > 0 and < 100");
+        }
+
+        if (properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
+            checkNumericProperty(PROPERTY_SAMPLE_ROWS, properties.get(PROPERTY_SAMPLE_ROWS),
+                    0, Integer.MAX_VALUE, false, "needs at least 1 row");
+        }
+
+        if (properties.containsKey(PROPERTY_NUM_BUCKETS)) {
+            checkNumericProperty(PROPERTY_NUM_BUCKETS, properties.get(PROPERTY_NUM_BUCKETS),
+                    1, Integer.MAX_VALUE, true, "needs at least 1 buckets");
+        }
+
+        if (properties.containsKey(PROPERTY_ANALYSIS_TYPE)) {
+            try {
+                AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE));
+            } catch (NumberFormatException e) {
+                String msg = String.format(msgTemplate, PROPERTY_ANALYSIS_TYPE, properties.get(PROPERTY_ANALYSIS_TYPE));
+                throw new AnalysisException(msg);
+            }
+        }
+
+        if (properties.containsKey(PROPERTY_INCREMENTAL)
+                && AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE)) == AnalysisType.HISTOGRAM) {
+            throw new AnalysisException(PROPERTY_INCREMENTAL + " collection of histograms is not supported");
+        }
+
+        if (properties.containsKey(PROPERTY_NUM_BUCKETS)
+                && AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE)) != AnalysisType.HISTOGRAM) {
+            throw new AnalysisException(PROPERTY_NUM_BUCKETS + " can only be specified when collecting histograms");
+        }
+    }
+
+    private void checkNumericProperty(String key, String value, int lowerBound, int upperBound,
+            boolean includeBoundary, String errorMsg) throws AnalysisException {
+        if (!StringUtils.isNumeric(value)) {
+            String msg = String.format("%s = %s is an invalid property.", key, value);
+            throw new AnalysisException(msg);
+        }
+        int intValue = Integer.parseInt(value);
+        boolean isOutOfBounds = (includeBoundary && (intValue < lowerBound || intValue > upperBound))
+                || (!includeBoundary && (intValue <= lowerBound || intValue >= upperBound));
+        if (isOutOfBounds) {
+            throw new AnalysisException(key + " " + errorMsg);
         }
     }
 
@@ -198,8 +291,47 @@ public class AnalyzeStmt extends DdlStmt {
     }
 
     public Map<String, String> getProperties() {
-        // TODO add default properties
-        return properties != null ? properties : Maps.newHashMap();
+        return properties;
+    }
+
+    public boolean isSync() {
+        return Boolean.parseBoolean(properties.get(PROPERTY_SYNC));
+    }
+
+    public boolean isIncremental() {
+        return Boolean.parseBoolean(properties.get(PROPERTY_INCREMENTAL));
+    }
+
+    public int getSamplePercent() {
+        if (!properties.containsKey(PROPERTY_SAMPLE_PERCENT)) {
+            return 0;
+        }
+        return Integer.parseInt(properties.get(PROPERTY_SAMPLE_PERCENT));
+    }
+
+    public int getSampleRows() {
+        if (!properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
+            return 0;
+        }
+        return Integer.parseInt(properties.get(PROPERTY_SAMPLE_ROWS));
+    }
+
+    public int getNumBuckets() {
+        if (!properties.containsKey(PROPERTY_NUM_BUCKETS)) {
+            return 0;
+        }
+        return Integer.parseInt(properties.get(PROPERTY_NUM_BUCKETS));
+    }
+
+    public AnalysisType getAnalysisType() {
+        return AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE));
+    }
+
+    public AnalysisMethod getAnalysisMethod() {
+        if (getSamplePercent() > 0 || getSampleRows() > 0) {
+            return AnalysisMethod.SAMPLE;
+        }
+        return AnalysisMethod.FULL;
     }
 
     @Override
@@ -207,25 +339,20 @@ public class AnalyzeStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("ANALYZE");
 
-        if (isIncrement) {
-            sb.append(" ");
-            sb.append("INCREMENTAL");
-        }
-
         if (tableName != null) {
             sb.append(" ");
             sb.append(tableName.toSql());
         }
 
-        if (isHistogram) {
-            sb.append(" ");
-            sb.append("UPDATE HISTOGRAM ON");
-            sb.append(" ");
-            sb.append(StringUtils.join(columnNames, ","));
-        } else if (columnNames != null) {
+        if (columnNames != null) {
             sb.append("(");
             sb.append(StringUtils.join(columnNames, ","));
             sb.append(")");
+        }
+
+        if (getAnalysisType().equals(AnalysisType.HISTOGRAM)) {
+            sb.append(" ");
+            sb.append("UPDATE HISTOGRAM");
         }
 
         if (properties != null) {
@@ -238,9 +365,5 @@ public class AnalyzeStmt extends DdlStmt {
         }
 
         return sb.toString();
-    }
-
-    public boolean isSync() {
-        return sync;
     }
 }

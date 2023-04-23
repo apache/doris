@@ -17,14 +17,19 @@
 
 #include "vec/functions/function_rpc.h"
 
+#include <brpc/controller.h>
 #include <fmt/format.h>
+#include <gen_cpp/function_service.pb.h>
+#include <gen_cpp/types.pb.h>
 
+#include <algorithm>
 #include <memory>
+#include <utility>
 
-#include "gen_cpp/Exprs_types.h"
-#include "json2pb/json_to_pb.h"
-#include "json2pb/pb_to_json.h"
 #include "runtime/exec_env.h"
+#include "util/brpc_client_cache.h"
+#include "vec/columns/column.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
 

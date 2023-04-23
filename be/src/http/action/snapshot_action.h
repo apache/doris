@@ -24,7 +24,6 @@
 
 namespace doris {
 
-class ExecEnv;
 class HttpRequest;
 
 // make snapshot

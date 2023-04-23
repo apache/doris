@@ -20,13 +20,19 @@
 
 #include "vec/functions/function.h"
 
+#include <algorithm>
 #include <memory>
-#include <optional>
+#include <numeric>
+#include <vector>
 
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/typeid_cast.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"

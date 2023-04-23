@@ -17,7 +17,22 @@
 
 #include "vec/exec/scan/new_odbc_scan_node.h"
 
+#include <fmt/format.h>
+
+#include <memory>
+#include <ostream>
+
+#include "common/logging.h"
+#include "common/object_pool.h"
+#include "runtime/runtime_state.h"
 #include "vec/exec/scan/new_odbc_scanner.h"
+
+namespace doris {
+class DescriptorTbl;
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+} // namespace doris
 
 static const std::string NEW_SCAN_NODE_TYPE = "NewOdbcScanNode";
 

@@ -17,22 +17,26 @@
 
 #pragma once
 
+#include <bthread/types.h>
+#include <stdint.h>
+
 #include <atomic>
-#include <condition_variable>
+#include <list>
+#include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "common/status.h"
-#include "runtime/descriptors.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
-#include "util/uid_util.h"
 #include "vec/core/block.h"
 
 namespace doris {
 
-class PriorityThreadPool;
-class ThreadPool;
 class ThreadPoolToken;
+class RuntimeState;
+class TupleDescriptor;
 
 namespace vectorized {
 

@@ -17,6 +17,33 @@
 
 #include "vparquet_column_chunk_reader.h"
 
+#include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "util/bit_util.h"
+#include "util/block_compression.h"
+#include "util/runtime_profile.h"
+#include "vec/columns/column.h"
+#include "vec/exec/format/parquet/decoder.h"
+#include "vec/exec/format/parquet/level_decoder.h"
+#include "vec/exec/format/parquet/schema_desc.h"
+#include "vec/exec/format/parquet/vparquet_page_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace io {
+class BufferedStreamReader;
+class IOContext;
+} // namespace io
+} // namespace doris
+
 namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,

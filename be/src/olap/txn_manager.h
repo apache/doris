@@ -17,38 +17,33 @@
 
 #pragma once
 
-#include <pthread.h>
-#include <rapidjson/document.h>
+#include <butil/macros.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <condition_variable>
-#include <list>
+#include <boost/container/detail/std_fwd.hpp>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
-#include <string>
-#include <thread>
+#include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/BackendService_types.h"
-#include "gen_cpp/MasterService_types.h"
-#include "olap/lru_cache.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/olap_meta.h"
-#include "olap/options.h"
 #include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "util/time.h"
 
 namespace doris {
 class DeltaWriter;
+class OlapMeta;
 
 struct TabletTxnInfo {
     PUniqueId load_id;

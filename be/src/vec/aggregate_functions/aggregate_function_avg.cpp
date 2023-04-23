@@ -22,6 +22,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/core/field.h"
 
 namespace doris::vectorized {
 

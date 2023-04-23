@@ -17,30 +17,43 @@
 
 #include "vec/exprs/vexpr.h"
 
-#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
 #include <memory>
+#include <stack>
 
-#include "gen_cpp/Exprs_types.h"
+#include "common/config.h"
+#include "common/exception.h"
+#include "common/object_pool.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcolumn_ref.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
 #include "vec/exprs/vlambda_function_expr.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
-#include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vschema_change_expr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 using doris::Status;

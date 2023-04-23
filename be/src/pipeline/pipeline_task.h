@@ -17,9 +17,29 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/operator.h"
 #include "pipeline.h"
+#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
+#include "vec/core/block.h"
+
+namespace doris {
+class QueryFragmentsCtx;
+class RuntimeState;
+namespace pipeline {
+class PipelineFragmentContext;
+} // namespace pipeline
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
+} // namespace doris
 
 namespace doris::pipeline {
 

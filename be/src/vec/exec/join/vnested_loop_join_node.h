@@ -17,16 +17,33 @@
 
 #pragma once
 
-#include <boost/thread.hpp>
-#include <future>
-#include <stack>
-#include <string>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "exprs/runtime_filter.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "runtime/descriptors.h"
+#include <algorithm>
+#include <iosfwd>
+#include <memory>
+#include <stack>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vjoin_node_base.h"
+
+namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RowDescriptor;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

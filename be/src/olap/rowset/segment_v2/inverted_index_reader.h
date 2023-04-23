@@ -17,30 +17,44 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/util/BitSet.h>
 #include <CLucene/util/bkd/bkd_reader.h>
+#include <stdint.h>
 
-#include <roaring/roaring.hh>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 #include "olap/inverted_index_parser.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/tablet_schema.h"
+
+namespace lucene {
+namespace store {
+class Directory;
+} // namespace store
+namespace util {
+namespace bkd {
+class bkd_docid_set_iterator;
+} // namespace bkd
+} // namespace util
+} // namespace lucene
+namespace roaring {
+class Roaring;
+} // namespace roaring
 
 namespace doris {
 class KeyCoder;
 class TypeInfo;
+struct OlapReaderStatistics;
 
 namespace segment_v2 {
 
 class InvertedIndexIterator;
+class InvertedIndexQueryCacheHandle;
 
 enum class InvertedIndexReaderType {
     UNKNOWN = -1,

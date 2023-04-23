@@ -15,10 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <random>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <random>
+#include <utility>
+
+#include "common/status.h"
 #include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {

@@ -17,11 +17,38 @@
 
 #include "vec/olap/block_reader.h"
 
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <ostream>
+#include <string>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "exprs/function_filter.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/olap/vcollect_iterator.h"
+
+namespace doris {
+class ColumnPredicate;
+} // namespace doris
 
 namespace doris::vectorized {
 using namespace ErrorCode;

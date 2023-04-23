@@ -20,15 +20,30 @@
 
 #pragma once
 
-#include "gen_cpp/data.pb.h"
-#include "serde/data_type_map_serde.h"
-#include "util/stack_util.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_nullable.h"
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/serde/data_type_map_serde.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+class PColumnMeta;
+
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 /** Map data type.

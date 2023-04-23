@@ -22,16 +22,18 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/common/threadlocal.h>
 #include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 
+#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <map>
 #include <string>
 #include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "gutil/casts.h"
 #include "runtime/define_primitive_type.h"

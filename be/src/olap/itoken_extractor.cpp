@@ -17,6 +17,8 @@
 
 #include "itoken_extractor.h"
 
+#include <stdint.h>
+
 #include "util/simd/vstring_function.h"
 
 namespace doris {

@@ -21,7 +21,6 @@
 #include <butil/macros.h>
 #include <butil/time.h>
 #include <gen_cpp/Metrics_types.h>
-#include <gen_cpp/internal_service.pb.h>
 #include <parallel_hashmap/phmap.h>
 #include <stdint.h>
 #include <string.h>
@@ -53,8 +52,6 @@
 
 namespace doris {
 
-class RowCache;
-class Cache;
 class PTabletKeyLookupRequest;
 class PTabletKeyLookupResponse;
 class RuntimeState;
