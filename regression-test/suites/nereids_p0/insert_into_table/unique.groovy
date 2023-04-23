@@ -341,29 +341,81 @@ suite("nereids_insert_unique") {
             select * except(kaint) from src order by id, kint id < 4'''
     qt_23 'select * from uni_light_sc_t'
 
-    sql '''insert into uni_not_null_t
-            select * except(kaint) from src order by id, kint where id is not null'''
-    qt_31 'select * from uni_not_null_t'
+    sql '''insert into uni_mow_t
+            select * except(kaint) from src order by id, kint'''
+    qt_31 'select * from uni_mow_t'
 
-    sql '''insert into uni_not_null_t
+    sql '''insert into uni_mow_t
+            with cte as (select * except(kaint) from src)
+            select * from cte order by id, kint'''
+    qt_32 'select * from uni_mow_t'
+
+    sql '''insert into uni_mow_t partition (p1, p2) with label label_uni
+            select * except(kaint) from src order by id, kint where id < 4'''
+    qt_33 'select * from uni_mow_t'
+
+    sql '''insert into uni_light_sc_mow_t
+            select * except(kaint) from src order by id, kint'''
+    qt_41 'select * from uni_light_sc_mow_t'
+
+    sql '''insert into uni_light_sc_mow_t
+            with cte as (select * except(kaint) from src)
+            select * from cte order by id, kint'''
+    qt_42 'select * from uni_light_sc_mow_t'
+
+    sql '''insert into uni_light_sc_mow_t partition (p1, p2) with label label_uni_light_sc
+            select * except(kaint) from src order by id, kint id < 4'''
+    qt_43 'select * from uni_light_sc_mow_t'
+
+    sql '''insert into uni_mow_not_null_t
+            select * except(kaint) from src order by id, kint where id is not null'''
+    qt_51 'select * from uni_mow_not_null_t'
+
+    sql '''insert into uni_mow_not_null_t
             with cte as (select * except(kaint) from src)
             select * from cte order by id, kint where id is not null'''
-    qt_32 'select * from uni_not_null_t'
+    qt_52 'select * from uni_mow_not_null_t'
 
-    sql '''insert into uni_not_null_t partition (p1, p2) with label label_uni_not_null
+    sql '''insert into uni_mow_not_null_t partition (p1, p2) with label label_uni_not_null
             select * except(kaint) from src order by id, kint id < 4 where id is not null'''
-    qt_33 'select * from uni_not_null_t'
+    qt_53 'select * from uni_mow_not_null_t'
 
-    sql '''insert into uni_t_light_sc_not_null_t
+    sql '''insert into uni_t_light_sc_mow_not_null_t
             select * except(kaint) from src order by id, kint where id is not null'''
-    qt_41 'select * from uni_light_sc_not_null_t'
+    qt_61 'select * from uni_light_sc_mow_not_null_t'
 
-    sql '''insert into uni_t_light_sc_not_null_t
+    sql '''insert into uni_t_light_sc_mow_not_null_t
             with cte as (select * except(kaint) from src)
             select * from cte order by id, kint where id is not null'''
-    qt_42 'select * from uni_light_sc_not_null_t'
+    qt_62 'select * from uni_light_sc_mow_not_null_t'
 
-    sql '''insert into uni_t_light_sc_not_null_t partition (p1, p2) with label label_uni_light_sc_not_null
+    sql '''insert into uni_t_light_sc_mow_not_null_t partition (p1, p2) with label label_uni_light_sc_not_null
             select * except(kaint) from src order by id, kint where id < 4 where id is not null'''
-    qt_43 'select * from uni_light_sc_not_null_t'
+    qt_63 'select * from uni_light_sc_mow_not_null_t'
+
+    sql '''insert into uni_mow_not_null_t
+            select * except(kaint) from src order by id, kint where id is not null'''
+    qt_71 'select * from uni_mow_not_null_t'
+
+    sql '''insert into uni_mow_not_null_t
+            with cte as (select * except(kaint) from src)
+            select * from cte order by id, kint where id is not null'''
+    qt_72 'select * from uni_mow_not_null_t'
+
+    sql '''insert into uni_mow_not_null_t partition (p1, p2) with label label_uni_not_null
+            select * except(kaint) from src order by id, kint id < 4 where id is not null'''
+    qt_73 'select * from uni_mow_not_null_t'
+
+    sql '''insert into uni_t_light_sc_mow_not_null_t
+            select * except(kaint) from src order by id, kint where id is not null'''
+    qt_81 'select * from uni_light_sc_mow_not_null_t'
+
+    sql '''insert into uni_t_light_sc_mow_not_null_t
+            with cte as (select * except(kaint) from src)
+            select * from cte order by id, kint where id is not null'''
+    qt_82 'select * from uni_light_sc_mow_not_null_t'
+
+    sql '''insert into uni_t_light_sc_mow_not_null_t partition (p1, p2) with label label_uni_light_sc_not_null
+            select * except(kaint) from src order by id, kint where id < 4 where id is not null'''
+    qt_83 'select * from uni_light_sc_mow_not_null_t'
 }
