@@ -687,7 +687,7 @@ void LRUFileCache::remove(FileBlockSPtr file_block, std::lock_guard<std::mutex>&
     auto type = file_block->cache_type();
     auto* cell = get_cell(key, offset, cache_lock);
     // It will be removed concurrently
-    if (!cell) [[unlikely]] {
+    if (!cell) {
         return;
     }
 
@@ -778,7 +778,7 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                         offset = stoull(offset_with_suffix.substr(0, delim_pos));
                         std::string suffix = offset_with_suffix.substr(delim_pos + 1);
                         // not need persistent any more
-                        if (suffix == "persistent") [[unlikely]] {
+                        if (suffix == "persistent") {
                             std::error_code ec;
                             std::filesystem::remove(offset_it->path(), ec);
                             if (ec) {

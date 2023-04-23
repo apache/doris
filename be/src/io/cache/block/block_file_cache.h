@@ -20,11 +20,11 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
 #include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
 #include <cstddef>
-#include <bvar/bvar.h>
 
 #include <list>
 #include <memory>
@@ -38,9 +38,9 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_fwd.h"
 #include "io/cache/block/block_file_cache_settings.h"
+#include "io/io_common.h"
 #include "util/hash_util.hpp"
 #include "vec/common/uint128.h"
-#include "io/io_common.h"
 
 namespace doris {
 namespace io {

@@ -26,11 +26,10 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <thread>
-#include <unordered_map>
 
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
