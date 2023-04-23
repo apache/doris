@@ -93,6 +93,79 @@ suite("nereids_insert_unique") {
     '''
 
     sql '''
+        create table uni_mow_t (
+            `id` int null,
+            `kbool` boolean null,
+            `ktint` tinyint(4) null,
+            `ksint` smallint(6) null,
+            `kint` int(11) null,
+            `kbint` bigint(20) null,
+            `klint` largeint(40) null,
+            `kfloat` float null,
+            `kdbl` double null,
+            `kdcml` decimal(9, 3) null,
+            `kchr` char(10) null,
+            `kvchr` varchar(10) null,
+            `kstr` string null,
+            `kdt` date null,
+            `kdtv2` datev2 null,
+            `kdtm` datetime null,
+            `kdtmv2` datetimev2(0) null,
+            `kdcml32v3` decimalv3(7, 3) null,
+            `kdcml64v3` decimalv3(10, 5) null,
+            `kdcml128v3` decimalv3(20, 8) null
+        ) engine=OLAP
+        unilicate key(id)
+        distributed by hash(id) buckets 4
+        partition by range(id) (
+            partition p1 values less than ("3"),
+            partition p2 values less than ("5"),
+            partition p3 values less than ("7"),
+            partition p4 values less than ("9")
+        )
+        properties (
+           "replication_num"="1"
+        )
+    '''
+
+    sql '''
+        create table uni_light_sc_mow_t (
+            `id` int null,
+            `kbool` boolean null,
+            `ktint` tinyint(4) null,
+            `ksint` smallint(6) null,
+            `kint` int(11) null,
+            `kbint` bigint(20) null,
+            `klint` largeint(40) null,
+            `kfloat` float null,
+            `kdbl` double null,
+            `kdcml` decimal(9, 3) null,
+            `kchr` char(10) null,
+            `kvchr` varchar(10) null,
+            `kstr` string null,
+            `kdt` date null,
+            `kdtv2` datev2 null,
+            `kdtm` datetime null,
+            `kdtmv2` datetimev2(0) null,
+            `kdcml32v3` decimalv3(7, 3) null,
+            `kdcml64v3` decimalv3(10, 5) null,
+            `kdcml128v3` decimalv3(20, 8) null
+        ) engine=OLAP
+        unilicate key(id)
+        distributed by hash(id) buckets 4
+        partition by range(id) (
+            partition p1 values less than ("3"),
+            partition p2 values less than ("5"),
+            partition p3 values less than ("7"),
+            partition p4 values less than ("9")
+        )
+        properties (
+           "replication_num"="1"
+           "light_schema_change"="true"
+        )
+    '''
+
+    sql '''
         create table uni_not_null_t (
             `id` int not null,
             `kbool` boolean not null,
@@ -130,6 +203,79 @@ suite("nereids_insert_unique") {
 
     sql '''
         create table uni_light_sc_not_null_t (
+            `id` int not null,
+            `kbool` boolean not null,
+            `ktint` tinyint(4) not null,
+            `ksint` smallint(6) not null,
+            `kint` int(11) not null,
+            `kbint` bigint(20) not null,
+            `klint` largeint(40) not null,
+            `kfloat` float not null,
+            `kdbl` double not null,
+            `kdcml` decimal(9, 3) not null,
+            `kchr` char(10) not null,
+            `kvchr` varchar(10) not null,
+            `kstr` string not null,
+            `kdt` date not null,
+            `kdtv2` datev2 not null,
+            `kdtm` datetime not null,
+            `kdtmv2` datetimev2(0) not null,
+            `kdcml32v3` decimalv3(7, 3) not null,
+            `kdcml64v3` decimalv3(10, 5) not null,
+            `kdcml128v3` decimalv3(20, 8) not null
+        ) engine=OLAP
+        unilicate key(id)
+        distributed by hash(id) buckets 4
+        partition by range(id) (
+            partition p1 values less than ("3"),
+            partition p2 values less than ("5"),
+            partition p3 values less than ("7"),
+            partition p4 values less than ("9")
+        )
+        properties (
+           "replication_num"="1",
+           "light_schema_change"="true"
+        )
+    '''
+
+    sql '''
+        create table uni_mow_not_null_t (
+            `id` int not null,
+            `kbool` boolean not null,
+            `ktint` tinyint(4) not null,
+            `ksint` smallint(6) not null,
+            `kint` int(11) not null,
+            `kbint` bigint(20) not null,
+            `klint` largeint(40) not null,
+            `kfloat` float not null,
+            `kdbl` double not null,
+            `kdcml` decimal(9, 3) not null,
+            `kchr` char(10) not null,
+            `kvchr` varchar(10) not null,
+            `kstr` string not null,
+            `kdt` date not null,
+            `kdtv2` datev2 not null,
+            `kdtm` datetime not null,
+            `kdtmv2` datetimev2(0) not null,
+            `kdcml32v3` decimalv3(7, 3) not null,
+            `kdcml64v3` decimalv3(10, 5) not null,
+            `kdcml128v3` decimalv3(20, 8) not null
+        ) engine=OLAP
+        unilicate key(id)
+        distributed by hash(id) buckets 4
+        partition by range(id) (
+            partition p1 values less than ("3"),
+            partition p2 values less than ("5"),
+            partition p3 values less than ("7"),
+            partition p4 values less than ("9")
+        )
+        properties (
+           "replication_num"="1"
+        )
+    '''
+
+    sql '''
+        create table uni_light_sc_mow_not_null_t (
             `id` int not null,
             `kbool` boolean not null,
             `ktint` tinyint(4) not null,
