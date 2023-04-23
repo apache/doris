@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.txn;
 
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.catalog.Column;
 
 import java.util.List;
 
@@ -25,14 +25,14 @@ import java.util.List;
  * context for insert into command
  */
 public class InsertIntoContext {
-    private List<DataType> targetSchema = null;
+    private List<Column> targetSchema = null;
     private int keyNums = 0;
 
-    public void setTargetSchema(List<DataType> targetSchema) {
+    public void setTargetSchema(List<Column> targetSchema) {
         this.targetSchema = targetSchema;
     }
 
-    public List<DataType> getTargetSchema() {
+    public List<Column> getTargetSchema() {
         return targetSchema;
     }
 
