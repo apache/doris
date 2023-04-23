@@ -42,7 +42,7 @@ suite("nereids_insert_unique") {
             `kdcml64v3` decimalv3(10, 5) null,
             `kdcml128v3` decimalv3(20, 8) null
         ) engine=OLAP
-        unilicate key(id)
+        unique key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -78,7 +78,7 @@ suite("nereids_insert_unique") {
             `kdcml64v3` decimalv3(10, 5) null,
             `kdcml128v3` decimalv3(20, 8) null
         ) engine=OLAP
-        unilicate key(id)
+        unique key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -115,7 +115,7 @@ suite("nereids_insert_unique") {
             `kdcml64v3` decimalv3(10, 5) null,
             `kdcml128v3` decimalv3(20, 8) null
         ) engine=OLAP
-        unilicate key(id)
+        unique key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -151,7 +151,7 @@ suite("nereids_insert_unique") {
             `kdcml64v3` decimalv3(10, 5) null,
             `kdcml128v3` decimalv3(20, 8) null
         ) engine=OLAP
-        unilicate key(id)
+        unique key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -188,7 +188,7 @@ suite("nereids_insert_unique") {
             `kdcml64v3` decimalv3(10, 5) not null,
             `kdcml128v3` decimalv3(20, 8) not null
         ) engine=OLAP
-        unilicate key(id)
+        unique key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -224,7 +224,7 @@ suite("nereids_insert_unique") {
             `kdcml64v3` decimalv3(10, 5) not null,
             `kdcml128v3` decimalv3(20, 8) not null
         ) engine=OLAP
-        unilicate key(id)
+        unique key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -261,7 +261,7 @@ suite("nereids_insert_unique") {
             `kdcml64v3` decimalv3(10, 5) not null,
             `kdcml128v3` decimalv3(20, 8) not null
         ) engine=OLAP
-        unilicate key(id)
+        unique key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -297,7 +297,7 @@ suite("nereids_insert_unique") {
             `kdcml64v3` decimalv3(10, 5) not null,
             `kdcml128v3` decimalv3(20, 8) not null
         ) engine=OLAP
-        unilicate key(id)
+        unique key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
