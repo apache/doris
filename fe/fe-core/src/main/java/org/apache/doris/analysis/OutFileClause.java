@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.backup.HdfsStorage;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -47,6 +46,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -656,11 +656,17 @@ public class OutFileClause {
             S3Properties.requiredS3Properties(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {
             if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
-                brokerProps.put(HdfsResource.HADOOP_FS_NAME, HdfsStorage.getFsName(filePath));
+                brokerProps.put(HdfsResource.HADOOP_FS_NAME, getFsName(filePath));
             }
         }
-
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
+    }
+
+    public static String getFsName(String path) {
+        Path hdfsPath = new Path(path);
+        String fullPath = hdfsPath.toUri().toString();
+        String filePath = hdfsPath.toUri().getPath();
+        return fullPath.replace(filePath, "");
     }
 
     void setParquetCompressionType(String propertyValue) {
