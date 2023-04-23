@@ -71,6 +71,7 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
         // This is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
         if (_be_exec_version >= 2) {
             for (size_t i = 0; i < sz; i++) {
+                /// TODO: remove virtual function call in get_data_at to improve performance
                 auto ele = argument_column->get_data_at(i);
                 const StringRef v(ele.data, ele.size);
                 ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));

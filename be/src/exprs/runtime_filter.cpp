@@ -426,7 +426,12 @@ public:
                 }
             } else {
                 while (it->has_next()) {
-                    bloom_filter->insert(it->get_value());
+                    if (_use_new_hash) {
+                        bloom_filter->insert_crc32_hash(it->get_value());
+                    } else {
+                        bloom_filter->insert(it->get_value());
+                    }
+
                     it->next();
                 }
             }
@@ -449,7 +454,11 @@ public:
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            _context.bloom_filter_func->insert(data);
+            if (_use_new_hash) {
+                _context.bloom_filter_func->insert_crc32_hash(data);
+            } else {
+                _context.bloom_filter_func->insert(data);
+            }
             break;
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
