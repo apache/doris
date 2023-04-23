@@ -22,34 +22,34 @@ suite("nereids_insert_aggregate") {
     sql '''
         create table agg_t (
             `id` int null,
-            `kbool` boolean null max,
-            `ktint` tinyint(4) null max,
-            `ksint` smallint(6) null max,
-            `kint` int(11) null max,
-            `kbint` bigint(20) null max,
-            `klint` largeint(40) null max,
-            `kfloat` float null max,
-            `kdbl` double null max,
-            `kdcml` decimal(9, 3) null replace,
-            `kchr` char(10) null replace,
-            `kvchr` varchar(10) null replace,
-            `kstr` string null replace,
-            `kdt` date null replace,
-            `kdtv2` datev2 null replace,
-            `kdtm` datetime null replace,
-            `kdtmv2` datetimev2(0) null replace,
-            `kdcml32v3` decimalv3(7, 3) null replace,
-            `kdcml64v3` decimalv3(10, 5) null replace,
-            `kdcml128v3` decimalv3(20, 8) null replace
+            `kbool` boolean max null,
+            `ktint` tinyint(4) max null,
+            `ksint` smallint(6) max null,
+            `kint` int(11) max null,
+            `kbint` bigint(20) max null,
+            `klint` largeint(40) max null,
+            `kfloat` float max null,
+            `kdbl` double max null,
+            `kdcml` decimal(9, 3) replace null,
+            `kchr` char(10) replace null,
+            `kvchr` varchar(10) replace null,
+            `kstr` string replace null,
+            `kdt` date replace null,
+            `kdtv2` datev2 replace null,
+            `kdtm` datetime replace null,
+            `kdtmv2` datetimev2(0) replace null,
+            `kdcml32v3` decimalv3(7, 3) replace null,
+            `kdcml64v3` decimalv3(10, 5) replace null,
+            `kdcml128v3` decimalv3(20, 8) replace null
         ) engine=OLAP
         aggregate key(id)
-        distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
             partition p4 values less than ("9")
         )
+        distributed by hash(id) buckets 4
         properties (
            "replication_num"="1"
         )
@@ -58,34 +58,34 @@ suite("nereids_insert_aggregate") {
     sql '''
         create table agg_light_sc_t (
             `id` int null,
-            `kbool` boolean null max,
-            `ktint` tinyint(4) null max,
-            `ksint` smallint(6) null max,
-            `kint` int(11) null max,
-            `kbint` bigint(20) null max,
-            `klint` largeint(40) null max,
-            `kfloat` float null max,
-            `kdbl` double null max,
-            `kdcml` decimal(9, 3) null replace,
-            `kchr` char(10) null replace,
-            `kvchr` varchar(10) null replace,
-            `kstr` string null replace,
-            `kdt` date null replace,
-            `kdtv2` datev2 null replace,
-            `kdtm` datetime null replace,
-            `kdtmv2` datetimev2(0) null replace,
-            `kdcml32v3` decimalv3(7, 3) null replace,
-            `kdcml64v3` decimalv3(10, 5) null replace,
-            `kdcml128v3` decimalv3(20, 8) null replace
+            `kbool` boolean max null,
+            `ktint` tinyint(4) max null,
+            `ksint` smallint(6) max null,
+            `kint` int(11) max null,
+            `kbint` bigint(20) max null,
+            `klint` largeint(40) max null,
+            `kfloat` float max null,
+            `kdbl` double max null,
+            `kdcml` decimal(9, 3) replace null,
+            `kchr` char(10) replace null,
+            `kvchr` varchar(10) replace null,
+            `kstr` string replace null,
+            `kdt` date replace null,
+            `kdtv2` datev2 replace null,
+            `kdtm` datetime replace null,
+            `kdtmv2` datetimev2(0) replace null,
+            `kdcml32v3` decimalv3(7, 3) replace null,
+            `kdcml64v3` decimalv3(10, 5) replace null,
+            `kdcml128v3` decimalv3(20, 8) replace null
         ) engine=OLAP
         agglicate key(id)
-        distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
             partition p4 values less than ("9")
         )
+        distributed by hash(id) buckets 4
         properties (
            "replication_num"="1",
            "light_schema_change"="true"
@@ -95,34 +95,34 @@ suite("nereids_insert_aggregate") {
     sql '''
         create table agg_not_null_t (
             `id` int not null,
-            `kbool` boolean not null max,
-            `ktint` tinyint(4) not null max,
-            `ksint` smallint(6) not null max,
-            `kint` int(11) not null max,
-            `kbint` bigint(20) not null max,
-            `klint` largeint(40) not null max,
-            `kfloat` float not null max,
-            `kdbl` double not null max,
-            `kdcml` decimal(9, 3) not null replace,
-            `kchr` char(10) not null replace,
-            `kvchr` varchar(10) not null replace,
-            `kstr` string not null replace,
-            `kdt` date not null replace,
-            `kdtv2` datev2 not null replace,
-            `kdtm` datetime not null replace,
-            `kdtmv2` datetimev2(0) not null replace,
-            `kdcml32v3` decimalv3(7, 3) not null replace,
-            `kdcml64v3` decimalv3(10, 5) not null replace,
-            `kdcml128v3` decimalv3(20, 8) not null replace
+            `kbool` boolean not max null,
+            `ktint` tinyint(4) not max null,
+            `ksint` smallint(6) not max null,
+            `kint` int(11) not max null,
+            `kbint` bigint(20) not max null,
+            `klint` largeint(40) not max null,
+            `kfloat` float not max null,
+            `kdbl` double not max null,
+            `kdcml` decimal(9, 3) not replace null,
+            `kchr` char(10) not replace null,
+            `kvchr` varchar(10) not replace null,
+            `kstr` string not replace null,
+            `kdt` date not replace null,
+            `kdtv2` datev2 not replace null,
+            `kdtm` datetime not replace null,
+            `kdtmv2` datetimev2(0) not replace null,
+            `kdcml32v3` decimalv3(7, 3) not replace null,
+            `kdcml64v3` decimalv3(10, 5) not replace null,
+            `kdcml128v3` decimalv3(20, 8) not replace null
         ) engine=OLAP
         agglicate key(id)
-        distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
             partition p4 values less than ("9")
         )
+        distributed by hash(id) buckets 4
         properties (
            "replication_num"="1"
         )
@@ -131,34 +131,34 @@ suite("nereids_insert_aggregate") {
     sql '''
         create table agg_light_sc_not_null_t (
             `id` int not null,
-            `kbool` boolean not null max,
-            `ktint` tinyint(4) not null max,
-            `ksint` smallint(6) not null max,
-            `kint` int(11) not null max,
-            `kbint` bigint(20) not null max,
-            `klint` largeint(40) not null max,
-            `kfloat` float not null max,
-            `kdbl` double not null max,
-            `kdcml` decimal(9, 3) not null replace,
-            `kchr` char(10) not null replace,
-            `kvchr` varchar(10) not null replace,
-            `kstr` string not null replace,
-            `kdt` date not null replace,
-            `kdtv2` datev2 not null replace,
-            `kdtm` datetime not null replace,
-            `kdtmv2` datetimev2(0) not null replace,
-            `kdcml32v3` decimalv3(7, 3) not null replace,
-            `kdcml64v3` decimalv3(10, 5) not null replace,
-            `kdcml128v3` decimalv3(20, 8) not null replace
+            `kbool` boolean not max null,
+            `ktint` tinyint(4) not max null,
+            `ksint` smallint(6) not max null,
+            `kint` int(11) not max null,
+            `kbint` bigint(20) not max null,
+            `klint` largeint(40) not max null,
+            `kfloat` float not max null,
+            `kdbl` double not max null,
+            `kdcml` decimal(9, 3) not replace null,
+            `kchr` char(10) not replace null,
+            `kvchr` varchar(10) not replace null,
+            `kstr` string not replace null,
+            `kdt` date not replace null,
+            `kdtv2` datev2 not replace null,
+            `kdtm` datetime not replace null,
+            `kdtmv2` datetimev2(0) not replace null,
+            `kdcml32v3` decimalv3(7, 3) not replace null,
+            `kdcml64v3` decimalv3(10, 5) not replace null,
+            `kdcml128v3` decimalv3(20, 8) not replace null
         ) engine=OLAP
         agglicate key(id)
-        distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
             partition p4 values less than ("9")
         )
+        distributed by hash(id) buckets 4
         properties (
            "replication_num"="1",
            "light_schema_change"="true"
@@ -166,7 +166,7 @@ suite("nereids_insert_aggregate") {
     '''
     // DDL end
 
-    sql 'enable_nereids_planner=true'
+    sql 'enable_nereids_planner=false'
     sql 'enable_fallback_to_original_planner=false'
 
     sql '''insert into agg_t

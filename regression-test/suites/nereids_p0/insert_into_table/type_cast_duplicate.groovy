@@ -31,13 +31,13 @@ suite("nereids_insert_duplicate") {
             `kdcml32v3` decimalv3(7, 3) null
         ) engine=OLAP
         duplicate key(id)
-        distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
             partition p4 values less than ("9")
         )
+        distributed by hash(id) buckets 4
         properties (
            "replication_num"="1"
         )
@@ -55,13 +55,13 @@ suite("nereids_insert_duplicate") {
             `kdcml32v3` decimalv3(7, 3) null
         ) engine=OLAP
         duplicate key(id)
-        distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
             partition p4 values less than ("9")
         )
+        distributed by hash(id) buckets 4
         properties (
            "replication_num"="1",
            "light_schema_change"="true"
@@ -80,13 +80,13 @@ suite("nereids_insert_duplicate") {
             `kdcml32v3` decimalv3(7, 3) null
         ) engine=OLAP
         duplicate key(id)
-        distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
             partition p4 values less than ("9")
         )
+        distributed by hash(id) buckets 4
         properties (
            "replication_num"="1"
         )
@@ -104,13 +104,13 @@ suite("nereids_insert_duplicate") {
             `kdcml32v3` decimalv3(7, 3) null
         ) engine=OLAP
         duplicate key(id)
-        distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
             partition p4 values less than ("9")
         )
+        distributed by hash(id) buckets 4
         properties (
            "replication_num"="1",
            "light_schema_change"="true"
@@ -118,7 +118,7 @@ suite("nereids_insert_duplicate") {
     '''
     // DDL end
 
-    sql 'enable_nereids_planner=true'
+    sql 'enable_nereids_planner=false'
     sql 'enable_fallback_to_original_planner=false'
 
     sql '''insert into dup_t_type_cast

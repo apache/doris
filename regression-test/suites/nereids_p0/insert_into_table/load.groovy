@@ -53,7 +53,7 @@ suite("load") {
     '''
 
     streamLoad {
-        table "expr_test"
+        table "src"
         db "nereids_insert_into_table_test"
         set 'column_separator', ';'
         set 'columns', '''
