@@ -31,15 +31,15 @@ import java.io.IOException;
  * For resource group drop
  */
 public class DropResourceGroupOperationLog implements Writable {
-    @SerializedName(value = "name")
-    private String name;
+    @SerializedName(value = "id")
+    private long id;
 
-    public DropResourceGroupOperationLog(String name) {
-        this.name = name;
+    public DropResourceGroupOperationLog(long id) {
+        this.id = id;
     }
 
-    public String getName() {
-        return name;
+    public long getID() {
+        return id;
     }
 
     @Override

@@ -172,7 +172,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
             ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
             idToResourceGroup.remove(resourceGroup.getId());
             nameToResourceGroup.remove(resourceGroupName);
-            Env.getCurrentEnv().getEditLog().logDropResourceGroup(new DropResourceGroupOperationLog(resourceGroupName));
+            Env.getCurrentEnv().getEditLog().logDropResourceGroup(new DropResourceGroupOperationLog(resourceGroup.getId()));
         } finally {
             writeUnlock();
         }
@@ -190,15 +190,15 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void replayDropResourceGroup(DropResourceGroupOperationLog operationLog) {
-        String resourceGroupName = operationLog.getName();
+        long id = operationLog.getID();
         writeLock();
         try {
-            if (!nameToResourceGroup.containsKey(resourceGroupName)) {
+            if (!idToResourceGroup.containsKey(id)) {
                 return;
             }
-            ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
-            idToResourceGroup.remove(resourceGroup.getId());
-            nameToResourceGroup.remove(resourceGroupName);
+            ResourceGroup resourceGroup = idToResourceGroup.get(id);
+            nameToResourceGroup.remove(resourceGroup.getName());
+            idToResourceGroup.remove(id);
         } finally {
             writeUnlock();
         }
