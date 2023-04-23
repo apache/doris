@@ -24,6 +24,8 @@ suite("nereids_insert_aggregate_type_cast") {
         sql "drop table if exists ${t}"
     }
 
+    sql 'clean label from nereids_insert_into_table_test'
+
     // DDL
     sql '''
         create table agg_t_type_cast (
@@ -128,54 +130,54 @@ suite("nereids_insert_aggregate_type_cast") {
     sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into agg_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
     qt_11 'select * from agg_t_type_cast order by id, kint'
 
-    sql '''insert into agg_t_type_cast with label label_agg_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into agg_t_type_cast with label label_agg_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte'''
     qt_12 'select * from agg_t_type_cast order by id, kint'
 
-    sql '''insert into agg_t_type_cast partition (p1, p2) with label label_agg
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4'''
+    sql '''insert into agg_t_type_cast partition (p1, p2) with label label_agg_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
     qt_13 'select * from agg_t_type_cast order by id, kint'
 
     sql '''insert into agg_light_sc_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
     qt_21 'select * from agg_light_sc_t_type_cast order by id, kint'
 
-    sql '''insert into agg_light_sc_t_type_cast with label label_agg_light_sc_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into agg_light_sc_t_type_cast with label label_agg_light_sc_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte'''
     qt_22 'select * from agg_light_sc_t_type_cast order by id, kint'
 
-    sql '''insert into agg_light_sc_t_type_cast partition (p1, p2) with label label_agg_light_sc
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4'''
+    sql '''insert into agg_light_sc_t_type_cast partition (p1, p2) with label label_agg_light_sc_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
     qt_23 'select * from agg_light_sc_t_type_cast order by id, kint'
 
     sql '''insert into agg_not_null_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id is not null'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id is not null'''
     qt_31 'select * from agg_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into agg_not_null_t_type_cast with label label_agg_not_null_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into agg_not_null_t_type_cast with label label_agg_not_null_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte where id is not null'''
     qt_32 'select * from agg_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into agg_not_null_t_type_cast partition (p1, p2) with label label_agg_not_null
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4 and id is not null'''
+    sql '''insert into agg_not_null_t_type_cast partition (p1, p2) with label label_agg_not_null_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4 and id is not null'''
     qt_33 'select * from agg_not_null_t_type_cast order by id, kint'
 
     sql '''insert into agg_light_sc_not_null_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id is not null'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id is not null'''
     qt_41 'select * from agg_light_sc_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into agg_light_sc_not_null_t_type_cast with label label_agg_light_sc_not_null_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into agg_light_sc_not_null_t_type_cast with label label_agg_light_sc_not_null_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte where id is not null'''
     qt_42 'select * from agg_light_sc_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into agg_light_sc_not_null_t_type_cast partition (p1, p2) with label label_agg_light_sc_not_null
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4 and id is not null'''
+    sql '''insert into agg_light_sc_not_null_t_type_cast partition (p1, p2) with label label_agg_light_sc_not_null_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4 and id is not null'''
     qt_43 'select * from agg_light_sc_not_null_t_type_cast order by id, kint'
 }

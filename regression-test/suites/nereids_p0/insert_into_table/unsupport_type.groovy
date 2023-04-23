@@ -33,15 +33,15 @@ suite("nereids_insert_into_table") {
         )
     '''
 
-    sql 'set enable_nereids_planner=false'
+    sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
     test {
         sql 'insert into arr_t select id, kaint from src'
-        exception 'null'
+        exception 'type ARRAY<INT> is unsupported for Nereids'
     }
 
-    sql 'enable_fallback_to_original_planner=true'
+    sql 'set enable_fallback_to_original_planner=true'
 
     sql 'insert into arr_t select id, kaint from src'
     sql 'select * from arr_t'

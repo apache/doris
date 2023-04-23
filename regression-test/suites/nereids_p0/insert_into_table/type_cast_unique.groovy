@@ -25,6 +25,8 @@ suite("nereids_insert_unique") {
         sql "drop table if exists ${t}"
     }
 
+    sql 'clean label from nereids_insert_into_table_test'
+
     // DDL
     sql '''
         create table uni_t_type_cast (
@@ -231,106 +233,106 @@ suite("nereids_insert_unique") {
     sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into uni_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
     qt_11 'select * from uni_t_type_cast order by id, kint'
 
-    sql '''insert into uni_t_type_cast with label label_uni_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into uni_t_type_cast with label label_uni_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte'''
     qt_12 'select * from uni_t_type_cast order by id, kint'
 
-    sql '''insert into uni_t_type_cast partition (p1, p2) with label label_uni
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4'''
+    sql '''insert into uni_t_type_cast partition (p1, p2) with label label_uni_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
     qt_13 'select * from uni_t_type_cast order by id, kint'
 
     sql '''insert into uni_light_sc_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
     qt_21 'select * from uni_light_sc_t_type_cast order by id, kint'
 
-    sql '''insert into uni_light_sc_t_type_cast with label label_uni_light_sc_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into uni_light_sc_t_type_cast with label label_uni_light_sc_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte'''
     qt_22 'select * from uni_light_sc_t_type_cast order by id, kint'
 
-    sql '''insert into uni_light_sc_t_type_cast partition (p1, p2) with label label_uni_light_sc
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4'''
+    sql '''insert into uni_light_sc_t_type_cast partition (p1, p2) with label label_uni_light_sc_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
     qt_23 'select * from uni_light_sc_t_type_cast order by id, kint'
 
     sql '''insert into uni_mow_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
     qt_31 'select * from uni_mow_t_type_cast order by id, kint'
 
-    sql '''insert into uni_mow_t_type_cast with label label_uni_mow_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into uni_mow_t_type_cast with label label_uni_mow_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte'''
     qt_32 'select * from uni_mow_t_type_cast order by id, kint'
 
-    sql '''insert into uni_mow_t_type_cast partition (p1, p2) with label label_uni_mow
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4'''
+    sql '''insert into uni_mow_t_type_cast partition (p1, p2) with label label_uni_mow_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
     qt_33 'select * from uni_mow_t_type_cast order by id, kint'
 
     sql '''insert into uni_light_sc_mow_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
     qt_41 'select * from uni_light_sc_mow_t_type_cast order by id, kint'
 
-    sql '''insert into uni_light_sc_mow_t_type_cast with label label_uni_light_sc_mow_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into uni_light_sc_mow_t_type_cast with label label_uni_light_sc_mow_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte'''
     qt_42 'select * from uni_light_sc_mow_t_type_cast order by id, kint'
 
-    sql '''insert into uni_light_sc_mow_t_type_cast partition (p1, p2) with label label_uni_light_sc_mow
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4'''
+    sql '''insert into uni_light_sc_mow_t_type_cast partition (p1, p2) with label label_uni_light_sc_mow_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
     qt_43 'select * from uni_light_sc_mow_t_type_cast order by id, kint'
 
     sql '''insert into uni_mow_not_null_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id is not null'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id is not null'''
     qt_51 'select * from uni_mow_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into uni_mow_not_null_t_type_cast with label label_uni_not_null_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into uni_mow_not_null_t_type_cast with label label_uni_not_null_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte where id is not null'''
     qt_52 'select * from uni_mow_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into uni_mow_not_null_t_type_cast partition (p1, p2) with label label_uni_not_null
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4 and id is not null'''
+    sql '''insert into uni_mow_not_null_t_type_cast partition (p1, p2) with label label_uni_not_null_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4 and id is not null'''
     qt_53 'select * from uni_mow_not_null_t_type_cast order by id, kint'
 
     sql '''insert into uni_light_sc_mow_not_null_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id is not null'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id is not null'''
     qt_61 'select * from uni_light_sc_mow_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into uni_light_sc_mow_not_null_t_type_cast with label label_uni_light_sc_not_null_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into uni_light_sc_mow_not_null_t_type_cast with label label_uni_light_sc_not_null_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte where id is not null'''
     qt_62 'select * from uni_light_sc_mow_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into uni_light_sc_mow_not_null_t_type_cast partition (p1, p2) with label label_uni_light_sc_not_null
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4 and id is not null'''
+    sql '''insert into uni_light_sc_mow_not_null_t_type_cast partition (p1, p2) with label label_uni_light_sc_not_null_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4 and id is not null'''
     qt_63 'select * from uni_light_sc_mow_not_null_t_type_cast order by id, kint'
 
     sql '''insert into uni_mow_not_null_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id is not null'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id is not null'''
     qt_71 'select * from uni_mow_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into uni_mow_not_null_t_type_cast with label label_uni_mow_not_null_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into uni_mow_not_null_t_type_cast with label label_uni_mow_not_null_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte where id is not null'''
     qt_72 'select * from uni_mow_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into uni_mow_not_null_t_type_cast partition (p1, p2) with label label_uni_mow_not_null
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4 and id is not null'''
+    sql '''insert into uni_mow_not_null_t_type_cast partition (p1, p2) with label label_uni_mow_not_null_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4 and id is not null'''
     qt_73 'select * from uni_mow_not_null_t_type_cast order by id, kint'
 
     sql '''insert into uni_light_sc_mow_not_null_t_type_cast
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id is not null'''
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id is not null'''
     qt_81 'select * from uni_light_sc_mow_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into uni_light_sc_mow_not_null_t_type_cast with label label_uni_light_sc_mow_not_null_cte
-            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
+    sql '''insert into uni_light_sc_mow_not_null_t_type_cast with label label_uni_light_sc_mow_not_null_type_cast_cte
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte where id is not null'''
     qt_82 'select * from uni_light_sc_mow_not_null_t_type_cast order by id, kint'
 
-    sql '''insert into uni_light_sc_mow_not_null_t_type_cast partition (p1, p2) with label label_uni_light_sc_mow_not_null
-            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src where id < 4 and id is not null'''
+    sql '''insert into uni_light_sc_mow_not_null_t_type_cast partition (p1, p2) with label label_uni_light_sc_mow_not_null_type_cast
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4 and id is not null'''
     qt_83 'select * from uni_light_sc_mow_not_null_t_type_cast order by id, kint'
 }

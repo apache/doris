@@ -24,6 +24,8 @@ suite("nereids_insert_duplicate") {
         sql "drop table if exists ${t}"
     }
 
+    sql 'clean label from nereids_insert_into_table_test'
+
     // DDL
     sql '''
         create table dup_t (
@@ -214,16 +216,16 @@ suite("nereids_insert_duplicate") {
             select * except(kaint) from src where id < 4 and id is not null'''
     qt_33 'select * from dup_not_null_t order by id, kint'
 
-    sql '''insert into dup_t_light_sc_not_null_t
+    sql '''insert into dup_light_sc_not_null_t
             select * except(kaint) from src where id is not null'''
     qt_41 'select * from dup_light_sc_not_null_t order by id, kint'
 
-    sql '''insert into dup_t_light_sc_not_null_t with label label_dup_light_sc_not_null_cte
+    sql '''insert into dup_light_sc_not_null_t with label label_dup_light_sc_not_null_cte
             with cte as (select * except(kaint) from src)
             select * from cte where id is not null'''
     qt_42 'select * from dup_light_sc_not_null_t order by id, kint'
 
-    sql '''insert into dup_t_light_sc_not_null_t partition (p1, p2) with label label_dup_light_sc_not_null
+    sql '''insert into dup_light_sc_not_null_t partition (p1, p2) with label label_dup_light_sc_not_null
             select * except(kaint) from src where id < 4 and id is not null'''
     qt_43 'select * from dup_light_sc_not_null_t order by id, kint'
 }
