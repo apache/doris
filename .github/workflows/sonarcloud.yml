@@ -21,7 +21,6 @@ on:
   push:
     branches:
       - master
-    types: [closed]
 
 jobs:
   build:
@@ -79,6 +78,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
+          if [ ! "$SONAR_TOKEN" ]; then
+            echo "SONAR_TOKEN environment is null, skip check"
+          exit 0
+          fi
           cd fe
           mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=apache_incubator-doris -DskipTests
 # scanner be
