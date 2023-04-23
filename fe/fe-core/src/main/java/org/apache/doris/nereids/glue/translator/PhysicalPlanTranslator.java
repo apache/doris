@@ -1457,6 +1457,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (inputPlanNode instanceof ScanNode) {
             TupleDescriptor tupleDescriptor = null;
             if (requiredByProjectSlotIdSet.size() != requiredSlotIdSet.size()
+                    || execExprList.stream().collect(Collectors.toSet()).size() != execExprList.size()
                     || execExprList.stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
                 tupleDescriptor = generateTupleDesc(slotList, null, context);
                 inputPlanNode.setProjectList(execExprList);
