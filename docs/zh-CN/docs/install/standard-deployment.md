@@ -1,6 +1,6 @@
 ---
 {
-    "title": "安装与部署",
+    "title": "标准部署",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 安装与部署
+# 标准部署
 
 该文档主要介绍了部署 Doris 所需软硬件环境、建议的部署方式、集群扩容缩容，以及集群搭建到运行过程中的常见问题。  
 在阅读本文档前，请先根据编译文档编译 Doris。

@@ -345,7 +345,7 @@ The third level can display the value information of the specified key.
 
 ## Best Practices
 
-The deployment recommendation of FE is described in the Installation and [Deployment Document](../../install/install-deploy.md). Here are some supplements.
+The deployment recommendation of FE is described in the Installation and [Deployment Document](../../install/standard-deployment.md). Here are some supplements.
 
 * **If you don't know the operation logic of FE metadata very well, or you don't have enough experience in the operation and maintenance of FE metadata, we strongly recommend that only one FOLLOWER-type FE be deployed as MASTER in practice, and the other FEs are OBSERVER, which can reduce many complex operation and maintenance problems.** Don't worry too much about the failure of MASTER single point to write metadata. First, if you configure it properly, FE as a java process is very difficult to hang up. Secondly, if the MASTER disk is damaged (the probability is very low), we can also use the metadata on OBSERVER to recover manually through `fault recovery`.
 
