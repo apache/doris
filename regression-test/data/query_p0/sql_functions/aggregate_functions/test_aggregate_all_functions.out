@@ -255,6 +255,9 @@ beijing chengdu shanghai
 -- !select47 --
 6
 
+-- !select_table_count --
+3
+
 -- !select48 --
 20220201	0	1.0
 20220201	1	-1.0
@@ -269,3 +272,4 @@ beijing chengdu shanghai
 20220201	0	1.0
 20220201	1	3.0
 20220202	2	4999.0
+

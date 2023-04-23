@@ -529,7 +529,10 @@ suite("test_aggregate_all_functions") {
         set 'columns', 'dt, id, price, price=to_quantile_state(price, 2048)'
         inputIterator rows.iterator()
     }
-
+    sql 'sync'
+    def table_count_check = sql "select count(*) from ${tableName_21};"
+    assertEquals(3, table_count_check[0][0])
+    qt_select_table_count """select count(*) from ${tableName_21};"""
     qt_select48 """select dt, id, quantile_percent(quantile_union(price), 0) from ${tableName_21} group by dt, id order by dt, id"""
 
     qt_select49 """select dt, id, quantile_percent(quantile_union(price), 0.5) from ${tableName_21} group by dt, id order by dt, id"""
