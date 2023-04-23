@@ -1580,7 +1580,7 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
         // This will change month and year information, maybe date.
         int64_t months = _year * 12 + _month - 1 + sign * (12 * interval.year + interval.month);
         _year = months / 12;
-        DCHECK(months>=0)<<"months should be a non-negative number.";
+        DCHECK(months >= 0) << "months should be a non-negative number.";
         if (_year < MIN_YEAR || _year > MAX_YEAR) {
             return false;
         }
