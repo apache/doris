@@ -240,7 +240,7 @@ public class NereidsPlanner extends Planner {
     }
 
     private LogicalPlan preprocess(LogicalPlan logicalPlan) {
-        return new PlanPreprocessors(statementContext).process(logicalPlan);
+        return new PlanPreprocessors(cascadesContext.getCurrentJobContext()).process(logicalPlan);
     }
 
     private void initCascadesContext(LogicalPlan plan, PhysicalProperties requireProperties) {

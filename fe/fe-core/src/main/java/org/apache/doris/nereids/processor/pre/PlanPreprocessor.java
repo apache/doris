@@ -18,11 +18,18 @@
 package org.apache.doris.nereids.processor.pre;
 
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 /**
  * PlanPreprocessor: a PlanVisitor to rewrite LogicalPlan to new LogicalPlan.
  */
-public abstract class PlanPreprocessor extends DefaultPlanRewriter<StatementContext> {
+public class PlanPreprocessor extends DefaultPlanRewriter<StatementContext> implements CustomRewriter {
 
+    @Override
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        return plan.accept(this, jobContext.getCascadesContext().getStatementContext());
+    }
 }
