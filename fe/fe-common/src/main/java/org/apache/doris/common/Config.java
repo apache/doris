@@ -2135,5 +2135,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean infodb_support_ext_catalog = false;
+
+    /**
+     * If true, auth check will be disabled. The default value is false.
+     * This is to solve the case that user forgot the password.
+     */
+    @ConfField(mutable = true)
+    public static boolean skip_localhost_auth_check  = false;
 }
 
