@@ -33,7 +33,7 @@ services:
       # JVM debugging port (will be mapped to a random port on host)
       - "5005"
     env_file:
-      - ./hadoop.env
+      - ./hudi.env
     healthcheck:
       test: ["CMD", "curl", "-f", "http://namenode:50070"]
       interval: 30s
@@ -49,7 +49,7 @@ services:
     environment:
       - CLUSTER_NAME=hudi_hadoop284_hive232_spark244
     env_file:
-      - ./hadoop.env
+      - ./hudi.env
     ports:
       - "50075:50075"
       - "50010:50010"
@@ -86,7 +86,7 @@ services:
       timeout: 10s
       retries: 3
     env_file:
-      - ./hadoop.env
+      - ./hudi.env
     volumes:
       - ./historyserver:/hadoop/yarn/timeline
     networks:
@@ -109,7 +109,7 @@ services:
       - "hive-metastore-postgresql"
       - "namenode"
     env_file:
-      - ./hadoop.env
+      - ./hudi.env
     command: /opt/hive/bin/hive --service metastore
     environment:
       SERVICE_PRECONDITION: "namenode:50070 hive-metastore-postgresql:5432"
@@ -133,7 +133,7 @@ services:
     hostname: hiveserver
     container_name: hiveserver
     env_file:
-      - ./hadoop.env
+      - ./hudi.env
     environment:
       SERVICE_PRECONDITION: "hivemetastore:9083"
     ports:
@@ -156,7 +156,7 @@ services:
     hostname: sparkmaster
     container_name: sparkmaster
     env_file:
-      - ./hadoop.env
+      - ./hudi.env
     ports:
       - "8080:8080"
       - "7077:7077"
@@ -177,7 +177,7 @@ services:
     hostname: spark-worker-1
     container_name: spark-worker-1
     env_file:
-      - ./hadoop.env
+      - ./hudi.env
     depends_on:
       - sparkmaster
     ports:
