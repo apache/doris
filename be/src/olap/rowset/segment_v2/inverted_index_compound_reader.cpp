@@ -224,6 +224,17 @@ int64_t DorisCompoundReader::fileLength(const char* name) const {
     return e->length;
 }
 
+bool DorisCompoundReader::openInput(const char* name,
+                                    std::unique_ptr<lucene::store::IndexInput>& ret,
+                                    CLuceneError& error, int32_t bufferSize) {
+    lucene::store::IndexInput* tmp;
+    bool success = openInput(name, tmp, error, bufferSize);
+    if (success) {
+        ret.reset(tmp);
+    }
+    return success;
+}
+
 bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*& ret,
                                     CLuceneError& error, int32_t bufferSize) {
     if (stream == nullptr) {
