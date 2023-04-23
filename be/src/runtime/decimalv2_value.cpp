@@ -373,7 +373,18 @@ std::string DecimalV2Value::to_string(int scale) const {
             }
         }
     } else {
-        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
+        // roundup to FIX 17191
+        if (scale < SCALE) {
+            int32_t frac_val_tmp = frac_val / SCALE_TRIM_ARRAY[scale];
+            if (frac_val / SCALE_TRIM_ARRAY[scale + 1] % 10 >= 5) {
+                frac_val_tmp++;
+                if (frac_val_tmp >= SCALE_TRIM_ARRAY[9 - scale]) {
+                    frac_val_tmp = 0;
+                    _value >= 0 ? int_val++ : int_val--;
+                }
+            }
+            frac_val = frac_val_tmp;
+        }
     }
     auto f_int = fmt::format_int(int_val);
     if (scale == 0) {
@@ -414,7 +425,18 @@ int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
             }
         }
     } else {
-        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
+        // roundup to FIX 17191
+        if (scale < SCALE) {
+            int32_t frac_val_tmp = frac_val / SCALE_TRIM_ARRAY[scale];
+            if (frac_val / SCALE_TRIM_ARRAY[scale + 1] % 10 >= 5) {
+                frac_val_tmp++;
+                if (frac_val_tmp >= SCALE_TRIM_ARRAY[9 - scale]) {
+                    frac_val_tmp = 0;
+                    _value >= 0 ? int_val++ : int_val--;
+                }
+            }
+            frac_val = frac_val_tmp;
+        }
     }
     int extra_sign_size = 0;
     if (_value < 0 && int_val == 0 && frac_val != 0) {
