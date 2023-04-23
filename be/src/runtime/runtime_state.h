@@ -37,6 +37,7 @@
 #include "cctz/time_zone.h"
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
@@ -53,6 +54,8 @@ class QueryContext;
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
 class RuntimeState {
+    ENABLE_FACTORY_CREATOR(RuntimeState);
+
 public:
     // for ut only
     RuntimeState(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,

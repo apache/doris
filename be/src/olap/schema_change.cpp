@@ -252,7 +252,7 @@ ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
 Status BlockChanger::change_block(vectorized::Block* ref_block,
                                   vectorized::Block* new_block) const {
     ObjectPool pool;
-    RuntimeState* state = pool.add(new RuntimeState());
+    RuntimeState* state = pool.add(RuntimeState::create_unique().release());
     state->set_desc_tbl(&_desc_tbl);
     state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =
