@@ -58,6 +58,7 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _sorter.reset(new FullSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
                                      _nulls_first, row_desc, state, _runtime_profile.get()));
     }
+
     // init runtime predicate
     _use_topn_opt = tnode.sort_node.use_topn_opt;
     if (_use_topn_opt) {
@@ -71,8 +72,8 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
                 }
                 for (auto slot : tuple_desc->slots()) {
                     if (slot->id() == first_sort_slot.slot_id) {
-                        RETURN_IF_ERROR(query_ctx->get_runtime_predicate().init(slot->type().type,
-                                                                                _nulls_first[0]));
+                        RETURN_IF_ERROR(
+                                query_ctx->get_runtime_predicate().init(slot->type().type));
                         break;
                     }
                 }
