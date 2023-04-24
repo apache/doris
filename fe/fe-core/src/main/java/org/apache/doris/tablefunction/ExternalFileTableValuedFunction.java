@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -62,7 +63,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
-import javafx.util.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -388,20 +388,20 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         int parsedNodes;
         if (tPrimitiveType == TPrimitiveType.ARRAY) {
             Pair<Type, Integer> itemType = getColumnType(typeNodes, start + 1);
-            type =  ArrayType.create(itemType.getKey(), true);
-            parsedNodes = 1 + itemType.getValue();
+            type =  ArrayType.create(itemType.key(), true);
+            parsedNodes = 1 + itemType.value();
         } else if (tPrimitiveType == TPrimitiveType.MAP) {
             Pair<Type, Integer> keyType = getColumnType(typeNodes, start + 1);
-            Pair<Type, Integer> valueType = getColumnType(typeNodes, start + 1 + keyType.getValue());
-            type = new MapType(keyType.getKey(), valueType.getKey());
-            parsedNodes = 1 + keyType.getValue() + valueType.getValue();
+            Pair<Type, Integer> valueType = getColumnType(typeNodes, start + 1 + keyType.value());
+            type = new MapType(keyType.key(), valueType.key());
+            parsedNodes = 1 + keyType.value() + valueType.value();
         } else if (tPrimitiveType == TPrimitiveType.STRUCT) {
             parsedNodes = 1;
             ArrayList<StructField> fields = new ArrayList<>();
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
-                fields.add(new StructField(typeNodes.get(start).getStructFields(i).getName(), fieldType.getKey()));
-                parsedNodes += fieldType.getValue();
+                fields.add(new StructField(typeNodes.get(start).getStructFields(i).getName(), fieldType.key()));
+                parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
         } else {
@@ -409,7 +409,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     columnType.getLen(), columnType.getPrecision(), columnType.getScale());
             parsedNodes = 1;
         }
-        return new Pair<>(type, parsedNodes);
+        return Pair.of(type, parsedNodes);
     }
 
     private void fillColumns(InternalService.PFetchTableSchemaResult result)
@@ -420,7 +420,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
             String colName = result.getColumnNames(idx);
-            columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).getKey(), true));
+            columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
         }
     }
 
