@@ -1412,7 +1412,7 @@ template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_GEOMETRY>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
     static int cmp(const void* left, const void* right) {
-        LOG(WARNING) << "can not compare JSONB values";
+        LOG(WARNING) << "can not compare geometry values";
         return -1; // always update ?
     }
 

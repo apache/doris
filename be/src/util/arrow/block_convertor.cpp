@@ -39,6 +39,7 @@
 #include <utility>
 #include <vector>
 
+#include "geo/geo_types.h"
 #include "gutil/integral_types.h"
 #include "runtime/large_int_value.h"
 #include "util/arrow/utils.h"
@@ -165,7 +166,7 @@ public:
             }
             case vectorized::TypeIndex::GEOMETRY: {
                 std::string string_temp =
-                        JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
+                        GeoShape::geo_tohex(std::string(data_ref.data, data_ref.size));
                 ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
                 break;
             }

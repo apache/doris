@@ -16,7 +16,6 @@
 // under the License.
 
 #include "geometry_value.h"
-
 #include "geo/geo_types.h"
 
 namespace doris {
