@@ -103,38 +103,37 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 return Status::InternalError(ss.str());
             }
 
-            //            std::vector<InetAddress> hosts;
-            //            Status status = get_hosts(&hosts);
-            //            if (!status.ok() || hosts.empty()) {
-            //                std::stringstream ss;
-            //                // todo(zd)
-            //                ss << "the status was not ok when get_hosts_v4, error is " << status.to_string();
-            //                LOG(WARNING) << ss.str();
-            //                return Status::InternalError(ss.str());
-            //            }
+            std::vector<InetAddress> hosts;
+            Status status = get_hosts(&hosts);
+            if (!status.ok() || hosts.empty()) {
+                std::stringstream ss;
+                ss << "the status was not ok when get_hosts_v4, error is " << status.to_string();
+                LOG(WARNING) << ss.str();
+                return Status::InternalError(ss.str());
+            }
 
-            //            bool set_new_localhost = false;
+            bool set_new_localhost = false;
             BackendOptions::set_localhost(master_info.backend_ip);
-            //            set_new_localhost = true;
-            //            for (std::vector<InetAddress>::iterator addr_it = hosts.begin(); addr_it != hosts.end(); ++addr_it) {
-            //                if (addr_it->is_address_v4() && addr_it->get_host_address_v4() == ip) {
-            //                    BackendOptions::set_localhost(master_info.backend_ip);
-            //                    set_new_localhost = true;
-            //                    break;
-            //                }
-            //            }
+            for (std::vector<InetAddress>::iterator addr_it = hosts.begin(); addr_it != hosts.end();
+                 ++addr_it) {
+                if (addr_it->get_host_address() == ip) {
+                    BackendOptions::set_localhost(master_info.backend_ip);
+                    set_new_localhost = true;
+                    break;
+                }
+            }
 
-            //            if (!set_new_localhost) {
-            //                std::stringstream ss;
-            //                ss << "the host recorded in master is " << master_info.backend_ip
-            //                   << ", but we cannot found the local ip that mapped to that host."
-            //                   << BackendOptions::get_localhost();
-            ////                LOG(WARNING) << ss.str();
-            //                return Status::InternalError(ss.str());
-            //            }
+            if (!set_new_localhost) {
+                std::stringstream ss;
+                ss << "the host recorded in master is " << master_info.backend_ip
+                   << ", but we cannot found the local ip that mapped to that host."
+                   << BackendOptions::get_localhost();
+                LOG(WARNING) << ss.str();
+                return Status::InternalError(ss.str());
+            }
 
             LOG(WARNING) << "update localhost done, the new localhost is "
-                      << BackendOptions::get_localhost();
+                         << BackendOptions::get_localhost();
         }
     }
 
