@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -190,8 +191,11 @@ public final class RuntimeFilter {
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
         tFilter.setHasRemoteTargets(hasRemoteTargets);
+        boolean optRemoteRf = true;
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
+            // TODO: support FunctionCallExpr
+            optRemoteRf = optRemoteRf && !(target.expr instanceof FunctionCallExpr);
         }
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
@@ -199,7 +203,7 @@ public final class RuntimeFilter {
             tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
             tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
         }
-        tFilter.setOptRemoteRf(true);
+        tFilter.setOptRemoteRf(optRemoteRf);
         return tFilter;
     }
 

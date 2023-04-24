@@ -386,7 +386,6 @@ protected:
     std::string _ignored_msg;
 
     std::vector<doris::vectorized::VExpr*> _push_down_vexprs;
-    std::map<std::string, std::vector<doris::vectorized::VExpr*>> _instance_id_to_push_down_vexprs;
 
     struct rpc_context;
 
@@ -402,6 +401,9 @@ protected:
     const int64_t registration_time_;
 
     const bool _enable_pipeline_exec;
+
+    bool _profile_init = false;
+    std::mutex profile_mutex;
 };
 
 // avoid expose RuntimePredicateWrapper

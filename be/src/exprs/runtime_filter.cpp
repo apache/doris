@@ -1176,23 +1176,10 @@ Status IRuntimeFilter::get_prepared_vexprs(std::vector<vectorized::VExpr*>* vexp
     DCHECK(is_consumer());
     std::lock_guard guard(_inner_mutex);
 
-    if (_state) {
-        if (_push_down_vexprs.empty()) {
-            RETURN_IF_ERROR(_wrapper->get_push_vexprs(&_push_down_vexprs, _vprobe_ctx));
-        }
-        vexprs->insert(vexprs->end(), _push_down_vexprs.begin(), _push_down_vexprs.end());
-    } else {
-        auto fid = print_id(state->fragment_instance_id());
-        if (_instance_id_to_push_down_vexprs.count(fid) == 0) {
-            _instance_id_to_push_down_vexprs.insert({fid, {}});
-        }
-        if (_instance_id_to_push_down_vexprs[fid].empty()) {
-            RETURN_IF_ERROR(
-                    _wrapper->get_push_vexprs(&_instance_id_to_push_down_vexprs[fid], _vprobe_ctx));
-        }
-        vexprs->insert(vexprs->end(), _instance_id_to_push_down_vexprs[fid].begin(),
-                       _instance_id_to_push_down_vexprs[fid].end());
+    if (_push_down_vexprs.empty()) {
+        RETURN_IF_ERROR(_wrapper->get_push_vexprs(&_push_down_vexprs, _vprobe_ctx));
     }
+    vexprs->insert(vexprs->end(), _push_down_vexprs.begin(), _push_down_vexprs.end());
     return Status::OK();
 }
 
@@ -1496,9 +1483,20 @@ Status IRuntimeFilter::_create_wrapper(RuntimeState* state, const T* param, Obje
 }
 
 void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
-    DCHECK(parent_profile != nullptr);
-    _profile.reset(new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                                                  ::doris::to_string(_runtime_filter_type))));
+    if (_profile_init) {
+        return;
+    }
+    {
+        std::lock_guard guard(_inner_mutex);
+        if (_profile_init) {
+            return;
+        }
+        DCHECK(parent_profile != nullptr);
+        _profile.reset(
+                new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                                               ::doris::to_string(_runtime_filter_type))));
+        _profile_init = true;
+    }
     parent_profile->add_child(_profile.get(), true, nullptr);
     if (!_enable_pipeline_exec) {
         _await_time_cost = ADD_TIMER(_profile, "AWaitTimeCost");
