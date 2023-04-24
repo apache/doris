@@ -21,7 +21,5 @@ cp /var/scripts/config/spark-defaults.conf $SPARK_CONF_DIR/.
 cp /var/scripts/config/log4j2.properties $SPARK_CONF_DIR/.
 hadoop fs -mkdir -p /var/demo/
 hadoop fs -mkdir -p /tmp/spark-events
-hadoop fs -mkdir -p /user/hive/
 hadoop fs -copyFromLocal  -f /var/scripts/config /var/demo/.
-hadoop fs -put /var/scripts/warehouse /user/hive/
 chmod +x /var/scripts/run_sync_tool.sh

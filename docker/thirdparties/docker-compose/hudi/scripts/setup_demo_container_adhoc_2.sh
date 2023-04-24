@@ -25,13 +25,13 @@ hadoop fs -mkdir -p /user/hive/
 hadoop fs -copyFromLocal -f /var/scripts/config /var/demo/.
 hadoop fs -put /var/scripts/warehouse /user/hive/
 chmod +x /var/scripts/run_sync_tool.sh
-
+sleep 10
 echo "Start synchronizing the stock_ticks_cow table"
 /var/scripts/run_sync_tool.sh \
   --jdbc-url jdbc:hive2://hiveserver:10000 \
   --user hive \
   --pass hive \
-  --partitioned-by dt \
+  --partitioned-by date \
   --base-path /user/hive/warehouse/stock_ticks_cow \
   --database default \
   --table stock_ticks_cow \
@@ -42,7 +42,7 @@ echo "Start synchronizing the stock_ticks_mor table"
   --jdbc-url jdbc:hive2://hiveserver:10000 \
   --user hive \
   --pass hive \
-  --partitioned-by dt \
+  --partitioned-by date \
   --base-path /user/hive/warehouse/stock_ticks_mor \
   --database default \
   --table stock_ticks_mor \
@@ -57,15 +57,13 @@ echo "Start synchronizing the hudi_cow_pt_tbl table"
   --base-path /user/hive/warehouse/hudi_cow_pt_tbl \
   --database default \
   --table hudi_cow_pt_tbl \
-  --partition-value-extractor org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor
+  --partition-value-extractor org.apache.hudi.hive.HiveStylePartitionValueExtractor
 
 echo "Start synchronizing the hudi_non_part_cow table"
 /var/scripts/run_sync_tool.sh \
   --jdbc-url jdbc:hive2://hiveserver:10000 \
   --user hive \
   --pass hive \
-  --partitioned-by dt \
   --base-path /user/hive/warehouse/hudi_non_part_cow \
   --database default \
   --table hudi_non_part_cow \
-  --partition-value-extractor org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor
