@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -35,7 +37,6 @@ import org.apache.doris.nereids.txn.Transaction;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -102,6 +103,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
 
         getTupleDesc();
+        addInvisibleColumns();
+
         if (ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
         }
@@ -184,6 +187,25 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         }
     }
 
+    private void addInvisibleColumns() {
+        PlanFragment root = planner.getFragments().get(0);
+        List<Expr> outputs = root.getOutputExprs();
+        // handle insert a duplicate key table to a unique key table.
+        if (outputs.size() != table.getFullSchema().size()) {
+            return;
+        }
+        int i = 0;
+        List<Expr> newOutputs = Lists.newArrayListWithCapacity(table.getFullSchema().size());
+        for (Column column : table.getFullSchema()) {
+            if (column.isVisible()) {
+                newOutputs.add(outputs.get(i++));
+            } else {
+                newOutputs.add(new IntLiteral(0));
+            }
+        }
+        root.setOutputExprs(newOutputs);
+    }
+
     private void getPartition() {
         if (partitions == null) {
             return;
@@ -195,13 +217,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             }
             return p.getId();
         }).collect(Collectors.toList());
-    }
-
-    public boolean checkIfScanData() {
-        List<PlanFragment> fragments = planner.getFragments();
-        Preconditions.checkArgument(fragments != null, "should get plan fragment before check");
-        return fragments.stream().anyMatch(fragment -> fragment.getPlanRoot()
-                .contains(node -> node instanceof ScanNode));
     }
 
     @Override
