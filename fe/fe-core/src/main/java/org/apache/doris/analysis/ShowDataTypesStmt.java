@@ -40,32 +40,17 @@ public class ShowDataTypesStmt extends ShowStmt {
                     .build();
 
     public static ArrayList<PrimitiveType> getTypes() {
-        return PrimitiveType.getSupportedTypes();
+        return PrimitiveType.getavailableInDdlTypes();
     }
 
     public static List<List<String>> getFilterTypes() {
         ArrayList<PrimitiveType> supportedTypes = getTypes();
         List<List<String>> rows = Lists.newArrayList();
-        boolean hasDecimalv3 = false;
         for (PrimitiveType type : supportedTypes) {
             List<String> row = new ArrayList<>();
-            if (type.isAvailableInDdl()) {
-                if (type.isDecimalV2Type()) {
-                    row.add("DECIMAL");
-                    row.add(Integer.toString(type.getSlotSize()));
-                } else if (type.isDecimalV3Type()) {
-                    if (hasDecimalv3) {
-                        continue;
-                    }
-                    row.add("DECIMALV3");
-                    row.add("16");
-                    hasDecimalv3 = true;
-                } else {
-                    row.add(type.toString());
-                    row.add(Integer.toString(type.getSlotSize()));
-                }
-                rows.add(row);
-            }
+            row.add(type.toString());
+            row.add(Integer.toString(type.getSlotSize()));
+            rows.add(row);
         }
         return rows;
     }
