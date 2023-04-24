@@ -39,8 +39,6 @@ array_enumerate
 
 返回数组下标, 例如  [1, 2, 3, …, length (arr) ]
 
-
-
 ### example
 
 ```shell

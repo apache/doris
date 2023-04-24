@@ -28,7 +28,6 @@ under the License.
 #### Syntax
 
 ```sql
-DOUBLE abs(DOUBLE x)
 SMALLINT abs(TINYINT x)
 INT abs(SMALLINT x)
 BIGINT abs(INT x)

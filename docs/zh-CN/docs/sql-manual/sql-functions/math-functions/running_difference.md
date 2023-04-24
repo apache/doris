@@ -51,10 +51,10 @@ SELECT x - lag(x, 1, 0) OVER (ORDER BY k) FROM t;
 DROP TABLE IF EXISTS running_difference_test;
 
 CREATE TABLE running_difference_test (
-    `id` int NOT NULL COMMENT 'id' ,
+    `id` int NOT NULL COMMENT 'id',
     `day` date COMMENT 'day', 
-	`time_val` datetime COMMENT 'time_val',
- 	`doublenum` double NULL COMMENT 'doublenum'
+    `time_val` datetime COMMENT 'time_val',
+    `doublenum` double NULL COMMENT 'doublenum'
 )
 DUPLICATE KEY(id) 
 DISTRIBUTED BY HASH(id) BUCKETS 3 

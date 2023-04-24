@@ -28,9 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-```
-T cast (input as Type)
-```
+`T cast (input as Type)`
 
 将 input 转成 指定的 Type类型
 
