@@ -124,12 +124,12 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     // 3. handle eos
     if (request.has_eos() && request.eos()) {
         st = _handle_eos(channel, request, response);
-        _report_profile<TabletWriterAddResult>(response);
+        _report_profile(response);
         if (!st.ok()) {
             return st;
         }
     } else if (_add_batch_number_counter->value() % 10 == 1) {
-        _report_profile<TabletWriterAddResult>(response);
+        _report_profile(response);
     }
     _last_updated_time.store(time(nullptr));
     return st;
