@@ -146,18 +146,25 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void alterResourceGroup(AlterResourceGroupStmt stmt) throws DdlException {
+        if (!Config.enable_resource_group) {
+            throw new DdlException("unsupported feature now, coming soon.");
+        }
+
         String resourceGroupName = stmt.getResourceGroupName();
         Map<String, String> properties = stmt.getProperties();
 
-        if (!nameToResourceGroup.containsKey(resourceGroupName)) {
-            throw new DdlException("Resource Group(" + resourceGroupName + ") dose not exist.");
+        writeLock();
+        try {
+            if (!nameToResourceGroup.containsKey(resourceGroupName)) {
+                throw new DdlException("Resource Group(" + resourceGroupName + ") dose not exist.");
+            }
+            ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
+            resourceGroup.modifyProperties(properties);
+            Env.getCurrentEnv().getEditLog().logAlterResourceGroup(resourceGroup);
+            LOG.info("Alter resource success. Resource Group: {}", resourceGroup);
+        } finally {
+            writeUnlock();
         }
-
-        ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
-        resourceGroup.modifyProperties(properties);
-
-        Env.getCurrentEnv().getEditLog().logAlterResourceGroup(resourceGroup);
-        LOG.info("Alter resource success. Resource Group: {}", resourceGroup);
     }
 
     private void insertResourceGroup(ResourceGroup resourceGroup) {

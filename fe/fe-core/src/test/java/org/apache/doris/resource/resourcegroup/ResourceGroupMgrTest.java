@@ -23,7 +23,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.thrift.TPipelineResourceGroup;
 
 import com.google.common.collect.Maps;
 import mockit.Delegate;
@@ -34,7 +33,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 

@@ -878,8 +878,8 @@ public class StmtExecutor implements ProfileWriter {
                 || parsedStmt instanceof InsertStmt
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
             if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
-                ResourceGroup resourceGroup = analyzer.getEnv().getResourceGroupMgr()
-                    .getResourceGroup(context.sessionVariable.resourceGroup);
+                ResourceGroup resourceGroup = analyzer.getEnv().getResourceGroupMgr().getResourceGroup(
+                        context.sessionVariable.resourceGroup);
                 List<TPipelineResourceGroup> resourceGroups = Lists.newArrayList();
                 resourceGroups.add(resourceGroup.toThrift());
                 analyzer.setResourceGroups(resourceGroups);
