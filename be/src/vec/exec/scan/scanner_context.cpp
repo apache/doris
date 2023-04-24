@@ -389,4 +389,8 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
     }
 }
 
+taskgroup::TaskGroup* ScannerContext::get_task_group() const {
+    return _state->get_query_ctx()->get_task_group();
+}
+
 } // namespace doris::vectorized

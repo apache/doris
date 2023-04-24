@@ -361,9 +361,4 @@ void TaskScheduler::shutdown() {
     }
 }
 
-void TaskScheduler::update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                                        taskgroup::TaskGroupPtr task_group) {
-    _task_queue->update_tg_cpu_share(task_group_info, task_group);
-}
-
 } // namespace doris::pipeline

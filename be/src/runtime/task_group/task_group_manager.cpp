@@ -20,18 +20,16 @@
 #include <memory>
 #include <mutex>
 
+#include "pipeline/task_scheduler.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/task_group/task_group.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris::taskgroup {
 
-TaskGroupManager::TaskGroupManager() = default;
+TaskGroupManager::TaskGroupManager(ExecEnv* exec_env) : _exec_env(exec_env) {}
 TaskGroupManager::~TaskGroupManager() = default;
-
-TaskGroupManager* TaskGroupManager::instance() {
-    static TaskGroupManager tgm;
-    return &tgm;
-}
 
 TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& task_group_info) {
     {
@@ -43,7 +41,10 @@ TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& tas
         }
     }
 
-    auto new_task_group = std::make_shared<TaskGroup>(task_group_info);
+    auto new_task_group = std::make_shared<TaskGroup>(
+            task_group_info, _exec_env->pipeline_task_group_scheduler()->task_queue(),
+            _exec_env->scanner_scheduler()->local_scan_task_queue(),
+            _exec_env->scanner_scheduler()->remote_scan_task_queue());
     std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
     if (_task_groups.count(task_group_info.id)) {
         auto task_group = _task_groups[task_group_info.id];

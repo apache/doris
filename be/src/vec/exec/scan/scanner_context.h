@@ -40,6 +40,10 @@ class ThreadPoolToken;
 class RuntimeState;
 class TupleDescriptor;
 
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
+
 namespace vectorized {
 
 class VScanner;
@@ -149,6 +153,7 @@ public:
         }
         return thread_slot_num;
     }
+    taskgroup::TaskGroup* get_task_group() const;
 
     void reschedule_scanner_ctx();
 

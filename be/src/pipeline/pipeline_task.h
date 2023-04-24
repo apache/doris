@@ -106,6 +106,7 @@ inline const char* get_state_name(PipelineTaskState idx) {
 }
 
 class TaskQueue;
+class PriorityTaskQueue;
 
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
@@ -192,7 +193,7 @@ public:
 
     void set_task_queue(TaskQueue* task_queue);
 
-    static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
+    static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
