@@ -59,6 +59,8 @@ class ShardedKVCache;
 class VExprContext;
 
 class IcebergTableReader : public TableFormatReader {
+    ENABLE_FACTORY_CREATOR(IcebergTableReader);
+
 public:
     struct PositionDeleteRange {
         std::vector<std::string> data_file_path;

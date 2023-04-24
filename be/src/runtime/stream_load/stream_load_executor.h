@@ -19,6 +19,8 @@
 
 #include <memory>
 
+#include "common/factory_creator.h"
+
 namespace doris {
 
 class ExecEnv;
@@ -28,6 +30,8 @@ class TTxnCommitAttachment;
 class TLoadTxnCommitRequest;
 
 class StreamLoadExecutor {
+    ENABLE_FACTORY_CREATOR(StreamLoadExecutor);
+
 public:
     StreamLoadExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {}
 

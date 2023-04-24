@@ -34,7 +34,7 @@ class Block;
 
 class SchemaVariablesScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaVariablesScanner);
-    
+
 public:
     SchemaVariablesScanner(TVarType::type type);
     ~SchemaVariablesScanner() override;

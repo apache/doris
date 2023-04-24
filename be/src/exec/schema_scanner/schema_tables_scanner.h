@@ -33,7 +33,7 @@ class Block;
 
 class SchemaTablesScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaTablesScanner);
-    
+
 public:
     SchemaTablesScanner();
     ~SchemaTablesScanner() override;
