@@ -22,7 +22,6 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -195,7 +194,7 @@ public final class RuntimeFilter {
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
             // TODO: support FunctionCallExpr
-            optRemoteRf = optRemoteRf && !(target.expr instanceof FunctionCallExpr);
+            optRemoteRf = optRemoteRf && target.expr instanceof SlotRef;
         }
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
