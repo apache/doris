@@ -48,6 +48,17 @@ suite("test_json_function") {
     qt_sql "SELECT json_quote('[1, 2, 3, 1678708107000]');"
     qt_sql "SELECT json_quote(null);"
     qt_sql "SELECT json_quote(\"\\n\\b\\r\\t\");"
+    qt_sql "SELECT json_quote('')"
+
+    qt_sql "SELECT json_unquote('')"
+    qt_sql "SELECT json_unquote('doris')"
+    qt_sql "SELECT json_unquote('\"doris\"');"
+    qt_sql "SELECT json_unquote('open-quoted\"');"
+    qt_sql "SELECT json_unquote('\"open-quoted');"
+    qt_sql "SELECT json_unquote(null);"
+    qt_sql "SELECT json_unquote('Dorr\bis\tishere\n');"
+    qt_sql "SELECT json_unquote('\"Dorr\\\\bis\\\\tishere\\\\n\"');"
+    qt_sql "SELECT json_unquote('\"\\\\u0044\\\\u004F\\\\u0052\\\\u0049\\\\u0053\"');"
 
     qt_sql "SELECT json_extract('[1, 2, 3]', '\$.[1]');"
     qt_sql "SELECT json_extract('{\"id\": 123, \"name\": \"doris\"}', '\$.id', '\$.name');"
