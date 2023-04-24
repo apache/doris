@@ -25,7 +25,6 @@
 #include <stdint.h>
 
 #include <cstddef>
-
 #include <list>
 #include <memory>
 #include <mutex>
