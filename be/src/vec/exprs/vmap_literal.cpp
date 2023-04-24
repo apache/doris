@@ -17,6 +17,26 @@
 
 #include "vec/exprs/vmap_literal.h"
 
+#include <glog/logging.h>
+
+#include <memory>
+#include <ostream>
+#include <vector>
+
+#include "runtime/types.h"
+#include "vec/columns/column.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+
 //insert into table_map values ({'name':'zhangsan', 'gender':'male'}), ({'name':'lisi', 'gender':'female'});
 namespace doris::vectorized {
 

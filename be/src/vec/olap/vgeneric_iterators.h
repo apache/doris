@@ -15,14 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <list>
+#include <map>
+#include <memory>
+#include <queue>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "olap/iterators.h"
-#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/schema.h"
+#include "olap/utils.h"
+#include "vec/core/block.h"
 
 namespace doris {
+class RuntimeProfile;
 
 namespace segment_v2 {
 class Segment;
-}
+class ColumnIterator;
+} // namespace segment_v2
 
 namespace vectorized {
 

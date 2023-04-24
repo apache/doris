@@ -17,14 +17,29 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <algorithm>
+#include <vector>
+
 #include "common/status.h"
 #include "olap/tablet.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "vec/exprs/vexpr_context.h"
+#include "util/stopwatch.hpp"
+#include "vec/core/block.h"
+
+namespace doris {
+class RuntimeProfile;
+class TupleDescriptor;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
-class Block;
 class VScanNode;
 
 // Counter for load

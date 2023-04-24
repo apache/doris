@@ -17,9 +17,17 @@
 
 #include "block_column_predicate.h"
 
-#include "olap/rowset/segment_v2/bloom_filter.h"
+#include <string.h>
+
+namespace roaring {
+class Roaring;
+} // namespace roaring
 
 namespace doris {
+class WrapperField;
+namespace segment_v2 {
+class InvertedIndexIterator;
+} // namespace segment_v2
 
 uint16_t SingleColumnBlockPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                                               uint16_t selected_size) const {

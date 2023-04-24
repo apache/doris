@@ -17,7 +17,11 @@
 
 #include "shared_hash_table_controller.h"
 
+#include <glog/logging.h>
 #include <runtime/runtime_state.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <utility>
 
 namespace doris {
 namespace vectorized {

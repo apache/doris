@@ -21,6 +21,7 @@
 
 #include <vector>
 
+#include "common/object_pool.h"
 #include "runtime/descriptors.h"
 #include "util/bit_util.h"
 

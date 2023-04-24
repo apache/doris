@@ -17,9 +17,21 @@
 #pragma once
 
 #include <common/status.h>
-#include <vec/columns/column.h>
-#include <vec/json/json_parser.h>
-#include <vec/json/simd_json_parser.h>
+
+#include <vector>
+
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+
+namespace doris {
+namespace vectorized {
+class ColumnString;
+class SimdJSONParser;
+enum class ExtractType;
+template <typename ParserImpl>
+class JSONDataParser;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

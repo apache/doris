@@ -17,13 +17,29 @@
 
 #pragma once
 
-#include <future>
-#include <string>
-#include <variant>
+#include <gen_cpp/PlanNodes_types.h>
 
+#include <future>
+#include <memory>
+#include <type_traits>
+#include <variant>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/exec_node.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
+
+namespace doris {
+class ObjectPool;
+class RuntimeState;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

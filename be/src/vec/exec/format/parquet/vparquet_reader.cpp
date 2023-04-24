@@ -17,18 +17,53 @@
 
 #include "vparquet_reader.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+
 #include <algorithm>
+#include <functional>
+#include <ostream>
+#include <utility>
 
 #include "common/status.h"
 #include "io/file_factory.h"
-#include "olap/iterators.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
-#include "rapidjson/document.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "util/slice.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/exec/format/format_common.h"
+#include "vec/exec/format/parquet/schema_desc.h"
+#include "vec/exec/format/parquet/vparquet_file_metadata.h"
+#include "vec/exec/format/parquet/vparquet_group_reader.h"
+#include "vec/exec/format/parquet/vparquet_page_index.h"
 #include "vec/exprs/vbloom_predicate.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class SlotDescriptor;
+class TupleDescriptor;
+namespace io {
+class IOContext;
+enum class FileCachePolicy : uint8_t;
+} // namespace io
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -171,9 +206,9 @@ Status ParquetReader::_open_file() {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
         io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &_file_reader, cache_policy));
+        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &_file_reader,
+                io::DelegateReader::AccessMode::RANDOM, cache_policy, _io_ctx));
     }
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
@@ -205,8 +240,8 @@ Status ParquetReader::_open_file() {
                                          _file_description.path);
         }
         _column_statistics.read_bytes += meta_size;
-        // read twice: parse magic number & parse meta data
-        _column_statistics.read_calls += 2;
+        // parse magic number & parse meta data
+        _column_statistics.read_calls += 1;
     }
     return Status::OK();
 }
@@ -526,9 +561,11 @@ Status ParquetReader::_next_row_group_reader() {
 
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, row_group_index);
-    _current_group_reader.reset(
-            new RowGroupReader(_file_reader, _read_columns, row_group_index.row_group_id, row_group,
-                               _ctz, _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
+    io::FileReaderSPtr random_reader = std::make_shared<io::MergeRangeFileReader>(
+            _profile, _file_reader, _generate_random_access_ranges(row_group_index));
+    _current_group_reader.reset(new RowGroupReader(
+            random_reader, _read_columns, row_group_index.row_group_id, row_group, _ctz, _io_ctx,
+            position_delete_ctx, _lazy_read_ctx, _state));
     _row_group_eof = false;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,
                                        _tuple_descriptor, _row_descriptor, _colname_to_slot_id,
@@ -579,6 +616,42 @@ Status ParquetReader::_init_row_groups(const bool& is_filter_groups) {
         return Status::EndOfFile("No row group to read");
     }
     return Status::OK();
+}
+
+std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
+        const RowGroupReader::RowGroupIndex& group) {
+    std::vector<io::PrefetchRange> result;
+    int64_t last_chunk_end = -1;
+    std::function<void(const FieldSchema*, const tparquet::RowGroup&)> scalar_range =
+            [&](const FieldSchema* field, const tparquet::RowGroup& row_group) {
+                if (field->type.type == TYPE_ARRAY) {
+                    scalar_range(&field->children[0], row_group);
+                } else if (field->type.type == TYPE_MAP) {
+                    scalar_range(&field->children[0].children[0], row_group);
+                    scalar_range(&field->children[0].children[1], row_group);
+                } else if (field->type.type == TYPE_STRUCT) {
+                    for (int i = 0; i < field->children.size(); ++i) {
+                        scalar_range(&field->children[i], row_group);
+                    }
+                } else {
+                    const tparquet::ColumnChunk& chunk =
+                            row_group.columns[field->physical_column_index];
+                    auto& chunk_meta = chunk.meta_data;
+                    int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
+                                                  ? chunk_meta.dictionary_page_offset
+                                                  : chunk_meta.data_page_offset;
+                    int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
+                    DCHECK_GE(chunk_start, last_chunk_end);
+                    result.emplace_back(chunk_start, chunk_end);
+                    last_chunk_end = chunk_end;
+                }
+            };
+    const tparquet::RowGroup& row_group = _t_metadata->row_groups[group.row_group_id];
+    for (const auto& read_col : _read_columns) {
+        const FieldSchema* field = _file_metadata->schema().get_column(read_col._file_slot_name);
+        scalar_range(field, row_group);
+    }
+    return result;
 }
 
 bool ParquetReader::_is_misaligned_range_group(const tparquet::RowGroup& row_group) {

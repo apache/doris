@@ -17,16 +17,21 @@
 
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 
-#include <map>
-#include <roaring/roaring.hh>
+#include <gen_cpp/segment_v2.pb.h>
+#include <string.h>
 
+#include <algorithm>
+#include <set>
+#include <string>
+#include <utility>
+
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // for BloomFilterOptions, BloomFilter
-#include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
-#include "util/faststring.h"
+#include "runtime/decimalv2_value.h"
 #include "util/slice.h"
+#include "util/types.h"
 
 namespace doris {
 namespace segment_v2 {

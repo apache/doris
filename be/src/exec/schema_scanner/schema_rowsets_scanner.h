@@ -19,14 +19,11 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "olap/rowset/rowset.h"
-#include "olap/rowset/segment_v2/segment.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
 class RuntimeState;

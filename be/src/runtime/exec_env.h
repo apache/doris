@@ -17,11 +17,14 @@
 
 #pragma once
 
-#include <gen_cpp/FrontendService.h>
+#include <stddef.h>
 
+#include <map>
+#include <memory>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
-#include "common/config.h"
 #include "common/status.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
@@ -36,12 +39,8 @@ class TaskScheduler;
 }
 class BfdParser;
 class BrokerMgr;
-
 template <class T>
 class BrpcClientCache;
-
-class DataStreamMgr;
-class EvHttpServer;
 class ExternalScanContextMgr;
 class FragmentMgr;
 class ResultCache;
@@ -50,28 +49,22 @@ class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
 class StorageEngine;
-class PriorityThreadPool;
-class PriorityWorkStealingThreadPool;
 class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
-class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
-class StoragePolicyMgr;
 class BlockSpillManager;
-
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
 class PBackendService_Stub;
 class PFunctionService_Stub;
-
 template <class T>
 class ClientCache;
-
 class HeartbeatFlags;
+class FrontendServiceClient;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to

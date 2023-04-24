@@ -20,16 +20,19 @@
 
 #include "vec/columns/column_const.h"
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <utility>
 
-#include "gutil/port.h"
 #include "runtime/raw_value.h"
+#include "util/hash_util.hpp"
 #include "vec/columns/columns_common.h"
-#include "vec/common/pod_array.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
 

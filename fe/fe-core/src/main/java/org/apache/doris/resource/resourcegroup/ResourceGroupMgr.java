@@ -19,6 +19,7 @@ package org.apache.doris.resource.resourcegroup;
 
 import org.apache.doris.analysis.AlterResourceGroupStmt;
 import org.apache.doris.analysis.CreateResourceGroupStmt;
+import org.apache.doris.analysis.DropResourceGroupStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -28,6 +29,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.persist.DropResourceGroupOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -152,7 +154,6 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
         String resourceGroupName = stmt.getResourceGroupName();
         Map<String, String> properties = stmt.getProperties();
-
         writeLock();
         try {
             if (!nameToResourceGroup.containsKey(resourceGroupName)) {
@@ -165,6 +166,35 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
+    }
+
+    public void dropResourceGroup(DropResourceGroupStmt stmt) throws DdlException {
+        if (!Config.enable_resource_group) {
+            throw new DdlException("unsupported feature now, coming soon.");
+        }
+
+        String resourceGroupName = stmt.getResourceGroupName();
+        if (resourceGroupName == DEFAULT_GROUP_NAME) {
+            throw new DdlException("Dropping default resource group " + resourceGroupName + " is not allowed");
+        }
+
+        writeLock();
+        try {
+            if (!nameToResourceGroup.containsKey(resourceGroupName)) {
+                if (stmt.isIfExists()) {
+                    return;
+                }
+                throw new DdlException("Resource group " + resourceGroupName + " does not exist");
+            }
+            ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
+            long groupId = resourceGroup.getId();
+            idToResourceGroup.remove(groupId);
+            nameToResourceGroup.remove(resourceGroupName);
+            Env.getCurrentEnv().getEditLog().logDropResourceGroup(new DropResourceGroupOperationLog(groupId));
+        } finally {
+            writeUnlock();
+        }
+        LOG.info("Drop resource group success: {}", resourceGroupName);
     }
 
     private void insertResourceGroup(ResourceGroup resourceGroup) {
@@ -183,6 +213,21 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
     public void replayAlterResourceGroup(ResourceGroup resourceGroup) {
         insertResourceGroup(resourceGroup);
+    }
+
+    public void replayDropResourceGroup(DropResourceGroupOperationLog operationLog) {
+        long id = operationLog.getId();
+        writeLock();
+        try {
+            if (!idToResourceGroup.containsKey(id)) {
+                return;
+            }
+            ResourceGroup resourceGroup = idToResourceGroup.get(id);
+            nameToResourceGroup.remove(resourceGroup.getName());
+            idToResourceGroup.remove(id);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public List<List<String>> getResourcesInfo() {

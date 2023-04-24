@@ -45,13 +45,6 @@ TestEnv::~TestEnv() {
     SAFE_DELETE(_engine);
 }
 
-RuntimeState* TestEnv::create_runtime_state(int64_t query_id) {
-    TExecPlanFragmentParams plan_params = TExecPlanFragmentParams();
-    plan_params.params.query_id.hi = 0;
-    plan_params.params.query_id.lo = query_id;
-    return new RuntimeState(plan_params.params, TQueryOptions(), TQueryGlobals(), _exec_env);
-}
-
 void TestEnv::tear_down_query_states() {
     _query_states.clear();
 }

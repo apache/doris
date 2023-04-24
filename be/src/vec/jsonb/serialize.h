@@ -16,8 +16,19 @@
 // under the License.
 
 #pragma once
-#include "vec/columns/column_string.h"
+#include <stddef.h>
+
+#include "runtime/descriptors.h"
 #include "vec/core/block.h"
+
+namespace doris {
+class TabletSchema;
+class TupleDescriptor;
+
+namespace vectorized {
+class ColumnString;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 // use jsonb codec to store row format

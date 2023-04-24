@@ -17,15 +17,20 @@
 
 #include "vec/exec/vexchange_node.h"
 
-#include "common/consts.h"
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+
+#include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
-#include "pipeline/exec/exchange_source_operator.h"
-#include "pipeline/pipeline.h"
-#include "pipeline/pipeline_fragment_context.h"
+#include "exec/tablet_info.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
-#include "util/defer_op.h"
+#include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 

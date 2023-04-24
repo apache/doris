@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <bthread/errno.h>
 #include <butil/macros.h>
-#include <errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
 #include <libgen.h>
@@ -280,6 +280,10 @@ int main(int argc, char** argv) {
 
     if (getenv("DORIS_HOME") == nullptr) {
         fprintf(stderr, "you need set DORIS_HOME environment variable.\n");
+        exit(-1);
+    }
+    if (getenv("PID_DIR") == nullptr) {
+        fprintf(stderr, "you need set PID_DIR environment variable.\n");
         exit(-1);
     }
 

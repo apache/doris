@@ -17,10 +17,28 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
 #include "vec/exprs/vexpr.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 class VTupleIsNullPredicate final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VTupleIsNullPredicate);
+
 public:
     explicit VTupleIsNullPredicate(const TExprNode& node);
     ~VTupleIsNullPredicate() override = default;
@@ -30,7 +48,7 @@ public:
                           VExprContext* context) override;
 
     VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VTupleIsNullPredicate(*this));
+        return pool->add(VTupleIsNullPredicate::create_unique(*this).release());
     }
 
     [[nodiscard]] bool is_constant() const override { return false; }

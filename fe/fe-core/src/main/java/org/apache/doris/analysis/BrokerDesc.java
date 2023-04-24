@@ -18,12 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.datasource.property.constants.BosProperties;
+import org.apache.doris.fs.obj.BlobStorage;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;

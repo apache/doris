@@ -17,21 +17,51 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <string.h>
+
+#include <algorithm>
+#include <mutex>
+#include <ostream>
+#include <variant>
+
+#include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/status.h"
+#include "exec/olap_utils.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/types.h"
 #include "vec/exec/scan/pip_scanner_context.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/exec/scan/vscanner.h"
 #include "vec/exprs/vcompound_pred.h"
-#include "vec/exprs/vdirect_in_predicate.h"
+#include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/in.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -95,8 +125,7 @@ Status VScanNode::prepare(RuntimeState* state) {
 
     if (_is_pipeline_scan) {
         if (_shared_scan_opt) {
-            _shared_scanner_controller =
-                    state->get_query_fragments_ctx()->get_shared_scanner_controller();
+            _shared_scanner_controller = state->get_query_ctx()->get_shared_scanner_controller();
             auto [should_create_scanner, queue_id] =
                     _shared_scanner_controller->should_build_scanner_and_queue_id(id());
             _should_create_scanner = should_create_scanner;
@@ -238,7 +267,7 @@ Status VScanNode::_init_profile() {
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
-    auto* memory_usage = _scanner_profile->create_child("MemoryUsage", true, true);
+    auto* memory_usage = _scanner_profile->create_child("PeakMemoryUsage", true, true);
     _runtime_profile->add_child(memory_usage, false, nullptr);
     _queued_blocks_memory_usage =
             memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
@@ -383,14 +412,14 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
         texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
         texpr_node.__set_fn(fn);
         texpr_node.__set_is_nullable(last_expr->is_nullable() || vexprs[j]->is_nullable());
-        VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
+        VExpr* new_node = _pool->add(VcompoundPred::create_unique(texpr_node).release());
         new_node->add_child(last_expr);
         DCHECK((vexprs[j])->get_impl() != nullptr);
         new_node->add_child(vexprs[j]);
         last_expr = new_node;
         _rf_vexpr_set.insert(vexprs[j]);
     }
-    auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
+    auto new_vconjunct_ctx_ptr = _pool->add(VExprContext::create_unique(last_expr).release());
     if (_vconjunct_ctx_ptr) {
         (*_vconjunct_ctx_ptr)->clone_fn_contexts(new_vconjunct_ctx_ptr);
     }
@@ -637,6 +666,16 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                 *output_expr = conjunct_expr_root;
                 return Status::OK();
             } else {
+                if (left_child == nullptr) {
+                    conjunct_expr_root->children()[0]->close(
+                            _state, *_vconjunct_ctx_ptr,
+                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                }
+                if (right_child == nullptr) {
+                    conjunct_expr_root->children()[1]->close(
+                            _state, *_vconjunct_ctx_ptr,
+                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
                 conjunct_expr_root->close(_state, *_vconjunct_ctx_ptr,

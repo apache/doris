@@ -17,9 +17,15 @@
 
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <algorithm>
 #include <map>
 #include <roaring/roaring.hh>
+#include <string>
+#include <vector>
 
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"

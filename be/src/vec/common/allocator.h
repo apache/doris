@@ -23,12 +23,14 @@
 // TODO: Readable
 
 #include <fmt/format.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/chunk.h"
 #include "runtime/memory/chunk_allocator.h"
+#include "util/sse_util.hpp"
 
 #ifdef NDEBUG
 #define ALLOCATOR_ASLR 0
@@ -37,7 +39,6 @@
 #endif
 
 #if !defined(__APPLE__) && !defined(__FreeBSD__)
-#include <malloc.h>
 #else
 #define _DARWIN_C_SOURCE
 #endif
@@ -46,14 +47,15 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <string>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef THREAD_SANITIZER
 /// Thread sanitizer does not intercept mremap. The usage of mremap will lead to false positives.
 #define DISABLE_MREMAP 1
 #endif
 #include "common/exception.h"
-#include "vec/common/allocator_fwd.h"
 #include "vec/common/mremap.h"
 
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS

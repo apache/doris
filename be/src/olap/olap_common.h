@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <netinet/in.h>
 
 #include <cstdint>
@@ -31,7 +32,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
 #include "olap/olap_define.h"
 #include "util/hash_util.hpp"

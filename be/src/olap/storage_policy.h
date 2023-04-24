@@ -17,6 +17,15 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/remote_file_system.h"
 

@@ -17,7 +17,10 @@
 
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 
+#include <fmt/format.h>
+
 #include "gutil/strings/strip.h"
+#include "olap/olap_common.h"
 
 namespace doris::segment_v2 {
 const std::string segment_suffix = ".dat";

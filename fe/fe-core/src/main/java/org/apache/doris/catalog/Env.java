@@ -149,7 +149,6 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -1402,9 +1401,8 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // Export checker
-        ExportChecker.init(Config.export_checker_interval_second * 1000L);
-        ExportChecker.startAll();
+        // export task
+        exportMgr.start();
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();
@@ -2984,8 +2982,10 @@ public class Env {
             }
 
             // in memory
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
-            sb.append(olapTable.isInMemory()).append("\"");
+            if (olapTable.isInMemory()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
+                sb.append(olapTable.isInMemory()).append("\"");
+            }
 
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
@@ -5350,6 +5350,73 @@ public class Env {
 
     public AnalysisTaskScheduler getAnalysisJobScheduler() {
         return analysisManager.taskScheduler;
+    }
+
+    /**
+     * mark all tablets of the table as dropped
+     */
+    public void markTableDropped(Table table) {
+        if (table.getType() != TableType.OLAP) {
+            return;
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        for (Partition partition : olapTable.getAllPartitions()) {
+            innerMarkPartitionDropped(partition, true);
+        }
+
+        LOG.info("mark all tablets of table: {} as dropped", table.getName());
+    }
+
+    /**
+     * mark all tablets of the table as undropped
+     */
+    public void unmarkTableDropped(Table table) {
+        if (table.getType() != TableType.OLAP) {
+            return;
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        for (Partition partition : olapTable.getAllPartitions()) {
+            innerMarkPartitionDropped(partition, false);
+        }
+
+        LOG.info("mark all tablets of table: {} as undropped", table.getName());
+    }
+
+    /**
+     * mark all tablets of the partition as dropped
+     */
+    public void markPartitionDropped(Partition partition) {
+        innerMarkPartitionDropped(partition, true);
+        LOG.info("mark all tablets of partition: {} as dropped", partition.getName());
+    }
+
+    /**
+     * mark all tablets of the partition as undropped
+     */
+    public void unmarkPartitionDropped(Partition partition) {
+        innerMarkPartitionDropped(partition, false);
+        LOG.info("mark all tablets of partition: {} as undropped", partition.getName());
+    }
+
+    private void innerMarkPartitionDropped(Partition partition, boolean isDropped) {
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+        for (MaterializedIndex materializedIndex : allIndices) {
+            for (Tablet tablet : materializedIndex.getTablets()) {
+                TabletMeta tabletMeta = invertedIndex.getTabletMeta(tablet.getId());
+                if (tabletMeta == null) {
+                    LOG.warn("cannot find tabletMeta of tabletId={}", tablet.getId());
+                    continue;
+                }
+                if (tabletMeta.getIsDropped() == isDropped) {
+                    continue;
+                }
+
+                tabletMeta.setIsDropped(isDropped);
+            } // end for tablets
+        } // end for indices
     }
 
     // TODO:

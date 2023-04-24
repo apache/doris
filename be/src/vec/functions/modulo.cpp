@@ -18,11 +18,16 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Modulo.cpp
 // and modified by Doris
 
-#include <libdivide.h>
+#include <string.h>
 
-#include "common/status.h"
+#include <cmath>
+#include <memory>
+#include <utility>
+
 #include "runtime/decimalv2_value.h"
+#include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
+#include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 

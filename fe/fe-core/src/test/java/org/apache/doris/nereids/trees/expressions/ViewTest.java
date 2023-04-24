@@ -105,7 +105,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
                     PhysicalProperties.ANY
             );
             // Just to check whether translate will throw exception
-            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(planner.getCascadesContext()));
+            new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
         }
     }
 

@@ -84,6 +84,7 @@ import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
+import org.apache.doris.analysis.DropResourceGroupStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
@@ -263,6 +264,8 @@ public class DdlExecutor {
             env.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateResourceGroupStmt) {
             env.getResourceGroupMgr().createResourceGroup((CreateResourceGroupStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropResourceGroupStmt) {
+            env.getResourceGroupMgr().dropResourceGroup((DropResourceGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateDataSyncJobStmt) {
             CreateDataSyncJobStmt createSyncJobStmt = (CreateDataSyncJobStmt) ddlStmt;
             SyncJobManager syncJobMgr = env.getSyncJobManager();

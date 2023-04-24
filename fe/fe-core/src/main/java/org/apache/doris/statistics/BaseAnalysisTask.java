@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -189,4 +190,15 @@ public abstract class BaseAnalysisTask {
         return unsupportedType.contains(type);
     }
 
+    protected String getSampleExpression() {
+        if (info.analysisMethod == AnalysisMethod.FULL) {
+            return "";
+        }
+        // TODO Add sampling methods for external tables
+        if (info.samplePercent > 0) {
+            return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
+        } else {
+            return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
+        }
+    }
 }

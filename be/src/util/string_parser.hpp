@@ -21,20 +21,31 @@
 #pragma once
 
 #include <fast_float/fast_float.h>
+#include <fast_float/parse_number.h>
+#include <glog/logging.h>
+#include <stdlib.h>
 
-#include <cmath>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
 #include <cstdint>
-#include <cstring>
 #include <limits>
+#include <map>
 #include <string>
+#include <system_error>
 #include <type_traits>
+#include <utility>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
+namespace vectorized {
+struct Int128I;
+template <typename T>
+struct Decimal;
+} // namespace vectorized
 
 // Utility functions for doing atoi/atof on non-null terminated strings.  On micro benchmarks,
 // this is significantly faster than libc (atoi/strtol and atof/strtod).

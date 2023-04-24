@@ -43,7 +43,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "gutil/stringprintf.h"
+#include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -1018,6 +1018,14 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                         }
                         tablet->get_max_version_schema(wrlock)->set_is_in_memory(
                                 tablet_meta_info.is_in_memory);
+                    }
+                    break;
+                case TTabletMetaType::MARKDROP:
+                    if (tablet_meta_info.__isset.is_dropped) {
+                        tablet->tablet_meta()->set_is_dropped(tablet_meta_info.is_dropped);
+                        LOG_INFO("successfully set tablet is_dropped")
+                                .tag("tablet_id", tablet_meta_info.tablet_id)
+                                .tag("is_dropped", tablet_meta_info.is_dropped);
                     }
                     break;
                 }

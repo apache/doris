@@ -25,6 +25,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <string>
 
 #include "common/config.h"
 #include "common/object_pool.h"

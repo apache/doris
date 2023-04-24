@@ -17,13 +17,18 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
+#include <functional>
 #include <string>
 
-#include "olap/data_dir.h"
-#include "olap/olap_define.h"
+#include "common/status.h"
+#include "gutil/stringprintf.h"
 #include "olap/tablet_meta.h"
 
 namespace doris {
+class DataDir;
+class OlapMeta;
 
 const std::string OLD_HEADER_PREFIX = "hdr_";
 

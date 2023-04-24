@@ -20,13 +20,18 @@
 
 #include "vec/columns/column_string.h"
 
-#include "vec/columns/column_impl.h"
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <ostream>
+
+#include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 

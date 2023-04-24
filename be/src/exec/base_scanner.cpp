@@ -22,16 +22,18 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/common/threadlocal.h>
 #include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 
+#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <map>
 #include <string>
 #include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "gutil/casts.h"
 #include "runtime/define_primitive_type.h"
@@ -75,7 +77,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _scanner_eof(false) {}
 
 Status BaseScanner::open() {
-    _full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
+    _full_base_schema_view = vectorized::schema_util::FullBaseSchemaView::create_unique();
     RETURN_IF_ERROR(init_expr_ctxes());
     if (_params.__isset.strict_mode) {
         _strict_mode = _params.strict_mode;

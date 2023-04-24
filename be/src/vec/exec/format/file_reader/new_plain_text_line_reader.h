@@ -17,8 +17,13 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <string>
+
 #include "exec/line_reader.h"
-#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
 
 namespace doris {

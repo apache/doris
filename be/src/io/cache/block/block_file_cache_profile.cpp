@@ -17,7 +17,9 @@
 
 #include "io/cache/block/block_file_cache_profile.h"
 
+#include <functional>
 #include <memory>
+#include <string>
 
 namespace doris {
 namespace io {

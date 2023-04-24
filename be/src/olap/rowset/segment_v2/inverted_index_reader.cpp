@@ -17,22 +17,44 @@
 
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 
+#include <CLucene/analysis/AnalysisHeader.h>
+#include <CLucene/analysis/Analyzers.h>
 #include <CLucene/analysis/LanguageBasedAnalyzer.h>
-#include <CLucene/search/BooleanQuery.h>
-#include <CLucene/search/PhraseQuery.h>
+#include <CLucene/analysis/standard/StandardAnalyzer.h>
+#include <CLucene/clucene-config.h>
+#include <CLucene/debug/error.h>
+#include <CLucene/debug/mem.h>
+#include <CLucene/index/IndexReader.h>
+#include <CLucene/index/Term.h>
+#include <CLucene/search/IndexSearcher.h>
+#include <CLucene/search/Query.h>
+#include <CLucene/search/RangeQuery.h>
+#include <CLucene/search/TermQuery.h>
+#include <CLucene/store/Directory.h>
+#include <CLucene/store/IndexInput.h>
+#include <CLucene/util/CLStreams.h>
 #include <CLucene/util/FutureArrays.h>
-#include <CLucene/util/NumericUtils.h>
+#include <CLucene/util/bkd/bkd_docid_iterator.h>
+#include <math.h>
+#include <string.h>
+
+#include <CLucene/util/croaring/roaring.hh>
+#include <algorithm>
+#include <filesystem>
+#include <ostream>
+#include <set>
 
 #include "common/config.h"
-#include "gutil/strings/strip.h"
+#include "common/logging.h"
 #include "io/fs/file_system.h"
 #include "olap/key_coder.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/tablet_schema.h"
-#include "olap/utils.h"
+#include "olap/types.h"
 #include "util/faststring.h"
+#include "util/runtime_profile.h"
 #include "util/time.h"
 #include "vec/common/string_ref.h"
 
@@ -557,9 +579,9 @@ Status BkdIndexReader::get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_rea
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
     }
     CLuceneError err;
-    lucene::store::IndexInput* data_in;
-    lucene::store::IndexInput* meta_in;
-    lucene::store::IndexInput* index_in;
+    std::unique_ptr<lucene::store::IndexInput> data_in;
+    std::unique_ptr<lucene::store::IndexInput> meta_in;
+    std::unique_ptr<lucene::store::IndexInput> index_in;
 
     if (!compoundReader->openInput(
                 InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name().c_str(), data_in,
@@ -574,12 +596,12 @@ Status BkdIndexReader::get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_rea
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
     }
 
-    bkdReader = std::make_shared<lucene::util::bkd::bkd_reader>(data_in);
-    if (0 == bkdReader->read_meta(meta_in)) {
+    bkdReader = std::make_shared<lucene::util::bkd::bkd_reader>(data_in.release());
+    if (0 == bkdReader->read_meta(meta_in.get())) {
         return Status::EndOfFile("bkd index file is empty");
     }
 
-    bkdReader->read_index(index_in);
+    bkdReader->read_index(index_in.get());
 
     _type_info = get_scalar_type_info((FieldType)bkdReader->type);
     if (_type_info == nullptr) {

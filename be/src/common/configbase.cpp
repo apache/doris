@@ -19,7 +19,8 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cerrno>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <cerrno> // IWYU pragma: keep
 #include <cstdlib>
 #include <cstring>
 #include <fstream> // IWYU pragma: keep
@@ -36,6 +37,7 @@
 
 #define __IN_CONFIGBASE_CPP__
 #include "common/config.h" // IWYU pragma: keep
+
 #undef __IN_CONFIGBASE_CPP__
 
 #include "common/status.h"

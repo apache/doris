@@ -17,9 +17,22 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <vector>
+
+#include "common/status.h"
 #include "util/rle_encoding.h"
-#include "vec/exec/format/parquet/bool_plain_decoder.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/decoder.h"
+
+namespace doris {
+namespace vectorized {
+class ColumnSelectVector;
+} // namespace vectorized
+struct Slice;
+} // namespace doris
 
 namespace doris::vectorized {
 class BoolRLEDecoder final : public Decoder {

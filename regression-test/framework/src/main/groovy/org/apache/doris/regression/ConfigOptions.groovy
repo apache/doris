@@ -41,6 +41,7 @@ class ConfigOptions {
     static Option realDataOpt
     static Option cacheDataOpt
     static Option pluginOpt
+    static Option sslCertificateOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -148,6 +149,16 @@ class ConfigOptions {
                 .longOpt("plugin")
                 .desc("the plugin path")
                 .build()
+
+        sslCertificateOpt = Option.builder("ssl")
+                .argName("sslCertificatePath")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("sslCertificatePath")
+                .desc("the sslCertificate path")
+                .build() 
+
         suiteOpt = Option.builder("s")
                 .argName("suiteName")
                 .required(false)
@@ -316,6 +327,7 @@ class ConfigOptions {
                 .addOption(pathOpt)
                 .addOption(dataOpt)
                 .addOption(pluginOpt)
+                .addOption(sslCertificateOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)

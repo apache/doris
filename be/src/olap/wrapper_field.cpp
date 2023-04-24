@@ -17,6 +17,15 @@
 
 #include "olap/wrapper_field.h"
 
+#include <glog/logging.h>
+#include <string.h>
+
+#include <algorithm>
+#include <ostream>
+
+#include "common/config.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/row_cursor.h"
 
 namespace doris {

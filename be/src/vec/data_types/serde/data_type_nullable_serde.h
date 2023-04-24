@@ -15,10 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include "common/status.h"
 #include "data_type_serde.h"
+
 namespace doris {
+class PValues;
 
 namespace vectorized {
+class IColumn;
 
 class DataTypeNullableSerDe : public DataTypeSerDe {
 public:
@@ -27,6 +33,11 @@ public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 int32_t col_id, int row_num) const override;
+
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
 private:
     DataTypeSerDeSPtr nested_serde;

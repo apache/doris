@@ -164,7 +164,7 @@ You can view the specific syntax[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sq
 ### Cancel Create materialized view
 
 ```text
-CANCEL ALTER MATERIALIZED VIEW FROM db_name.table_name
+CANCEL ALTER TABLE MATERIALIZED VIEW FROM db_name.table_name
 ```
 
 
