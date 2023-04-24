@@ -104,6 +104,33 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channe
     return Status::OK();
 }
 
+Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
+                              PTabletWriterAddBlockResult* response) {
+    int64_t index_id = request.index_id();
+    // 1. get tablets channel
+    std::shared_ptr<TabletsChannel> channel;
+    bool is_finished;
+    Status st = _get_tablets_channel(channel, is_finished, index_id);
+    if (!st.ok() || is_finished) {
+        return st;
+    }
+
+    // 2. add block to tablets channel
+    if (request.has_block()) {
+        RETURN_IF_ERROR(channel->add_batch(request, response));
+    }
+
+    // 3. handle eos
+    if (request.has_eos() && request.eos()) {
+        st = _handle_eos(channel, request, response);
+        if (!st.ok()) {
+            return st;
+        }
+    }
+    _last_updated_time.store(time(nullptr));
+    return st;
+}
+
 bool LoadChannel::is_finished() {
     if (!_opened) {
         return false;
