@@ -40,10 +40,12 @@
 #include "util/spinlock.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
+//#include <gen_cpp/internal_service.pb.h>
 
 namespace doris {
 
 class PTabletWriterOpenRequest;
+class PartitionOpenRequest;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
