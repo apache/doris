@@ -592,12 +592,16 @@ bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit)
     }
 }
 
-std::string GeoShape::as_binary(GeoShape* rhs) {
+std::string GeoShape::as_binary(GeoShape* rhs,int is_hex) {
     std::string res;
-    if (toBinary::geo_tobinary(rhs, &res)) {
+    if (toBinary::geo_tobinary(rhs, &res,is_hex)) {
         return res;
     }
     return res;
+}
+
+std::string GeoShape::geo_tohex(std::string binary){
+        return toBinary::to_hex(binary);
 }
 
 } // namespace doris

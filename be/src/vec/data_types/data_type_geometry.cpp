@@ -1,10 +1,25 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
-// Created by Lemon on 2023/4/18.
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
 #include "data_type_geometry.h"
 #include "vec/columns/column_const.h"
 #include "geo/geo_types.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -12,15 +27,8 @@ std::string DataTypeGeometry::to_string(const IColumn& column, size_t row_num) c
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
-    GeoParseStatus status;
     const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    std::unique_ptr<GeoShape> shape = nullptr;
-    if (s.size > 0){
-        shape.reset(GeoShape::from_wkb(s.data, s.size, &status));
-    } else {
-        return "";
-    }
-    return shape->as_wkt();
+    return GeoShape::geo_tohex(std::string(s.data, s.size));
 }
 
 void DataTypeGeometry::to_string(const class doris::vectorized::IColumn& column, size_t row_num,

@@ -51,6 +51,7 @@
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_geometry.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
