@@ -36,6 +36,24 @@ suite("test_show_create_table", "query") {
         
         qt_select "show create table `${tb_name}`"
 
+        sql """drop table if exists ${tb_name} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tb_name}(
+                datek1 datev2 COMMENT "a",
+                datetimek1 datetimev2 COMMENT "b",
+                datetimek2 datetimev2(3) COMMENT "c",
+                datetimek3 datetimev2(6) COMMENT "d",
+                datev1 datev2 NOT NULL COMMENT "e",
+                datetimev1 datetimev2 NOT NULL COMMENT "f",
+                datetimev2 datetimev2(3) NOT NULL COMMENT "g",
+                datetimev3 datetimev2(6) NOT NULL COMMENT "h"
+            )
+            DUPLICATE KEY (datek1, datetimek1, datetimek2, datetimek3)
+            DISTRIBUTED BY RANDOM BUCKETS 5 properties("replication_num" = "1");
+        """
+        
+        qt_select "show create table `${tb_name}`"
+
     } finally {
 
         try_sql("DROP TABLE IF EXISTS `${tb_name}`")
