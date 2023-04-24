@@ -116,6 +116,6 @@ suite("test_delete") {
 	"""
     sql """ insert into tb_test1 values ('2022-10-01', 123); """
     qt_sql9 """select * from tb_test1;"""
-    sql """ delete from tb_test1 where dt = '20221001'; """
+    sql """ delete from tb_test1 where DT = '20221001'; """
     qt_sql10 """select * from tb_test1;"""
 }
