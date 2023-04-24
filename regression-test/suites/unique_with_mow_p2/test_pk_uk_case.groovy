@@ -95,7 +95,7 @@ suite("test_pk_uk_case") {
     def part_key = rd.nextInt(1000)
     def sub_key = 13
     def line_num = 29
-    def decimal = 11.11
+    def decimal = rd.nextInt(1000) + 0.11
     def city = RandomStringUtils.randomAlphabetic(10)
     def name = UUID.randomUUID().toString()
     def date = DateTimeFormatter.ofPattern("yyyy-MM-dd").format(LocalDateTime.now())
