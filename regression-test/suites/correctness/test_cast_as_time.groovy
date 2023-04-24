@@ -45,4 +45,7 @@ suite("test_cast_as_time") {
     qt_select2 """
         select cast(str as time) from tbl_cast_as_time order by id
     """
+    qt_select3 """
+        select cast('2023-02-21 19:19:19' as time)
+    """    
 }
