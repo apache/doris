@@ -78,7 +78,7 @@ CSIndexInput::CSIndexInput(CL_NS(store)::IndexInput* base, const int64_t fileOff
 }
 
 void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
-    std::lock_guard<std::mutex> wlock(((DorisCompoundDirectory::FSIndexInput*)base)->_this_lock);
+    std::lock_guard wlock(((DorisCompoundDirectory::FSIndexInput*)base)->_this_lock);
 
     int64_t start = getFilePointer();
     if (start + len > _length) {
