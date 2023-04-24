@@ -22,6 +22,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
@@ -36,6 +37,8 @@ namespace doris::vectorized {
 class VExpr;
 
 class VExprContext {
+    ENABLE_FACTORY_CREATOR(VExprContext);
+
 public:
     VExprContext(VExpr* expr);
     ~VExprContext();

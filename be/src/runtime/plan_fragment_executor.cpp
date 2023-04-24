@@ -113,7 +113,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     const TQueryGlobals& query_globals =
             query_ctx == nullptr ? request.query_globals : query_ctx->query_globals;
-    _runtime_state.reset(new RuntimeState(params, request.query_options, query_globals, _exec_env));
+    _runtime_state =
+            RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
     _runtime_state->set_query_ctx(query_ctx);
     _runtime_state->set_query_mem_tracker(query_ctx == nullptr ? _exec_env->orphan_mem_tracker()
                                                                : query_ctx->query_mem_tracker);

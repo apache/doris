@@ -48,6 +48,8 @@ class VExprContext;
 namespace doris::vectorized {
 
 class ArrayMapFunction : public LambdaFunction {
+    ENABLE_FACTORY_CREATOR(ArrayMapFunction);
+
 public:
     ~ArrayMapFunction() override = default;
 

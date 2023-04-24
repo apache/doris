@@ -855,7 +855,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             texpr_node.__set_child_type(TPrimitiveType::INT);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable);
-            root = _obj_pool->add(new VectorizedFnCall(texpr_node));
+            root = _obj_pool->add(VectorizedFnCall::create_unique(texpr_node).release());
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -866,7 +866,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
                     break;
                 }
             }
-            VExpr* slot_ref_expr = _obj_pool->add(new VSlotRef(slot));
+            VExpr* slot_ref_expr = _obj_pool->add(VSlotRef::create_unique(slot).release());
             root->add_child(slot_ref_expr);
         }
         {
@@ -877,7 +877,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             int_literal.__set_value(dict_codes[0]);
             texpr_node.__set_int_literal(int_literal);
             texpr_node.__set_is_nullable(is_nullable);
-            VExpr* literal_expr = _obj_pool->add(new VLiteral(texpr_node));
+            VExpr* literal_expr = _obj_pool->add(VLiteral::create_unique(texpr_node).release());
             root->add_child(literal_expr);
         }
     } else {
@@ -893,7 +893,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             // VdirectInPredicate assume is_nullable = false.
             node.__set_is_nullable(false);
 
-            root = _obj_pool->add(new vectorized::VDirectInPredicate(node));
+            root = _obj_pool->add(vectorized::VDirectInPredicate::create_unique(node).release());
             std::shared_ptr<HybridSetBase> hybrid_set(
                     create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
             for (int j = 0; j < dict_codes.size(); ++j) {
@@ -910,11 +910,12 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
                     break;
                 }
             }
-            VExpr* slot_ref_expr = _obj_pool->add(new VSlotRef(slot));
+            VExpr* slot_ref_expr = _obj_pool->add(VSlotRef::create_unique(slot).release());
             root->add_child(slot_ref_expr);
         }
     }
-    VExprContext* rewritten_conjunct_ctx = _obj_pool->add(new VExprContext(root));
+    VExprContext* rewritten_conjunct_ctx =
+            _obj_pool->add(VExprContext::create_unique(root).release());
     RETURN_IF_ERROR(rewritten_conjunct_ctx->prepare(_state, *_row_descriptor));
     RETURN_IF_ERROR(rewritten_conjunct_ctx->open(_state));
     _dict_filter_conjuncts.push_back(rewritten_conjunct_ctx);

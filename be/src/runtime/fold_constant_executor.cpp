@@ -138,8 +138,8 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
     TExecPlanFragmentParams fragment_params;
     fragment_params.params = params;
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
-    _runtime_state.reset(new RuntimeState(fragment_params.params, query_options, query_globals,
-                                          ExecEnv::GetInstance()));
+    _runtime_state = RuntimeState::create_unique(fragment_params.params, query_options,
+                                                 query_globals, ExecEnv::GetInstance());
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);

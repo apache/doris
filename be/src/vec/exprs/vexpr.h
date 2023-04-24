@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
@@ -59,6 +60,9 @@ class VExprContext;
         RETURN_IF_ERROR(stmt);            \
     }
 
+// VExpr should be used as shared pointer because it will be passed between classes
+// like runtime filter to scan node, or from scannode to scanner. We could not make sure
+// the relatioinship between threads and classes.
 class VExpr {
 public:
     // resize inserted param column to make sure column size equal to block.rows()
@@ -241,6 +245,9 @@ protected:
     std::shared_ptr<ColumnPtrWrapper> _constant_col;
     bool _prepared;
 };
+
+using VExprSPtr = std::shared_ptr<VExpr>;
+using VExprUPtr = std::unique_ptr<VExpr>;
 
 } // namespace vectorized
 } // namespace doris

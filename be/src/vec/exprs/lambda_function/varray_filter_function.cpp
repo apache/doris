@@ -48,6 +48,8 @@ class VExprContext;
 namespace doris::vectorized {
 
 class ArrayFilterFunction : public LambdaFunction {
+    ENABLE_FACTORY_CREATOR(ArrayFilterFunction);
+
 public:
     ~ArrayFilterFunction() override = default;
 
