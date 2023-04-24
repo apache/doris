@@ -17,18 +17,21 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <memory>
 #include <vector>
 
 #include "common/status.h"
 #include "util/jsonb_writer.h"
-#include "vec/columns/column.h"
 
 namespace doris {
 class PValues;
+class JsonbValue;
 
 namespace vectorized {
 class IColumn;
+class Arena;
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
 // Serialize means write the column cell or the total column into another

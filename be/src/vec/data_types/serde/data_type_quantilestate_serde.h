@@ -17,9 +17,20 @@
 
 #pragma once
 
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "common/status.h"
 #include "data_type_serde.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
+#include "util/quantile_state.h"
+#include "util/slice.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
 #include "vec/common/arena.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 

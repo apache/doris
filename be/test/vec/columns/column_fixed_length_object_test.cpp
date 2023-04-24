@@ -18,10 +18,13 @@
 
 #include "vec/columns/column_fixed_length_object.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
 #include <memory>
-#include <string>
+
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris::vectorized {
 
