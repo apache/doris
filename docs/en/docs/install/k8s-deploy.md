@@ -1,6 +1,6 @@
 ---
 {
-"title": "K8s Deployment Doris",
+"title": "Kubernetes Deployment",
 "language": "en"
 }
 ---
@@ -32,7 +32,7 @@ under the License.
 
 - Installation k8s
 - Build or download a Doris image
-    - Building an image [Doris Docker Quickly build a development environment](./docker-dev) 
+    - Building an image [Build Docker Image](./construct-docker/construct-docker-image)
     - Download Image https://hub.docker.com/r/apache/doris/tags
 - Create or download the yml file for Doris on k8s
     - https://github.com/apache/doris/blob/master/docker/runtime/k8s/doris_follower.yml
