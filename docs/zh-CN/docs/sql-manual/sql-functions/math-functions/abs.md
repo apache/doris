@@ -27,11 +27,17 @@ under the License.
 ### description
 #### Syntax
 
-`DOUBLE abs(DOUBLE x)`  `SMALLINT abs(TINYINT x)`  `INT abs(SMALLINT x)`  
-
-`BIGINT abs(INT x)`  `LARGEINT abs(BIGINT x)`  `LARGEINT abs(LARGEINT x)`  
-
-`DOUBLE abs(DOUBLE x)`  `FLOAT abs(FLOAT x)`  `DECIMAL abs(DECIMAL x)`  
+```sql
+DOUBLE abs(DOUBLE x)
+SMALLINT abs(TINYINT x)
+INT abs(SMALLINT x)
+BIGINT abs(INT x)
+LARGEINT abs(BIGINT x)
+LARGEINT abs(LARGEINT x)
+DOUBLE abs(DOUBLE x)
+FLOAT abs(FLOAT x)
+DECIMAL abs(DECIMAL x)` 
+```
 
 返回`x`的绝对值.
 

@@ -33,11 +33,6 @@ array_contains
 </version>
 
 ### description
-
-#### Syntax
-
-`BOOLEAN array_contains(ARRAY<T> arr, T value)`
-
 判断数组中是否包含value。返回结果如下：
 
 ```
@@ -45,6 +40,10 @@ array_contains
 0    - value不存在数组arr中；
 NULL - arr为NULL时。
 ```
+
+#### Syntax
+
+`BOOLEAN array_contains(ARRAY<T> arr, T value)`
 
 ### notice
 

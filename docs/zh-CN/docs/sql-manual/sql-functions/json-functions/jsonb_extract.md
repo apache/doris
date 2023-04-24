@@ -35,19 +35,15 @@ jsonb_extract
 ### description
 #### Syntax
 
-`JSONB jsonb_extract(JSONB j, VARCHAR json_path)`
-
-`BOOLEAN jsonb_extract_isnull(JSONB j, VARCHAR json_path)`
-
-`BOOLEAN jsonb_extract_bool(JSONB j, VARCHAR json_path)`
-
-`INT jsonb_extract_int(JSONB j, VARCHAR json_path)`
-
-`BIGINT jsonb_extract_bigint(JSONB j, VARCHAR json_path)`
-
-`DOUBLE jsonb_extract_double(JSONB j, VARCHAR json_path)`
-
-`STRING jsonb_extract_string(JSONB j, VARCHAR json_path)`
+```sql
+JSONB jsonb_extract(JSONB j, VARCHAR json_path)
+BOOLEAN jsonb_extract_isnull(JSONB j, VARCHAR json_path)
+BOOLEAN jsonb_extract_bool(JSONB j, VARCHAR json_path)
+INT jsonb_extract_int(JSONB j, VARCHAR json_path)
+BIGINT jsonb_extract_bigint(JSONB j, VARCHAR json_path)
+DOUBLE jsonb_extract_double(JSONB j, VARCHAR json_path)
+STRING jsonb_extract_string(JSONB j, VARCHAR json_path)
+```
 
 
 jsonb_extract是一系列函数，从JSONB类型的数据中提取json_path指定的字段，根据要提取的字段类型不同提供不同的系列函数。
@@ -64,9 +60,10 @@ jsonb_extract是一系列函数，从JSONB类型的数据中提取json_path指�
 - 如果json_path指定的字段在JSON中的实际类型和jsonb_extract_t指定的类型不一致，如果能无损转换成指定类型返回指定类型t，如果不能则返回NULL
 
 
-`BOOLEAN jsonb_exists_path(JSONB j, VARCHAR json_path)`
-
-`STRING jsonb_type(JSONB j, VARCHAR json_path)`
+```sql
+BOOLEAN jsonb_exists_path(JSONB j, VARCHAR json_path)
+STRING jsonb_type(JSONB j, VARCHAR json_path)
+```
 
 这两个jsonb函数用来判断字段是否存在和字段类型
 - jsonb_exists_path用来判断json_path指定的字段在JSONB数据中是否存在，如果存在返回TRUE，不存在返回FALSE
