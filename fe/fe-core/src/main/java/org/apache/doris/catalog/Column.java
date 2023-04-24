@@ -70,7 +70,7 @@ public class Column implements Writable, GsonPostProcessable {
     private static final String COLUMN_MAP_VALUE = "value";
 
     public static final Column UNSUPPORTED_COLUMN = new Column("unknown",
-            Type.UNSUPPORTED, true, null, true, null, "invalid", true, null, -1, null, null, null, null);
+            Type.UNSUPPORTED, true, null, true, false, null, "invalid", true, null, -1, null, null, null, null);
 
     @SerializedName(value = "name")
     private String name;
@@ -91,6 +91,8 @@ public class Column implements Writable, GsonPostProcessable {
     private boolean isKey;
     @SerializedName(value = "isAllowNull")
     private boolean isAllowNull;
+    @SerializedName(value = "isAutoInc")
+    private boolean isAutoInc;
     @SerializedName(value = "defaultValue")
     private String defaultValue;
     @SerializedName(value = "comment")
@@ -167,20 +169,20 @@ public class Column implements Writable, GsonPostProcessable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment) {
-        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, null,
+        this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, true, null,
                 COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue, null, null, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String comment, boolean visible, int colUniqueId) {
-        this(name, type, isKey, aggregateType, isAllowNull, null, comment, visible, null,
+        this(name, type, isKey, aggregateType, isAllowNull, false, null, comment, visible, null,
                 colUniqueId, null, null, null, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-            String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
-            int colUniqueId, String realDefaultValue, String genericAggregationName,
-            List<Type> genericAggregationArguments, List<Boolean> nullableList) {
+            boolean isAutoInc, String defaultValue, String comment, boolean visible,
+            DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue,
+            String genericAggregationName,List<Type> genericAggregationArguments, List<Boolean> nullableList) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -195,6 +197,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.isAggregationTypeImplicit = false;
         this.isKey = isKey;
         this.isAllowNull = isAllowNull;
+        this.isAutoInc = isAutoInc;
         this.defaultValue = defaultValue;
         this.realDefaultValue = realDefaultValue;
         this.defaultValueExprDef = defaultValueExprDef;
@@ -223,6 +226,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.isKey = column.isKey();
         this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
+        this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
         this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
@@ -409,6 +413,10 @@ public class Column implements Writable, GsonPostProcessable {
 
     public boolean isAllowNull() {
         return isAllowNull;
+    }
+
+    public boolean isAutoInc() {
+        return isAutoInc;
     }
 
     public void setIsAllowNull(boolean isAllowNull) {
