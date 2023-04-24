@@ -57,8 +57,8 @@ public:
     Status open(const PTabletWriterOpenRequest& request);
 
     // this batch must belong to a index in one transaction
-    template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-    Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
+    Status add_batch(const PTabletWriterAddBlockRequest& request,
+                     PTabletWriterAddBlockResult* response);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
@@ -177,9 +177,8 @@ private:
     int64_t _backend_id;
 };
 
-template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
-                              TabletWriterAddResult* response) {
+Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
+                              PTabletWriterAddBlockResult* response) {
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
