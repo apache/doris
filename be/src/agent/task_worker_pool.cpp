@@ -1266,8 +1266,6 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
             std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
             request.__set_tasks(_s_task_signatures);
             request.__set_backend(BackendOptions::get_localBackend());
-            LOG(INFO)
-                    << "zdtest===============" << BackendOptions::get_localBackend().host;
         }
         _handle_report(request, ReportType::TASK);
     }

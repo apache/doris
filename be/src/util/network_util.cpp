@@ -107,7 +107,6 @@ std::string hostname_to_ip(const std::string& host) {
     std::vector<std::string> addresses;
     Status status = hostname_to_ip_addrs(host, &addresses);
     if (!status.ok()) {
-        // todo(zd)
         LOG(WARNING) << "status of hostname_to_ip_addrs was not ok, err is " << status.to_string();
         return "";
     }
