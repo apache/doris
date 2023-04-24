@@ -124,7 +124,8 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
                     "LoadChannel#senderIp={}#loadID={}", params.sender_ip(), load_id.to_string()));
 #endif
             channel.reset(new LoadChannel(load_id, std::move(channel_mem_tracker),
-                                          channel_timeout_s, is_high_priority, params.sender_ip()));
+                                          channel_timeout_s, is_high_priority, params.sender_ip(),
+                                          params.backend_id()));
             _load_channels.insert({load_id, channel});
         }
     }

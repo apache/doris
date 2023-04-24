@@ -50,6 +50,7 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
         : _pool(new ObjectPool()),
           _name(name),
           _metadata(-1),
+          _timestamp(-1),
           _is_averaged_profile(is_averaged_profile),
           _counter_total_time(TUnit::TIME_NS, 0),
           _local_time_percent(0) {
@@ -115,6 +116,7 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
                 child = _pool->add(new RuntimeProfile(other_child->_name));
                 child->_local_time_percent = other_child->_local_time_percent;
                 child->_metadata = other_child->_metadata;
+                child->_timestamp = other_child->_timestamp;
                 bool indent_other_child = other->_children[i].second;
                 _child_map[child->_name] = child;
                 _children.push_back(std::make_pair(child, indent_other_child));
@@ -203,6 +205,7 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
             } else {
                 child = _pool->add(new RuntimeProfile(tchild.name));
                 child->_metadata = tchild.metadata;
+                child->_timestamp = tchild.timestamp;
                 _child_map[tchild.name] = child;
                 _children.push_back(std::make_pair(child, tchild.indent));
             }
@@ -639,6 +642,7 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     node.name = _name;
     node.num_children = _children.size();
     node.metadata = _metadata;
+    node.timestamp = _timestamp;
     node.indent = true;
 
     CounterMap counter_map;

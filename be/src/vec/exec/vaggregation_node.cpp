@@ -324,7 +324,7 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
 }
 
 Status AggregationNode::prepare_profile(RuntimeState* state) {
-    auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
+    auto* memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
     runtime_profile()->add_child(memory_usage, false, nullptr);
     _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
     _serialize_key_arena_memory_usage =
