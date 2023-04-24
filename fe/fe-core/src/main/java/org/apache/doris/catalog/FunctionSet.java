@@ -984,6 +984,7 @@ public class FunctionSet<T> {
         List<Function> inferenceFunctions = Lists.newArrayList();
         for (Function fn : fns) {
             if (fn.isInferenceFunction()) {
+                LOG.info("getFunction:fn is inference function, name:" + fn.functionName());
                 inferenceFunctions.add(fn);
                 continue;
             }
@@ -1035,6 +1036,7 @@ public class FunctionSet<T> {
         }
 
         List<Function> inferredFunctions = Lists.newArrayList();
+        LOG.info("getFunction:inferenceFunctions.size():" + inferenceFunctions.size());
         for (Function f : inferenceFunctions) {
             if (f.hasTemplateArg()) {
                 f = specializeTemplateFunction(f, desc, f.hasVariadicTemplateArg());
@@ -1156,6 +1158,10 @@ public class FunctionSet<T> {
 
     public Function resolveInferenceFunction(Function inferenceFunction, Function requestFunction) {
         Type[] args = requestFunction.getArgs();
+        LOG.info("resolveInferenceFunction:requestFunction.getArgs():");
+        LOG.info("resolveInferenceFunction:requestFunction.getArgs():" + requestFunction.getArgs());
+        LOG.info("resolveInferenceFunction:inferenceFunction.functionName():");
+        LOG.info("resolveInferenceFunction:inferenceFunction.functionName():" + inferenceFunction.functionName());
         Type newRetType = FunctionTypeDeducers.deduce(inferenceFunction.functionName(), args);
         if (newRetType != null && inferenceFunction instanceof ScalarFunction) {
             ScalarFunction f = (ScalarFunction) inferenceFunction;

@@ -57,7 +57,7 @@ public class FunctionTypeDeducers {
         @Override
         public Type deduce(Type[] args) {
             if (args[0] instanceof StructType) {
-                return Type.ANY_TYPE;
+                return Type.ANY_ELEMENT_TYPE;
             }
             return null;
         }

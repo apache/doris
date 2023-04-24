@@ -81,10 +81,11 @@ public:
 
         auto index_column = block.get_by_position(arguments[1]).column;
         auto index_type = block.get_by_position(arguments[1]).type;
-        Status res = get_element_index(struct_type, index_column, index_type);
+        size_t index;
+        Status res = get_element_index(*struct_type, index_column, index_type, &index);
         if (res == Status::OK()) {
             ColumnPtr res_column = struct_col->get_column_ptr(index);
-            block.replace_by_position(result, res_column.clone_resized(res_column.size()));
+            block.replace_by_position(result, res_column->clone_resized(res_column->size()));
             return res;
         }
         return res;
@@ -94,29 +95,30 @@ private:
     Status get_element_index(const DataTypeStruct& struct_type, const ColumnPtr& index_column,
                              const DataTypePtr& index_type, size_t* result) const {
         size_t index;
-        if (is_interger(index_type)) {
-            index = index_column->getInt(0);
-            size_t limit = struct_type->get_elements().size() + 1;
+        if (is_integer(index_type)) {
+            index = index_column->get_int(0);
+            size_t limit = struct_type.get_elements().size() + 1;
             if (index <= 0 || index >= limit) {
                 return Status::RuntimeError(
                         fmt::format("Index out of bound for function {}: index {} should base from 1 and less than {}.",
-                                    get_name(), index, limit);
+                                    get_name(), index, limit));
             }
         } else if (is_string(index_type)) {
-            std::string field_name = block.get_by_position(arguments[1]).column->get_data_at(0).to_string();
-            std::optional<size_t> pos = struct_type->try_get_position_by_name(field_name);
+            std::string field_name = index_column->get_data_at(0).to_string();
+            std::optional<size_t> pos = struct_type.try_get_position_by_name(field_name);
             if (!pos.has_value()) {
                 return Status::RuntimeError(
                         fmt::format("Element not found for function {}: name {} not found in {}.",
-                                    get_name(), field_name, struct_type->get_name());
+                                    get_name(), field_name, struct_type.get_name()));
             }
             index = pos.value();
         } else {
             return Status::RuntimeError(
                     fmt::format("Argument not supported for function {}: second arg type {} should be int or string.",
-                                get_name(), index_type->get_name());
+                                get_name(), index_type->get_name()));
         }
         *result = index;
+        return Status::OK();
     }
 };
 
