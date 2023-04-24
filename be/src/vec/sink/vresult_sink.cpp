@@ -24,10 +24,11 @@
 #include <new>
 
 #include "common/config.h"
-#include "common/object_pool.h"
 #include "common/consts.h"
+#include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
 #include "runtime/buffer_control_block.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"

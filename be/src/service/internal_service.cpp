@@ -101,10 +101,7 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
-<<<<<<< HEAD
-=======
 #include "vec/columns/column_string.h"
->>>>>>> 86f5cd1532 ([WIP](row store) two phase opt read row store)
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
