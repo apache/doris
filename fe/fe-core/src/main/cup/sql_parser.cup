@@ -3013,6 +3013,10 @@ drop_stmt ::=
     {:
         RESULT = new DropResourceStmt(ifExists, resourceName);
     :}
+    | KW_DROP KW_RESOURCE KW_GROUP opt_if_exists:ifExists ident_or_text:resourceGroupName
+    {:
+        RESULT = new DropResourceGroupStmt(ifExists, resourceGroupName);
+    :}
     | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
     {:
         RESULT = new DropEncryptKeyStmt(ifExists, keyName);

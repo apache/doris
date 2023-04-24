@@ -18,6 +18,7 @@
 package org.apache.doris.resource.resourcegroup;
 
 import org.apache.doris.analysis.CreateResourceGroupStmt;
+import org.apache.doris.analysis.DropResourceGroupStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -141,6 +142,34 @@ public class ResourceGroupMgrTest {
             Assert.fail();
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
+        }
+    }
+
+    @Test
+    public void testDropResourceGroup() throws UserException {
+        Config.enable_resource_group = true;
+        ResourceGroupMgr resourceGroupMgr = new ResourceGroupMgr();
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(ResourceGroup.CPU_SHARE, "10");
+        String name = "g1";
+        CreateResourceGroupStmt createStmt = new CreateResourceGroupStmt(false, name, properties);
+        resourceGroupMgr.createResourceGroup(createStmt);
+        Assert.assertEquals(1, resourceGroupMgr.getResourceGroup(name).size());
+
+        DropResourceGroupStmt dropStmt = new DropResourceGroupStmt(false, name);
+        resourceGroupMgr.dropResourceGroup(dropStmt);
+        try {
+            resourceGroupMgr.getResourceGroup(name);
+            Assert.fail();
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("does not exist"));
+        }
+
+        DropResourceGroupStmt dropDefaultStmt = new DropResourceGroupStmt(false, ResourceGroupMgr.DEFAULT_GROUP_NAME);
+        try {
+            resourceGroupMgr.dropResourceGroup(dropDefaultStmt);
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("is not allowed"));
         }
     }
 }
