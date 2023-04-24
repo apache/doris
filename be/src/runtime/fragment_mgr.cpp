@@ -1193,7 +1193,10 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             fragment_state = iter->second;
 
             DCHECK(fragment_state != nullptr);
-            runtime_filter_mgr = fragment_state->executor()->runtime_state()->runtime_filter_mgr();
+            runtime_filter_mgr = fragment_state->executor()
+                                         ->runtime_state()
+                                         ->get_query_ctx()
+                                         ->runtime_filter_mgr();
             pool = &fragment_state->get_query_ctx()->obj_pool;
         }
 
