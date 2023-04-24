@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Installation and Deployment",
+    "title": "Standard deployment",
     "language": "en"
 }
 ---

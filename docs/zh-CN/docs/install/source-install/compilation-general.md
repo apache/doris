@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris编译",
+    "title": "通用编译",
     "language": "zh-CN"
 }
 ---

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Compilation",
+    "title": "General Compilation",
     "language": "en"
 }
 ---
