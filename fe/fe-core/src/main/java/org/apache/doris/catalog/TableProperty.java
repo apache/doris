@@ -80,8 +80,6 @@ public class TableProperty implements Writable {
 
     private boolean storeRowColumn = false;
 
-    private boolean duplicateNoKeys = false;
-
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
