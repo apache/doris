@@ -129,6 +129,7 @@ public class CreateTableStmtTest {
     public void testCreateTableUniqueKeyNormal() throws UserException {
         // setup
         Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false");
         ColumnDef col3 = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BIGINT)));
         col3.setIsKey(false);
         cols.add(col3);
@@ -151,7 +152,6 @@ public class CreateTableStmtTest {
     public void testCreateTableUniqueKeyMoW() throws UserException {
         // setup
         Map<String, String> properties = new HashMap<>();
-        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         ColumnDef col3 = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BIGINT)));
         col3.setIsKey(false);
         cols.add(col3);

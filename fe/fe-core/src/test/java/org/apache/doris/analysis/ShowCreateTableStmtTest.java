@@ -40,6 +40,14 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
                 + ") "
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
+        createTable("create table table2\n"
+                + "(k1 int comment 'test column k1', k2 int comment 'test column k2', v1 string comment 'test column v1') "
+                + "unique key(k1, k2) distributed by hash(k1) buckets 1\n"
+                + "properties(\"replication_num\" = \"1\");");
+        createTable("create table table3\n"
+                + "(k1 int comment 'test column k1', k2 int comment 'test column k2', v1 string comment 'test column v1') "
+                + "unique key(k1, k2) distributed by hash(k1) buckets 1\n"
+                + "properties(\"replication_num\" = \"1\", \"enable_unique_key_merge_on_write\" = \"false\");");
     }
 
 
@@ -59,5 +67,22 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
         String showSql = showResultSet.getResultRows().get(0).get(1);
         Assertions.assertTrue(!showSql.contains("PARTITION BY"));
         Assertions.assertTrue(!showSql.contains("PARTITION `p01`"));
+    }
+
+    @Test
+    public void testUniqueKeyMoW() throws Exception {
+        String propertyStr = "\"enable_unique_key_merge_on_write\" = \"false\"";
+
+        String sql1 = "show create table table2";
+        ShowResultSet showResultSet1 = showCreateTable(sql1);
+        String showSql1 = showResultSet1.getResultRows().get(0).get(1);
+        Assertions.assertTrue(showSql1.contains("`k1` int(11) NULL COMMENT 'test column k1'"));
+        Assertions.assertFalse(showSql1.contains(propertyStr));
+
+        String sql2 = "show create table table3";
+        ShowResultSet showResultSet2 = showCreateTable(sql2);
+        String showSql2 = showResultSet2.getResultRows().get(0).get(1);
+        Assertions.assertTrue(showSql2.contains("`k1` int(11) NULL COMMENT 'test column k1'"));
+        Assertions.assertTrue(showSql2.contains(propertyStr));
     }
 }
