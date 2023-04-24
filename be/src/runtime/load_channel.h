@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
 #include <stdint.h>
 #include <time.h>
 

@@ -500,8 +500,4 @@ bool TabletsChannel::_is_broken_tablet(int64_t tablet_id) {
     std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
     return _broken_tablets.find(tablet_id) != _broken_tablets.end();
 }
-
-template Status
-TabletsChannel::add_batch<PTabletWriterAddBlockRequest, PTabletWriterAddBlockResult>(
-        PTabletWriterAddBlockRequest const&, PTabletWriterAddBlockResult*);
 } // namespace doris
