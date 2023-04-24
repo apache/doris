@@ -100,9 +100,9 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_STRING;
     } else if (0 == upper_type_str.compare("JSONB")) {
         type = FieldType::OLAP_FIELD_TYPE_JSONB;
-    }else if (0 == upper_type_str.compare("GEOMETRY")) {
+    } else if (0 == upper_type_str.compare("GEOMETRY")) {
         type = FieldType::OLAP_FIELD_TYPE_GEOMETRY;
-    }else if (0 == upper_type_str.compare("BOOLEAN")) {
+    } else if (0 == upper_type_str.compare("BOOLEAN")) {
         type = FieldType::OLAP_FIELD_TYPE_BOOL;
     } else if (0 == upper_type_str.compare(0, 3, "HLL")) {
         type = FieldType::OLAP_FIELD_TYPE_HLL;

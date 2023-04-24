@@ -18,10 +18,8 @@
 #ifndef DORIS_GEOMETRY_VALUE_H
 #define DORIS_GEOMETRY_VALUE_H
 
-
-#include "geo/geo_tobinary.h"
 #include "common/status.h"
-
+#include "geo/geo_tobinary.h"
 
 namespace doris {
 struct GeometryBinaryValue {
@@ -36,9 +34,7 @@ struct GeometryBinaryValue {
     GeometryBinaryValue(const std::string& s) { from_geometry_string(s.c_str(), s.length()); }
     GeometryBinaryValue(const char* ptr, int len) { from_geometry_string(ptr, len); }
 
-    ~GeometryBinaryValue() {
-        delete[] ptr;
-    }
+    ~GeometryBinaryValue() { delete[] ptr; }
 
     const char* value() { return ptr; }
 
@@ -52,9 +48,7 @@ struct GeometryBinaryValue {
     Status from_geometry_string(const char* s, int len);
 
     std::string to_geometry_string() const;
-
 };
-}
-
+} // namespace doris
 
 #endif //DORIS_GEOMETRY_VALUE_H

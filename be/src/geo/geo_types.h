@@ -61,7 +61,7 @@ public:
 
     virtual bool contains(const GeoShape* rhs) const { return false; }
     virtual std::string to_string() const { return ""; }
-    static std::string as_binary(GeoShape* rhs,int is_hex);
+    static std::string as_binary(GeoShape* rhs, int is_hex);
     static std::string geo_tohex(std::string binary);
 
     static bool ComputeArea(GeoShape* rhs, double* angle, std::string square_unit);

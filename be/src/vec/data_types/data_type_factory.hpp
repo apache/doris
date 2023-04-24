@@ -26,10 +26,6 @@
 #include <utility>
 #include <vector>
 
-#include "arrow/type.h"
-#include "common/consts.h"
-#include "gen_cpp/data.pb.h"
-#include "olap/field.h"
 #include "olap/tablet_schema.h"
 #include "runtime/types.h"
 #include "vec/aggregate_functions/aggregate_function.h"

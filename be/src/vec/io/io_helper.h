@@ -209,7 +209,7 @@ inline void read_json_binary(JsonbField val, BufferReadable& buf,
 }
 
 inline void read_geometry_binary(GeometryField val, BufferReadable& buf,
-                             size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
+                                 size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
     StringRef jrf = StringRef {val.get_value(), val.get_size()};
     read_string_binary(jrf, buf);
 }

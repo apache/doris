@@ -16,8 +16,9 @@
 // under the License.
 
 #include "data_type_geometry.h"
-#include "vec/columns/column_const.h"
+
 #include "geo/geo_types.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/io/reader_buffer.h"
 
@@ -32,7 +33,7 @@ std::string DataTypeGeometry::to_string(const IColumn& column, size_t row_num) c
 }
 
 void DataTypeGeometry::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                              class doris::vectorized::BufferWritable& ostr) const {
+                                 class doris::vectorized::BufferWritable& ostr) const {
     std::string str = to_string(column, row_num);
     ostr.write(str.c_str(), str.size());
 }
@@ -56,7 +57,7 @@ bool DataTypeGeometry::equals(const IDataType& rhs) const {
 }
 
 int64_t DataTypeGeometry::get_uncompressed_serialized_bytes(const IColumn& column,
-                                                         int data_version) const {
+                                                            int data_version) const {
     return data_type_string.get_uncompressed_serialized_bytes(column, data_version);
 }
 
@@ -64,9 +65,9 @@ char* DataTypeGeometry::serialize(const IColumn& column, char* buf, int data_ver
     return data_type_string.serialize(column, buf, data_version);
 }
 
-const char* DataTypeGeometry::deserialize(const char* buf, IColumn* column, int data_version) const {
+const char* DataTypeGeometry::deserialize(const char* buf, IColumn* column,
+                                          int data_version) const {
     return data_type_string.deserialize(buf, column, data_version);
 }
 
-
-}
+} // namespace doris::vectorized

@@ -72,8 +72,5 @@ public:
 
 private:
     DataTypeString data_type_string;
-
 };
-}
-
-
+} // namespace doris::vectorized

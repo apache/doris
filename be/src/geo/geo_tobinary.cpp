@@ -36,7 +36,7 @@ bool toBinary::geo_tobinary(GeoShape* shape, std::string* result, int is_hex) {
     std::stringstream result_stream;
     ctx.outStream = &result_stream;
     if (toBinary::write(shape, &ctx)) {
-        if(is_hex){
+        if (is_hex) {
             *result = to_hex(result_stream.str());
         } else {
             *result = result_stream.str();

@@ -31,6 +31,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "geo/geo_types.h"
 #include "gutil/integral_types.h"
 #include "olap/hll.h"
 #include "runtime/buffer_control_block.h"
@@ -69,7 +70,6 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
-#include "geo/geo_types.h"
 
 namespace doris {
 namespace vectorized {
@@ -126,7 +126,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
     int buf_ret = 0;
 
     if constexpr (type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_VARCHAR ||
-                  type == TYPE_JSONB || type == TYPE_GEOMETRY ) {
+                  type == TYPE_JSONB || type == TYPE_GEOMETRY) {
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -205,7 +205,8 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 if (geometry_val.data == nullptr || geometry_val.size == 0) {
                     buf_ret = rows_buffer[i].push_null();
                 } else {
-                    std::string hex_str = GeoShape::geo_tohex(std::string(geometry_val.data, geometry_val.size));
+                    std::string hex_str =
+                            GeoShape::geo_tohex(std::string(geometry_val.data, geometry_val.size));
                     buf_ret = rows_buffer[i].push_string(hex_str.c_str(), hex_str.size());
                 }
             }
