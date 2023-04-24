@@ -40,6 +40,7 @@ import org.junit.Test;
 
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 
@@ -148,17 +149,21 @@ public class InsertStmtTest {
     }
 
 
-    @Injectable InsertTarget target;
-    @Injectable InsertSource source;
-    @Injectable Table targetTable;
+    @Injectable
+    InsertTarget target;
+    @Injectable
+    InsertSource source;
+    @Injectable
+    Table targetTable;
 
     @Test
     public void testNormal() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String sql = "values(1,'a',2,'b')";
 
-        SqlScanner input = new SqlScanner(new StringReader(sql), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
+        org.apache.doris.analysis.SqlScanner input = new org.apache.doris.analysis.SqlScanner(new StringReader(sql),
+                ctx.getSessionVariable().getSqlMode());
+        org.apache.doris.analysis.SqlParser parser = new org.apache.doris.analysis.SqlParser(input);
         Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         StatementBase statementBase = null;
         try {
@@ -188,7 +193,7 @@ public class InsertStmtTest {
         };
 
 
-        InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>());
+        InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>(), new HashMap<>());
         stmt.setTargetTable(targetTable);
         stmt.setQueryStmt(queryStmt);
 
@@ -221,8 +226,9 @@ public class InsertStmtTest {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String sql = "select kk1, kk2, kk3, kk4 from db.tbl";
 
-        SqlScanner input = new SqlScanner(new StringReader(sql), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
+        org.apache.doris.analysis.SqlScanner input = new org.apache.doris.analysis.SqlScanner(new StringReader(sql),
+                ctx.getSessionVariable().getSqlMode());
+        org.apache.doris.analysis.SqlParser parser = new org.apache.doris.analysis.SqlParser(input);
         Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         StatementBase statementBase = null;
         try {
@@ -252,7 +258,7 @@ public class InsertStmtTest {
         };
 
 
-        InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>());
+        InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>(), new HashMap<>());
         stmt.setTargetTable(targetTable);
         stmt.setQueryStmt(queryStmt);
 

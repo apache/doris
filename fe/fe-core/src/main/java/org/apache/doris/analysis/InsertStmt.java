@@ -58,8 +58,11 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
+import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -73,26 +76,68 @@ import java.util.Set;
 
 /**
  * Insert into is performed to load data from the result of query stmt.
- *
+ * <p>
  * syntax:
- *   INSERT INTO table_name [partition_info] [col_list] [plan_hints] query_stmt
- *
- *   table_name: is the name of target table
- *   partition_info: PARTITION (p1,p2)
- *     the partition info of target table
- *   col_list: (c1,c2)
- *     the column list of target table
- *   plan_hints: [STREAMING,SHUFFLE_HINT]
- *     The streaming plan is used by both streaming and non-streaming insert stmt.
- *     The only difference is that non-streaming will record the load info in LoadManager and return label.
- *     User can check the load info by show load stmt.
+ * INSERT INTO table_name [partition_info] [col_list] [plan_hints] query_stmt
+ * <p>
+ * table_name: is the name of target table
+ * partition_info: PARTITION (p1,p2)
+ * the partition info of target table
+ * col_list: (c1,c2)
+ * the column list of target table
+ * plan_hints: [STREAMING,SHUFFLE_HINT]
+ * The streaming plan is used by both streaming and non-streaming insert stmt.
+ * The only difference is that non-streaming will record the load info in LoadManager and return label.
+ * User can check the load info by show load stmt.
  */
 public class InsertStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(InsertStmt.class);
 
+    // --------------------- hints ---------------------
+
     public static final String SHUFFLE_HINT = "SHUFFLE";
     public static final String NOSHUFFLE_HINT = "NOSHUFFLE";
     public static final String STREAMING = "STREAMING";
+
+    // -------------------------------------------------
+
+    public static class Properties {
+
+        public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+
+        public static final String TIME_ZONE = "time_zone";
+
+        public static final String STRICT_MODE = "strict_mode";
+
+        public static final String MAX_FILTER_RATIO = "max_filter_ratio";
+
+        public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+
+        public static final String TIMEOUT_PROPERTY = "timeout";
+
+        public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+
+        public static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+
+        public static final String SKIP_LINES = "skip_lines";
+
+        public static final String LINE_DELIMITER = "line_delimiter";
+
+        public static final String COLUMN_SEPARATOR = "column_separator";
+
+        // ------------------------ just for routine load ------------------------
+
+        public static final String MAX_BATCH_SIZE = "max_batch_size";
+
+        public static final String MAX_BATCH_ROWS = "max_batch_rows";
+
+        public static final String MAX_BATCH_INTERVAL = "max_batch_interval";
+
+        // -----------------------------------------------------------------------
+
+        // TODO: to be discovered in developing
+
+    }
 
     private final TableName tblName;
     private final PartitionNames targetPartitionNames;
@@ -126,6 +171,8 @@ public class InsertStmt extends DdlStmt {
 
     private List<Column> targetColumns = Lists.newArrayList();
 
+    private final Map<String, String> properties;
+
     /*
      * InsertStmt may be analyzed twice, but transaction must be only begun once.
      * So use a boolean to check if transaction already begun.
@@ -134,11 +181,36 @@ public class InsertStmt extends DdlStmt {
 
     private boolean isValuesOrConstantSelect = false;
 
+    /**
+     * TODO: change Function to Util.getXXXPropertyOrDefault()
+     */
+    public static final ImmutableMap<String, Function<String, ?>> PROPERTIES_MAP =
+            new Builder<String, Function<String, ?>>()
+                    .put(Properties.EXEC_MEM_LIMIT, (Function<String, Long>) Long::valueOf)
+                    .put(Properties.TIMEOUT_PROPERTY, (Function<String, Long>) Long::valueOf)
+                    .put(Properties.TIME_ZONE, (Function<String, String>) input -> input)
+                    .put(Properties.LOAD_TO_SINGLE_TABLET,
+                            (Function<String, Boolean>) Boolean::parseBoolean)
+                    .put(Properties.MAX_FILTER_RATIO, (Function<String, Double>) Double::parseDouble)
+                    .put(Properties.SEND_BATCH_PARALLELISM,
+                            (Function<String, Integer>) Integer::parseInt)
+                    .put(Properties.STRICT_MODE, (Function<String, Boolean>) Boolean::parseBoolean)
+                    .put(Properties.TRIM_DOUBLE_QUOTES, (Function<String, Boolean>) Boolean::parseBoolean)
+                    .put(Properties.SKIP_LINES, (Function<String, Integer>) Integer::valueOf)
+                    .put(Properties.LINE_DELIMITER, (Function<String, String>) String::valueOf)
+                    .put(Properties.COLUMN_SEPARATOR, (Function<String, String>) String::valueOf)
+                    .put(Properties.MAX_BATCH_SIZE, (Function<String, Long>) Long::parseLong)
+                    .put(Properties.MAX_BATCH_ROWS, (Function<String, Integer>) Integer::valueOf)
+                    .put(Properties.MAX_BATCH_INTERVAL, (Function<String, Long>) Long::valueOf)
+                    .build();
+
     public boolean isValuesOrConstantSelect() {
         return isValuesOrConstantSelect;
     }
 
-    public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints) {
+    public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints,
+            Map<String, String> properties) {
+
         this.tblName = target.getTblName();
         this.targetPartitionNames = target.getPartitionNames();
         this.label = label;
@@ -148,6 +220,7 @@ public class InsertStmt extends DdlStmt {
 
         this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
+        this.properties = properties;
     }
 
     // Ctor for CreateTableAsSelectStmt
@@ -157,6 +230,7 @@ public class InsertStmt extends DdlStmt {
         this.targetColumnNames = null;
         this.queryStmt = queryStmt;
         this.planHints = null;
+        this.properties = null;
     }
 
     public TupleDescriptor getOlapTuple() {
@@ -278,7 +352,7 @@ public class InsertStmt extends DdlStmt {
 
         // Check privilege
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tblName.getDb(),
-                                                                tblName.getTbl(), PrivPredicate.LOAD)) {
+                tblName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(), tblName.getDb() + ": " + tblName.getTbl());
@@ -294,7 +368,7 @@ public class InsertStmt extends DdlStmt {
 
         analyzeSubquery(analyzer);
 
-        analyzePlanHints(analyzer);
+        analyzePlanHints();
 
         if (analyzer.getContext().isTxnModel()) {
             return;
@@ -333,7 +407,7 @@ public class InsertStmt extends DdlStmt {
         // Get table
         if (targetTable == null) {
             DatabaseIf db = analyzer.getEnv().getCatalogMgr()
-                            .getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
+                    .getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
             if (db instanceof Database) {
                 targetTable = (Table) db.getTableOrAnalysisException(tblName.getTbl());
             } else if (db instanceof JdbcExternalDatabase) {
@@ -387,7 +461,7 @@ public class InsertStmt extends DdlStmt {
             BrokerTable brokerTable = (BrokerTable) targetTable;
             if (!brokerTable.isWritable()) {
                 throw new AnalysisException("table " + brokerTable.getName()
-                                                    + "is not writable. path should be an dir");
+                        + "is not writable. path should be an dir");
             }
 
         } else {
@@ -578,7 +652,7 @@ public class InsertStmt extends DdlStmt {
         // expand colLabels in QueryStmt
         if (!origColIdxsForExtendCols.isEmpty()) {
             if (queryStmt.getResultExprs().size() != queryStmt.getBaseTblResultExprs().size()) {
-                for (Pair<Integer, Column> entry  : origColIdxsForExtendCols) {
+                for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
                     if (entry.second == null) {
                         queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(entry.first));
                     } else {
@@ -676,7 +750,7 @@ public class InsertStmt extends DdlStmt {
         }
     }
 
-    private void analyzePlanHints(Analyzer analyzer) throws AnalysisException {
+    private void analyzePlanHints() throws AnalysisException {
         if (planHints == null) {
             return;
         }
