@@ -111,7 +111,16 @@ Status RuntimePredicate::init(const PrimitiveType type) {
 }
 
 Status RuntimePredicate::update(const Field& value, const String& col_name, bool is_reverse) {
+    // skip null value
+    if (value.is_null()) {
+        return Status::OK();
+    }
+
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
+
+    if (!_inited) {
+        return Status::OK();
+    }
 
     // TODO why null
     if (!_tablet_schema) {
