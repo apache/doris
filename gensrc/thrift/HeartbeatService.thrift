@@ -32,7 +32,7 @@ struct TMasterInfo {
     5: optional string backend_ip
     6: optional Types.TPort http_port
     7: optional i64 heartbeat_flags
-    8: optional i64 backend_id
+    8: optional i64 backend_id 
 }
 
 struct TBackendInfo {
@@ -43,6 +43,7 @@ struct TBackendInfo {
     5: optional string version
     6: optional i64 be_start_time
     7: optional string be_node_role
+    8: optional i64 core_size
 }
 
 struct THeartbeatResult {

@@ -143,12 +143,14 @@ public class HeartbeatMgr extends MasterDaemon {
 
                 if (isChanged) {
                     hbPackage.addHbResponse(response);
+                    if(response.isBackEnd()){
+                        LOG.warn("yxc get", ((BackendHbResponse) response).getCoreSize());
+                    }
                 }
             } catch (InterruptedException | ExecutionException e) {
                 LOG.warn("got exception when doing heartbeat", e);
             }
         } // end for all results
-
         Env.getCurrentEnv().getEditLog().logHeartbeat(hbPackage);
     }
 
@@ -243,6 +245,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     int bePort = tBackendInfo.getBePort();
                     int httpPort = tBackendInfo.getHttpPort();
                     int brpcPort = -1;
+                    long core_size = tBackendInfo.getCoreSize();
                     if (tBackendInfo.isSetBrpcPort()) {
                         brpcPort = tBackendInfo.getBrpcPort();
                     }

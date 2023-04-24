@@ -75,6 +75,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_version(get_short_version());
         heartbeat_result.backend_info.__set_be_start_time(_be_epoch);
         heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
+        heartbeat_result.backend_info.__set_core_size(114514);
     }
 }
 
