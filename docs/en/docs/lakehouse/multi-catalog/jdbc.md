@@ -200,6 +200,21 @@ When Trino is mapped, Doris's Database corresponds to a Schema in Trino that spe
 | Database | Schema  |
 | Table    | Table   |
 
+9. OceanBase
+
+<version since="dev"></version>
+
+```sql
+CREATE CATALOG jdbc_oceanbase PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Drive"
+)
+```
+
 ### Parameter Description
 
 | Parameter       | Required or Not | Default Value | Description                                        |
@@ -441,6 +456,35 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
 **Note:**
 Currently, only Hive connected to Trino has been tested. Other data sources connected to Trino have not been tested.
+
+### OceanBase
+
+| OceanBase Type                                                                                                                                       | Doris Type  | Comment                                                                                    |
+|------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------|
+| TINYINT                                                                                                                                              | TINYINT     |                                                                                            |
+| SMALLINT                                                                                                                                             | SMALLINT    |                                                                                            |
+| MEDIUMINT                                                                                                                                            | INT         |                                                                                            |
+| INT                                                                                                                                                  | INT         |                                                                                            |
+| BIGINT                                                                                                                                               | BIGINT      |                                                                                            |
+| UNSIGNED TINYINT                                                                                                                                     | SMALLINT    | Doris does not support UNSIGNED data types so UNSIGNED TINYINT will be mapped to SMALLINT. |
+| UNSIGNED MEDIUMINT                                                                                                                                   | INT         | Doris does not support UNSIGNED data types so UNSIGNED MEDIUMINT will be mapped to INT.    |
+| UNSIGNED INT                                                                                                                                         | BIGINT      | Doris does not support UNSIGNED data types so UNSIGNED INT will be mapped to BIGINT.       |
+| UNSIGNED BIGINT                                                                                                                                      | LARGEINT    | Doris does not support UNSIGNED data types so UNSIGNED BIGINT will be mapped to LARGEINT.  |
+| FLOAT                                                                                                                                                | FLOAT       |                                                                                            |
+| DOUBLE                                                                                                                                               | DOUBLE      |                                                                                            |
+| DECIMAL                                                                                                                                              | DECIMALV3   |                                                                                            |
+| DATE                                                                                                                                                 | DATEV2      |                                                                                            |
+| TIMESTAMP                                                                                                                                            | DATETIMEV2  |                                                                                            |
+| DATETIME                                                                                                                                             | DATETIMEV2  |                                                                                            |
+| YEAR                                                                                                                                                 | DATETIMEV2  |                                                                                            |
+| TIME                                                                                                                                                 | STRING      |                                                                                            |
+| CHAR                                                                                                                                                 | CHAR        |                                                                                            |
+| VARCHAR                                                                                                                                              | VARCHAR     |                                                                                            |
+| BOOLEAN、TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT  | STRING      |                                                                                            |
+| Other                                                                                                                                                | UNSUPPORTED |                                                                                            |
+
+**Note:**
+目前仅针对OceanBase的MySQL模式做了适配，Oracle模式并未完整测试
 
 ## FAQ
 

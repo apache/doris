@@ -234,6 +234,33 @@ PROPERTIES (
 );
 ```
 
+#### 8.OceanBase Test
+
+| OceanBase Version | OceanBase JDBC Driver Version |
+|-------------------|-------------------------------|
+| 4.1.0             | oceanbase-client-2.4.2.jar    |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_oceanbase
+properties (
+    "type"="jdbc",
+    "user"="root",
+    "password"="",
+    "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
+    "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Driverr"
+);
+
+CREATE EXTERNAL TABLE `ext_oceanbase` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_oceanbase",
+    "table" = "test.test",
+    "table_type"="oceanbase"
+);
+```
+
 ## Type Mapping
 
 The followings list how data types in different databases are mapped in Doris.
@@ -370,6 +397,23 @@ The followings list how data types in different databases are mapped in Doris.
 |   char    |        CHAR         |
 |   array   |        ARRAY        |
 |  others   |     UNSUPPORTED     |
+
+### OceanBase
+
+|    OceanBase    |  Doris   |
+|:---------------:|:--------:|
+|     BOOLEAN     |  STRING  |
+|       BIT       |  STRING  |
+|     TINYINT     | TINYINT  |
+|    SMALLINT     | SMALLINT |
+|       INT       |   INT    |
+|     BIGINT      |  BIGINT  |
+|     VARCHAR     | VARCHAR  |
+|      DATE       |   DATE   |
+|      FLOAT      |  FLOAT   |
+|    DATETIME     | DATETIME |
+|     DOUBLE      |  DOUBLE  |
+|     DECIMAL     | DECIMAL  |
 
 ## Q&A
 
