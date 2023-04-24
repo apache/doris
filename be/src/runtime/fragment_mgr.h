@@ -68,6 +68,7 @@ std::string to_load_error_http_path(const std::string& file_name);
 struct ReportStatusRequest {
     const Status& status;
     RuntimeProfile* profile;
+    RuntimeProfile* load_channel_profile;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;

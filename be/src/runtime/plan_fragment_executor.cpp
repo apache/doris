@@ -421,6 +421,10 @@ void PlanFragmentExecutor::report_profile() {
             std::stringstream ss;
             profile()->compute_time_in_profile();
             profile()->pretty_print(&ss);
+            if (load_channel_profile()) {
+                // load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
+                load_channel_profile()->pretty_print(&ss);
+            }
             VLOG_FILE << ss.str();
         }
 
@@ -458,7 +462,8 @@ void PlanFragmentExecutor::send_report(bool done) {
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
-    _report_status_cb(status, _is_report_success ? profile() : nullptr, done || !status.ok());
+    _report_status_cb(status, _is_report_success ? profile() : nullptr,
+                      _is_report_success ? load_channel_profile() : nullptr, done || !status.ok());
 }
 
 void PlanFragmentExecutor::stop_report_thread() {
@@ -504,6 +509,10 @@ RuntimeProfile* PlanFragmentExecutor::profile() {
     return _runtime_state->runtime_profile();
 }
 
+RuntimeProfile* PlanFragmentExecutor::load_channel_profile() {
+    return _runtime_state->load_channel_profile();
+}
+
 void PlanFragmentExecutor::close() {
     if (_closed) {
         return;
@@ -537,8 +546,12 @@ void PlanFragmentExecutor::close() {
             // After add the operation, the print out like that:
             // UNION_NODE (id=0):(Active: 56.720us, non-child: 82.53%)
             // We can easily know the exec node execute time without child time consumed.
-            _runtime_state->runtime_profile()->compute_time_in_profile();
-            _runtime_state->runtime_profile()->pretty_print(&ss);
+            profile()->compute_time_in_profile();
+            profile()->pretty_print(&ss);
+            if (load_channel_profile()) {
+                // load_channel_profile()->compute_time_in_profile();  // TODO load channel profile add timer
+                load_channel_profile()->pretty_print(&ss);
+            }
             LOG(INFO) << ss.str();
         }
         LOG(INFO) << "Close() fragment_instance_id="

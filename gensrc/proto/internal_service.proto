@@ -83,6 +83,7 @@ message PTabletWriterOpenRequest {
     optional bool is_high_priority = 10 [default = false];
     optional string sender_ip = 11 [default = ""];
     optional bool is_vectorized = 12 [default = false];
+    optional int64 backend_id = 13 [default = -1];
 };
 
 message PTabletWriterOpenResult {
@@ -178,6 +179,7 @@ message PTabletWriterAddBlockResult {
     optional int64 wait_execution_time_us = 5;
     repeated PTabletError tablet_errors = 6;
     map<int64, PSuccessSlaveTabletNodeIds> success_slave_tablet_node_ids = 7;
+    optional bytes load_channel_profile = 8;
 };
 
 // tablet writer cancel

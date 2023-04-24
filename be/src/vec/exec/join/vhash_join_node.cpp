@@ -406,7 +406,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
 
-    auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
+    auto* memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
     runtime_profile()->add_child(memory_usage, false, nullptr);
     _build_blocks_memory_usage = ADD_COUNTER(memory_usage, "BuildBlocks", TUnit::BYTES);
     _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
