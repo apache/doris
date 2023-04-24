@@ -15,11 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
 
+#include <memory>
+
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/integral_types.h"
+#include "olap/decimal12.h"
 #include "olap/field.h"
+#include "olap/olap_common.h"
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
+#include "olap/uint24.h"
+#include "runtime/collection_value.h"
 #include "util/slice.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 

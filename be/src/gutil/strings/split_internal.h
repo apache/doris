@@ -27,6 +27,7 @@ using std::vector;
 
 #include "gutil/port.h" // for LANG_CXX11
 #include "gutil/strings/stringpiece.h"
+#include "gutil/template_util.h" // IWYU pragma: keep
 
 #ifdef LANG_CXX11
 // This must be included after "base/port.h", which defines LANG_CXX11.

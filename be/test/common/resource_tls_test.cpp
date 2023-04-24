@@ -17,10 +17,13 @@
 
 #include "common/resource_tls.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include "common/configbase.h"
+#include <memory>
+
 #include "gen_cpp/Types_types.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 

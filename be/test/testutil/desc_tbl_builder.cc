@@ -17,11 +17,16 @@
 
 #include "testutil/desc_tbl_builder.h"
 
-#include <gtest/gtest.h>
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <vector>
 
 #include "common/object_pool.h"
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "util/bit_util.h"
 

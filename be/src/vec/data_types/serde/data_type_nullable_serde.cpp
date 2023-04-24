@@ -23,6 +23,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
+#include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -33,6 +34,7 @@
 namespace doris {
 
 namespace vectorized {
+class Arena;
 
 Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                  int end) const {
