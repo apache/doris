@@ -1,17 +1,19 @@
-# Licensed to the Apache Software Foundation (ASF) under one or more
-# contributor license agreements.  See the NOTICE file distributed with
-# this work for additional information regarding copyright ownership.
-# The ASF licenses this file to You under the Apache License, Version 2.0
-# (the "License"); you may not use this file except in compliance with
-# the License.  You may obtain a copy of the License at
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#   http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
 version: "3.3"
 
@@ -147,7 +149,7 @@ services:
       - "hive-metastore-postgresql"
       - "namenode"
     volumes:
-      - ${HUDI_WS}:/var/hoodie/ws
+      - ./scripts:/var/scripts
     networks:
       - doris--hudi
 
@@ -194,28 +196,28 @@ services:
     networks:
       - doris--hudi
 
-  zookeeper:
-    image: 'bitnami/zookeeper:3.4.12-r68'
-    hostname: zookeeper
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
-    environment:
-      - ALLOW_ANONYMOUS_LOGIN=yes
-    networks:
-      - doris--hudi
+#  zookeeper:
+#    image: 'bitnami/zookeeper:3.4.12-r68'
+#    hostname: zookeeper
+#    container_name: zookeeper
+#    ports:
+#      - "2181:2181"
+#    environment:
+#      - ALLOW_ANONYMOUS_LOGIN=yes
+#    networks:
+#      - doris--hudi
 
-  kafka:
-    image: 'bitnami/kafka:2.0.0'
-    hostname: kafkabroker
-    container_name: kafkabroker
-    ports:
-      - "9092:9092"
-    environment:
-      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
-      - ALLOW_PLAINTEXT_LISTENER=yes
-    networks:
-      - doris--hudi
+#  kafka:
+#    image: 'bitnami/kafka:2.0.0'
+#    hostname: kafkabroker
+#    container_name: kafkabroker
+#    ports:
+#      - "9092:9092"
+#    environment:
+#      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+#      - ALLOW_PLAINTEXT_LISTENER=yes
+#    networks:
+#      - doris--hudi
 
   adhoc-1:
     image: apachehudi/hudi-hadoop_2.8.4-hive_2.3.3-sparkadhoc_2.4.4:latest
@@ -237,7 +239,7 @@ services:
       - "hive-metastore-postgresql"
       - "namenode"
     volumes:
-      - ${HUDI_WS}:/var/hoodie/ws
+      - ./scripts:/var/scripts
     networks:
       - doris--hudi
 
@@ -260,6 +262,6 @@ services:
       - "hive-metastore-postgresql"
       - "namenode"
     volumes:
-      - ${HUDI_WS}:/var/hoodie/ws
+      - ./scripts:/var/scripts
     networks:
       - doris--hudi

@@ -1,0 +1,51 @@
+{
+  "partitionToWriteStats" : {
+    "2018/08/31" : [ {
+      "fileId" : "167a0e3e-9b94-444f-a178-242230cdb5a2-0",
+      "path" : "2018/08/31/167a0e3e-9b94-444f-a178-242230cdb5a2-0_0-28-26_20211221030120532.parquet",
+      "prevCommit" : "null",
+      "numWrites" : 99,
+      "numDeletes" : 0,
+      "numUpdateWrites" : 0,
+      "numInserts" : 99,
+      "totalWriteBytes" : 440746,
+      "totalWriteErrors" : 0,
+      "tempPath" : null,
+      "partitionPath" : "2018/08/31",
+      "totalLogRecords" : 0,
+      "totalLogFilesCompacted" : 0,
+      "totalLogSizeCompacted" : 0,
+      "totalUpdatedRecordsCompacted" : 0,
+      "totalLogBlocks" : 0,
+      "totalCorruptLogBlock" : 0,
+      "totalRollbackBlocks" : 0,
+      "fileSizeInBytes" : 440746,
+      "minEventTime" : null,
+      "maxEventTime" : null
+    } ]
+  },
+  "compacted" : false,
+  "extraMetadata" : {
+    "schema" : "{\"type\":\"record\",\"name\":\"stock_ticks\",\"fields\":[{\"name\":\"volume\",\"type\":\"long\"},{\"name\":\"ts\",\"type\":\"string\"},{\"name\":\"symbol\",\"type\":\"string\"},{\"name\":\"year\",\"type\":\"int\"},{\"name\":\"month\",\"type\":\"string\"},{\"name\":\"high\",\"type\":\"double\"},{\"name\":\"low\",\"type\":\"double\"},{\"name\":\"key\",\"type\":\"string\"},{\"name\":\"date\",\"type\":\"string\"},{\"name\":\"close\",\"type\":\"double\"},{\"name\":\"open\",\"type\":\"double\"},{\"name\":\"day\",\"type\":\"string\"}]}",
+    "deltastreamer.checkpoint.key" : "stock_ticks,0:1668"
+  },
+  "operationType" : "UPSERT",
+  "fileIdAndRelativePaths" : {
+    "167a0e3e-9b94-444f-a178-242230cdb5a2-0" : "2018/08/31/167a0e3e-9b94-444f-a178-242230cdb5a2-0_0-28-26_20211221030120532.parquet"
+  },
+  "totalRecordsDeleted" : 0,
+  "totalLogRecordsCompacted" : 0,
+  "totalLogFilesCompacted" : 0,
+  "totalCompactedRecordsUpdated" : 0,
+  "totalLogFilesSize" : 0,
+  "totalScanTime" : 0,
+  "totalCreateTime" : 1402,
+  "totalUpsertTime" : 0,
+  "minAndMaxEventTime" : {
+    "Optional.empty" : {
+      "val" : null,
+      "present" : false
+    }
+  },
+  "writePartitionPaths" : [ "2018/08/31" ]
+}

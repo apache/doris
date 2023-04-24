@@ -284,7 +284,7 @@ if [[ "${RUN_HUDI}" -eq 1 ]]; then
         sudo mkdir "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
         sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env up -d
         sleep 15
-        docker exec -it adhoc-1 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container.sh
-        docker exec -it adhoc-2 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container.sh
+        docker exec -it adhoc-1 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container_adhoc_1.sh
+        docker exec -it adhoc-2 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container_adhoc_2.sh
     fi
 fi

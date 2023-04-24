@@ -1,0 +1,55 @@
+{
+  "partitionToWriteStats" : {
+    "2018/08/31" : [ {
+      "fileId" : "167a0e3e-9b94-444f-a178-242230cdb5a2-0",
+      "path" : "2018/08/31/.167a0e3e-9b94-444f-a178-242230cdb5a2-0_20211221030120532.log.1_0-28-29",
+      "prevCommit" : "20211221030120532",
+      "numWrites" : 99,
+      "numDeletes" : 0,
+      "numUpdateWrites" : 99,
+      "numInserts" : 0,
+      "totalWriteBytes" : 22220,
+      "totalWriteErrors" : 0,
+      "tempPath" : null,
+      "partitionPath" : "2018/08/31",
+      "totalLogRecords" : 0,
+      "totalLogFilesCompacted" : 0,
+      "totalLogSizeCompacted" : 0,
+      "totalUpdatedRecordsCompacted" : 0,
+      "totalLogBlocks" : 0,
+      "totalCorruptLogBlock" : 0,
+      "totalRollbackBlocks" : 0,
+      "fileSizeInBytes" : 22220,
+      "minEventTime" : null,
+      "maxEventTime" : null,
+      "logVersion" : 1,
+      "logOffset" : 0,
+      "baseFile" : "167a0e3e-9b94-444f-a178-242230cdb5a2-0_0-28-26_20211221030120532.parquet",
+      "logFiles" : [ ".167a0e3e-9b94-444f-a178-242230cdb5a2-0_20211221030120532.log.1_0-28-29" ]
+    } ]
+  },
+  "compacted" : false,
+  "extraMetadata" : {
+    "schema" : "{\"type\":\"record\",\"name\":\"stock_ticks\",\"fields\":[{\"name\":\"volume\",\"type\":\"long\"},{\"name\":\"ts\",\"type\":\"string\"},{\"name\":\"symbol\",\"type\":\"string\"},{\"name\":\"year\",\"type\":\"int\"},{\"name\":\"month\",\"type\":\"string\"},{\"name\":\"high\",\"type\":\"double\"},{\"name\":\"low\",\"type\":\"double\"},{\"name\":\"key\",\"type\":\"string\"},{\"name\":\"date\",\"type\":\"string\"},{\"name\":\"close\",\"type\":\"double\"},{\"name\":\"open\",\"type\":\"double\"},{\"name\":\"day\",\"type\":\"string\"}]}",
+    "deltastreamer.checkpoint.key" : "stock_ticks,0:3336"
+  },
+  "operationType" : "UPSERT",
+  "totalRecordsDeleted" : 0,
+  "totalLogRecordsCompacted" : 0,
+  "totalLogFilesCompacted" : 0,
+  "totalCompactedRecordsUpdated" : 0,
+  "totalLogFilesSize" : 0,
+  "totalScanTime" : 0,
+  "totalCreateTime" : 0,
+  "totalUpsertTime" : 187,
+  "minAndMaxEventTime" : {
+    "Optional.empty" : {
+      "val" : null,
+      "present" : false
+    }
+  },
+  "writePartitionPaths" : [ "2018/08/31" ],
+  "fileIdAndRelativePaths" : {
+    "167a0e3e-9b94-444f-a178-242230cdb5a2-0" : "2018/08/31/.167a0e3e-9b94-444f-a178-242230cdb5a2-0_20211221030120532.log.1_0-28-29"
+  }
+}

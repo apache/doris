@@ -1,0 +1,73 @@
+{
+  "partitionToWriteStats" : {
+    "dt=2021-12-09/hh=11" : [ {
+      "fileId" : "4a3fcb9b-65eb-4f6e-acf9-7b0764bb4dd1-0",
+      "path" : "dt=2021-12-09/hh=11/4a3fcb9b-65eb-4f6e-acf9-7b0764bb4dd1-0_0-70-2444_20220906063456550.parquet",
+      "prevCommit" : "null",
+      "numWrites" : 1,
+      "numDeletes" : 0,
+      "numUpdateWrites" : 0,
+      "numInserts" : 1,
+      "totalWriteBytes" : 435204,
+      "totalWriteErrors" : 0,
+      "tempPath" : null,
+      "partitionPath" : "dt=2021-12-09/hh=11",
+      "totalLogRecords" : 0,
+      "totalLogFilesCompacted" : 0,
+      "totalLogSizeCompacted" : 0,
+      "totalUpdatedRecordsCompacted" : 0,
+      "totalLogBlocks" : 0,
+      "totalCorruptLogBlock" : 0,
+      "totalRollbackBlocks" : 0,
+      "fileSizeInBytes" : 435204,
+      "minEventTime" : null,
+      "maxEventTime" : null
+    } ]
+  },
+  "compacted" : false,
+  "extraMetadata" : {
+    "schema" : "{\"type\":\"record\",\"name\":\"hudi_cow_pt_tbl_record\",\"namespace\":\"hoodie.hudi_cow_pt_tbl\",\"fields\":[{\"name\":\"id\",\"type\":\"long\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"ts\",\"type\":\"long\"},{\"name\":\"dt\",\"type\":\"string\"},{\"name\":\"hh\",\"type\":\"string\"}]}"
+  },
+  "operationType" : "UPSERT",
+  "writePartitionPaths" : [ "dt=2021-12-09/hh=11" ],
+  "fileIdAndRelativePaths" : {
+    "4a3fcb9b-65eb-4f6e-acf9-7b0764bb4dd1-0" : "dt=2021-12-09/hh=11/4a3fcb9b-65eb-4f6e-acf9-7b0764bb4dd1-0_0-70-2444_20220906063456550.parquet"
+  },
+  "totalRecordsDeleted" : 0,
+  "totalLogRecordsCompacted" : 0,
+  "totalLogFilesCompacted" : 0,
+  "totalCompactedRecordsUpdated" : 0,
+  "totalLogFilesSize" : 0,
+  "totalScanTime" : 0,
+  "totalCreateTime" : 72,
+  "totalUpsertTime" : 0,
+  "minAndMaxEventTime" : {
+    "Optional.empty" : {
+      "val" : null,
+      "present" : false
+    }
+  },
+  "writeStats" : [ {
+    "fileId" : "4a3fcb9b-65eb-4f6e-acf9-7b0764bb4dd1-0",
+    "path" : "dt=2021-12-09/hh=11/4a3fcb9b-65eb-4f6e-acf9-7b0764bb4dd1-0_0-70-2444_20220906063456550.parquet",
+    "prevCommit" : "null",
+    "numWrites" : 1,
+    "numDeletes" : 0,
+    "numUpdateWrites" : 0,
+    "numInserts" : 1,
+    "totalWriteBytes" : 435204,
+    "totalWriteErrors" : 0,
+    "tempPath" : null,
+    "partitionPath" : "dt=2021-12-09/hh=11",
+    "totalLogRecords" : 0,
+    "totalLogFilesCompacted" : 0,
+    "totalLogSizeCompacted" : 0,
+    "totalUpdatedRecordsCompacted" : 0,
+    "totalLogBlocks" : 0,
+    "totalCorruptLogBlock" : 0,
+    "totalRollbackBlocks" : 0,
+    "fileSizeInBytes" : 435204,
+    "minEventTime" : null,
+    "maxEventTime" : null
+  } ]
+}
