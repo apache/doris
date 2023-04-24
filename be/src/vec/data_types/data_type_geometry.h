@@ -45,7 +45,7 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    virtual Field get_default() const override {
+    Field get_default() const override {
         std::string default_geo;
         GeometryBinaryValue binary_val(default_geo.c_str(), default_geo.size());
         return GeometryField(binary_val.value(), binary_val.size());
