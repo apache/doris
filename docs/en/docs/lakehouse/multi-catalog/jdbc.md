@@ -33,7 +33,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 ## Usage
 
-1. Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse and Doris.
+1. Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse, Doris, SAP HANA, Trino and OceanBase.
 
 ## Create Catalog
 
@@ -179,7 +179,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 
 8. Trino
 
-<version since="dev"></version>
+<version since="1.2.4"></version>
 
 ```sql
 CREATE CATALOG trino_catalog PROPERTIES (
@@ -484,13 +484,13 @@ Currently, only Hive connected to Trino has been tested. Other data sources conn
 | Other                                                                                                                                                | UNSUPPORTED |                                                                                            |
 
 **Note:**
-目前仅针对OceanBase的MySQL模式做了适配，Oracle模式并未完整测试
+At present, only the MySQL mode of OceanBase has been adapted, while the Oracle mode has not been fully tested
 
 ## FAQ
 
-1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse and SAP HANA?
+1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase?
 
-   Currently, Doris supports MySQL, Oracle, PostgreSQL, SQLServer, and ClickHouse. We are planning to expand this list. Technically, any databases that support JDBC access can be connected to Doris in the form of JDBC external tables. You are more than welcome to be a Doris contributor to expedite this effort.
+   Currently, Doris supports MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase. We are planning to expand this list. Technically, any databases that support JDBC access can be connected to Doris in the form of JDBC external tables. You are more than welcome to be a Doris contributor to expedite this effort.
 
 2. Why does Mojibake occur when Doris tries to read emojis from MySQL external tables?
 
