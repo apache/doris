@@ -44,18 +44,21 @@ public class SetRequiredProperties implements CustomRewriter {
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         CascadesContext cascadesCtx = jobContext.getCascadesContext();
         StatementContext stmtCtx = jobContext.getCascadesContext().getStatementContext();
-        Plan parsedStmt = ((LogicalPlanAdapter) stmtCtx.getParsedStatement()).getLogicalPlan();
-        if (parsedStmt instanceof ExplainCommand) {
-            cascadesCtx.setJobContext(PhysicalProperties.ANY);
-        } else if (parsedStmt instanceof InsertIntoTableCommand) {
-            Preconditions.checkArgument(stmtCtx.getInsertIntoContext() != null, "insert into"
-                    + " table context is null when running insert into table command");
-            int keysNum = stmtCtx.getInsertIntoContext().getKeyNums();
-            List<ExprId> outputs = plan.getOutput().subList(0, keysNum).stream()
-                    .map(NamedExpression::getExprId).collect(Collectors.toList());
-            cascadesCtx.setJobContext(PhysicalProperties.createHash(
-                    new DistributionSpecHash(outputs, ShuffleType.NATURAL)));
-        } else {
+        if (stmtCtx.getParsedStatement() != null) {
+            Plan parsedStmt = ((LogicalPlanAdapter) stmtCtx.getParsedStatement()).getLogicalPlan();
+            if (parsedStmt instanceof ExplainCommand) {
+                cascadesCtx.setJobContext(PhysicalProperties.ANY);
+            } else if (parsedStmt instanceof InsertIntoTableCommand) {
+                Preconditions.checkArgument(stmtCtx.getInsertIntoContext() != null, "insert into"
+                        + " table context is null when running insert into table command");
+                int keysNum = stmtCtx.getInsertIntoContext().getKeyNums();
+                List<ExprId> outputs = plan.getOutput().subList(0, keysNum).stream()
+                        .map(NamedExpression::getExprId).collect(Collectors.toList());
+                cascadesCtx.setJobContext(PhysicalProperties.createHash(
+                        new DistributionSpecHash(outputs, ShuffleType.NATURAL)));
+            }
+        }
+        if (cascadesCtx.getCurrentJobContext().getRequiredProperties() == null) {
             cascadesCtx.setJobContext(PhysicalProperties.GATHER);
         }
         return plan;
