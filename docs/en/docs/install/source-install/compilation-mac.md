@@ -30,16 +30,15 @@ This post introduces how to compile from source on macOS (both x86_64 and arm64)
 
 ## Prerequisites
 
-1. macOS 12 (Monterey) or newer（_**both Intel chip and Apple Silicon chip are supported**_）
-2. Apple Clang 13 or newer（the latest version is recommended）
-3. [Homebrew](https://brew.sh/)
+1. macOS 12 (Monterey) or newer（_**both Intel chip and Apple Silicon chips are supported**_）
+2. [Homebrew](https://brew.sh/)
 
 ## Steps
 
 1. Use [Homebrew](https://brew.sh/) to install tools
     ```shell
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-        python cmake ninja ccache bison byacc gettext wget pcre maven openjdk@11 npm
+        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@15 openjdk@11 npm
     ```
 
 2. Compile from source
