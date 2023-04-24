@@ -149,6 +149,9 @@ public class NereidsRewriter extends BatchRewriteJob {
 
             topic("Window analysis",
                 topDown(
+                    new SimplifyAggGroupBy()
+                ),
+                topDown(
                     new ExtractAndNormalizeWindowExpression(),
                     // execute NormalizeAggregate() again to resolve nested AggregateFunctions in WindowExpression,
                     // e.g. sum(sum(c1)) over(partition by avg(c1))
