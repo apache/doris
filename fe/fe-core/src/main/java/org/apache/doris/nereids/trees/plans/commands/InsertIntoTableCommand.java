@@ -103,7 +103,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
 
         getTupleDesc();
-        addInvisibleColumns();
+        addUnassignedColumns();
 
         if (ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
@@ -187,11 +187,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private void addInvisibleColumns() {
+    private void addUnassignedColumns() {
         PlanFragment root = planner.getFragments().get(0);
         List<Expr> outputs = root.getOutputExprs();
         // handle insert a duplicate key table to a unique key table.
-        if (outputs.size() != table.getFullSchema().size()) {
+        if (outputs.size() == table.getFullSchema().size()) {
             return;
         }
         int i = 0;
