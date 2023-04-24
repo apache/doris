@@ -157,7 +157,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             if (!nameToResourceGroup.containsKey(resourceGroupName)) {
-                throw new DdlException("Resource Group(" + resourceGroupName + ") dose not exist.");
+                throw new DdlException("Resource Group(" + resourceGroupName + ") does not exist.");
             }
             ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
             resourceGroup.modifyProperties(properties);
