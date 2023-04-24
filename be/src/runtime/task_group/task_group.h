@@ -17,11 +17,16 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <atomic>
+#include <memory>
 #include <queue>
 #include <shared_mutex>
+#include <string>
 
-#include "olap/olap_define.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -29,7 +34,6 @@ namespace pipeline {
 class PipelineTask;
 }
 
-class QueryFragmentsCtx;
 class TPipelineResourceGroup;
 
 namespace taskgroup {

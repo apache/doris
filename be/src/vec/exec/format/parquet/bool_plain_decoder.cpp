@@ -17,6 +17,15 @@
 
 #include "vec/exec/format/parquet/bool_plain_decoder.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+
+#include "util/bit_util.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
+#include "vec/exec/format/parquet/parquet_common.h"
+
 namespace doris::vectorized {
 Status BoolPlainDecoder::skip_values(size_t num_values) {
     int skip_cached = std::min(num_unpacked_values_ - unpacked_value_idx_, (int)num_values);

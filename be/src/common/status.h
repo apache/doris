@@ -15,10 +15,13 @@
 #include <string_view>
 #include <utility>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif
+
+#include "common/expected.h"
 
 namespace doris {
 
@@ -209,6 +212,8 @@ E(COLUMN_READ_STREAM, -1706);
 E(COLUMN_STREAM_NOT_EXIST, -1716);
 E(COLUMN_VALUE_NULL, -1717);
 E(COLUMN_SEEK_ERROR, -1719);
+E(COLUMN_NO_MATCH_OFFSETS_SIZE, -1720);
+E(COLUMN_NO_MATCH_FILTER_SIZE, -1721);
 E(DELETE_INVALID_CONDITION, -1900);
 E(DELETE_UPDATE_HEADER_FAILED, -1901);
 E(DELETE_SAVE_HEADER_FAILED, -1902);
@@ -569,6 +574,9 @@ inline std::string Status::to_string() const {
             return _s;                                             \
         }                                                          \
     } while (false);
+
+template <typename T>
+using Result = expected<T, Status>;
 } // namespace doris
 #ifdef WARN_UNUSED_RESULT
 #undef WARN_UNUSED_RESULT

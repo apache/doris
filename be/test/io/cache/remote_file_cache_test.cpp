@@ -25,6 +25,7 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gtest/gtest.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_common.h"
 #include "io/fs/s3_file_system.h"

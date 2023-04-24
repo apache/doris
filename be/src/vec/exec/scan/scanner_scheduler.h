@@ -17,11 +17,22 @@
 
 #pragma once
 
+#include <atomic>
+#include <memory>
+
 #include "common/status.h"
-#include "runtime/exec_env.h"
-#include "util/blocking_queue.hpp"
 #include "util/threadpool.h"
-#include "vec/exec/scan/scanner_context.h"
+
+namespace doris {
+class ExecEnv;
+class PriorityThreadPool;
+
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+template <typename T>
+class BlockingQueue;
+} // namespace doris
 
 namespace doris::vectorized {
 

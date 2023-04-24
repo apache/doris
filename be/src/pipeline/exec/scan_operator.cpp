@@ -17,6 +17,11 @@
 
 #include "scan_operator.h"
 
+#include <fmt/format.h>
+
+#include <memory>
+
+#include "pipeline/exec/operator.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vscan_node.h"
 

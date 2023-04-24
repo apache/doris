@@ -17,17 +17,29 @@
 
 #include "olap/tablet_meta.h"
 
-#include <sstream>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <json2pb/pb_to_json.h>
+#include <time.h>
 
-#include "common/consts.h"
+#include <set>
+#include <utility>
+
+#include "common/config.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
+#include "olap/data_dir.h"
 #include "olap/file_header.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/utils.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
-#include "util/url_coding.h"
 
 using std::string;
 using std::unordered_map;
@@ -108,25 +120,25 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     // compression_type used to compress segment page
     switch (compression_type) {
     case TCompressionType::NO_COMPRESSION:
-        schema->set_compression_type(NO_COMPRESSION);
+        schema->set_compression_type(segment_v2::NO_COMPRESSION);
         break;
     case TCompressionType::SNAPPY:
-        schema->set_compression_type(SNAPPY);
+        schema->set_compression_type(segment_v2::SNAPPY);
         break;
     case TCompressionType::LZ4:
-        schema->set_compression_type(LZ4);
+        schema->set_compression_type(segment_v2::LZ4);
         break;
     case TCompressionType::LZ4F:
-        schema->set_compression_type(LZ4F);
+        schema->set_compression_type(segment_v2::LZ4F);
         break;
     case TCompressionType::ZLIB:
-        schema->set_compression_type(ZLIB);
+        schema->set_compression_type(segment_v2::ZLIB);
         break;
     case TCompressionType::ZSTD:
-        schema->set_compression_type(ZSTD);
+        schema->set_compression_type(segment_v2::ZSTD);
         break;
     default:
-        schema->set_compression_type(LZ4F);
+        schema->set_compression_type(segment_v2::LZ4F);
         break;
     }
 
@@ -241,6 +253,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_store_row_column(tablet_schema.store_row_column);
     }
 
+    tablet_meta_pb.set_is_dropped(false);
+
     init_from_pb(tablet_meta_pb);
 }
 
@@ -264,7 +278,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _storage_policy_id(b._storage_policy_id),
           _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
-          _delete_bitmap(b._delete_bitmap) {};
+          _delete_bitmap(b._delete_bitmap),
+          _is_dropped(b._is_dropped) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -540,6 +555,12 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
         }
     }
+
+    if (tablet_meta_pb.has_is_dropped()) {
+        _is_dropped = tablet_meta_pb.is_dropped();
+    } else {
+        _is_dropped = false;
+    }
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -613,6 +634,8 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             *(delete_bitmap_pb->add_segment_delete_bitmaps()) = std::move(bitmap_data);
         }
     }
+
+    tablet_meta_pb->set_is_dropped(_is_dropped);
 }
 
 uint32_t TabletMeta::mem_size() const {

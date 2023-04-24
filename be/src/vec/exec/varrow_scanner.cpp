@@ -17,14 +17,47 @@
 
 #include "vec/exec/varrow_scanner.h"
 
-#include "exec/arrow/parquet_reader.h"
+#include <arrow/array/array_base.h>
+#include <arrow/record_batch.h>
+#include <arrow/type.h>
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <map>
+#include <sstream>
+#include <string>
+#include <utility>
+
+#include "exec/arrow/arrow_reader.h"
 #include "io/file_factory.h"
-#include "olap/iterators.h"
+#include "io/fs/file_reader.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
+
+namespace doris {
+class TExpr;
+namespace io {
+enum class FileCachePolicy : uint8_t;
+} // namespace io
+} // namespace doris
 
 namespace doris::vectorized {
 using namespace ErrorCode;
@@ -251,7 +284,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
     RETURN_IF_ERROR(_cast_src_block(&_src_block));
 
     // materialize, src block => dest columns
-    return _fill_dest_block(block, eof);
+    RETURN_IF_CATCH_EXCEPTION({ return _fill_dest_block(block, eof); });
 }
 
 // arrow type ==arrow_column_to_doris_column==> primitive type(PT0) ==cast_src_block==>

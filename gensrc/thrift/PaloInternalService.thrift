@@ -192,6 +192,7 @@ struct TQueryOptions {
 
   59: optional i64 external_sort_bytes_threshold = 0
 
+  // deprecated
   60: optional i32 partitioned_hash_agg_rows_threshold = 0
 
   61: optional bool enable_file_cache = true
@@ -207,6 +208,10 @@ struct TQueryOptions {
   66: optional i32 parallel_instance = 1
   // Indicate where useServerPrepStmts enabled
   67: optional bool mysql_row_binary_format = false;
+  68: optional i64 external_agg_bytes_threshold = 0
+
+  // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
+  69: optional i32 external_agg_partition_bits = 4
 }
     
 
@@ -376,6 +381,7 @@ struct TExecPlanFragmentParams {
 
   // required in V1
   // @Common components
+  // Deprecated
   10: optional Types.TResourceInfo resource_info
 
   // load job related
@@ -590,6 +596,7 @@ struct TPipelineFragmentParams {
   3: optional i32 fragment_id
   4: required map<Types.TPlanNodeId, i32> per_exch_num_senders
   5: optional Descriptors.TDescriptorTable desc_tbl
+  // Deprecated
   6: optional Types.TResourceInfo resource_info
   7: list<TPlanFragmentDestination> destinations
   8: optional i32 num_senders

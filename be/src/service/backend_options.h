@@ -18,7 +18,6 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <gutil/macros.h>
 
 #include <string>
 #include <vector>

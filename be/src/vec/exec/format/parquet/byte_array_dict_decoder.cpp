@@ -17,8 +17,14 @@
 
 #include "vec/exec/format/parquet/byte_array_dict_decoder.h"
 
+#include <utility>
+
 #include "util/coding.h"
+#include "util/rle_encoding.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {

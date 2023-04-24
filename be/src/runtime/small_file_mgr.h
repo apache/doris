@@ -22,12 +22,8 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
-#include "runtime/client_cache.h"
 
 namespace doris {
 

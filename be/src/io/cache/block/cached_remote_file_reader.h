@@ -17,17 +17,25 @@
 
 #pragma once
 
-#include "gutil/macros.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_fwd.h"
-#include "io/cache/block/block_file_cache_profile.h"
-#include "io/cache/block/block_file_segment.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
+struct FileCacheStatistics;
 
 class CachedRemoteFileReader final : public FileReader {
 public:
@@ -44,6 +52,8 @@ public:
     bool closed() const override { return _remote_file_reader->closed(); }
 
     FileSystemSPtr fs() const override { return _remote_file_reader->fs(); }
+
+    FileReader* get_remote_reader() { return _remote_file_reader.get(); }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,

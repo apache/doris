@@ -17,6 +17,22 @@
 
 #include "jni_reader.h"
 
+#include <map>
+#include <ostream>
+
+#include "runtime/descriptors.h"
+#include "runtime/types.h"
+#include "vec/core/types.h"
+
+namespace doris {
+class RuntimeProfile;
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,

@@ -431,6 +431,8 @@ struct TReportExecStatusParams {
   19: optional i32 fragment_id
 
   20: optional PaloInternalService.TQueryType query_type
+
+  21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 }
 
 struct TFeResult {
@@ -442,6 +444,7 @@ struct TMasterOpRequest {
     1: required string user
     2: required string db
     3: required string sql 
+    // Deprecated
     4: optional Types.TResourceInfo resourceInfo
     5: optional string cluster
     6: optional i64 execMemLimit // deprecated, move into query_options
@@ -832,6 +835,7 @@ service FrontendService {
 
     MasterService.TMasterResult finishTask(1: MasterService.TFinishTaskRequest request)
     MasterService.TMasterResult report(1: MasterService.TReportRequest request)
+    // Deprecated
     MasterService.TFetchResourceResult fetchResource()
 
     TMasterOpResult forward(1: TMasterOpRequest params)

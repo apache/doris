@@ -32,29 +32,27 @@ public class RuntimeFilter {
     private final Expression srcSlot;
     //bitmap filter support target expression like  k1+1, abs(k1)
     //targetExpression is an expression on targetSlot, in which there is only one non-const slot
-    private final Expression targetExpression;
-    private final Slot targetSlot;
+    private Expression targetExpression;
+    private Slot targetSlot;
     private final int exprOrder;
-    private final AbstractPhysicalJoin builderNode;
+    private AbstractPhysicalJoin builderNode;
 
-    private final boolean bitmapFilterNotIn;
-
-    private final long buildSideNdv;
+    private boolean bitmapFilterNotIn;
 
     /**
      * constructor
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, TRuntimeFilterType type,
-            int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv) {
-        this(id, src, target, target, type, exprOrder, builderNode, false, buildSideNdv);
+            int exprOrder, AbstractPhysicalJoin builderNode) {
+        this(id, src, target, target, type, exprOrder, builderNode, false);
     }
 
     /**
      * constructor
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, Expression targetExpression,
-            TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, boolean bitmapFilterNotIn,
-            long buildSideNdv) {
+            TRuntimeFilterType type,
+            int exprOrder, AbstractPhysicalJoin builderNode, boolean bitmapFilterNotIn) {
         this.id = id;
         this.srcSlot = src;
         this.targetSlot = target;
@@ -63,7 +61,6 @@ public class RuntimeFilter {
         this.exprOrder = exprOrder;
         this.builderNode = builderNode;
         this.bitmapFilterNotIn = bitmapFilterNotIn;
-        this.buildSideNdv = buildSideNdv <= 0 ? -1L : buildSideNdv;
     }
 
     public Expression getSrcExpr() {
@@ -98,7 +95,4 @@ public class RuntimeFilter {
         return targetExpression;
     }
 
-    public long getBuildSideNdv() {
-        return buildSideNdv;
-    }
 }

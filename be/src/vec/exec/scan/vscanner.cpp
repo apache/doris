@@ -17,7 +17,14 @@
 
 #include "vec/exec/scan/vscanner.h"
 
+#include <glog/logging.h>
+
+#include "common/config.h"
+#include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/vscan_node.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 

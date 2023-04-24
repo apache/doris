@@ -17,14 +17,28 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include <memory>
+#include <vector>
+
+#include "common/factory_creator.h"
 #include "common/status.h"
-#include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
 #include "vec/core/block.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 class VExpr;
 
 class VExprContext {
+    ENABLE_FACTORY_CREATOR(VExprContext);
+
 public:
     VExprContext(VExpr* expr);
     ~VExprContext();

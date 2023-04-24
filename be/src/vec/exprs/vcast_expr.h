@@ -16,11 +16,30 @@
 // under the License.
 
 #pragma once
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 class VCastExpr final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VCastExpr);
+
 public:
     VCastExpr(const TExprNode& node) : VExpr(node) {}
     ~VCastExpr() = default;
@@ -33,7 +52,7 @@ public:
     virtual void close(doris::RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) override;
     virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VCastExpr(*this));
+        return pool->add(VCastExpr::create_unique(*this).release());
     }
     virtual const std::string& expr_name() const override;
     virtual std::string debug_string() const override;

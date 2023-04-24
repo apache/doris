@@ -17,10 +17,18 @@
 
 #include "olap/row_cursor.h"
 
-#include <algorithm>
-#include <unordered_set>
+#include <glog/logging.h>
+#include <stdlib.h>
 
-#include "util/stack_util.h"
+#include <algorithm>
+#include <new>
+#include <numeric>
+#include <ostream>
+
+#include "olap/field.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "util/slice.h"
 
 using std::min;
 using std::nothrow;

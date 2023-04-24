@@ -17,10 +17,32 @@
 
 #include "vec/exec/vrepeat_node.h"
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <string.h>
+
+#include <functional>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/join.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 VRepeatNode::VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -202,7 +224,7 @@ Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bo
     DCHECK(!_expr_ctxs.empty());
 
     if (input_block->rows() > 0) {
-        _intermediate_block.reset(new Block());
+        _intermediate_block = Block::create_unique();
 
         for (auto expr : _expr_ctxs) {
             int result_column_id = -1;

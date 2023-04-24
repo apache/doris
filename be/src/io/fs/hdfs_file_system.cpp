@@ -17,16 +17,32 @@
 
 #include "io/fs/hdfs_file_system.h"
 
+#include <fcntl.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <limits.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <map>
+#include <mutex>
+#include <ostream>
+#include <unordered_map>
+#include <utility>
+
+#include "common/config.h"
 #include "gutil/hash/hash.h"
-#include "io/cache/block/cached_remote_file_reader.h"
+#include "gutil/integral_types.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/hdfs_builder.h"
-#include "service/backend_options.h"
 #include "util/hdfs_util.h"
-#include "util/stack_util.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {

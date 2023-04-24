@@ -166,6 +166,7 @@ struct TAlterTabletReqV2 {
     8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
     9: optional Descriptors.TDescriptorTable desc_tbl
     10: optional list<Descriptors.TColumn> columns
+    11: optional i32 be_exec_version = 0
 }
 
 struct TAlterInvertedIndexReq {
@@ -354,7 +355,8 @@ struct TRecoverTabletReq {
 
 enum TTabletMetaType {
     PARTITIONID,
-    INMEMORY
+    INMEMORY,
+    MARKDROP
 }
 
 struct TTabletMetaInfo {
@@ -365,6 +367,7 @@ struct TTabletMetaInfo {
     5: optional bool is_in_memory
     // 6: optional string storage_policy;
     7: optional i64 storage_policy_id
+    8: optional bool is_dropped
 }
 
 struct TUpdateTabletMetaInfoReq {

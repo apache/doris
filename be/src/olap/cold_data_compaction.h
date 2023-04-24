@@ -17,7 +17,13 @@
 
 #pragma once
 
+#include <string>
+
+#include "common/status.h"
+#include "io/io_common.h"
 #include "olap/compaction.h"
+#include "olap/merger.h"
+#include "olap/tablet.h"
 
 namespace doris {
 

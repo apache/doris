@@ -17,10 +17,22 @@
 
 #pragma once
 
+#include <stdint.h>
+#include <time.h>
+
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 
 namespace doris {
 namespace io {
+class FileReaderOptions;
 
 class LocalFileSystem final : public FileSystem {
 public:

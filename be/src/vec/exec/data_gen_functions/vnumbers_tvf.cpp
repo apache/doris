@@ -17,13 +17,19 @@
 
 #include "vec/exec/data_gen_functions/vnumbers_tvf.h"
 
-#include <sstream>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
 
-#include "exec/exec_node.h"
-#include "gen_cpp/PlanNodes_types.h"
+#include <utility>
+
+#include "common/status.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "util/runtime_profile.h"
-#include "vec/common/string_ref.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 

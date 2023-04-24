@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "gen_cpp/AgentService_types.h"
+#include <gen_cpp/AgentService_types.h>
 
 namespace doris {
 

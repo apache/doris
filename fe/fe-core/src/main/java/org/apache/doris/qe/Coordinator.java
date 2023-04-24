@@ -62,6 +62,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.ExternalScanNode;
+import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
@@ -93,7 +94,6 @@ import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
-import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParams;
@@ -191,7 +191,9 @@ public class Coordinator {
 
     private RuntimeProfile queryProfile;
 
+    private RuntimeProfile fragmentsProfile;
     private List<RuntimeProfile> fragmentProfile;
+    private RuntimeProfile loadChannelProfile;
 
     private ProfileWriter profileWriter;
 
@@ -237,7 +239,6 @@ public class Coordinator {
     // Input parameter
     private long jobId = -1; // job which this task belongs to
     private TUniqueId queryId;
-    private final TResourceInfo tResourceInfo;
     private final boolean needReport;
 
     // parallel execute
@@ -343,8 +344,6 @@ public class Coordinator {
         } else {
             this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
-        this.tResourceInfo = new TResourceInfo(context.getQualifiedUser(),
-                context.getSessionVariable().getResourceGroup());
         this.needReport = context.getSessionVariable().enableProfile();
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
@@ -369,7 +368,6 @@ public class Coordinator {
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
-        this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
@@ -530,11 +528,16 @@ public class Coordinator {
         int fragmentSize = fragments.size();
         queryProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
 
+        fragmentsProfile = new RuntimeProfile("Fragments");
+        queryProfile.addChild(fragmentsProfile);
         fragmentProfile = new ArrayList<RuntimeProfile>();
         for (int i = 0; i < fragmentSize; i++) {
             fragmentProfile.add(new RuntimeProfile("Fragment " + i));
-            queryProfile.addChild(fragmentProfile.get(i));
+            fragmentsProfile.addChild(fragmentProfile.get(i));
         }
+
+        loadChannelProfile = new RuntimeProfile("LoadChannels");
+        queryProfile.addChild(loadChannelProfile);
 
         this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
         if (LOG.isDebugEnabled()) {
@@ -733,7 +736,7 @@ public class Coordinator {
                 for (TExecPlanFragmentParams tParam : tParams) {
                     BackendExecState execState =
                             new BackendExecState(fragment.getFragmentId(), instanceId++,
-                                    profileFragmentId, tParam, this.addressToBackendID);
+                                    profileFragmentId, tParam, this.addressToBackendID, loadChannelProfile);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -2040,8 +2043,9 @@ public class Coordinator {
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
-        Collection<Backend> aliveBEs = idToBackend.values().stream().filter(SimpleScheduler::isAvailable)
-                .collect(Collectors.toList());
+        FederationBackendPolicy federationBackendPolicy = new FederationBackendPolicy();
+        federationBackendPolicy.init();
+        Collection<Backend> aliveBEs = federationBackendPolicy.getBackends();
         if (aliveBEs.isEmpty()) {
             throw new UserException("No available backends");
         }
@@ -2565,6 +2569,7 @@ public class Coordinator {
         boolean hasCanceled;
         int profileFragmentId;
         RuntimeProfile profile;
+        RuntimeProfile loadChannelProfile;
         TNetworkAddress brpcAddress;
         TNetworkAddress address;
         Backend backend;
@@ -2572,7 +2577,8 @@ public class Coordinator {
         TUniqueId instanceId;
 
         public BackendExecState(PlanFragmentId fragmentId, int instanceId, int profileFragmentId,
-                                TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID) {
+                                TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID,
+                                RuntimeProfile loadChannelProfile) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
@@ -2585,6 +2591,7 @@ public class Coordinator {
             this.brpcAddress = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
 
             String name = "Instance " + DebugUtil.printId(fi.instanceId) + " (host=" + address + ")";
+            this.loadChannelProfile = loadChannelProfile;
             this.profile = new RuntimeProfile(name);
             this.hasCanceled = false;
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
@@ -2613,6 +2620,9 @@ public class Coordinator {
             }
             if (params.isSetProfile()) {
                 profile.update(params.profile);
+            }
+            if (params.isSetLoadChannelProfile()) {
+                loadChannelProfile.update(params.loadChannelProfile);
             }
             this.done = params.done;
             if (statsErrorEstimator != null) {
@@ -3085,7 +3095,6 @@ public class Coordinator {
                 params.setFragment(fragment.toThrift());
                 params.setDescTbl(descTable);
                 params.setParams(new TPlanFragmentExecParams());
-                params.setResourceInfo(tResourceInfo);
                 params.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 params.params.setQueryId(queryId);
                 params.params.setFragmentInstanceId(instanceExecParam.instanceId);
@@ -3149,7 +3158,6 @@ public class Coordinator {
                     // Set global param
                     params.setProtocolVersion(PaloInternalServiceVersion.V1);
                     params.setDescTbl(descTable);
-                    params.setResourceInfo(tResourceInfo);
                     params.setQueryId(queryId);
                     params.setPerExchNumSenders(perExchNumSenders);
                     params.setDestinations(destinations);

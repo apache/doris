@@ -20,8 +20,6 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 
-#include <map>
-#include <string>
 #include <vector>
 
 #include "common/status.h"

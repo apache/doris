@@ -23,7 +23,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "runtime/cache/result_cache.h"
 #include "util/priority_thread_pool.hpp"
 
 namespace google {
@@ -32,10 +31,6 @@ class Closure;
 class RpcController;
 } // namespace protobuf
 } // namespace google
-
-namespace brpc {
-class Controller;
-}
 
 namespace doris {
 

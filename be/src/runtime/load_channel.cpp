@@ -17,31 +17,45 @@
 
 #include "runtime/load_channel.h"
 
-#include "olap/lru_cache.h"
-#include "runtime/exec_env.h"
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
-#include "runtime/thread_context.h"
 
 namespace doris {
 
 LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker,
-                         int64_t timeout_s, bool is_high_priority, const std::string& sender_ip)
+                         int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
+                         int64_t backend_id)
         : _load_id(load_id),
           _mem_tracker(std::move(mem_tracker)),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
-          _sender_ip(sender_ip) {
+          _sender_ip(sender_ip),
+          _backend_id(backend_id) {
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
     _last_updated_time.store(time(nullptr));
+    _init_profile();
 }
 
 LoadChannel::~LoadChannel() {
     LOG(INFO) << "load channel removed. mem peak usage=" << _mem_tracker->peak_consumption()
               << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
               << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip;
+}
+
+void LoadChannel::_init_profile() {
+    _profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    _self_profile =
+            _profile->create_child(fmt::format("LoadChannel load_id={} (host={}, backend_id={})",
+                                               _load_id.to_string(), _sender_ip, _backend_id),
+                                   true, true);
+    _profile->add_child(_self_profile, false, nullptr);
+    _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
+    _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -55,7 +69,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority));
+            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority, _self_profile));
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});

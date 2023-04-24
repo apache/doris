@@ -17,33 +17,67 @@
 
 #pragma once
 #include <brpc/controller.h>
+#include <bthread/types.h>
+#include <butil/errno.h>
+#include <fmt/format.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <google/protobuf/stubs/callback.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <atomic>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <functional>
+#include <initializer_list>
+#include <map>
 #include <memory>
+#include <mutex>
+#include <ostream>
 #include <queue>
+#include <set>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "common/object_pool.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "gutil/ref_counted.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "runtime/types.h"
 #include "util/bitmap.h"
 #include "util/countdown_latch.h"
-#include "util/ref_count_closure.h"
+#include "util/runtime_profile.h"
 #include "util/spinlock.h"
-#include "util/thread.h"
+#include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
+#include "vec/common/allocator.h"
 #include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class RuntimeState;
+class TDataSink;
+class TExpr;
+class Thread;
+class ThreadPoolToken;
+class TupleDescriptor;
+template <typename T>
+class RefCountClosure;
 
 namespace vectorized {
 class VExprContext;

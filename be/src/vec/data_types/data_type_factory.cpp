@@ -20,12 +20,42 @@
 
 #include "vec/data_types/data_type_factory.hpp"
 
+#include <arrow/type.h>
+#include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
 #include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <ostream>
+
+#include "common/consts.h"
 #include "data_type_time.h"
+#include "olap/field.h"
+#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/common/uint128.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_quantilestate.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_time_v2.h"
 
 namespace doris::vectorized {
 
@@ -255,6 +285,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         break;
     case TypeIndex::DateV2:
         nested = std::make_shared<vectorized::DataTypeDateV2>();
+        break;
+    case TypeIndex::Time:
+        nested = std::make_shared<DataTypeTime>();
         break;
     case TypeIndex::DateTimeV2:
         nested = std::make_shared<DataTypeDateTimeV2>();
@@ -490,6 +523,10 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     }
     case PGenericType::QUANTILE_STATE: {
         nested = std::make_shared<DataTypeQuantileStateDouble>();
+        break;
+    }
+    case PGenericType::TIME: {
+        nested = std::make_shared<DataTypeTime>();
         break;
     }
     default: {

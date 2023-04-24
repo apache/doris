@@ -15,7 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <stdint.h>
+#include <string.h>
+
+#include <boost/iterator/iterator_facade.hpp>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <algorithm>
+#include <cmath>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_const.h"
@@ -26,6 +49,14 @@
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/round.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+namespace vectorized {
+struct LnImpl;
+struct Log10Impl;
+struct Log2Impl;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 struct AcosName {

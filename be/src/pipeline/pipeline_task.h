@@ -17,9 +17,29 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/operator.h"
 #include "pipeline.h"
+#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
+#include "vec/core/block.h"
+
+namespace doris {
+class QueryContext;
+class RuntimeState;
+namespace pipeline {
+class PipelineFragmentContext;
+} // namespace pipeline
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
+} // namespace doris
 
 namespace doris::pipeline {
 
@@ -151,7 +171,7 @@ public:
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
-    QueryFragmentsCtx* query_fragments_context();
+    QueryContext* query_context();
 
     int get_previous_core_id() const {
         return _previous_schedule_id != -1 ? _previous_schedule_id

@@ -15,11 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <stdint.h>
+
+#include <atomic>
 #include <map>
 #include <string>
+#include <vector>
 
-#include "olap/utils.h"
-#include "rocksdb/utilities/db_ttl.h"
+namespace rocksdb {
+class ColumnFamilyHandle;
+class DBWithTTL;
+} // namespace rocksdb
 
 #pragma once
 
