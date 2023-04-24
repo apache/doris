@@ -324,7 +324,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
     ObjectPool object_pool;
     doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
     auto tuple_slots = tuple_desc->slots();
-    block = vectorized::Block::create_unique();
+    block.reset(new vectorized::Block());
     for (const auto& slot_desc : tuple_slots) {
         auto data_type = slot_desc->get_data_type_ptr();
         MutableColumnPtr data_column = data_type->create_column();

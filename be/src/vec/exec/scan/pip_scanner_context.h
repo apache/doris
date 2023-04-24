@@ -137,12 +137,11 @@ public:
                     limit == -1 ? _batch_size : std::min(static_cast<int64_t>(_batch_size), limit);
             int64_t free_blocks_memory_usage = 0;
             for (int i = 0; i < _max_queue_size; ++i) {
-                auto block = vectorized::Block::create_unique(_output_tuple_desc->slots(),
-                                                              real_block_size,
-                                                              true /*ignore invalid slots*/);
+                auto block = std::make_unique<vectorized::Block>(_output_tuple_desc->slots(),
+                                                                 real_block_size,
+                                                                 true /*ignore invalid slots*/);
                 free_blocks_memory_usage += block->allocated_bytes();
-                _colocate_mutable_blocks.emplace_back(
-                        vectorized::MutableBlock::create_unique(block.get()));
+                _colocate_mutable_blocks.emplace_back(new vectorized::MutableBlock(block.get()));
                 _colocate_blocks.emplace_back(std::move(block));
                 _colocate_block_mutexs.emplace_back(new std::mutex);
             }

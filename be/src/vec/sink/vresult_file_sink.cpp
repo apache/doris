@@ -109,8 +109,7 @@ Status VResultFileSink::prepare(RuntimeState* state) {
                 _output_row_descriptor));
     } else {
         // init channel
-        _output_block =
-                Block::create_unique(_output_row_descriptor.tuple_descriptors()[0]->slots(), 1);
+        _output_block.reset(new Block(_output_row_descriptor.tuple_descriptors()[0]->slots(), 1));
         _writer.reset(new (std::nothrow) VFileResultWriter(
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
                 _profile, nullptr, _output_block.get(), state->return_object_data_as_binary(),

@@ -452,7 +452,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     }
 
     if (UNLIKELY(!_cur_mutable_block)) {
-        _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
+        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
     }
 
     std::unique_ptr<Payload> temp_payload = nullptr;
@@ -536,7 +536,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
                        << " jobid:" << std::to_string(_state->load_job_id())
                        << " loadinfo:" << _load_info;
         }
-        _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
+        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
         _cur_add_block_request.clear_tablet_ids();
     }
 
@@ -824,7 +824,7 @@ void VNodeChannel::mark_close() {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         if (!_cur_mutable_block) {
             // add a dummy block
-            _cur_mutable_block = vectorized::MutableBlock::create_unique();
+            _cur_mutable_block.reset(new vectorized::MutableBlock());
         }
         _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
         _pending_batches_num++;

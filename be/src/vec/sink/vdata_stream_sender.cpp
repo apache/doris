@@ -183,7 +183,7 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
 
     if (_mutable_block == nullptr) {
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-        _mutable_block = MutableBlock::create_unique(block->clone_empty());
+        _mutable_block.reset(new MutableBlock(block->clone_empty()));
     }
 
     int row_wait_add = rows.size();

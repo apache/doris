@@ -137,7 +137,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     int64_t deserialize_time = 0;
     {
         SCOPED_RAW_TIMER(&deserialize_time);
-        block = Block::create_unique(pblock);
+        block.reset(new Block(pblock));
     }
 
     auto block_byte_size = block->allocated_bytes();
@@ -176,7 +176,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
 
     auto block_bytes_received = block->bytes();
     // Has to use unique ptr here, because clone column may failed if allocate memory failed.
-    BlockUPtr nblock = Block::create_unique(block->get_columns_with_type_and_name());
+    BlockUPtr nblock = std::make_unique<Block>(block->get_columns_with_type_and_name());
 
     // local exchange should copy the block contented if use move == false
     if (use_move) {

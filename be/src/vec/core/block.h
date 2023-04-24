@@ -28,8 +28,6 @@
 #include <utility>
 #include <vector>
 
-#include "common/factory_creator.h"
-#include "common/status.h"
 #include "gen_cpp/data.pb.h"
 #include "runtime/descriptors.h"
 #include "vec/columns/column.h"
@@ -55,11 +53,10 @@ namespace vectorized {
   */
 class MutableBlock;
 class Block {
-    ENABLE_FACTORY_CREATOR(Block);
-
 private:
     using Container = ColumnsWithTypeAndName;
     using IndexByName = phmap::flat_hash_map<String, size_t>;
+
     Container data;
     IndexByName index_by_name;
     std::vector<bool> row_same_bit;
@@ -386,8 +383,6 @@ using BlocksPtr = std::shared_ptr<Blocks>;
 using BlocksPtrs = std::shared_ptr<std::vector<BlocksPtr>>;
 
 class MutableBlock {
-    ENABLE_FACTORY_CREATOR(MutableBlock);
-
 private:
     MutableColumns _columns;
     DataTypes _data_types;

@@ -58,7 +58,7 @@ std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
         }
     }
 
-    return vectorized::Block::create_unique();
+    return std::make_unique<vectorized::Block>();
 }
 
 void DataQueue::push_free_block(std::unique_ptr<vectorized::Block> block, int child_idx) {
