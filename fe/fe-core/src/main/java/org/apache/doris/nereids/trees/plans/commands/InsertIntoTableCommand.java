@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -187,7 +187,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private void addUnassignedColumns() {
+    private void addUnassignedColumns() throws org.apache.doris.common.AnalysisException {
         PlanFragment root = planner.getFragments().get(0);
         List<Expr> outputs = root.getOutputExprs();
         // handle insert a duplicate key table to a unique key table.
@@ -200,7 +200,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             if (column.isVisible()) {
                 newOutputs.add(outputs.get(i++));
             } else {
-                newOutputs.add(new IntLiteral(0));
+                newOutputs.add(LiteralExpr.create("0", column.getType()));
             }
         }
         root.setOutputExprs(newOutputs);
