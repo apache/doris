@@ -15,16 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.backup;
+package org.apache.doris.fs.remote;
 
-import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.backup.RemoteFile;
+import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.obj.S3Storage;
 
-import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
@@ -69,11 +70,11 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
-public class S3Storage extends BlobStorage {
+public class S3FileSystem extends ObjFileSystem {
+
     private static final Logger LOG = LogManager.getLogger(S3Storage.class);
-    private FileSystem dfsFileSystem = null;
-    private final Map<String, String> caseInsensitiveProperties;
     private S3Client client;
     // false: the s3 client will automatically convert endpoint to virtual-hosted style, eg:
     //          endpoint:           http://s3.us-east-2.amazonaws.com
@@ -85,20 +86,15 @@ public class S3Storage extends BlobStorage {
     //          convert manually:   See S3URI()
     private boolean forceHostedStyle = false;
 
-    public S3Storage(Map<String, String> properties) {
-        caseInsensitiveProperties = new CaseInsensitiveMap();
-        client = null;
+    public S3FileSystem(Map<String, String> properties) {
+        this.properties = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         setProperties(properties);
-        setType(StorageBackend.StorageType.S3);
-        setName(StorageBackend.StorageType.S3.name());
     }
 
-    @Override
-    public void setProperties(Map<String, String> properties) {
-        super.setProperties(properties);
-        caseInsensitiveProperties.putAll(properties);
+    private void setProperties(Map<String, String> properties) {
+        this.properties.putAll(properties);
         try {
-            S3Properties.requiredS3Properties(caseInsensitiveProperties);
+            S3Properties.requiredS3Properties(this.properties);
         } catch (DdlException e) {
             throw new IllegalArgumentException(e);
         }
@@ -120,20 +116,19 @@ public class S3Storage extends BlobStorage {
         // That is, for S3 endpoint, ignore the `use_path_style` property, and the s3 client will automatically use
         // virtual hosted-sytle.
         // And for other endpoint, if `use_path_style` is true, use path style. Otherwise, use virtual hosted-sytle.
-        if (!caseInsensitiveProperties.get(S3Properties.ENDPOINT).toLowerCase().startsWith("s3")) {
-            forceHostedStyle = !caseInsensitiveProperties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false")
+        if (!this.properties.get(S3Properties.ENDPOINT).toLowerCase().startsWith("s3")) {
+            forceHostedStyle = !this.properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false")
                     .equalsIgnoreCase("true");
         } else {
             forceHostedStyle = false;
         }
     }
 
-    @Override
-    public FileSystem getFileSystem(String remotePath) throws UserException {
+    private FileSystem getFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem == null) {
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            PropertyConverter.convertToHadoopFSProperties(caseInsensitiveProperties).forEach(conf::set);
+            PropertyConverter.convertToHadoopFSProperties(properties).forEach(conf::set);
             try {
                 dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
             } catch (Exception e) {
@@ -145,18 +140,18 @@ public class S3Storage extends BlobStorage {
 
     private S3Client getClient(String bucket) throws UserException {
         if (client == null) {
-            URI tmpEndpoint = URI.create(caseInsensitiveProperties.get(S3Properties.ENDPOINT));
+            URI tmpEndpoint = URI.create(properties.get(S3Properties.ENDPOINT));
             StaticCredentialsProvider scp;
-            if (!caseInsensitiveProperties.containsKey(S3Properties.SESSION_TOKEN)) {
+            if (!properties.containsKey(S3Properties.SESSION_TOKEN)) {
                 AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
-                        caseInsensitiveProperties.get(S3Properties.ACCESS_KEY),
-                        caseInsensitiveProperties.get(S3Properties.SECRET_KEY));
+                        properties.get(S3Properties.ACCESS_KEY),
+                        properties.get(S3Properties.SECRET_KEY));
                 scp = StaticCredentialsProvider.create(awsBasic);
             } else {
                 AwsSessionCredentials awsSession = AwsSessionCredentials.create(
-                        caseInsensitiveProperties.get(S3Properties.ACCESS_KEY),
-                        caseInsensitiveProperties.get(S3Properties.SECRET_KEY),
-                        caseInsensitiveProperties.get(S3Properties.SESSION_TOKEN));
+                        properties.get(S3Properties.ACCESS_KEY),
+                        properties.get(S3Properties.SECRET_KEY),
+                        properties.get(S3Properties.SESSION_TOKEN));
                 scp = StaticCredentialsProvider.create(awsSession);
             }
             EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
@@ -182,7 +177,7 @@ public class S3Storage extends BlobStorage {
             client = S3Client.builder()
                     .endpointOverride(endpoint)
                     .credentialsProvider(scp)
-                    .region(Region.of(caseInsensitiveProperties.get(S3Properties.REGION)))
+                    .region(Region.of(properties.get(S3Properties.REGION)))
                     .overrideConfiguration(clientConf)
                     // disable chunkedEncoding because of bos not supported
                     // use virtual hosted-style access
@@ -193,6 +188,26 @@ public class S3Storage extends BlobStorage {
                     .build();
         }
         return client;
+    }
+
+    @Override
+    public Status exists(String remotePath) {
+        try {
+            S3URI uri = S3URI.create(remotePath, forceHostedStyle);
+            getClient(uri.getVirtualBucket())
+                    .headObject(HeadObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
+            return Status.OK;
+        } catch (S3Exception e) {
+            if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
+                return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
+            } else {
+                LOG.warn("headObject failed:", e);
+                return new Status(Status.ErrCode.COMMON_ERROR, "headObject failed: " + e.getMessage());
+            }
+        } catch (UserException ue) {
+            LOG.warn("connect to s3 failed: ", ue);
+            return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
+        }
     }
 
     @Override
@@ -397,30 +412,5 @@ public class S3Storage extends BlobStorage {
             LOG.error("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
-    }
-
-    @Override
-    public Status checkPathExist(String remotePath) {
-        try {
-            S3URI uri = S3URI.create(remotePath, forceHostedStyle);
-            getClient(uri.getVirtualBucket())
-                    .headObject(HeadObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
-            return Status.OK;
-        } catch (S3Exception e) {
-            if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
-                return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
-            } else {
-                LOG.warn("headObject failed:", e);
-                return new Status(Status.ErrCode.COMMON_ERROR, "headObject failed: " + e.getMessage());
-            }
-        } catch (UserException ue) {
-            LOG.warn("connect to s3 failed: ", ue);
-            return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
-        }
-    }
-
-    @Override
-    public StorageBackend.StorageType getStorageType() {
-        return StorageBackend.StorageType.S3;
     }
 }

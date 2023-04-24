@@ -15,9 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.backup;
+package org.apache.doris.fs.obj;
 
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.backup.RemoteFile;
+import org.apache.doris.backup.Status;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
