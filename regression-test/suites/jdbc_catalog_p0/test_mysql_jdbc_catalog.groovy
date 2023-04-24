@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_mysql_jdbc_catalog", "p0") {
+    qt_sql """select current_catalog()"""
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String resource_name = "jdbc_resource_catalog_mysql"
@@ -48,7 +50,6 @@ suite("test_mysql_jdbc_catalog", "p0") {
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
 
-        sql """ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "true");"""
         sql """drop catalog if exists ${catalog_name} """
         sql """ drop resource if exists ${resource_name} """
 
@@ -73,7 +74,9 @@ suite("test_mysql_jdbc_catalog", "p0") {
                 PROPERTIES("replication_num" = "1");
         """
 
+        qt_sql """select current_catalog()"""
         sql """switch ${catalog_name}"""
+        qt_sql """select current_catalog()"""
         sql """ use ${ex_db_name}"""
 
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
@@ -130,6 +133,26 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true"
+        );"""
+        
+        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
+        sql """switch ${catalog_name}"""
+
+        qt_specified_database   """ show databases; """
+
+        sql """ drop catalog if exists ${catalog_name} """
+        sql """ drop resource if exists ${resource_name} """
+
+        // test only_specified_database and specified_database_list argument
+        sql """create resource if not exists ${resource_name} properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "only_specified_database" = "true",
+            "specified_database_list" = "doris_test"
         );"""
         
         sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""

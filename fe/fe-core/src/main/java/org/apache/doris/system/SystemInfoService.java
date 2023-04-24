@@ -18,6 +18,7 @@
 package org.apache.doris.system;
 
 import org.apache.doris.analysis.ModifyBackendClause;
+import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
@@ -45,7 +46,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1251,14 +1252,27 @@ public class SystemInfoService {
         LOG.debug("update path infos: {}", newPathInfos);
     }
 
+    public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
+        Backend be = getBackendWithHeartbeatPort(clause.getIp(), clause.getHostName(), clause.getPort());
+        if (be == null) {
+            throw new DdlException("backend does not exists[" + clause.getIp() + ":" + clause.getPort() + "]");
+        }
+        if (!Strings.isNullOrEmpty(be.getHostName()) && be.getHostName().equals(clause.getNewHostName())) {
+            // no need to modify
+            return;
+        }
+        be.setHostName(clause.getNewHostName());
+        Env.getCurrentEnv().getEditLog().logModifyBackend(be);
+    }
+
     public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
         List<HostInfo> hostInfos = alterClause.getHostInfos();
         List<Backend> backends = Lists.newArrayList();
         for (HostInfo hostInfo : hostInfos) {
             Backend be = getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort());
             if (be == null) {
-                throw new DdlException("backend does not exists[" + (Config.enable_fqdn_mode && hostInfo.getHostName()
-                        != null ? hostInfo.getHostName() : hostInfo.getIp()) + ":" + hostInfo.getPort() + "]");
+                throw new DdlException("backend does not exists[" + (Config.enable_fqdn_mode ? hostInfo.getIdent()
+                        : hostInfo.getIp()) + ":" + hostInfo.getPort() + "]");
             }
             backends.add(be);
         }
@@ -1297,6 +1311,7 @@ public class SystemInfoService {
         memBe.setTagMap(backend.getTagMap());
         memBe.setQueryDisabled(backend.isQueryDisabled());
         memBe.setLoadDisabled(backend.isLoadDisabled());
+        memBe.setHostName(backend.getHostName());
         LOG.debug("replay modify backend: {}", backend);
     }
 

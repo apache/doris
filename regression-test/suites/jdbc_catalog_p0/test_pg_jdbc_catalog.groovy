@@ -73,6 +73,7 @@ suite("test_pg_jdbc_catalog", "p0") {
         order_qt_test12  """ select * from test10 order by id; """
         order_qt_test13  """ select * from test11 order by id; """
         order_qt_test14  """ select * from test12 order by id; """
+        order_qt_wkb_test  """ select * from wkb_test order by id; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
@@ -98,6 +99,24 @@ suite("test_pg_jdbc_catalog", "p0") {
             "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
             "driver_class" = "org.postgresql.Driver",
             "only_specified_database" = "true"
+        );"""
+        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name} """
+        sql """switch ${catalog_name} """
+        qt_specified_database """ show databases; """
+
+        sql """drop catalog if exists ${catalog_name} """
+        sql """drop resource if exists ${resource_name}"""
+
+        // test only_specified_database and specified_database_list argument
+        sql """create resource if not exists ${resource_name} properties(
+            "type"="jdbc",
+            "user"="postgres",
+            "password"="123456",
+            "jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+            "driver_class" = "org.postgresql.Driver",
+            "only_specified_database" = "true",
+            "specified_database_list" = "doris_test"
         );"""
         sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name} """
         sql """switch ${catalog_name} """

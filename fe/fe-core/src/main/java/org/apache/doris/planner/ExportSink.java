@@ -28,7 +28,7 @@ import org.apache.doris.thrift.TExportSink;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 
-import org.apache.commons.lang.StringEscapeUtils;
+import org.apache.commons.lang3.StringEscapeUtils;
 
 public class ExportSink extends DataSink {
     private final String exportPath;

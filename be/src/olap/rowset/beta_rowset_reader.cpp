@@ -17,12 +17,30 @@
 
 #include "beta_rowset_reader.h"
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <ostream>
+#include <roaring/roaring.hh>
+#include <set>
+#include <string>
+#include <unordered_map>
 #include <utility>
 
+#include "common/logging.h"
+#include "io/io_common.h"
+#include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
+#include "olap/olap_define.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
 
@@ -42,6 +60,10 @@ void BetaRowsetReader::reset_read_options() {
     _read_options.key_ranges.clear();
 }
 
+RowsetReaderSharedPtr BetaRowsetReader::clone() {
+    return RowsetReaderSharedPtr(new BetaRowsetReader(_rowset));
+}
+
 bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
     if (_iterator != nullptr) {
         return _iterator->update_profile(profile);
@@ -51,6 +73,7 @@ bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
 
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
                                                std::vector<RowwiseIteratorUPtr>* out_iters,
+                                               const std::pair<int, int>& segment_offset,
                                                bool use_cache) {
     RETURN_NOT_OK(_rowset->load());
     _context = read_context;
@@ -174,7 +197,15 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                                                            should_use_cache));
 
     // create iterator for each segment
-    for (auto& seg_ptr : _segment_cache_handle.get_segments()) {
+    auto& segments = _segment_cache_handle.get_segments();
+    auto [seg_start, seg_end] = segment_offset;
+    if (seg_start == seg_end) {
+        seg_start = 0;
+        seg_end = segments.size();
+    }
+
+    for (int i = seg_start; i < seg_end; i++) {
+        auto& seg_ptr = segments[i];
         std::unique_ptr<RowwiseIterator> iter;
         auto s = seg_ptr->new_iterator(*_input_schema, _read_options, &iter);
         if (!s.ok()) {
@@ -191,13 +222,15 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
         out_iters->push_back(std::move(iter));
     }
+
     return Status::OK();
 }
 
-Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
+Status BetaRowsetReader::init(RowsetReaderContext* read_context,
+                              const std::pair<int, int>& segment_offset) {
     _context = read_context;
     std::vector<RowwiseIteratorUPtr> iterators;
-    RETURN_NOT_OK(get_segment_iterators(_context, &iterators));
+    RETURN_NOT_OK(get_segment_iterators(_context, &iterators, segment_offset));
 
     // merge or union segment iterator
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {

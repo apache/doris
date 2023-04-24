@@ -17,6 +17,18 @@
 
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 
+#include <algorithm>
+#include <string>
+
+#include "vec/aggregate_functions/aggregate_function_bitmap.h"
+#include "vec/aggregate_functions/aggregate_function_hll_union_agg.h"
+#include "vec/aggregate_functions/aggregate_function_min_max.h"
+#include "vec/aggregate_functions/aggregate_function_quantile_state.h"
+#include "vec/aggregate_functions/aggregate_function_reader_first_last.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/aggregate_function_sum.h"
+#include "vec/aggregate_functions/helpers.h"
+
 namespace doris::vectorized {
 
 // auto spread at nullable condition, null value do not participate aggregate
@@ -28,12 +40,15 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
         factory.register_function_both(name + AGG_LOAD_SUFFIX, creator);
     };
 
-    register_function_both("sum", create_aggregate_function_sum_reader);
-    register_function_both("max", create_aggregate_function_max);
-    register_function_both("min", create_aggregate_function_min);
-    register_function_both("bitmap_union", create_aggregate_function_bitmap_union);
+    register_function_both("sum", creator_with_type::creator<AggregateFunctionSumSimpleReader>);
+    register_function_both("max", create_aggregate_function_single_value<AggregateFunctionMaxData>);
+    register_function_both("min", create_aggregate_function_single_value<AggregateFunctionMinData>);
+    register_function_both("bitmap_union",
+                           creator_without_type::creator<
+                                   AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>>);
     register_function_both("hll_union",
-                           create_aggregate_function_HLL<AggregateFunctionHLLUnionImpl>);
+                           creator_without_type::creator<AggregateFunctionHLLUnion<
+                                   AggregateFunctionHLLUnionImpl<AggregateFunctionHLLData>>>);
     register_function_both("quantile_union", create_aggregate_function_quantile_state_union);
 }
 

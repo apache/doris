@@ -612,7 +612,9 @@ public class BackupJob extends AbstractJob {
                 }
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
-                        brokers.get(0), repo.getStorage().getProperties(), repo.getStorage().getStorageType());
+                        brokers.get(0), repo.getStorage().getProperties(), repo.getStorage().getStorageType(),
+                        repo.getLocation());
+                LOG.info("yy debug upload location: " + repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
             }

@@ -91,4 +91,50 @@ suite("test_bucket_shuffle_join") {
         contains "4:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"
         contains "2:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"
     }
+
+    sql """ DROP TABLE IF EXISTS shuffle_join_t1 """
+    sql """ DROP TABLE IF EXISTS shuffle_join_t2 """
+
+    sql """
+        create table shuffle_join_t1 ( a varchar(10) not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 5
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        create table shuffle_join_t2 ( a varchar(5) not null, b string not null, c char(3) not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 5
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """insert into shuffle_join_t1 values("1");"""
+    sql """insert into shuffle_join_t2 values("1","1","1");"""
+
+    explain {
+        sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.a;")
+        contains "BUCKET_SHUFFLE"
+    }
+
+    explain {
+        sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.b;")
+        contains "BUCKET_SHUFFLE"
+    }
+
+    explain {
+        sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.c;")
+        notContains "BUCKET_SHUFFLE"
+    }
+
+    sql """ DROP TABLE IF EXISTS shuffle_join_t1 """
+    sql """ DROP TABLE IF EXISTS shuffle_join_t2 """
 }

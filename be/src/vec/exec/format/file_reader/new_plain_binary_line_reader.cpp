@@ -17,12 +17,15 @@
 
 #include "new_plain_binary_line_reader.h"
 
-#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 
 #include "io/fs/file_reader.h"
 #include "io/fs/stream_load_pipe.h"
 
 namespace doris {
+namespace io {
+class IOContext;
+} // namespace io
 
 NewPlainBinaryLineReader::NewPlainBinaryLineReader(io::FileReaderSPtr file_reader)
         : _file_reader(file_reader) {}
@@ -33,7 +36,8 @@ NewPlainBinaryLineReader::~NewPlainBinaryLineReader() {
 
 void NewPlainBinaryLineReader::close() {}
 
-Status NewPlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
+Status NewPlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof,
+                                           const io::IOContext* /*io_ctx*/) {
     size_t read_size = 0;
     RETURN_IF_ERROR((dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))
                             ->read_one_message(&_file_buf, &read_size));

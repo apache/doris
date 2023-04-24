@@ -17,17 +17,20 @@
 
 #include "http/action/tablet_migration_action.h"
 
+#include <glog/logging.h>
+
+#include <exception>
 #include <string>
 
-#include "gutil/strings/substitute.h"
+#include "common/config.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
+#include "olap/data_dir.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/task/engine_storage_migration_task.h"
-#include "util/json_util.h"
 
 namespace doris {
 

@@ -17,28 +17,23 @@
 
 #pragma once
 
-#include <condition_variable>
-#include <ctime>
-#include <list>
-#include <map>
+#include <stdint.h>
+
+#include <memory>
 #include <mutex>
-#include <set>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "common/status.h"
-#include "olap/data_dir.h"
-#include "olap/field.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/push_handler.h"
+#include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta_manager.h"
-#include "util/doris_metrics.h"
-#include "util/file_utils.h"
+#include "olap/tablet_schema.h"
+#include "runtime/memory/mem_tracker.h"
 
 namespace doris {
+class RowsetMetaPB;
+class TSnapshotRequest;
+struct RowsetId;
 
 class SnapshotManager {
 public:

@@ -21,11 +21,13 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Subquery Expression.
@@ -34,18 +36,30 @@ public abstract class SubqueryExpr extends Expression {
     protected final LogicalPlan queryPlan;
     protected final List<Slot> correlateSlots;
 
+    protected final Optional<Expression> typeCoercionExpr;
+
     public SubqueryExpr(LogicalPlan subquery) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
         this.correlateSlots = ImmutableList.of();
+        this.typeCoercionExpr = Optional.empty();
     }
 
-    public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots) {
+    public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
         this.correlateSlots = ImmutableList.copyOf(correlateSlots);
+        this.typeCoercionExpr = typeCoercionExpr;
     }
 
     public List<Slot> getCorrelateSlots() {
         return correlateSlots;
+    }
+
+    public Optional<Expression> getTypeCoercionExpr() {
+        return typeCoercionExpr;
+    }
+
+    public Expression getSubqueryOutput() {
+        return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0));
     }
 
     @Override
@@ -65,8 +79,10 @@ public abstract class SubqueryExpr extends Expression {
 
     @Override
     public String toString() {
-        return "(QueryPlan: " + queryPlan
-                + "), (CorrelatedSlots: " + correlateSlots + ")";
+        return Utils.toSqlString("SubqueryExpr",
+                "QueryPlan", queryPlan,
+                "CorrelatedSlots", correlateSlots,
+                "typeCoercionExpr", typeCoercionExpr.isPresent() ? typeCoercionExpr.get() : "null");
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -92,15 +108,18 @@ public abstract class SubqueryExpr extends Expression {
         }
         SubqueryExpr other = (SubqueryExpr) o;
         return Objects.equals(correlateSlots, other.correlateSlots)
-                && queryPlan.deepEquals(other.queryPlan);
+                && queryPlan.deepEquals(other.queryPlan)
+                && Objects.equals(typeCoercionExpr, other.typeCoercionExpr);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(queryPlan, correlateSlots);
+        return Objects.hash(queryPlan, correlateSlots, typeCoercionExpr);
     }
 
     public List<Slot> getOutput() {
         return queryPlan.getOutput();
     }
+
+    public abstract Expression withTypeCoercion(DataType dataType);
 }

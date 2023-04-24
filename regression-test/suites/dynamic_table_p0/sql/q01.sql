@@ -1,4 +1,3 @@
-set enable_vectorized_engine=true;
 SELECT count() FROM test_btc_json;
 SELECT avg(fee) FROM test_btc_json;
 SELECT avg(size(`inputs.prev_out.spending_outpoints.n`))  FROM test_btc_json;

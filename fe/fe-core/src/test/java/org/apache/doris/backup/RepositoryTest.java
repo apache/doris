@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.fs.obj.BlobStorage;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Lists;
@@ -182,8 +183,8 @@ public class RepositoryTest {
                 minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
-                        result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "a", false, 100));
-                        result.add(new RemoteFile("_ss_b", true, 100));
+                        result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "a", false, 100, 0));
+                        result.add(new RemoteFile("_ss_b", true, 100, 0));
                         return Status.OK;
                     }
                 };
@@ -252,7 +253,7 @@ public class RepositoryTest {
                     minTimes = 0;
                     result = new Delegate() {
                         public Status list(String remotePath, List<RemoteFile> result) {
-                            result.add(new RemoteFile("remote_file.0cc175b9c0f1b6a831c399e269772661", true, 100));
+                            result.add(new RemoteFile("remote_file.0cc175b9c0f1b6a831c399e269772661", true, 100, 0));
                             return Status.OK;
                         }
                     };
@@ -290,10 +291,11 @@ public class RepositoryTest {
                         if (remotePath.contains(Repository.PREFIX_JOB_INFO)) {
                             result.add(new RemoteFile(" __info_2018-04-18-20-11-00.12345678123456781234567812345678",
                                     true,
-                                    100));
+                                    100,
+                                    0));
                         } else {
-                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100));
-                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100));
+                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100, 0));
+                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100, 0));
                         }
                         return Status.OK;
                     }

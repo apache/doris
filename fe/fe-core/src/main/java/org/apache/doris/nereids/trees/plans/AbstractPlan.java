@@ -29,6 +29,7 @@ import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.MutableState;
@@ -182,5 +183,25 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public void setMutableState(String key, Object state) {
         this.mutableState = this.mutableState.set(key, state);
+    }
+
+    /**
+     * used in treeString()
+     * @return "" if groupExpression is empty, o.w. string format of group id
+     */
+    public String getGroupIdAsString() {
+        String groupId = getGroupExpression().isPresent()
+                ? "#" + getGroupExpression().get().getOwnerGroup().getGroupId().asInt()
+                : "";
+        return groupId;
+    }
+
+    @Override
+    public boolean deepEquals(TreeNode o) {
+        AbstractPlan that = (AbstractPlan) o;
+        if (Objects.equals(getLogicalProperties(), that.getLogicalProperties())) {
+            return super.deepEquals(o);
+        }
+        return false;
     }
 }

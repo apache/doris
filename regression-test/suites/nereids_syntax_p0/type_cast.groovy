@@ -38,4 +38,12 @@ suite("type_cast") {
 
     qt_sql """select count(*) from test_table2 where 'a' = 'a';"""
     qt_sql """select count(*) from test_table2 where cast('2020-01-01' as date) = cast('2020-01-01' as date);"""
+
+
+    test {
+        sql("""select id
+            from( select 1 id ) a
+            where case when id > 0 then 2 else 'abc' end = '2'""")
+        result([[1]])
+    }
 }

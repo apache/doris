@@ -77,7 +77,7 @@ public class FEFunctions {
         return new IntLiteral(datediff, Type.INT);
     }
 
-    @FEFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "INT")
+    @FEFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static IntLiteral dayOfWeek(LiteralExpr date) throws AnalysisException {
         // use zellar algorithm.
         long year = ((DateLiteral) date).getYear();
@@ -197,17 +197,17 @@ public class FEFunctions {
         return secondsAdd(date, new IntLiteral(-(int) second.getLongValue()));
     }
 
-    @FEFunction(name = "year", argTypes = { "DATETIME" }, returnType = "INT")
+    @FEFunction(name = "year", argTypes = { "DATETIME" }, returnType = "SMALLINT")
     public static IntLiteral year(LiteralExpr arg) throws AnalysisException {
         return new IntLiteral(((DateLiteral) arg).getYear(), Type.INT);
     }
 
-    @FEFunction(name = "month", argTypes = { "DATETIME" }, returnType = "INT")
+    @FEFunction(name = "month", argTypes = { "DATETIME" }, returnType = "TINYINT")
     public static IntLiteral month(LiteralExpr arg) throws AnalysisException {
         return new IntLiteral(((DateLiteral) arg).getMonth(), Type.INT);
     }
 
-    @FEFunction(name = "day", argTypes = { "DATETIME" }, returnType = "INT")
+    @FEFunction(name = "day", argTypes = { "DATETIME" }, returnType = "TINYINT")
     public static IntLiteral day(LiteralExpr arg) throws AnalysisException {
         return new IntLiteral(((DateLiteral) arg).getDay(), Type.INT);
     }
@@ -292,7 +292,7 @@ public class FEFunctions {
                 Type.DATETIME);
     }
 
-    @FEFunction(name = "hour", argTypes = {"DATETIME"}, returnType = "INT")
+    @FEFunction(name = "hour", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static IntLiteral hour(LiteralExpr arg) throws AnalysisException {
         if (arg instanceof DateLiteral) {
             return new IntLiteral(((DateLiteral) arg).getHour());
@@ -300,7 +300,7 @@ public class FEFunctions {
         return null;
     }
 
-    @FEFunction(name = "minute", argTypes = {"DATETIME"}, returnType = "INT")
+    @FEFunction(name = "minute", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static IntLiteral minute(LiteralExpr arg) throws AnalysisException {
         if (arg instanceof DateLiteral) {
             return new IntLiteral(((DateLiteral) arg).getMinute());
@@ -308,7 +308,7 @@ public class FEFunctions {
         return null;
     }
 
-    @FEFunction(name = "second", argTypes = {"DATETIME"}, returnType = "INT")
+    @FEFunction(name = "second", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static IntLiteral second(LiteralExpr arg) throws AnalysisException {
         if (arg instanceof DateLiteral) {
             return new IntLiteral(((DateLiteral) arg).getSecond());

@@ -17,8 +17,7 @@
 
 suite("explode_split") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tableName = "test_lv_str"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -42,4 +41,5 @@ suite("explode_split") {
                          select  k1, e1 from example1
                          lateral view explode_split(k2, ',') tmp as  e1 """
 
+    qt_explode_split """ select e1 from (select 1 k1) as t lateral view explode_split("啊，啊，额，啊","，") tmp1 as e1; """
 }

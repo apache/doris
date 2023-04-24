@@ -1,4 +1,4 @@
-SET enable_vectorized_engine=true;
+
 
 SELECT COUNT(*) FROM large_records_t3_dk;
 

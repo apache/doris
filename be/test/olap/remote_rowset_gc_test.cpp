@@ -29,8 +29,10 @@
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/txn_manager.h"
 #include "runtime/descriptor_helper.h"
-#include "util/file_utils.h"
+#include "runtime/descriptors.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -53,8 +55,10 @@ public:
         s3_conf.region = config::test_s3_region;
         s3_conf.bucket = config::test_s3_bucket;
         s3_conf.prefix = "remote_rowset_gc_test";
-        auto s3_fs = io::S3FileSystem::create(std::move(s3_conf), std::to_string(kResourceId));
-        ASSERT_TRUE(s3_fs->connect().ok());
+        std::shared_ptr<io::S3FileSystem> s3_fs;
+        ASSERT_TRUE(
+                io::S3FileSystem::create(std::move(s3_conf), std::to_string(kResourceId), &s3_fs)
+                        .ok());
         put_storage_resource(kResourceId, {s3_fs, 1});
         auto storage_policy = std::make_shared<StoragePolicy>();
         storage_policy->name = "TabletCooldownTest";
@@ -68,8 +72,9 @@ public:
         config::storage_root_path = std::string(buffer) + "/" + kTestDir;
         config::min_file_descriptor_number = 1000;
 
-        FileUtils::remove_all(config::storage_root_path);
-        FileUtils::create_dir(config::storage_root_path);
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->delete_and_create_directory(config::storage_root_path)
+                            .ok());
 
         std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
@@ -166,9 +171,6 @@ TEST_F(RemoteRowsetGcTest, normal) {
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
-
-    MemTracker tracker;
-    MemPool pool(&tracker);
 
     st = delta_writer->close();
     ASSERT_EQ(Status::OK(), st);

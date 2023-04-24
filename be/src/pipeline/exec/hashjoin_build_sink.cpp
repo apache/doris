@@ -17,7 +17,9 @@
 
 #include "hashjoin_build_sink.h"
 
-#include "vec/exec/join/vhash_join_node.h"
+#include <string>
+
+#include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
 

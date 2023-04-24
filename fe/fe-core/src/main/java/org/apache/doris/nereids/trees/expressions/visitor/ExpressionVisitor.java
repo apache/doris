@@ -153,7 +153,7 @@ public abstract class ExpressionVisitor<R, C>
         return visit(binaryOperator, context);
     }
 
-    public R visitUinaryOperator(UnaryOperator unaryOperator, C context) {
+    public R visitUnaryOperator(UnaryOperator unaryOperator, C context) {
         return visit(unaryOperator, context);
     }
 
@@ -306,7 +306,7 @@ public abstract class ExpressionVisitor<R, C>
     }
 
     public R visitUnaryArithmetic(UnaryArithmetic unaryArithmetic, C context) {
-        return visitUinaryOperator(unaryArithmetic, context);
+        return visitUnaryOperator(unaryArithmetic, context);
     }
 
     public R visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, C context) {

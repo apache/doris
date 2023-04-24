@@ -17,24 +17,33 @@
 
 #include "http/default_path_handlers.h"
 
-#include <gperftools/heap-profiler.h>
+#include <gen_cpp/Metrics_types.h>
+
+#include <boost/algorithm/string/replace.hpp>
 #ifdef USE_JEMALLOC
 #include "jemalloc/jemalloc.h"
 #else
 #include <gperftools/malloc_extension.h>
 #endif
 
-#include <boost/algorithm/string.hpp>
+#include <functional>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "agent/utils.h"
-#include "common/configbase.h"
+#include "common/config.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "http/action/tablets_info_action.h"
 #include "http/web_page_handler.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "util/debug_util.h"
+#include "util/easy_json.h"
+#include "util/mem_info.h"
 #include "util/perf_counters.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"

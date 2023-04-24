@@ -56,12 +56,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
      * <p>
      * An example is tpch q15.
      */
-    static final double HEAVY_OPERATOR_PUNISH_FACTOR = 6.0;
+    static final double HEAVY_OPERATOR_PUNISH_FACTOR = 0.0;
 
     public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
         Preconditions.checkArgument(childCost instanceof CostV1 && planCost instanceof CostV1);
-        double cost = planCost.getValue() + childCost.getValue();
-        return new CostV1(cost);
+        CostV1 childCostV1 = (CostV1) childCost;
+        CostV1 planCostV1 = (CostV1) planCost;
+        return new CostV1(childCostV1.getCpuCost() + planCostV1.getCpuCost(),
+                childCostV1.getMemoryCost() + planCostV1.getMemoryCost(),
+                childCostV1.getNetworkCost() + planCostV1.getNetworkCost(),
+                childCostV1.getPenalty() + planCostV1.getPenalty());
     }
 
     @Override
@@ -151,7 +155,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return CostV1.of(
-                    childStatistics.getRowCount(),
+                    0,
                     0,
                     childStatistics.getRowCount());
         }
@@ -170,16 +174,20 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     || childStatistics.getRowCount() > rowsLimit) {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
+            // estimate broadcast cost by an experience formula: beNumber^0.5 * rowCount
+            // - sender number and receiver number is not available at RBO stage now, so we use beNumber
+            // - senders and receivers work in parallel, that why we use square of beNumber
             return CostV1.of(
-                    childStatistics.getRowCount() * beNumber,
-                    childStatistics.getRowCount() * beNumber * instanceNumber,
-                    childStatistics.getRowCount() * beNumber * instanceNumber);
+                    0,
+                    0,
+                    childStatistics.getRowCount() * Math.pow(beNumber, 0.5));
+
         }
 
         // gather
         if (spec instanceof DistributionSpecGather) {
             return CostV1.of(
-                    childStatistics.getRowCount(),
+                    0,
                     0,
                     childStatistics.getRowCount());
         }
@@ -246,7 +254,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             PlanContext context) {
         // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
         Preconditions.checkState(context.arity() == 2);
-
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
 

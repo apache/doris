@@ -17,13 +17,27 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+#include <stdint.h>
+
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "olap/iterators.h"
-#include "olap/row_cursor.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/segment_loader.h"
+#include "vec/core/block.h"
 
 namespace doris {
+class RuntimeProfile;
+class Schema;
+struct RowLocation;
+struct RowsetReaderContext;
 
 class BetaRowsetReader : public RowsetReader {
 public:
@@ -31,10 +45,12 @@ public:
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
-    Status init(RowsetReaderContext* read_context) override;
+    Status init(RowsetReaderContext* read_context,
+                const std::pair<int, int>& segment_offset) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
+                                 const std::pair<int, int>& segment_offset,
                                  bool use_cache = false) override;
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
@@ -53,7 +69,7 @@ public:
     int64_t filtered_rows() override {
         return _stats->rows_del_filtered + _stats->rows_del_by_bitmap +
                _stats->rows_conditions_filtered + _stats->rows_vec_del_cond_filtered +
-               _stats->rows_vec_cond_filtered;
+               _stats->rows_vec_cond_filtered + _stats->rows_short_circuit_cond_filtered;
     }
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
@@ -65,6 +81,8 @@ public:
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) override;
 
     bool update_profile(RuntimeProfile* profile) override;
+
+    RowsetReaderSharedPtr clone() override;
 
 private:
     bool _should_push_down_value_predicates() const;

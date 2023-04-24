@@ -17,11 +17,19 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
+
+#include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "operator.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
+class DataSink;
+class RuntimeState;
+class TDataSink;
 
 namespace pipeline {
 class PipelineFragmentContext;

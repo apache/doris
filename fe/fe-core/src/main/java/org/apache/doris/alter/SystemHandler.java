@@ -28,7 +28,9 @@ import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
 import org.apache.doris.analysis.DropObserverClause;
 import org.apache.doris.analysis.ModifyBackendClause;
+import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.analysis.ModifyBrokerClause;
+import org.apache.doris.analysis.ModifyFrontendHostNameClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -46,7 +48,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -101,7 +103,7 @@ public class SystemHandler extends AlterHandler {
 
     @Override
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getAlterJobInfosByDb is not supported in SystemHandler");
     }
 
     @Override
@@ -172,6 +174,11 @@ public class SystemHandler extends AlterHandler {
             Env.getCurrentEnv().getBrokerMgr().execute(clause);
         } else if (alterClause instanceof ModifyBackendClause) {
             Env.getCurrentSystemInfo().modifyBackends(((ModifyBackendClause) alterClause));
+        } else if (alterClause instanceof ModifyFrontendHostNameClause) {
+            ModifyFrontendHostNameClause clause = (ModifyFrontendHostNameClause) alterClause;
+            Env.getCurrentEnv().modifyFrontendHostName(clause.getIp(), clause.getNewHostName());
+        } else if (alterClause instanceof ModifyBackendHostNameClause) {
+            Env.getCurrentSystemInfo().modifyBackendHost((ModifyBackendHostNameClause) alterClause);
         } else {
             Preconditions.checkState(false, alterClause.getClass());
         }

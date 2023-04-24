@@ -73,7 +73,7 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalFilter[" + id.asInt() + "]",
+        return Utils.toSqlString("PhysicalFilter[" + id.asInt() + "]" + getGroupIdAsString(),
                 "predicates", getPredicate(),
                 "stats", statistics
         );
@@ -120,7 +120,16 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalFilter<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalFilter<>(conjuncts, Optional.empty(), getLogicalProperties(), physicalProperties,
+        return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), physicalProperties,
                 statistics, child());
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("filter(");
+        conjuncts.forEach(conjunct -> builder.append(conjunct.shapeInfo()));
+        builder.append(")");
+        return builder.toString();
     }
 }

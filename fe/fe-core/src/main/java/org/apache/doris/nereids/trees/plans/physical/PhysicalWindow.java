@@ -95,7 +95,7 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalWindow[" + id.asInt() + "]",
+        return Utils.toSqlString("PhysicalWindow[" + id.asInt() + "]" + getGroupIdAsString(),
             "windowFrameGroup", windowFrameGroup,
             "requiredProperties", requireProperties
         );
@@ -146,7 +146,7 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                        Statistics statistics) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, Optional.empty(),
+        return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child());
     }
 

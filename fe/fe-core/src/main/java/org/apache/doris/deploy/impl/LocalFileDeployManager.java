@@ -25,7 +25,6 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,7 +36,6 @@ import java.io.InputStreamReader;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.util.List;
-import java.util.Map;
 
 /*
  * This for Boxer2 Baidu BCC agent
@@ -55,8 +53,6 @@ public class LocalFileDeployManager extends DeployManager {
     public static final String ENV_BE_SERVICE = "BE_SERVICE";
     public static final String ENV_BROKER_SERVICE = "BROKER_SERVICE";
     public static final String ENV_CN_SERVICE = "CN_SERVICE";
-
-    public static final String ENV_BROKER_NAME = "BROKER_NAME";
 
     private String clusterInfoFile;
 
@@ -83,7 +79,8 @@ public class LocalFileDeployManager extends DeployManager {
     }
 
     @Override
-    public List<SystemInfoService.HostInfo> getGroupHostInfos(String groupName) {
+    public List<SystemInfoService.HostInfo> getGroupHostInfos(NodeType nodeType) {
+        String groupName = nodeTypeAttrMap.get(nodeType).getServiceName();
         List<SystemInfoService.HostInfo> result = Lists.newArrayList();
         LOG.info("begin to get group: {} from file: {}", groupName, clusterInfoFile);
 
@@ -152,23 +149,5 @@ public class LocalFileDeployManager extends DeployManager {
 
         LOG.info("get hosts from {}: {}", groupName, result);
         return result;
-    }
-
-    @Override
-    protected Map<String, List<SystemInfoService.HostInfo>> getBrokerGroupHostInfos() {
-        List<SystemInfoService.HostInfo> hostPorts = getGroupHostInfos(brokerServiceGroup);
-        if (hostPorts == null) {
-            return null;
-        }
-        final String brokerName = System.getenv(ENV_BROKER_NAME);
-        if (Strings.isNullOrEmpty(brokerName)) {
-            LOG.error("failed to get broker name from env: {}", ENV_BROKER_NAME);
-            System.exit(-1);
-        }
-
-        Map<String, List<SystemInfoService.HostInfo>> brokers = Maps.newHashMap();
-        brokers.put(brokerName, hostPorts);
-        LOG.info("get brokers from file: {}", brokers);
-        return brokers;
     }
 }

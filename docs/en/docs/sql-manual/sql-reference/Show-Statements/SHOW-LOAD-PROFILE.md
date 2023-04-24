@@ -50,6 +50,12 @@ grammar:
 show load profile "/";
 
 show load profile "/[queryId]"
+
+show load profile "/[queryId]/[TaskId]"
+
+show load profile "/[queryId]/[TaskId]/[FragmentId]/"
+
+show load profile "/[queryId]/[TaskId]/[FragmentId]/[InstanceId]"
 ````
 
 This command will list all currently saved import profiles. Each line corresponds to one import. where the QueryId column is the ID of the import job. This ID can also be viewed through the SHOW LOAD statement. We can select the QueryId corresponding to the Profile we want to see to see the specific situation
@@ -109,10 +115,56 @@ WaitAndFetchResultTime: N/A
    +-----------------------------------+------------+
    ````
    
-3. View the Instance overview of the specified subtask
+3. View the plan tree of the specified subtask
 
    ```sql
-   mysql> show load profile "/980014623046410a-af5d36f23381017f/980014623046410a-af5d36f23381017f/980014623046410a-88e260f0c43031f5"\G
+   show load profile "/980014623046410a-af5d36f23381017f/980014623046410a-af5d36f23381017f";
+
+                         ┌───────────────────────┐
+                         │[-1: OlapTableSink]    │
+                         │Fragment: 0            │
+                         │MaxActiveTime: 86.541ms│
+                         └───────────────────────┘
+                                     │
+                                     │
+                           ┌───────────────────┐
+                           │[1: VEXCHANGE_NODE]│
+                           │Fragment: 0        │
+                           └───────────────────┘
+           ┌─────────────────────────┴───────┐
+           │                                 │
+    ┌─────────────┐              ┌───────────────────────┐
+    │[MemoryUsage]│              │[1: VDataStreamSender] │
+    │Fragment: 0  │              │Fragment: 1            │
+    └─────────────┘              │MaxActiveTime: 34.882ms│
+                                 └───────────────────────┘
+                                             │
+                                             │
+                               ┌───────────────────────────┐
+                               │[0: VNewOlapScanNode(tbl1)]│
+                               │Fragment: 1                │
+                               └───────────────────────────┘
+                           ┌─────────────────┴───────┐
+                           │                         │
+                    ┌─────────────┐            ┌───────────┐
+                    │[MemoryUsage]│            │[VScanner] │
+                    │Fragment: 1  │            │Fragment: 1│
+                    └─────────────┘            └───────────┘
+                                             ┌───────┴─────────┐
+                                             │                 │
+                                    ┌─────────────────┐ ┌─────────────┐
+                                    │[SegmentIterator]│ │[MemoryUsage]│
+                                    │Fragment: 1      │ │Fragment: 1  │
+                                    └─────────────────┘ └─────────────┘
+
+   ```sql
+
+   This will show the plan tree and fragment id on it
+
+4. View the Instance overview of the specified subtask
+
+   ```sql
+   mysql> show load profile "/980014623046410a-af5d36f23381017f/980014623046410a-af5d36f23381017f/1"\G
    +-----------------------------------+------------------+------------+
    | Instances                         | Host             | ActiveTime |
    +-----------------------------------+------------------+------------+
@@ -126,84 +178,48 @@ WaitAndFetchResultTime: N/A
 4. Continue to view the detailed Profile of each operator on a specific Instance
 
    ```sql
-   mysql> show load profile "/10441/980014623046410a-88e260f0c43031f1/980014623046410a-88e260f0c43031f5"\G
+   mysql> show load profile "/980014623046410a-af5d36f23381017f/980014623046410a-af5d36f23381017f/1/980014623046410a-88e260f0c43031f5"\G
    
    *************************** 1. row ***************************
    
    Instance:
    
          ┌-----------------------------------------┐
-   
          │[-1: OlapTableSink]                      │
-   
          │(Active: 2m17s, non-child: 70.91)        │
-   
          │  - Counters:                            │
-   
          │      - CloseWaitTime: 1m53s             │
-   
          │      - ConvertBatchTime: 0ns            │
-   
          │      - MaxAddBatchExecTime: 1m46s       │
-   
          │      - NonBlockingSendTime: 3m11s       │
-   
          │      - NumberBatchAdded: 782            │
-   
          │      - NumberNodeChannels: 1            │
-   
          │      - OpenTime: 743.822us              │
-   
          │      - RowsFiltered: 0                  │
-   
          │      - RowsRead: 1.599729M (1599729)    │
-   
          │      - RowsReturned: 1.599729M (1599729)│
-   
          │      - SendDataTime: 11s761ms           │
-   
          │      - TotalAddBatchExecTime: 1m46s     │
-   
          │      - ValidateDataTime: 9s802ms        │
-   
          └-----------------------------------------┘
-   
                               │
-   
    ┌-----------------------------------------------------┐
-   
    │[0: BROKER_SCAN_NODE]                                │
-   
    │(Active: 56s537ms, non-child: 29.06)                 │
-   
    │  - Counters:                                        │
-   
    │      - BytesDecompressed: 0.00                      │
-   
    │      - BytesRead: 5.77 GB                           │
-   
    │      - DecompressTime: 0ns                          │
-   
    │      - FileReadTime: 34s263ms                       │
-   
    │      - MaterializeTupleTime(*): 45s54ms             │
-   
    │      - NumDiskAccess: 0                             │
-   
    │      - PeakMemoryUsage: 33.03 MB                    │
-   
    │      - RowsRead: 1.599729M (1599729)                │
-   
    │      - RowsReturned: 1.599729M (1599729)            │
-   
-   │      - RowsReturnedRate: 28.295K sec               │
-   
+   │      - RowsReturnedRate: 28.295K sec                │
    │      - TotalRawReadTime(*): 1m20s                   │
-   
    │      - TotalReadThroughput: 30.39858627319336 MB/sec│
-   
    │      - WaitScannerTime: 56s528ms                    │
-   
    └-----------------------------------------------------┘
    ````
 

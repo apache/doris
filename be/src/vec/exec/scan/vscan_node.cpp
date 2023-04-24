@@ -17,21 +17,51 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <string.h>
+
+#include <algorithm>
+#include <mutex>
+#include <ostream>
+#include <variant>
+
+#include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/status.h"
+#include "exec/olap_utils.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/types.h"
 #include "vec/exec/scan/pip_scanner_context.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/exec/scan/vscanner.h"
 #include "vec/exprs/vcompound_pred.h"
-#include "vec/exprs/vdirect_in_predicate.h"
+#include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/in.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -67,7 +97,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _state = state;
     _is_pipeline_scan = state->enable_pipeline_exec();
-    _shared_scan_opt = state->shared_scan_opt();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -82,7 +111,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(_register_runtime_filter());
-    RETURN_IF_ERROR(_init_profile());
 
     return Status::OK();
 }
@@ -97,8 +125,7 @@ Status VScanNode::prepare(RuntimeState* state) {
 
     if (_is_pipeline_scan) {
         if (_shared_scan_opt) {
-            _shared_scanner_controller =
-                    state->get_query_fragments_ctx()->get_shared_scanner_controller();
+            _shared_scanner_controller = state->get_query_ctx()->get_shared_scanner_controller();
             auto [should_create_scanner, queue_id] =
                     _shared_scanner_controller->should_build_scanner_and_queue_id(id());
             _should_create_scanner = should_create_scanner;
@@ -109,6 +136,17 @@ Status VScanNode::prepare(RuntimeState* state) {
         }
     }
 
+    // 1: running at not pipeline mode will init profile.
+    // 2: the scan node should create scanner at pipeline mode will init profile.
+    // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
+    // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
+    if (!_is_pipeline_scan || _should_create_scanner) {
+        RETURN_IF_ERROR(_init_profile());
+    }
+    // if you want to add some profile in scan node, even it have not new VScanner object
+    // could add here, not in the _init_profile() function
+    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
+    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
     return Status::OK();
 }
 
@@ -224,14 +262,12 @@ Status VScanNode::_init_profile() {
     _total_throughput_counter =
             runtime_profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
-    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
-    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
 
     // 2. counters for scanners
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
-    auto* memory_usage = _scanner_profile->create_child("MemoryUsage", true, true);
+    auto* memory_usage = _scanner_profile->create_child("PeakMemoryUsage", true, true);
     _runtime_profile->add_child(memory_usage, false, nullptr);
     _queued_blocks_memory_usage =
             memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
@@ -261,9 +297,9 @@ Status VScanNode::_init_profile() {
 
 Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
     if (_is_pipeline_scan) {
-        _scanner_ctx.reset(new pipeline::PipScannerContext(_state, this, _input_tuple_desc,
-                                                           _output_tuple_desc, scanners, limit(),
-                                                           _state->query_options().mem_limit / 20));
+        _scanner_ctx.reset(new pipeline::PipScannerContext(
+                _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
+                _state->query_options().mem_limit / 20, _col_distribute_ids));
     } else {
         _scanner_ctx.reset(new ScannerContext(_state, this, _input_tuple_desc, _output_tuple_desc,
                                               scanners, limit(),
@@ -376,14 +412,14 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
         texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
         texpr_node.__set_fn(fn);
         texpr_node.__set_is_nullable(last_expr->is_nullable() || vexprs[j]->is_nullable());
-        VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
+        VExpr* new_node = _pool->add(VcompoundPred::create_unique(texpr_node).release());
         new_node->add_child(last_expr);
         DCHECK((vexprs[j])->get_impl() != nullptr);
         new_node->add_child(vexprs[j]);
         last_expr = new_node;
         _rf_vexpr_set.insert(vexprs[j]);
     }
-    auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
+    auto new_vconjunct_ctx_ptr = _pool->add(VExprContext::create_unique(last_expr).release());
     if (_vconjunct_ctx_ptr) {
         (*_vconjunct_ctx_ptr)->clone_fn_contexts(new_vconjunct_ctx_ptr);
     }
@@ -447,6 +483,8 @@ Status VScanNode::_normalize_conjuncts() {
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
+
         auto type = slots[slot_idx]->type().type;
         if (slots[slot_idx]->type().type == TYPE_ARRAY) {
             type = slots[slot_idx]->type().children[0].type;
@@ -628,6 +666,16 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                 *output_expr = conjunct_expr_root;
                 return Status::OK();
             } else {
+                if (left_child == nullptr) {
+                    conjunct_expr_root->children()[0]->close(
+                            _state, *_vconjunct_ctx_ptr,
+                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                }
+                if (right_child == nullptr) {
+                    conjunct_expr_root->children()[1]->close(
+                            _state, *_vconjunct_ctx_ptr,
+                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
                 conjunct_expr_root->close(_state, *_vconjunct_ctx_ptr,
@@ -1210,35 +1258,32 @@ Status VScanNode::_change_value_range(ColumnValueRange<PrimitiveType>& temp_rang
                                       const ChangeFixedValueRangeFunc& func,
                                       const std::string& fn_name, int slot_ref_child) {
     if constexpr (PrimitiveType == TYPE_DATE) {
-        DateTimeValue date_value;
-        reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
+        VecDateTimeValue tmp_value;
+        memcpy(&tmp_value, value, sizeof(VecDateTimeValue));
         if constexpr (IsFixed) {
-            if (!date_value.check_loss_accuracy_cast_to_date()) {
+            if (!tmp_value.check_loss_accuracy_cast_to_date()) {
                 func(temp_range,
                      reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                             &date_value));
+                             &tmp_value));
             }
         } else {
-            if (date_value.check_loss_accuracy_cast_to_date()) {
+            if (tmp_value.check_loss_accuracy_cast_to_date()) {
                 if (fn_name == "lt" || fn_name == "ge") {
-                    ++date_value;
+                    ++tmp_value;
                 }
             }
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         &date_value));
+                         &tmp_value));
         }
     } else if constexpr (PrimitiveType == TYPE_DATETIME) {
-        DateTimeValue date_value;
-        reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
         if constexpr (IsFixed) {
             func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         &date_value));
+                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         reinterpret_cast<char*>(&date_value)));
+                         reinterpret_cast<char*>(value)));
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
@@ -1364,7 +1409,6 @@ Status VScanNode::_prepare_scanners() {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(scanners));
     }
-
     return Status::OK();
 }
 } // namespace doris::vectorized

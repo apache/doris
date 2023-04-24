@@ -28,23 +28,28 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HivePartition;
+import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.Split;
 import org.apache.doris.planner.Splitter;
+import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.hive.ql.io.orc.OrcSplit;
-import org.apache.hadoop.mapred.FileSplit;
-import org.apache.hadoop.mapred.InputSplit;
+import org.apache.hadoop.fs.BlockLocation;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.mapred.InputFormat;
+import org.apache.hadoop.mapred.JobConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class HiveSplitter implements Splitter {
 
@@ -73,6 +78,13 @@ public class HiveSplitter implements Splitter {
                 hivePartitionValues = cache.getPartitionValues(hmsTable.getDbName(), hmsTable.getName(),
                     partitionColumnTypes);
             }
+            Map<String, String> properties = hmsTable.getCatalog().getCatalogProperty().getProperties();
+            boolean useSelfSplitter = true;
+            if (properties.containsKey(HMSExternalCatalog.ENABLE_SELF_SPLITTER)
+                    && properties.get(HMSExternalCatalog.ENABLE_SELF_SPLITTER).equalsIgnoreCase("false")) {
+                LOG.debug("Using self splitter for hmsTable {}", hmsTable.getName());
+                useSelfSplitter = false;
+            }
 
             List<Split> allFiles = Lists.newArrayList();
             if (hivePartitionValues != null) {
@@ -99,13 +111,13 @@ public class HiveSplitter implements Splitter {
                 List<HivePartition> partitions = cache.getAllPartitions(hmsTable.getDbName(), hmsTable.getName(),
                         partitionValuesList);
                 // 4. get all files of partitions
-                getFileSplitByPartitions(cache, partitions, allFiles);
+                getFileSplitByPartitions(cache, partitions, allFiles, useSelfSplitter);
             } else {
                 // unpartitioned table, create a dummy partition to save location and inputformat,
                 // so that we can unify the interface.
                 HivePartition dummyPartition = new HivePartition(hmsTable.getRemoteTable().getSd().getInputFormat(),
                         hmsTable.getRemoteTable().getSd().getLocation(), null);
-                getFileSplitByPartitions(cache, Lists.newArrayList(dummyPartition), allFiles);
+                getFileSplitByPartitions(cache, Lists.newArrayList(dummyPartition), allFiles, useSelfSplitter);
                 this.totalPartitionNum = 1;
                 this.readPartitionNum = 1;
             }
@@ -121,28 +133,53 @@ public class HiveSplitter implements Splitter {
     }
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
-                                          List<Split> allFiles) {
-        List<InputSplit> files = cache.getFilesByPartitions(partitions);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get #{} files from #{} partitions: {}", files.size(), partitions.size(),
-                    Joiner.on(",")
-                    .join(files.stream().limit(10).map(f -> ((FileSplit) f).getPath())
-                        .collect(Collectors.toList())));
-        }
-        allFiles.addAll(files.stream().map(file -> {
-            FileSplit fs = (FileSplit) file;
-            org.apache.doris.planner.external.FileSplit split = new org.apache.doris.planner.external.FileSplit();
-            split.setPath(fs.getPath());
-            split.setStart(fs.getStart());
-            // file size of orc files is not correct get by FileSplit.getLength(),
-            // broker reader needs correct file size
-            if (fs instanceof OrcSplit) {
-                split.setLength(((OrcSplit) fs).getFileLength());
-            } else {
-                split.setLength(fs.getLength());
+                                          List<Split> allFiles, boolean useSelfSplitter) throws IOException {
+        for (HiveMetaStoreCache.FileCacheValue fileCacheValue :
+                cache.getFilesByPartitions(partitions, useSelfSplitter)) {
+            if (fileCacheValue.getSplits() != null) {
+                allFiles.addAll(fileCacheValue.getSplits());
             }
-            return split;
-        }).collect(Collectors.toList()));
+            if (fileCacheValue.getFiles() != null) {
+                boolean isSplittable = fileCacheValue.isSplittable();
+                for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                    allFiles.addAll(splitFile(status, isSplittable));
+                }
+            }
+        }
+    }
+
+    private List<Split> splitFile(HiveMetaStoreCache.HiveFileStatus status, boolean splittable) throws IOException {
+        List<Split> result = Lists.newArrayList();
+        if (!splittable) {
+            LOG.debug("Path {} is not splittable.", status.getPath());
+            BlockLocation block = status.getBlockLocations()[0];
+            result.add(new FileSplit(status.getPath(), 0, status.getLength(),
+                    status.getLength(), block.getHosts()));
+            return result;
+        }
+        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
+        if (splitSize <= 0) {
+            splitSize = status.getBlockSize();
+        }
+        // Min split size is DEFAULT_SPLIT_SIZE(128MB).
+        splitSize = splitSize > DEFAULT_SPLIT_SIZE ? splitSize : DEFAULT_SPLIT_SIZE;
+        BlockLocation[] blockLocations = status.getBlockLocations();
+        long length = status.getLength();
+        long bytesRemaining;
+        for (bytesRemaining = length; (double) bytesRemaining / (double) splitSize > 1.1D;
+                bytesRemaining -= splitSize) {
+            int location = getBlockIndex(blockLocations, length - bytesRemaining);
+            result.add(new FileSplit(status.getPath(), length - bytesRemaining,
+                    splitSize, length, blockLocations[location].getHosts()));
+        }
+        if (bytesRemaining != 0L) {
+            int location = getBlockIndex(blockLocations, length - bytesRemaining);
+            result.add(new FileSplit(status.getPath(), length - bytesRemaining,
+                    bytesRemaining, length, blockLocations[location].getHosts()));
+        }
+
+        LOG.debug("Path {} includes {} splits.", status.getPath(), result.size());
+        return result;
     }
 
     public int getTotalPartitionNum() {
@@ -151,5 +188,31 @@ public class HiveSplitter implements Splitter {
 
     public int getReadPartitionNum() {
         return readPartitionNum;
+    }
+
+    // Get File Status by using FileSystem API.
+    public static HiveMetaStoreCache.FileCacheValue getFileCache(Path path, InputFormat<?, ?> inputFormat,
+                                                                  JobConf jobConf) throws IOException {
+        FileSystem fs = path.getFileSystem(jobConf);
+        boolean splittable = HiveUtil.isSplittable(inputFormat, fs, path);
+        RemoteIterator<LocatedFileStatus> locatedFileStatusRemoteIterator = fs.listFiles(path, true);
+        HiveMetaStoreCache.FileCacheValue result = new HiveMetaStoreCache.FileCacheValue();
+        result.setSplittable(splittable);
+        while (locatedFileStatusRemoteIterator.hasNext()) {
+            result.addFile(locatedFileStatusRemoteIterator.next());
+        }
+        return result;
+    }
+
+    private static int getBlockIndex(BlockLocation[] blkLocations, long offset) {
+        for (int i = 0; i < blkLocations.length; ++i) {
+            if (blkLocations[i].getOffset() <= offset
+                    && offset < blkLocations[i].getOffset() + blkLocations[i].getLength()) {
+                return i;
+            }
+        }
+        BlockLocation last = blkLocations[blkLocations.length - 1];
+        long fileLength = last.getOffset() + last.getLength() - 1L;
+        throw new IllegalArgumentException(String.format("Offset %d is outside of file (0..%d)", offset, fileLength));
     }
 }

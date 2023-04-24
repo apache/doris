@@ -20,6 +20,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
@@ -123,6 +124,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     // estimate of the output cardinality of this node; set in computeStats();
     // invalid: -1
     protected long cardinality;
+
+    protected long cardinalityAfterFilter = -1;
 
     // number of nodes on which the plan tree rooted at this node would execute;
     // set in computeStats(); invalid: -1
@@ -622,13 +625,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      * Subclasses need to override this.
      */
     public void finalize(Analyzer analyzer) throws UserException {
-        for (PlanNode child : children) {
-            child.finalize(analyzer);
-        }
-        computeNumNodes();
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            computeOldCardinality();
-        }
         for (Expr expr : conjuncts) {
             Set<SlotRef> slotRefs = new HashSet<>();
             expr.getSlotRefsBoundByTupleIds(tupleIds, slotRefs);
@@ -638,6 +634,13 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             for (TupleId tupleId : tupleIds) {
                 analyzer.getTupleDesc(tupleId).computeMemLayout();
             }
+        }
+        for (PlanNode child : children) {
+            child.finalize(analyzer);
+        }
+        computeNumNodes();
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            computeOldCardinality();
         }
     }
 
@@ -717,6 +720,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      * Assign remaining unassigned conjuncts.
      */
     protected void assignConjuncts(Analyzer analyzer) {
+        // we cannot plan conjuncts on exchange node, so we just skip the node.
+        if (this instanceof ExchangeNode) {
+            return;
+        }
         List<Expr> unassigned = analyzer.getUnassignedConjuncts(this);
         for (Expr unassignedConjunct : unassigned) {
             addConjunct(unassignedConjunct);
@@ -827,6 +834,16 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public int getNumInstances() {
         return numInstances;
+    }
+
+    public boolean shouldColoAgg(AggregateInfo aggregateInfo) {
+        return false;
+    }
+
+    public void setShouldColoScan() {}
+
+    public boolean getShouldColoScan() {
+        return false;
     }
 
     public void setNumInstances(int numInstances) {
@@ -1142,5 +1159,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setVConjunct(Set<Expr> exprs) {
         vconjunct = convertConjunctsToAndCompoundPredicate(new ArrayList<>(exprs));
+    }
+
+    public void setCardinalityAfterFilter(long cardinalityAfterFilter) {
+        this.cardinalityAfterFilter = cardinalityAfterFilter;
     }
 }

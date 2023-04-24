@@ -17,10 +17,26 @@
 
 #pragma once
 
-#include "gen_cpp/internal_service.pb.h"
-#include "olap/rowset/rowset_writer.h"
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <stdint.h>
+
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_set>
+#include <vector>
+
+#include "common/status.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
+#include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "util/spinlock.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -31,8 +47,15 @@ class Schema;
 class StorageEngine;
 class TupleDescriptor;
 class SlotDescriptor;
+class OlapTableSchemaParam;
+class RowsetWriter;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };
+enum MemType { WRITE = 1, FLUSH = 2, ALL = 3 };
 
 struct WriteRequest {
     int64_t tablet_id;
@@ -91,7 +114,7 @@ public:
 
     int64_t partition_id() const;
 
-    int64_t mem_consumption();
+    int64_t mem_consumption(MemType mem);
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
@@ -147,7 +170,8 @@ private:
     StorageEngine* _storage_engine;
     UniqueId _load_id;
     std::unique_ptr<FlushToken> _flush_token;
-    std::vector<std::shared_ptr<MemTracker>> _mem_table_tracker;
+    std::vector<std::shared_ptr<MemTracker>> _mem_table_insert_trackers;
+    std::vector<std::shared_ptr<MemTracker>> _mem_table_flush_trackers;
     SpinLock _mem_table_tracker_lock;
     std::atomic<uint32_t> _mem_table_num = 1;
 

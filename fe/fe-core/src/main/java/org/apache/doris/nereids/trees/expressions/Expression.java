@@ -60,6 +60,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         super(Optional.empty(), children);
     }
 
+    public Alias alias(String alias) {
+        return new Alias(this, alias);
+    }
+
     /**
      * check input data types
      */
@@ -178,6 +182,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return this instanceof Slot;
     }
 
+    public boolean isColumnFromTable() {
+        return (this instanceof SlotReference) && ((SlotReference) this).getColumn().isPresent();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -208,6 +216,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             }
         }
         return false;
+    }
+
+    public String shapeInfo() {
+        return toSql();
     }
 
 }

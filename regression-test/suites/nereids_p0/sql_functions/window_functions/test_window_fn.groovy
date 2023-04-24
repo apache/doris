@@ -16,8 +16,7 @@
 // under the License.
 suite("test_window_fn") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tbName1 = "empsalary"
     def tbName2 = "tenk1"
     sql """ DROP TABLE IF EXISTS ${tbName1} """

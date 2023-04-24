@@ -18,7 +18,9 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include "common/object_pool.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -91,8 +93,7 @@ TEST_F(ParquetReaderTest, normal) {
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
-    local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader,
-                        nullptr);
+    local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader);
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
@@ -108,7 +109,8 @@ TEST_F(ParquetReaderTest, normal) {
         scan_range.start_offset = 0;
         scan_range.size = 1000;
     }
-    auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr);
+    auto p_reader =
+            new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr);
     p_reader->set_file_reader(reader);
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
@@ -116,12 +118,13 @@ TEST_F(ParquetReaderTest, normal) {
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
     p_reader->open();
-    p_reader->init_reader(column_names, missing_column_names, nullptr, nullptr);
+    p_reader->init_reader(column_names, missing_column_names, nullptr, nullptr, nullptr, nullptr,
+                          nullptr, nullptr, nullptr);
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContext*> missing_columns;
     p_reader->set_fill_columns(partition_columns, missing_columns);
-    Block* block = new Block();
+    BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type =
                 vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(), true);
@@ -131,12 +134,11 @@ TEST_F(ParquetReaderTest, normal) {
     }
     bool eof = false;
     size_t read_row = 0;
-    p_reader->get_next_block(block, &read_row, &eof);
+    p_reader->get_next_block(block.get(), &read_row, &eof);
     for (auto& col : block->get_columns_with_type_and_name()) {
         ASSERT_EQ(col.column->size(), 10);
     }
     EXPECT_TRUE(eof);
-    delete block;
     delete p_reader;
 }
 

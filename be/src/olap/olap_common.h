@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <netinet/in.h>
 
 #include <cstdint>
@@ -31,8 +32,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "env/env.h"
-#include "gen_cpp/Types_types.h"
+#include "io/io_common.h"
 #include "olap/olap_define.h"
 #include "util/hash_util.hpp"
 #include "util/uid_util.h"
@@ -105,7 +105,7 @@ struct TabletSize {
 // Define all data types supported by Field.
 // If new filed_type is defined, not only new TypeInfo may need be defined,
 // but also some functions like get_type_info in types.cpp need to be changed.
-enum FieldType {
+enum class FieldType {
     OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
     OLAP_FIELD_TYPE_SMALLINT = 3, // MYSQL_TYPE_SHORT
@@ -169,33 +169,32 @@ enum PushType {
     PUSH_NORMAL_V2 = 4,       // for spark load
 };
 
-enum ReaderType {
-    READER_QUERY = 0,
-    READER_ALTER_TABLE = 1,
-    READER_BASE_COMPACTION = 2,
-    READER_CUMULATIVE_COMPACTION = 3,
-    READER_CHECKSUM = 4,
-    READER_COLD_DATA_COMPACTION = 5,
-    READER_SEGMENT_COMPACTION = 6,
-};
-
 constexpr bool field_is_slice_type(const FieldType& field_type) {
-    return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
-           field_type == OLAP_FIELD_TYPE_STRING;
+    return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+           field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+           field_type == FieldType::OLAP_FIELD_TYPE_STRING;
 }
 
 constexpr bool field_is_numeric_type(const FieldType& field_type) {
-    return field_type == OLAP_FIELD_TYPE_INT || field_type == OLAP_FIELD_TYPE_UNSIGNED_INT ||
-           field_type == OLAP_FIELD_TYPE_BIGINT || field_type == OLAP_FIELD_TYPE_SMALLINT ||
-           field_type == OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
-           field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
-           field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
-           field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
-           field_type == OLAP_FIELD_TYPE_DATEV2 || field_type == OLAP_FIELD_TYPE_DATETIME ||
-           field_type == OLAP_FIELD_TYPE_DATETIMEV2 || field_type == OLAP_FIELD_TYPE_LARGEINT ||
-           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_DECIMAL32 ||
-           field_type == OLAP_FIELD_TYPE_DECIMAL64 || field_type == OLAP_FIELD_TYPE_DECIMAL128I ||
-           field_type == OLAP_FIELD_TYPE_BOOL;
+    return field_type == FieldType::OLAP_FIELD_TYPE_INT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_BIGINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
+           field_type == FieldType::OLAP_FIELD_TYPE_FLOAT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATE ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATETIME ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
 }
 
 // <start_version_id, end_version_id>, such as <100, 110>
@@ -264,17 +263,6 @@ using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
 static const int GENERAL_DEBUG_COUNT = 0;
 
-struct FileCacheStatistics {
-    int64_t num_io_total = 0;
-    int64_t num_io_hit_cache = 0;
-    int64_t num_io_bytes_read_total = 0;
-    int64_t num_io_bytes_read_from_file_cache = 0;
-    int64_t num_io_bytes_read_from_write_cache = 0;
-    int64_t num_io_written_in_file_cache = 0;
-    int64_t num_io_bytes_written_in_file_cache = 0;
-    int64_t num_io_bytes_skip_cache = 0;
-};
-
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
     int64_t io_ns = 0;
@@ -318,6 +306,9 @@ struct OlapReaderStatistics {
     int64_t raw_rows_read = 0;
 
     int64_t rows_vec_cond_filtered = 0;
+    int64_t rows_short_circuit_cond_filtered = 0;
+    int64_t vec_cond_input_rows = 0;
+    int64_t short_circuit_cond_input_rows = 0;
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;
@@ -373,7 +364,7 @@ struct OlapReaderStatistics {
     //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
     int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
 
-    FileCacheStatistics file_cache_stats;
+    io::FileCacheStatistics file_cache_stats;
     int64_t load_segments_timer = 0;
 };
 

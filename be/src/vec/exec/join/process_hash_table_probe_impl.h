@@ -19,7 +19,9 @@
 
 #include "common/status.h"
 #include "process_hash_table_probe.h"
+#include "runtime/thread_context.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vhash_join_node.h"
 
 namespace doris::vectorized {
@@ -392,7 +394,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN &&
                   JoinOpType != TJoinOp::RIGHT_ANTI_JOIN) {
         SCOPED_TIMER(_probe_side_output_timer);
-        RETURN_IF_CATCH_BAD_ALLOC(
+        RETURN_IF_CATCH_EXCEPTION(
                 probe_side_output_column(mcol, _join_node->_left_output_slot_flags, current_offset,
                                          last_probe_index, probe_size, all_match_one, false));
     }
@@ -665,7 +667,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         }
         {
             SCOPED_TIMER(_probe_side_output_timer);
-            RETURN_IF_CATCH_BAD_ALLOC(probe_side_output_column(
+            RETURN_IF_CATCH_EXCEPTION(probe_side_output_column(
                     mcol, _join_node->_left_output_slot_flags, current_offset, last_probe_index,
                     probe_size, all_match_one, true));
         }
@@ -1058,8 +1060,24 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
         };
 
         if (visited_iter.ok()) {
-            for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                insert_from_hash_table(visited_iter->block_offset, visited_iter->row_num);
+            if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+                for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
+                    insert_from_hash_table(visited_iter->block_offset, visited_iter->row_num);
+                }
+            } else {
+                for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
+                    if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+                        if (visited_iter->visited) {
+                            insert_from_hash_table(visited_iter->block_offset,
+                                                   visited_iter->row_num);
+                        }
+                    } else {
+                        if (!visited_iter->visited) {
+                            insert_from_hash_table(visited_iter->block_offset,
+                                                   visited_iter->row_num);
+                        }
+                    }
+                }
             }
             if (!visited_iter.ok()) {
                 ++iter;
@@ -1070,16 +1088,16 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
             auto& mapped = iter->get_second();
             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                 if (mapped.visited) {
-                    visited_iter = mapped.begin();
-                    for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                        if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+                    if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+                        visited_iter = mapped.begin();
+                        for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
                             insert_from_hash_table(visited_iter->block_offset,
                                                    visited_iter->row_num);
                         }
-                    }
-                    if (visited_iter.ok()) {
-                        // block_size >= _batch_size, quit for loop
-                        break;
+                        if (visited_iter.ok()) {
+                            // block_size >= _batch_size, quit for loop
+                            break;
+                        }
                     }
                 } else {
                     if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {

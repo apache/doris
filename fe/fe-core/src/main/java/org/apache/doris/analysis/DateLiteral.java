@@ -1630,8 +1630,8 @@ public class DateLiteral extends LiteralExpr {
                 continue;
             }
             // escape separator
-            while (pre < dateStr.length() && (Character.toString(dateStr.charAt(pre)).matches("\\p{Punct}"))
-                    || Character.isSpaceChar(dateStr.charAt(pre))) {
+            while (pre < dateStr.length() && ((Character.toString(dateStr.charAt(pre)).matches("\\p{Punct}"))
+                    || Character.isSpaceChar(dateStr.charAt(pre)))) {
                 if (Character.isSpaceChar(dateStr.charAt(pre))) {
                     if (((1 << fieldIdx) & ALLOW_SPACE_MASK) == 0) {
                         throw new AnalysisException("parse datetime value failed: " + dateStr);

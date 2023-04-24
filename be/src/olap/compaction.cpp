@@ -17,14 +17,39 @@
 
 #include "olap/compaction.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <cstdlib>
+#include <list>
+#include <map>
+#include <mutex>
+#include <ostream>
+#include <set>
+#include <shared_mutex>
+#include <utility>
+
+#include "common/config.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
+#include "io/fs/remote_file_system.h"
+#include "olap/cumulative_compaction_policy.h"
+#include "olap/data_dir.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 #include "olap/task/engine_checksum_task.h"
+#include "olap/utils.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -398,20 +423,33 @@ Status Compaction::construct_input_rowset_readers() {
 Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
-    uint64_t missed_rows = 0;
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         Version version = _tablet->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
+        std::set<RowLocation> missed_rows;
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
         // Convert the delete bitmap of the input rowsets to output rowset.
         // New loads are not blocked, so some keys of input rowsets might
         // be deleted during the time. We need to deal with delete bitmap
         // of incremental data later.
-        missed_rows += _tablet->calc_compaction_output_rowset_delete_bitmap(
-                _input_rowsets, _rowid_conversion, 0, version.second + 1, &location_map,
-                &output_rowset_delete_bitmap);
+        _tablet->calc_compaction_output_rowset_delete_bitmap(
+                _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
+                &location_map, &output_rowset_delete_bitmap);
+        std::size_t missed_rows_size = missed_rows.size();
+        if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
+            if (stats != nullptr && stats->merged_rows != missed_rows_size) {
+                std::string err_msg = fmt::format(
+                        "cumulative compaction: the merged rows({}) is not equal to missed "
+                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                        stats->merged_rows, missed_rows_size, _tablet->tablet_id(),
+                        _tablet->table_id());
+                DCHECK(false) << err_msg;
+                LOG(WARNING) << err_msg;
+            }
+        }
+
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
         location_map.clear();
         {
@@ -420,21 +458,18 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
 
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
-            missed_rows += _tablet->calc_compaction_output_rowset_delete_bitmap(
-                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &location_map,
-                    &output_rowset_delete_bitmap);
-            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
-
+            _tablet->calc_compaction_output_rowset_delete_bitmap(
+                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &missed_rows,
+                    &location_map, &output_rowset_delete_bitmap);
             if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
-                std::string err_msg = fmt::format(
-                        "cumulative compaction: the merged rows({}) is not equal to missed "
-                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
-                        stats->merged_rows, missed_rows, _tablet->tablet_id(), _tablet->table_id());
-                DCHECK(stats == nullptr || stats->merged_rows == missed_rows) << err_msg;
-                if (stats != nullptr && stats->merged_rows != missed_rows) {
-                    LOG(WARNING) << err_msg;
+                DCHECK_EQ(missed_rows.size(), missed_rows_size);
+                if (missed_rows.size() != missed_rows_size) {
+                    LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
+                                 << " after: " << missed_rows.size();
                 }
             }
+
+            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
             RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));

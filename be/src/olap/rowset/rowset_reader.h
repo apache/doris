@@ -18,10 +18,11 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_H
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <memory>
 #include <unordered_map>
 
-#include "gen_cpp/olap_file.pb.h"
 #include "olap/iterators.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader_context.h"
@@ -41,10 +42,12 @@ public:
     virtual ~RowsetReader() = default;
 
     // reader init
-    virtual Status init(RowsetReaderContext* read_context) = 0;
+    virtual Status init(RowsetReaderContext* read_context,
+                        const std::pair<int, int>& segment_offset = {0, 0}) = 0;
 
     virtual Status get_segment_iterators(RowsetReaderContext* read_context,
                                          std::vector<RowwiseIteratorUPtr>* out_iters,
+                                         const std::pair<int, int>& segment_offset = {0, 0},
                                          bool use_cache = false) = 0;
     virtual void reset_read_options() = 0;
 
@@ -73,6 +76,8 @@ public:
     }
 
     virtual bool update_profile(RuntimeProfile* profile) = 0;
+
+    virtual RowsetReaderSharedPtr clone() = 0;
 };
 
 } // namespace doris

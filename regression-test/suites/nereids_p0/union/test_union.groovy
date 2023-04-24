@@ -17,8 +17,7 @@
 
 suite("test_union") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def db = "test_query_db"
     sql "use ${db}"
 
@@ -206,7 +205,6 @@ suite("test_union") {
         sql "(select k1, k1 from ${tbName2}) union (select k2, 1 from ${tbName1}) order by k1"
         check{result, exception, startTime, endTime ->
             assertTrue(exception != null)
-            logger.info(exception.message)
         }
     }
     test {

@@ -41,28 +41,34 @@ File Cache caches the accessed remote data in the local BE node. The original da
 File Cache is disabled by default. You need to set the relevant configuration in FE and BE to enable it.
 
 ### Configurations for FE
+
 Enable File Cache for a given session:
+
 ```
 SET enable_file_cache = true;
 ```
+
 Enable File Cache globally:
+
 ```
 SET GLOBAL enable_file_cache = true;
 ```
 
 ### Configurations for BE
 Add settings to the BE node's configuration file `conf/be.conf`, and restart the BE node for the configuration to take effect.
+
 |  Parameter   | Description  |
-|  ----  | ----  |
-| enable_file_cache  | Whether to enable File Cache, default false |
-| file_cache_max_file_segment_size | Max size of a single cached block, default 4MB, should greater than 4096 |
-| file_cache_path | Parameters about cache path, json format, for exmaple: [{"path": "storage1", "normal":53687091200,"persistent":21474836480,"query_limit": "10737418240"},{"path": "storage2", "normal":53687091200,"persistent":21474836480},{"path": "storage3","normal":53687091200,"persistent":21474836480}]. `path` is the path to save cached data; `normal` is the max size of cached data; `query_limit` is the max size of cached data for a single query; `persistent` / `file_cache_max_file_segment_size` is max number of cache blocks. |
-| enable_file_cache_query_limit | Whether to limit the cache size used by a single query, default false |
-| clear_file_cache | Whether to delete the previous cache data when the BE restarts, default false |
+|  ---  | ---  |
+| `enable_file_cache`  | Whether to enable File Cache, default false |
+| `file_cache_max_file_segment_size` | Max size of a single cached block, default 4MB, should greater than 4096 |
+| `file_cache_path` | Parameters about cache path, json format, for exmaple: `[{"path": "storage1", "normal":53687091200,"persistent":21474836480,"query_limit": "10737418240"},{"path": "storage2", "normal":53687091200,"persistent":21474836480},{"path": "storage3","normal":53687091200,"persistent":21474836480}]`. `path` is the path to save cached data; `normal` is the max size of cached data; `query_limit` is the max size of cached data for a single query; `persistent` / `file_cache_max_file_segment_size` is max number of cache blocks. |
+| `enable_file_cache_query_limit` | Whether to limit the cache size used by a single query, default false |
+| `clear_file_cache` | Whether to delete the previous cache data when the BE restarts, default false |
 
 ## Check whether a query hits cache
 
 Execute `set enable_profile = true` to enable the session variable, and you can view the query profile in the Queris tab of FE's web page. The metrics related to File Cache are as follows:
+
 ```
 -  FileCache:
   -  IOHitCacheNum:  552

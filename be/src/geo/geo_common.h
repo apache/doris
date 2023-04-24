@@ -44,6 +44,7 @@ enum GeoParseStatus {
     GEO_PARSE_POLYLINE_INVALID = 7,
     GEO_PARSE_CIRCLE_INVALID = 8,
     GEO_PARSE_WKT_SYNTAX_ERROR = 9,
+    GEO_PARSE_WKB_SYNTAX_ERROR = 10,
 };
 
 std::string to_string(GeoParseStatus status);

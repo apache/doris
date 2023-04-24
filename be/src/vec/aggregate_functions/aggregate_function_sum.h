@@ -20,11 +20,34 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <memory>
+#include <type_traits>
+#include <vector>
+
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column_vector.h"
+#include "vec/columns/column.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+template <typename T>
+class ColumnDecimal;
+template <typename T>
+class DataTypeNumber;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -153,8 +176,19 @@ private:
     UInt32 scale;
 };
 
-AggregateFunctionPtr create_aggregate_function_sum_reader(const std::string& name,
-                                                          const DataTypes& argument_types,
-                                                          const bool result_is_nullable);
+template <typename T, bool level_up>
+struct SumSimple {
+    /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
+    using ResultType = std::conditional_t<level_up, DisposeDecimal<T, NearestFieldType<T>>, T>;
+    using AggregateDataType = AggregateFunctionSumData<ResultType>;
+    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
+};
+
+template <typename T>
+using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
+
+// do not level up return type for agg reader
+template <typename T>
+using AggregateFunctionSumSimpleReader = typename SumSimple<T, false>::Function;
 
 } // namespace doris::vectorized

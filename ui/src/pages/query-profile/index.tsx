@@ -23,6 +23,7 @@ import {queryProfile} from 'Src/api/api';
 import Table from 'Src/components/table';
 import {useHistory} from 'react-router-dom';
 import {Result} from '@src/interfaces/http.interface';
+import {replaceToTxt} from 'Src/utils/utils';
 
 const {Text, Title} = Typography;
 export default function QueryProfile(params: any) {
@@ -75,18 +76,28 @@ export default function QueryProfile(params: any) {
         history.push('/QueryProfile/');
     }
 
-    function download(profile) {
-        const blob = new Blob([JSON.stringify(profile, null, 2)], {
-            type: "text/plain"
+    function download(profile: string) {
+        const profileTxt = replaceToTxt(profile);
+        const blob = new Blob([profileTxt], {
+            type: "text/plain",
         });
         const tagA = document.createElement("a");
-        tagA.download = `profile_${(new Date()).valueOf()}.txt`;
+        tagA.download = `profile_${new Date().valueOf()}.txt`;
         tagA.style.display = "none";
         tagA.href = URL.createObjectURL(blob);
         document.body.appendChild(tagA);
         tagA.click();
         URL.revokeObjectURL(tagA.href);
         document.body.removeChild(tagA);
+    }
+    function copyToClipboard(profile: string) {
+        const profileTxt = replaceToTxt(profile);
+        const textarea = document.createElement("textarea");
+        textarea.value = profileTxt;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
     }
 
     return (
@@ -101,6 +112,9 @@ export default function QueryProfile(params: any) {
                         <Button onClick={() => {
                             download(profile)
                         }}>download</Button>
+                        <Button onClick={() => {
+                            copyToClipboard(profile)
+                        }}>copy profile</Button>
                     </Space> : ''}
                 </Col>
             </Row>

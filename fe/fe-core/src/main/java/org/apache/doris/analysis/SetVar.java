@@ -25,7 +25,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -36,9 +35,20 @@ import com.google.common.base.Strings;
 // change one variable.
 public class SetVar {
 
+    public enum SetVarType {
+        DEFAULT,
+        SET_SESSION_VAR,
+        SET_PASS_VAR,
+        SET_LDAP_PASS_VAR,
+        SET_NAMES_VAR,
+        SET_TRANSACTION,
+        SET_USER_PROPERTY_VAR
+    }
+
     private String variable;
     private Expr value;
     private SetType type;
+    public SetVarType varType;
     private LiteralExpr result;
 
     public SetVar() {
@@ -46,6 +56,7 @@ public class SetVar {
 
     public SetVar(SetType type, String variable, Expr value) {
         this.type = type;
+        this.varType = SetVarType.SET_SESSION_VAR;
         this.variable = variable;
         this.value = value;
         if (value instanceof LiteralExpr) {
@@ -55,6 +66,7 @@ public class SetVar {
 
     public SetVar(String variable, Expr value) {
         this.type = SetType.DEFAULT;
+        this.varType = SetVarType.SET_SESSION_VAR;
         this.variable = variable;
         this.value = value;
         if (value instanceof LiteralExpr) {
@@ -76,6 +88,14 @@ public class SetVar {
 
     public void setType(SetType type) {
         this.type = type;
+    }
+
+    public SetVarType getVarType() {
+        return varType;
+    }
+
+    public void setVarType(SetVarType varType) {
+        this.varType = varType;
     }
 
     // Value can be null. When value is null, means to set variable to DEFAULT.
@@ -115,13 +135,6 @@ public class SetVar {
         }
 
         result = (LiteralExpr) literalExpr;
-
-        // Need to check if group is valid
-        if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
-            if (result != null && !UserResource.isValidGroup(result.getStringValue())) {
-                throw new AnalysisException("Invalid resource group, now we support {low, normal, high}.");
-            }
-        }
 
         if (variable.equalsIgnoreCase(GlobalVariable.DEFAULT_ROWSET_TYPE)) {
             if (result != null && !HeartbeatFlags.isValidRowsetType(result.getStringValue())) {

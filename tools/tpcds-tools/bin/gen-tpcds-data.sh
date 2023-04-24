@@ -36,7 +36,7 @@ usage() {
 Usage: $0 <options>
   Optional options:
      -s             scale factor, default is 1
-     -c             parallelism to generate data of (lineitem, orders, partsupp) table, default is 10
+     -c             parallelism to generate data, default is 10, max is 100
 
   Eg.
     $0              generate data using default value.
@@ -114,12 +114,24 @@ date
 cd "${TPCDS_DBGEN_DIR}"
 if [[ ${PARALLEL} -eq 1 ]] && "${TPCDS_DBGEN_DIR}"/dsdgen -SCALE "${SCALE_FACTOR}" -TERMINATE N -DIR "${TPCDS_DATA_DIR}"; then
     echo "data genarated."
-elif [[ ${PARALLEL} -gt 1 ]] && "${TPCDS_DBGEN_DIR}"/dsdgen -SCALE "${SCALE_FACTOR}" -PARALLEL "${PARALLEL}" -TERMINATE N -DIR "${TPCDS_DATA_DIR}"; then
+elif [[ ${PARALLEL} -gt 1 ]] && [[ ${PARALLEL} -le 100 ]]; then
+    for c in $(seq 1 "${PARALLEL}"); do
+        "${TPCDS_DBGEN_DIR}"/dsdgen -SCALE "${SCALE_FACTOR}" -PARALLEL "${PARALLEL}" -CHILD "${c}" -TERMINATE N -DIR "${TPCDS_DATA_DIR}" &
+    done
+    wait
     echo "data genarated."
 else
-    echo "ERROR occured." && exit 1
+    echo "ERROR: bad parallelism ${PARALLEL}" && exit 1
 fi
-cd -
+cd "${TPCDS_DATA_DIR}"
+echo "Convert encoding of customer table files from one iso-8859-1 to utf-8."
+for i in $(seq 1 "${PARALLEL}"); do
+    if ! [[ -f "customer_${i}_${PARALLEL}.dat" ]]; then continue; fi
+    mv "customer_${i}_${PARALLEL}.dat" "customer_${i}_${PARALLEL}.dat.bak"
+    iconv -f iso-8859-1 -t utf-8 "customer_${i}_${PARALLEL}.dat.bak" -o "customer_${i}_${PARALLEL}.dat"
+    rm "customer_${i}_${PARALLEL}.dat.bak"
+done
 date
+
 # check data
 du -sh "${TPCDS_DATA_DIR}"/*.dat*

@@ -21,11 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ReferenceType;
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -100,7 +100,7 @@ public class StoragePolicy extends Policy {
 
     // time unit: seconds
     @SerializedName(value = "cooldownTtl")
-    private long cooldownTtl = 0;
+    private long cooldownTtl = -1;
 
     // for Gson fromJson
     public StoragePolicy() {
@@ -193,13 +193,13 @@ public class StoragePolicy extends Policy {
             throw new AnalysisException("current storage policy just support resource type S3_COOLDOWN");
         }
         Map<String, String> properties = resource.getCopiedProperties();
-        if (!properties.containsKey(S3Resource.S3_ROOT_PATH)) {
+        if (!properties.containsKey(S3Properties.ROOT_PATH)) {
             throw new AnalysisException(String.format(
-                    "Missing [%s] in '%s' resource", S3Resource.S3_ROOT_PATH, storageResource));
+                    "Missing [%s] in '%s' resource", S3Properties.ROOT_PATH, storageResource));
         }
-        if (!properties.containsKey(S3Resource.S3_BUCKET)) {
+        if (!properties.containsKey(S3Properties.BUCKET)) {
             throw new AnalysisException(String.format(
-                    "Missing [%s] in '%s' resource", S3Resource.S3_BUCKET, storageResource));
+                    "Missing [%s] in '%s' resource", S3Properties.BUCKET, storageResource));
         }
         return resource;
     }
@@ -311,22 +311,36 @@ public class StoragePolicy extends Policy {
 
     public void modifyProperties(Map<String, String> properties) throws DdlException, AnalysisException {
         this.toString();
-        // some check
-        long cooldownTtlMs = -1;
-        String cooldownTtl = properties.get(COOLDOWN_TTL);
-        if (cooldownTtl != null) {
-            cooldownTtlMs = getSecondsByCooldownTtl(cooldownTtl);
-        }
-        long cooldownTimestampMs = -1;
-        String cooldownDatetime = properties.get(COOLDOWN_DATETIME);
-        if (cooldownDatetime != null) {
-            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            try {
-                cooldownTimestampMs = df.parse(cooldownDatetime).getTime();
-            } catch (ParseException e) {
-                throw new RuntimeException(e);
+        // check cooldown date time and ttl.
+        long cooldownTtlMs = this.cooldownTtl;
+        long cooldownTimestampMs = this.cooldownTimestampMs;
+        if (properties.containsKey(COOLDOWN_TTL)) {
+            if (properties.get(COOLDOWN_TTL).isEmpty()) {
+                cooldownTtlMs = -1;
+            } else {
+                cooldownTtlMs = getSecondsByCooldownTtl(properties.get(COOLDOWN_TTL));
             }
         }
+        if (properties.containsKey(COOLDOWN_DATETIME)) {
+            if (properties.get(COOLDOWN_DATETIME).isEmpty()) {
+                cooldownTimestampMs = -1;
+            } else {
+                SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                try {
+                    cooldownTimestampMs = df.parse(properties.get(COOLDOWN_DATETIME)).getTime();
+                } catch (ParseException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+
+        if (cooldownTtlMs > 0 && cooldownTimestampMs > 0) {
+            throw new AnalysisException(COOLDOWN_DATETIME + " and " + COOLDOWN_TTL + " can't be set together.");
+        }
+        if (cooldownTtlMs <= 0 && cooldownTimestampMs <= 0) {
+            throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
+        }
+
         String storageResource = properties.get(STORAGE_RESOURCE);
         if (storageResource != null) {
             checkIsS3ResourceAndExist(storageResource);
@@ -337,12 +351,8 @@ public class StoragePolicy extends Policy {
         }
         // modify properties
         writeLock();
-        if (cooldownTtlMs > 0) {
-            this.cooldownTtl = cooldownTtlMs;
-        }
-        if (cooldownTimestampMs > 0) {
-            this.cooldownTimestampMs = cooldownTimestampMs;
-        }
+        this.cooldownTtl = cooldownTtlMs;
+        this.cooldownTimestampMs = cooldownTimestampMs;
         if (storageResource != null) {
             this.storageResource = storageResource;
         }

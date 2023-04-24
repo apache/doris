@@ -17,7 +17,6 @@
 
 suite("test_if") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     sql "select if(id=1,count,hll_empty()) from (select 1 as id, hll_hash(1) as count) t"
 }

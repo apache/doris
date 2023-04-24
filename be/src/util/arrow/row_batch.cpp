@@ -17,30 +17,26 @@
 
 #include "util/arrow/row_batch.h"
 
-#include <arrow/array.h>
-#include <arrow/array/builder_primitive.h>
 #include <arrow/buffer.h>
-#include <arrow/builder.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/writer.h>
-#include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
+#include <arrow/result.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
-#include <arrow/visit_array_inline.h>
-#include <arrow/visit_type_inline.h>
-#include <arrow/visitor.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
+#include <algorithm>
 #include <cstdlib>
-#include <ctime>
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include "gutil/strings/substitute.h"
-#include "runtime/descriptor_helper.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
-#include "runtime/large_int_value.h"
-#include "util/arrow/utils.h"
-#include "util/types.h"
+#include "runtime/types.h"
 
 namespace doris {
 
@@ -92,6 +88,34 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_BOOLEAN:
         *result = arrow::boolean();
         break;
+    case TYPE_ARRAY: {
+        DCHECK_EQ(type.children.size(), 1);
+        std::shared_ptr<arrow::DataType> item_type;
+        convert_to_arrow_type(type.children[0], &item_type);
+        *result = std::make_shared<arrow::ListType>(item_type);
+        break;
+    }
+    case TYPE_MAP: {
+        DCHECK_EQ(type.children.size(), 2);
+        std::shared_ptr<arrow::DataType> key_type;
+        std::shared_ptr<arrow::DataType> val_type;
+        convert_to_arrow_type(type.children[0], &key_type);
+        convert_to_arrow_type(type.children[1], &val_type);
+        *result = std::make_shared<arrow::MapType>(key_type, val_type);
+        break;
+    }
+    case TYPE_STRUCT: {
+        DCHECK_GT(type.children.size(), 0);
+        std::vector<std::shared_ptr<arrow::Field>> fields;
+        for (size_t i = 0; i < type.children.size(); i++) {
+            std::shared_ptr<arrow::DataType> field_type;
+            convert_to_arrow_type(type.children[i], &field_type);
+            fields.push_back(std::make_shared<arrow::Field>(type.field_names[i], field_type,
+                                                            type.contains_nulls[i]));
+        }
+        *result = std::make_shared<arrow::StructType>(fields);
+        break;
+    }
     default:
         return Status::InvalidArgument("Unknown primitive type({})", type.type);
     }

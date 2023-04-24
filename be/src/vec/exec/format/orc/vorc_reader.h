@@ -17,21 +17,70 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <list>
+#include <memory>
 #include <orc/OrcFile.hh>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "exec/olap_common.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
+#include "orc/Reader.hh"
+#include "orc/Type.hh"
+#include "orc/Vector.hh"
+#include "runtime/types.h"
+#include "util/runtime_profile.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_array.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
+
+namespace doris {
+class RuntimeState;
+class TFileRangeDesc;
+class TFileScanRangeParams;
+
+namespace io {
+class FileSystem;
+class IOContext;
+} // namespace io
+namespace vectorized {
+class Block;
+class VecDateTimeValue;
+struct DateTimeV2ValueType;
+template <typename T>
+class ColumnVector;
+template <typename T>
+class DataTypeDecimal;
+template <typename T>
+class DateV2Value;
+template <typename T>
+struct Decimal;
+} // namespace vectorized
+} // namespace doris
+namespace orc {
+template <class T>
+class DataBuffer;
+} // namespace orc
 
 namespace doris::vectorized {
 
 class ORCFileInputStream;
+
 class OrcReader : public GenericReader {
 public:
     struct Statistics {
@@ -45,13 +94,13 @@ public:
         int64_t decode_null_map_time = 0;
     };
 
-    OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+    OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-              size_t batch_size, const std::string& ctz, IOContext* io_ctx);
+              size_t batch_size, const std::string& ctz, io::IOContext* io_ctx);
 
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::vector<std::string>& column_names, const std::string& ctz,
-              IOContext* io_ctx);
+              io::IOContext* io_ctx);
 
     ~OrcReader() override;
 
@@ -147,13 +196,19 @@ private:
     Status _decode_explicit_decimal_column(const std::string& col_name,
                                            const MutableColumnPtr& data_column,
                                            const DataTypePtr& data_type,
-                                           DecimalScaleParams& scale_params,
                                            orc::ColumnVectorBatch* cvb, size_t num_values) {
         OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
-        _init_decimal_converter<DecimalPrimitiveType>(data_type, scale_params, data->scale);
+        if (_decimal_scale_params_index >= _decimal_scale_params.size()) {
+            DecimalScaleParams temp_scale_params;
+            _init_decimal_converter<DecimalPrimitiveType>(data_type, temp_scale_params,
+                                                          data->scale);
+            _decimal_scale_params.emplace_back(std::move(temp_scale_params));
+        }
+        DecimalScaleParams& scale_params = _decimal_scale_params[_decimal_scale_params_index];
+        ++_decimal_scale_params_index;
 
         auto* cvb_data = data->values.data();
         auto& column_data =
@@ -183,16 +238,16 @@ private:
 
     template <typename DecimalPrimitiveType>
     Status _decode_decimal_column(const std::string& col_name, const MutableColumnPtr& data_column,
-                                  const DataTypePtr& data_type, DecimalScaleParams& scale_params,
-                                  orc::ColumnVectorBatch* cvb, size_t num_values) {
+                                  const DataTypePtr& data_type, orc::ColumnVectorBatch* cvb,
+                                  size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
         if (dynamic_cast<orc::Decimal64VectorBatch*>(cvb) != nullptr) {
             return _decode_explicit_decimal_column<DecimalPrimitiveType, orc::Decimal64VectorBatch>(
-                    col_name, data_column, data_type, scale_params, cvb, num_values);
+                    col_name, data_column, data_type, cvb, num_values);
         } else {
             return _decode_explicit_decimal_column<DecimalPrimitiveType,
                                                    orc::Decimal128VectorBatch>(
-                    col_name, data_column, data_type, scale_params, cvb, num_values);
+                    col_name, data_column, data_type, cvb, num_values);
         }
     }
 
@@ -241,7 +296,8 @@ private:
     void _collect_profile_on_close();
 
 private:
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
+    RuntimeState* _state = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
     FileSystemProperties _system_properties;
@@ -277,17 +333,20 @@ private:
 
     std::shared_ptr<io::FileSystem> _file_system;
 
-    IOContext* _io_ctx;
+    io::IOContext* _io_ctx;
 
-    // only for decimal
-    DecimalScaleParams _decimal_scale_params;
+    std::vector<DecimalScaleParams> _decimal_scale_params;
+    size_t _decimal_scale_params_index;
 };
 
 class ORCFileInputStream : public orc::InputStream {
 public:
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader,
-                       OrcReader::Statistics* statistics)
-            : _file_name(file_name), _file_reader(file_reader), _statistics(statistics) {}
+                       OrcReader::Statistics* statistics, const io::IOContext* io_ctx)
+            : _file_name(file_name),
+              _file_reader(file_reader),
+              _statistics(statistics),
+              _io_ctx(io_ctx) {}
 
     ~ORCFileInputStream() override = default;
 
@@ -304,6 +363,7 @@ private:
     io::FileReaderSPtr _file_reader;
     // Owned by OrcReader
     OrcReader::Statistics* _statistics;
+    const io::IOContext* _io_ctx;
 };
 
 } // namespace doris::vectorized

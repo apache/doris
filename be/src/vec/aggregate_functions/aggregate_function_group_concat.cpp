@@ -17,6 +17,9 @@
 
 #include "vec/aggregate_functions/aggregate_function_group_concat.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
@@ -27,15 +30,13 @@ AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& n
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable) {
     if (argument_types.size() == 1) {
-        return AggregateFunctionPtr(
-                creator_without_type::create<
-                        AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStr>>(
-                        result_is_nullable, argument_types));
+        return creator_without_type::create<
+                AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStr>>(
+                argument_types, result_is_nullable);
     } else if (argument_types.size() == 2) {
-        return AggregateFunctionPtr(
-                creator_without_type::create<
-                        AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStrStr>>(
-                        result_is_nullable, argument_types));
+        return creator_without_type::create<
+                AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStrStr>>(
+                argument_types, result_is_nullable);
     }
 
     LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",

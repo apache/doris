@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -49,6 +50,8 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     List<String> getDbNames();
 
+    // Will be used when querying the information_schema table
+    // Unable to get db for uninitialized catalog to avoid query timeout
     default List<String> getDbNamesOrEmpty() {
         try {
             return getDbNames();
@@ -72,7 +75,7 @@ public interface CatalogIf<T extends DatabaseIf> {
         return null;
     }
 
-    default void notifyPropertiesUpdated() {
+    default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         if (this instanceof ExternalCatalog) {
             ((ExternalCatalog) this).setUninitialized(false);
         }
@@ -138,5 +141,8 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     // Called when catalog is dropped
     default void onClose() {
+        Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
     }
+
+    String getComment();
 }

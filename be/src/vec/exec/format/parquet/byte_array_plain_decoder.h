@@ -17,10 +17,29 @@
 
 #pragma once
 
-#include <cstdint>
+#include <string.h>
 
+#include <cstdint>
+#include <memory>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "gutil/endian.h"
 #include "util/coding.h"
+#include "util/slice.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/decoder.h"
+#include "vec/exec/format/parquet/parquet_common.h"
+
+namespace doris {
+namespace vectorized {
+template <typename T>
+class ColumnDecimal;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -30,7 +49,7 @@ public:
     ~ByteArrayPlainDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override;
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override;
 
     Status skip_values(size_t num_values) override;
 

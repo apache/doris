@@ -18,17 +18,15 @@
 #ifndef DORIS_BE_RUNTIME_JSON_VALUE_H
 #define DORIS_BE_RUNTIME_JSON_VALUE_H
 
-#include "udf/udf.h"
-#include "util/cpu_info.h"
-#include "util/hash_util.hpp"
-#include "util/jsonb_error.h"
-#include "util/jsonb_parser_simd.h"
-#include "util/jsonb_utils.h"
-#include "vec/common/string_ref.h"
+#include <glog/logging.h>
 
-#ifdef __SSE4_2__
-#include "util/sse_util.hpp"
-#endif
+#include <cstddef>
+#include <ostream>
+#include <string>
+
+#include "common/status.h"
+#include "util/hash_util.hpp"
+#include "util/jsonb_parser_simd.h"
 
 namespace doris {
 

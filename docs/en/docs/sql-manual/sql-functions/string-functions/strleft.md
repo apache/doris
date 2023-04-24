@@ -28,10 +28,10 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR STRAIGHT (VARCHAR str, INT len)`
+`VARCHAR STRLEFT (VARCHAR str, INT len)`
 
 
-It returns the left part of a string of specified length, length is char length not the byte size.
+It returns the left part of a string of specified length, length is char length not the byte size. Another alias for this function is [left](./left.md).
 
 ### example
 

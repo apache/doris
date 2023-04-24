@@ -172,7 +172,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
             rightShuffleIds.add(rightRequireSpec.getOrderedShuffledColumns().get(index));
         }
         return new PhysicalProperties(new DistributionSpecHash(rightShuffleIds, ShuffleType.ENFORCED,
-                rightHashSpec.getTableId(), rightHashSpec.getPartitionIds()));
+                rightHashSpec.getTableId(), rightHashSpec.getSelectedIndexId(), rightHashSpec.getPartitionIds()));
     }
 
     private double updateChildEnforceAndCost(GroupExpression child, PhysicalProperties childOutput,
@@ -194,7 +194,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
         jobContext.getCascadesContext().getMemo().addEnforcerPlan(enforcer, child.getOwnerGroup());
         Cost totalCost = CostCalculator.addChildCost(enforcer.getPlan(),
                 currentCost,
-                CostCalculator.calculateCost(enforcer),
+                CostCalculator.calculateCost(enforcer, Lists.newArrayList(childOutput)),
                 0);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,

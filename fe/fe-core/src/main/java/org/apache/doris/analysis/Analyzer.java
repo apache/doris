@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
@@ -47,6 +48,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
+import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
 import org.apache.doris.rewrite.EraseRedundantCastExpr;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -69,6 +71,7 @@ import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
 import org.apache.doris.rewrite.mvrewrite.ToBitmapToSlotRefRule;
+import org.apache.doris.thrift.TPipelineResourceGroup;
 import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Joiner;
@@ -79,6 +82,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -155,6 +159,7 @@ public class Analyzer {
 
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
+    private boolean isFirstScopeInSubquery = false;
     // Flag indicating if this analyzer instance belongs to an inlineview.
     private boolean isInlineView = false;
 
@@ -179,6 +184,7 @@ public class Analyzer {
 
     public void setIsSubquery() {
         isSubquery = true;
+        isFirstScopeInSubquery = true;
         globalState.containsSubquery = true;
     }
 
@@ -315,6 +321,11 @@ public class Analyzer {
         // True if at least one of the analyzers belongs to a subquery.
         public boolean containsSubquery = false;
 
+        // When parsing a ddl of hive view, it does not contains any catalog info,
+        // so we need to record it in Analyzer
+        // otherwise some error will occurs when resolving TableRef later.
+        public String externalCtl;
+
         // all registered conjuncts (map from id to Predicate)
         private final Map<ExprId, Expr> conjuncts = Maps.newHashMap();
 
@@ -400,6 +411,8 @@ public class Analyzer {
 
         private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
 
+        public List<TPipelineResourceGroup> tResourceGroups;
+
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
             this.context = context;
@@ -424,6 +437,7 @@ public class Analyzer {
             rules.add(RewriteInPredicateRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
+            rules.add(EliminateUnnecessaryFunctions.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);
@@ -534,6 +548,14 @@ public class Analyzer {
         return new Analyzer(parentAnalyzer, globalState, new InferPredicateState());
     }
 
+    public void setExternalCtl(String externalCtl) {
+        globalState.externalCtl = externalCtl;
+    }
+
+    public String getExternalCtl() {
+        return globalState.externalCtl;
+    }
+
     public void setIsExplain() {
         globalState.isExplain = true;
     }
@@ -576,6 +598,14 @@ public class Analyzer {
 
     public String getExplicitViewAlias() {
         return explicitViewAlias;
+    }
+
+    public void setResourceGroups(List<TPipelineResourceGroup> tResourceGroups) {
+        globalState.tResourceGroups = tResourceGroups;
+    }
+
+    public List<TPipelineResourceGroup> getResourceGroups() {
+        return globalState.tResourceGroups;
     }
 
     /**
@@ -742,6 +772,10 @@ public class Analyzer {
         }
         // Try to find a matching local view.
         TableName tableName = tableRef.getName();
+        if (StringUtils.isNotEmpty(this.globalState.externalCtl)
+                && StringUtils.isEmpty(tableName.getCtl())) {
+            tableName.setCtl(this.globalState.externalCtl);
+        }
         if (!tableName.isFullyQualified()) {
             // Searches the hierarchy of analyzers bottom-up for a registered local view with
             // a matching alias.
@@ -786,11 +820,26 @@ public class Analyzer {
 
         // Now hms table only support a bit of table kinds in the whole hive system.
         // So Add this strong checker here to avoid some undefine behaviour in doris.
-        if (table.getType() == TableType.HMS_EXTERNAL_TABLE && !((HMSExternalTable) table).isSupportedHmsTable()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
-                    table.getName(),
-                    ((HMSExternalTable) table).getDbName(),
-                    tableName.getCtl());
+        if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
+            if (!((HMSExternalTable) table).isSupportedHmsTable()) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
+                        table.getName(),
+                        ((HMSExternalTable) table).getDbName(),
+                        tableName.getCtl());
+            }
+            if (Config.enable_query_hive_views) {
+                if (((HMSExternalTable) table).isView()
+                        && StringUtils.isNotEmpty(((HMSExternalTable) table).getViewText())) {
+                    View hmsView = new View(table.getId(), table.getName(), table.getFullSchema());
+                    hmsView.setInlineViewDefWithSqlMode(((HMSExternalTable) table).getViewText(),
+                            ConnectContext.get().getSessionVariable().getSqlMode());
+                    InlineViewRef inlineViewRef = new InlineViewRef(hmsView, tableRef);
+                    if (StringUtils.isNotEmpty(tableName.getCtl())) {
+                        inlineViewRef.setExternalCtl(tableName.getCtl());
+                    }
+                    return inlineViewRef;
+                }
+            }
         }
 
         // tableName.getTbl() stores the table name specified by the user in the from statement.
@@ -893,7 +942,7 @@ public class Analyzer {
          * This column could not be resolved because doris can only resolved the parent column instead of grandpa.
          * The exception to this query like that: Unknown column 'k1' in 'a'
          */
-        if (d == null && hasAncestors() && isSubquery) {
+        if (d == null && hasAncestors() && isSubquery && isFirstScopeInSubquery) {
             // analyzer father for subquery
             if (newTblName == null) {
                 d = getParentAnalyzer().resolveColumnRef(colName);
@@ -1193,7 +1242,7 @@ public class Analyzer {
                     registerConstantConjunct(id, conjunct);
                 }
             }
-            markConstantConjunct(conjunct, fromHavingClause);
+            markConstantConjunct(conjunct, fromHavingClause, false);
         }
     }
 
@@ -1209,7 +1258,7 @@ public class Analyzer {
     }
 
     public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) throws AnalysisException {
-        markConstantConjunct(e, false);
+        markConstantConjunct(e, false, false);
         Set<Expr> exprSet = globalState.migrateFailedConjuncts.computeIfAbsent(ref, (k) -> new HashSet<>());
         exprSet.add(e);
     }
@@ -1822,7 +1871,7 @@ public class Analyzer {
             if (rhsRef.getJoinOp().isInnerJoin()) {
                 globalState.ijClauseByConjunct.put(conjunct.getId(), rhsRef);
             }
-            markConstantConjunct(conjunct, false);
+            markConstantConjunct(conjunct, false, true);
         }
     }
 
@@ -1834,9 +1883,9 @@ public class Analyzer {
      * No-op if the conjunct is not constant or is outer joined.
      * Throws an AnalysisException if there is an error evaluating `conjunct`
      */
-    private void markConstantConjunct(Expr conjunct, boolean fromHavingClause)
+    private void markConstantConjunct(Expr conjunct, boolean fromHavingClause, boolean join)
             throws AnalysisException {
-        if (!conjunct.isConstant() || isOjConjunct(conjunct)) {
+        if (!conjunct.isConstant() || isOjConjunct(conjunct) || join) {
             return;
         }
         if ((!fromHavingClause && !hasEmptySpjResultSet)

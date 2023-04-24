@@ -18,6 +18,8 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/URL/domain.cpp
 // and modified by Doris
 
+#include "vec/columns/column.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/function_string_to_string.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/functions/url/domain.h"

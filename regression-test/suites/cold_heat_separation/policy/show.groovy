@@ -58,4 +58,11 @@ suite("show_policy") {
     assertEquals(storage_policy.size(), 7)
     assertEquals(storage_policy[4], "showPolicy_1_resource")
     assertEquals(storage_policy[5], "2022-06-08 00:00:00")
+    sql """
+    DROP STORAGE POLICY showPolicy_1_policy;
+    """
+
+    sql """
+    DROP RESOURCE "showPolicy_1_resource";
+    """
 }

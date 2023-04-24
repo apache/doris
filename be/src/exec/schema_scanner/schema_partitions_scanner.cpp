@@ -17,13 +17,21 @@
 
 #include "exec/schema_scanner/schema_partitions_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <stdint.h>
+
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/datetime_value.h"
-#include "runtime/primitive_type.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaPartitionsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
@@ -46,8 +54,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaPartitionsScanner::_s_tbls_columns 
         {"INDEX_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATA_FREE", TYPE_BIGINT, sizeof(int64_t), true},
         {"CREATE_TIME", TYPE_BIGINT, sizeof(int64_t), false},
-        {"UPDATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-        {"CHECK_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
+        {"UPDATE_TIME", TYPE_DATETIME, sizeof(int128_t), true},
+        {"CHECK_TIME", TYPE_DATETIME, sizeof(int128_t), true},
         {"CHECKSUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"PARTITION_COMMENT", TYPE_STRING, sizeof(StringRef), false},
         {"NODEGROUP", TYPE_VARCHAR, sizeof(StringRef), true},

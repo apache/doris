@@ -39,9 +39,9 @@ struct TTabletSchema {
     11: optional Types.TSortType sort_type
     12: optional i32 sort_col_num
     13: optional bool disable_auto_compaction
-    14: optional bool store_row_column = false
+    14: optional i32 version_col_idx = -1
     15: optional bool is_dynamic_schema = false
-    16: optional i32 version_col_idx = -1
+    16: optional bool store_row_column = false
 }
 
 // this enum stands for different storage format in src_backends
@@ -166,6 +166,7 @@ struct TAlterTabletReqV2 {
     8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
     9: optional Descriptors.TDescriptorTable desc_tbl
     10: optional list<Descriptors.TColumn> columns
+    11: optional i32 be_exec_version = 0
 }
 
 struct TAlterInvertedIndexReq {
@@ -274,7 +275,7 @@ struct TUploadReq {
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
-
+    6: optional string location // root path
 }
 
 struct TDownloadReq {
@@ -283,6 +284,7 @@ struct TDownloadReq {
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
+    6: optional string location // root path
 }
 
 struct TSnapshotRequest {
@@ -353,7 +355,8 @@ struct TRecoverTabletReq {
 
 enum TTabletMetaType {
     PARTITIONID,
-    INMEMORY
+    INMEMORY,
+    MARKDROP
 }
 
 struct TTabletMetaInfo {
@@ -364,6 +367,7 @@ struct TTabletMetaInfo {
     5: optional bool is_in_memory
     // 6: optional string storage_policy;
     7: optional i64 storage_policy_id
+    8: optional bool is_dropped
 }
 
 struct TUpdateTabletMetaInfoReq {

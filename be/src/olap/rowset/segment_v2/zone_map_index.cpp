@@ -17,23 +17,37 @@
 
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <type_traits>
+
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
+#include "runtime/primitive_type.h"
+#include "util/slice.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/unaligned.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+struct uint24_t;
 
 namespace segment_v2 {
 
 template <PrimitiveType Type>
 TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(Field* field) : _field(field) {
-    _page_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
-    _page_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
+    _page_zone_map.min_value = _field->allocate_zone_map_value(&_arena);
+    _page_zone_map.max_value = _field->allocate_zone_map_value(&_arena);
     _reset_zone_map(&_page_zone_map);
-    _segment_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
-    _segment_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
+    _segment_zone_map.min_value = _field->allocate_zone_map_value(&_arena);
+    _segment_zone_map.max_value = _field->allocate_zone_map_value(&_arena);
     _reset_zone_map(&_segment_zone_map);
 }
 
@@ -114,7 +128,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 
     // write out zone map for each data pages
-    const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_OBJECT>();
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_OBJECT>();
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
@@ -136,14 +150,13 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 
-    MemPool pool;
     _page_zone_maps.resize(reader.num_values());
 
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
         size_t num_to_read = 1;
-        // The type of reader is OLAP_FIELD_TYPE_OBJECT.
-        // ColumnBitmap will be created when using OLAP_FIELD_TYPE_OBJECT.
+        // The type of reader is FieldType::OLAP_FIELD_TYPE_OBJECT.
+        // ColumnBitmap will be created when using FieldType::OLAP_FIELD_TYPE_OBJECT.
         // But what we need actually is ColumnString.
         vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
 
@@ -156,7 +169,6 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
                                                column->get_data_at(0).size)) {
             return Status::Corruption("Failed to parse zone map");
         }
-        pool.clear();
     }
     return Status::OK();
 }
@@ -183,17 +195,17 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
 Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res) {
     switch (field->type()) {
 #define M(NAME)                                              \
-    case OLAP_FIELD_##NAME: {                                \
+    case FieldType::OLAP_FIELD_##NAME: {                     \
         res.reset(new TypedZoneMapIndexWriter<NAME>(field)); \
         return Status::OK();                                 \
     }
         APPLY_FOR_PRIMITITYPE(M)
 #undef M
-    case OLAP_FIELD_TYPE_DECIMAL: {
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         res.reset(new TypedZoneMapIndexWriter<TYPE_DECIMALV2>(field));
         return Status::OK();
     }
-    case OLAP_FIELD_TYPE_BOOL: {
+    case FieldType::OLAP_FIELD_TYPE_BOOL: {
         res.reset(new TypedZoneMapIndexWriter<TYPE_BOOLEAN>(field));
         return Status::OK();
     }

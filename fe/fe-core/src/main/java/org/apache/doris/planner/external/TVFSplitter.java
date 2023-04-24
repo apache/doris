@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.Split;
 import org.apache.doris.planner.Splitter;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
@@ -46,11 +47,33 @@ public class TVFSplitter implements Splitter {
         List<Split> splits = Lists.newArrayList();
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
         for (TBrokerFileStatus fileStatus : fileStatuses) {
+            long fileLength = fileStatus.getSize();
             Path path = new Path(fileStatus.getPath());
-            Split split = new FileSplit(path, 0, fileStatus.getSize(), new String[0]);
-            splits.add(split);
+            if (fileStatus.isSplitable) {
+                long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
+                if (splitSize <= 0) {
+                    splitSize = fileStatus.getBlockSize();
+                }
+                // Min split size is DEFAULT_SPLIT_SIZE(128MB).
+                splitSize = splitSize > DEFAULT_SPLIT_SIZE ? splitSize : DEFAULT_SPLIT_SIZE;
+                addFileSplits(path, fileLength, splitSize, splits);
+            } else {
+                Split split = new FileSplit(path, 0, fileLength, fileLength, new String[0]);
+                splits.add(split);
+            }
         }
         return splits;
+    }
+
+    private void addFileSplits(Path path, long fileSize, long splitSize, List<Split> splits) {
+        long bytesRemaining;
+        for (bytesRemaining = fileSize; (double) bytesRemaining / (double) splitSize > 1.1D;
+                bytesRemaining -= splitSize) {
+            splits.add(new FileSplit(path, fileSize - bytesRemaining, splitSize, fileSize, new String[0]));
+        }
+        if (bytesRemaining != 0L) {
+            splits.add(new FileSplit(path, fileSize - bytesRemaining, bytesRemaining, fileSize, new String[0]));
+        }
     }
 
 }

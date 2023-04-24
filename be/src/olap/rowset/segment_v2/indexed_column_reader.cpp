@@ -17,11 +17,19 @@
 
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <algorithm>
+
 #include "gutil/strings/substitute.h" // for Substitute
-#include "io/fs/local_file_system.h"
 #include "olap/key_coder.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
+#include "olap/rowset/segment_v2/options.h"
+#include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/page_io.h"
+#include "olap/types.h"
+#include "util/block_compression.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -140,7 +148,8 @@ Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {
         // need to read the data page containing row at idx
         if (_reader->_has_index_page) {
             std::string key;
-            KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(&idx, &key);
+            KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(&idx,
+                                                                                              &key);
             RETURN_IF_ERROR(_ordinal_iter.seek_at_or_before(key));
             RETURN_IF_ERROR(_read_data_page(_ordinal_iter.current_page_pointer()));
             _current_iter = &_ordinal_iter;

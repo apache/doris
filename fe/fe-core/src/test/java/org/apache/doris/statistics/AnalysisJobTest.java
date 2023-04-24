@@ -111,7 +111,7 @@ public class AnalysisJobTest extends TestWithFeService {
                 .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(
                         AnalysisType.COLUMN)
                 .build();
-        new OlapAnalysisTask(scheduler, analysisJobInfo).execute();
+        new OlapAnalysisTask(analysisJobInfo).execute();
     }
 
 }

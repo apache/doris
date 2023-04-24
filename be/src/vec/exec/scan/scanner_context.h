@@ -17,26 +17,32 @@
 
 #pragma once
 
+#include <bthread/types.h>
+#include <stdint.h>
+
 #include <atomic>
-#include <condition_variable>
+#include <list>
+#include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "common/status.h"
-#include "runtime/descriptors.h"
 #include "util/lock.h"
-#include "util/uid_util.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
 namespace doris {
 
-class PriorityThreadPool;
-class ThreadPool;
 class ThreadPoolToken;
+class RuntimeState;
+class TupleDescriptor;
 
 namespace vectorized {
 
 class VScanner;
 class VScanNode;
+class ScannerScheduler;
 
 // ScannerContext is responsible for recording the execution status
 // of a group of Scanners corresponding to a ScanNode.
@@ -55,7 +61,7 @@ public:
     virtual ~ScannerContext() = default;
     Status init();
 
-    vectorized::BlockUPtr get_free_block(bool* has_free_block);
+    vectorized::BlockUPtr get_free_block(bool* has_free_block, bool get_not_empty_block = false);
     void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
@@ -123,6 +129,13 @@ public:
 
     virtual void set_max_queue_size(int max_queue_size) {};
 
+    // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
+    virtual inline bool has_enough_space_in_blocks_queue() const {
+        return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
+    }
+
+    void reschedule_scanner_ctx();
+
     // the unique id of this context
     std::string ctx_id;
     int32_t queue_idx = -1;
@@ -132,11 +145,9 @@ public:
 private:
     Status _close_and_clear_scanners(VScanNode* node, RuntimeState* state);
 
-    inline bool _has_enough_space_in_blocks_queue() const {
-        return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
-    }
-
 protected:
+    virtual void _dispose_coloate_blocks_not_in_queue() {}
+
     RuntimeState* _state;
     VScanNode* _parent;
 

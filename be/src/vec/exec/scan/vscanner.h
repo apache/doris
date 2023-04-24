@@ -17,14 +17,29 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <algorithm>
+#include <vector>
+
 #include "common/status.h"
 #include "olap/tablet.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "vec/exprs/vexpr_context.h"
+#include "util/stopwatch.hpp"
+#include "vec/core/block.h"
+
+namespace doris {
+class RuntimeProfile;
+class TupleDescriptor;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
-class Block;
 class VScanNode;
 
 // Counter for load
@@ -39,7 +54,9 @@ class VScanner {
 public:
     VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile);
 
-    virtual ~VScanner() {}
+    virtual ~VScanner() = default;
+
+    virtual Status init() { return Status::OK(); }
 
     virtual Status open(RuntimeState* state) { return Status::OK(); }
 
@@ -66,6 +83,8 @@ public:
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
     int64_t get_rows_read() const { return _num_rows_read; }
+
+    bool is_init() const { return _is_init; }
 
     Status try_append_late_arrival_runtime_filter();
 
@@ -178,6 +197,8 @@ protected:
     bool _is_load = false;
     // set to true after decrease the "_num_unfinished_scanners" in scanner context
     bool _is_counted_down = false;
+
+    bool _is_init = true;
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;

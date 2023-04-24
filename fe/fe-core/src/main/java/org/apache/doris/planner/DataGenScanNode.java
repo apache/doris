@@ -48,9 +48,8 @@ public class DataGenScanNode extends ScanNode {
     private DataGenTableValuedFunction tvf;
     private boolean isFinalized = false;
 
-    public DataGenScanNode(PlanNodeId id, TupleDescriptor desc,
-                                       String planNodeName, DataGenTableValuedFunction tvf) {
-        super(id, desc, planNodeName, StatisticalType.TABLE_VALUED_FUNCTION_NODE);
+    public DataGenScanNode(PlanNodeId id, TupleDescriptor desc, DataGenTableValuedFunction tvf) {
+        super(id, desc, "DataGenScanNode", StatisticalType.TABLE_VALUED_FUNCTION_NODE);
         this.tvf = tvf;
     }
 

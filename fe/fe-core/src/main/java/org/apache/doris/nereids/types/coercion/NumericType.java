@@ -47,4 +47,9 @@ public class NumericType extends PrimitiveType {
     public String simpleString() {
         return "numeric";
     }
+
+    @Override
+    public int width() {
+        return -1;
+    }
 }

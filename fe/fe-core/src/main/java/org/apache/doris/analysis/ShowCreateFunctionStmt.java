@@ -20,8 +20,10 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -40,11 +42,13 @@ public class ShowCreateFunctionStmt extends ShowStmt {
     private String dbName;
     private final FunctionName functionName;
     private final FunctionArgsDef argsDef;
+    private SetType type = SetType.DEFAULT;
 
     // set after analyzed
     private FunctionSearchDesc function;
 
-    public ShowCreateFunctionStmt(String dbName, FunctionName functionName, FunctionArgsDef argsDef) {
+    public ShowCreateFunctionStmt(SetType type, String dbName, FunctionName functionName, FunctionArgsDef argsDef) {
+        this.type = type;
         this.dbName = dbName;
         this.functionName = functionName;
         this.argsDef = argsDef;
@@ -66,20 +70,17 @@ public class ShowCreateFunctionStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+        // the global function does not need to fetch/check the dbName
+        if (!FunctionUtil.isGlobalFunction(this.type)) {
+            dbName = FunctionUtil.reAcquireDbName(analyzer, dbName, getClusterName());
         }
 
         // analyze function name
-        functionName.analyze(analyzer);
+        functionName.analyze(analyzer, this.type);
 
-        // check operation privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
+        // check operation privilege , except global function
+        if (!FunctionUtil.isGlobalFunction(this.type) && !Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }
@@ -88,11 +89,32 @@ public class ShowCreateFunctionStmt extends ShowStmt {
         function = new FunctionSearchDesc(functionName, argsDef.getArgTypes(), argsDef.isVariadic());
     }
 
+
+    /***
+     * reAcquire dbName and check "No database selected"
+     * @param analyzer
+     * @throws AnalysisException
+     */
+    private void reAcquireDbName(Analyzer analyzer) throws AnalysisException {
+        if (Strings.isNullOrEmpty(dbName)) {
+            dbName = analyzer.getDefaultDb();
+            if (Strings.isNullOrEmpty(dbName)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
+        } else {
+            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+        }
+    }
+
     @Override
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("SHOW CREATE FUNCTION ").append(functionName).append(argsDef)
-                .append(" IN ").append(dbName);
+        if (FunctionUtil.isGlobalFunction(this.type)) {
+            stringBuilder.append("SHOW CREATE GLOBAL FUNCTION ").append(functionName).append(argsDef);
+        } else {
+            stringBuilder.append("SHOW CREATE FUNCTION ").append(functionName).append(argsDef)
+                    .append(" IN ").append(dbName);
+        }
         return stringBuilder.toString();
     }
 
@@ -104,5 +126,9 @@ public class ShowCreateFunctionStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         return META_DATA;
+    }
+
+    public SetType getType() {
+        return type;
     }
 }

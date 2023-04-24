@@ -19,17 +19,25 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
+#include <stdint.h>
 
-#include <boost/format.hpp>
-#include <cstdlib>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/descriptors.h"
-#include "vec/exprs/vexpr_context.h"
+#include "runtime/types.h"
+#include "util/runtime_profile.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+class RuntimeState;
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
 
 // Table Connector for scan data from ODBC/JDBC
 class TableConnector {
@@ -83,13 +91,17 @@ protected:
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
 
 private:
-    // Because Oracle database do not support
+    // Because Oracle and SAP Hana database do not support
     // insert into tables values (...),(...);
-    // Here we do something special for Oracle.
+    // Here we do something special for Oracle and SAP Hana.
     Status oracle_type_append(const std::string& table_name, vectorized::Block* block,
                               const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
                               uint32_t start_send_row, uint32_t* num_rows_sent,
                               TOdbcTableType::type table_type);
+    Status sap_hana_type_append(const std::string& table_name, vectorized::Block* block,
+                                const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
+                                uint32_t start_send_row, uint32_t* num_rows_sent,
+                                TOdbcTableType::type table_type);
 };
 
 } // namespace doris

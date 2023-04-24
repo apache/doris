@@ -17,7 +17,9 @@
 
 #include "empty_set_operator.h"
 
-#include "vec/exec/vempty_set_node.h"
+#include <string>
+
+#include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
 

@@ -17,8 +17,9 @@
 
 #include "olap/segment_loader.h"
 
-#include "olap/rowset/rowset.h"
-#include "olap/tablet_schema.h"
+#include "common/config.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {

@@ -128,7 +128,7 @@ public class Checkpoint extends MasterDaemon {
                         String.format("checkpoint version should be %d," + " actual replayed journal id is %d",
                                 checkPointVersion, env.getReplayedJournalId()));
             }
-            env.fixBugAfterMetadataReplayed(false);
+            env.postProcessAfterMetadataReplayed(false);
             latestImageFilePath = env.saveImage();
             replayedJournalId = env.getReplayedJournalId();
 

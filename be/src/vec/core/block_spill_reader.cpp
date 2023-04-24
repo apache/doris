@@ -17,17 +17,32 @@
 
 #include "vec/core/block_spill_reader.h"
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
+#include <unistd.h>
+
+#include <algorithm>
+
 #include "io/file_factory.h"
-#include "io/fs/file_system.h"
-#include "olap/iterators.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/block_spill_manager.h"
-#include "util/file_utils.h"
+#include "runtime/exec_env.h"
+#include "util/slice.h"
+#include "vec/core/block.h"
 
 namespace doris {
+namespace io {
+class FileSystem;
+} // namespace io
+
 namespace vectorized {
 void BlockSpillReader::_init_profile() {
     read_time_ = ADD_TIMER(profile_, "ReadTime");
     deserialize_time_ = ADD_TIMER(profile_, "DeserializeTime");
+    read_bytes_ = ADD_COUNTER(profile_, "ReadBytes", TUnit::BYTES);
+    read_block_num_ = ADD_COUNTER(profile_, "ReadBlockNum", TUnit::UNIT);
 }
 
 Status BlockSpillReader::open() {
@@ -38,12 +53,8 @@ Status BlockSpillReader::open() {
     FileDescription file_description;
     file_description.path = file_path_;
 
-    IOContext io_ctx;
     RETURN_IF_ERROR(FileFactory::create_file_reader(nullptr, system_properties, file_description,
-                                                    &file_system, &file_reader_, &io_ctx));
-    if (delete_after_read_) {
-        unlink(file_path_.c_str());
-    }
+                                                    &file_system, &file_reader_));
 
     size_t file_size = file_reader_->size();
 
@@ -51,11 +62,11 @@ Status BlockSpillReader::open() {
 
     // read block count
     size_t bytes_read = 0;
-    RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t), result, {}, &bytes_read));
+    RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t), result, &bytes_read));
 
     // read max sub block size
     result.data = (char*)&max_sub_block_size_;
-    RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t) * 2, result, {}, &bytes_read));
+    RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t) * 2, result, &bytes_read));
 
     size_t buff_size = std::max(block_count_ * sizeof(size_t), max_sub_block_size_);
     read_buff_.reset(new char[buff_size]);
@@ -65,7 +76,7 @@ Status BlockSpillReader::open() {
     result.data = read_buff_.get();
     result.size = block_count_ * sizeof(size_t);
 
-    RETURN_IF_ERROR(file_reader_->read_at(read_offset, result, {}, &bytes_read));
+    RETURN_IF_ERROR(file_reader_->read_at(read_offset, result, &bytes_read));
     DCHECK(bytes_read == block_count_ * sizeof(size_t));
 
     block_start_offsets_.resize(block_count_ + 1);
@@ -75,6 +86,12 @@ Status BlockSpillReader::open() {
     block_start_offsets_[block_count_] = file_size - (block_count_ + 2) * sizeof(size_t);
 
     return Status::OK();
+}
+
+void BlockSpillReader::seek(size_t block_index) {
+    DCHECK(file_reader_ != nullptr);
+    DCHECK_LT(block_index, block_count_);
+    read_block_index_ = block_index;
 }
 
 // The returned block is owned by BlockSpillReader and is
@@ -90,27 +107,39 @@ Status BlockSpillReader::read(Block* block, bool* eos) {
 
     size_t bytes_to_read =
             block_start_offsets_[read_block_index_ + 1] - block_start_offsets_[read_block_index_];
+
+    if (bytes_to_read == 0) {
+        ++read_block_index_;
+        COUNTER_UPDATE(read_block_num_, 1);
+        return Status::OK();
+    }
     Slice result(read_buff_.get(), bytes_to_read);
 
     size_t bytes_read = 0;
 
     {
         SCOPED_TIMER(read_time_);
-        RETURN_IF_ERROR(file_reader_->read_at(block_start_offsets_[read_block_index_], result, {},
+        RETURN_IF_ERROR(file_reader_->read_at(block_start_offsets_[read_block_index_], result,
                                               &bytes_read));
     }
     DCHECK(bytes_read == bytes_to_read);
+    COUNTER_UPDATE(read_bytes_, bytes_read);
+    COUNTER_UPDATE(read_block_num_, 1);
 
-    PBlock pb_block;
-    BlockUPtr new_block = nullptr;
-    {
-        SCOPED_TIMER(deserialize_time_);
-        if (!pb_block.ParseFromArray(result.data, result.size)) {
-            return Status::InternalError("Failed to read spilled block");
+    if (bytes_read > 0) {
+        PBlock pb_block;
+        BlockUPtr new_block = nullptr;
+        {
+            SCOPED_TIMER(deserialize_time_);
+            if (!pb_block.ParseFromArray(result.data, result.size)) {
+                return Status::InternalError("Failed to read spilled block");
+            }
+            new_block = Block::create_unique(pb_block);
         }
-        new_block.reset(new Block(pb_block));
+        block->swap(*new_block);
+    } else {
+        block->clear_column_data();
     }
-    block->swap(*new_block);
 
     ++read_block_index_;
 
@@ -124,7 +153,7 @@ Status BlockSpillReader::close() {
     ExecEnv::GetInstance()->block_spill_mgr()->remove(stream_id_);
     file_reader_.reset();
     if (delete_after_read_) {
-        FileUtils::remove(file_path_);
+        io::global_local_filesystem()->delete_file(file_path_);
     }
     return Status::OK();
 }

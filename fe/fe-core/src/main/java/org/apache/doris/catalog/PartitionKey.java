@@ -161,6 +161,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return keys;
     }
 
+    public List<PrimitiveType> getTypes() {
+        return types;
+    }
+
     public long getHashValue() {
         CRC32 hashValue = new CRC32();
         int i = 0;

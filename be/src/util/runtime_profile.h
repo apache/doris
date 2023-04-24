@@ -20,24 +20,32 @@
 
 #pragma once
 
-#include <sys/resource.h>
-#include <sys/time.h>
+#include <gen_cpp/Metrics_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
+#include <algorithm>
 #include <atomic>
 #include <functional>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <mutex>
-#include <thread>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "gen_cpp/RuntimeProfile_types.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/writer.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/binary_cast.hpp"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 #include "util/telemetry/telemetry.h"
 
 namespace doris {
+class TRuntimeProfileNode;
+class TRuntimeProfileTree;
 
 // Some macro magic to generate unique ids using __COUNTER__
 #define CONCAT_IMPL(x, y) x##y
@@ -108,10 +116,6 @@ public:
         std::atomic<int64_t> _value;
         TUnit::type _type;
     };
-
-    class DerivedCounter;
-    class EventSequence;
-    class HighWaterMarkCounter;
 
     /// A counter that keeps track of the highest value seen (reporting that
     /// as value()) and the current value.
@@ -348,6 +352,9 @@ public:
     int64_t metadata() const { return _metadata; }
     void set_metadata(int64_t md) { _metadata = md; }
 
+    time_t timestamp() const { return _timestamp; }
+    void set_timestamp(time_t ss) { _timestamp = ss; }
+
     // Derived counter function: return measured throughput as input_value/second.
     static int64_t units_per_second(const Counter* total_counter, const Counter* timer);
 
@@ -405,6 +412,9 @@ private:
 
     // user-supplied, uninterpreted metadata.
     int64_t _metadata;
+
+    // The timestamp when the profile was modified, make sure the update is up to date.
+    time_t _timestamp;
 
     /// True if this profile is an average derived from other profiles.
     /// All counters in this profile must be of unit AveragedCounter.

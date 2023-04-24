@@ -17,13 +17,18 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+#include <stddef.h>
+
 #include "common/status.h"
-#include "gen_cpp/parquet_types.h"
-#include "util/slice.h"
-#include "vec/columns/column.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/decoder.h"
-#include "vec/exec/format/parquet/parquet_common.h"
+
+namespace doris {
+namespace vectorized {
+class ColumnSelectVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -33,7 +38,7 @@ public:
     ~FixLengthPlainDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override;
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override;
 
     Status skip_values(size_t num_values) override;
 

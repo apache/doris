@@ -38,6 +38,18 @@ under the License.
 
 用于获取集群http、mysql连接信息。
 
+## Path parameters
+
+无
+
+## Query parameters
+
+无
+
+## Request body
+
+无
+
 ### Response
 
 ```

@@ -17,13 +17,26 @@
 
 #include "olap/tablet_schema.h"
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <cctype>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
+#include <ostream>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/consts.h"
+#include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gen_cpp/descriptors.pb.h"
+#include "olap/olap_define.h"
+#include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/thread_context.h"
 #include "tablet_meta.h"
-#include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
@@ -38,72 +51,72 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     FieldType type;
 
     if (0 == upper_type_str.compare("TINYINT")) {
-        type = OLAP_FIELD_TYPE_TINYINT;
+        type = FieldType::OLAP_FIELD_TYPE_TINYINT;
     } else if (0 == upper_type_str.compare("SMALLINT")) {
-        type = OLAP_FIELD_TYPE_SMALLINT;
+        type = FieldType::OLAP_FIELD_TYPE_SMALLINT;
     } else if (0 == upper_type_str.compare("INT")) {
-        type = OLAP_FIELD_TYPE_INT;
+        type = FieldType::OLAP_FIELD_TYPE_INT;
     } else if (0 == upper_type_str.compare("BIGINT")) {
-        type = OLAP_FIELD_TYPE_BIGINT;
+        type = FieldType::OLAP_FIELD_TYPE_BIGINT;
     } else if (0 == upper_type_str.compare("LARGEINT")) {
-        type = OLAP_FIELD_TYPE_LARGEINT;
+        type = FieldType::OLAP_FIELD_TYPE_LARGEINT;
     } else if (0 == upper_type_str.compare("UNSIGNED_TINYINT")) {
-        type = OLAP_FIELD_TYPE_UNSIGNED_TINYINT;
+        type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT;
     } else if (0 == upper_type_str.compare("UNSIGNED_SMALLINT")) {
-        type = OLAP_FIELD_TYPE_UNSIGNED_SMALLINT;
+        type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT;
     } else if (0 == upper_type_str.compare("UNSIGNED_INT")) {
-        type = OLAP_FIELD_TYPE_UNSIGNED_INT;
+        type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT;
     } else if (0 == upper_type_str.compare("UNSIGNED_BIGINT")) {
-        type = OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
+        type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
     } else if (0 == upper_type_str.compare("FLOAT")) {
-        type = OLAP_FIELD_TYPE_FLOAT;
+        type = FieldType::OLAP_FIELD_TYPE_FLOAT;
     } else if (0 == upper_type_str.compare("DISCRETE_DOUBLE")) {
-        type = OLAP_FIELD_TYPE_DISCRETE_DOUBLE;
+        type = FieldType::OLAP_FIELD_TYPE_DISCRETE_DOUBLE;
     } else if (0 == upper_type_str.compare("DOUBLE")) {
-        type = OLAP_FIELD_TYPE_DOUBLE;
+        type = FieldType::OLAP_FIELD_TYPE_DOUBLE;
     } else if (0 == upper_type_str.compare("CHAR")) {
-        type = OLAP_FIELD_TYPE_CHAR;
+        type = FieldType::OLAP_FIELD_TYPE_CHAR;
     } else if (0 == upper_type_str.compare("DATE")) {
-        type = OLAP_FIELD_TYPE_DATE;
+        type = FieldType::OLAP_FIELD_TYPE_DATE;
     } else if (0 == upper_type_str.compare("DATEV2")) {
-        type = OLAP_FIELD_TYPE_DATEV2;
+        type = FieldType::OLAP_FIELD_TYPE_DATEV2;
     } else if (0 == upper_type_str.compare("DATETIMEV2")) {
-        type = OLAP_FIELD_TYPE_DATETIMEV2;
+        type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     } else if (0 == upper_type_str.compare("DATETIME")) {
-        type = OLAP_FIELD_TYPE_DATETIME;
+        type = FieldType::OLAP_FIELD_TYPE_DATETIME;
     } else if (0 == upper_type_str.compare("DECIMAL32")) {
-        type = OLAP_FIELD_TYPE_DECIMAL32;
+        type = FieldType::OLAP_FIELD_TYPE_DECIMAL32;
     } else if (0 == upper_type_str.compare("DECIMAL64")) {
-        type = OLAP_FIELD_TYPE_DECIMAL64;
+        type = FieldType::OLAP_FIELD_TYPE_DECIMAL64;
     } else if (0 == upper_type_str.compare("DECIMAL128I")) {
-        type = OLAP_FIELD_TYPE_DECIMAL128I;
+        type = FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
     } else if (0 == upper_type_str.compare(0, 7, "DECIMAL")) {
-        type = OLAP_FIELD_TYPE_DECIMAL;
+        type = FieldType::OLAP_FIELD_TYPE_DECIMAL;
     } else if (0 == upper_type_str.compare(0, 7, "VARCHAR")) {
-        type = OLAP_FIELD_TYPE_VARCHAR;
+        type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
     } else if (0 == upper_type_str.compare("STRING")) {
-        type = OLAP_FIELD_TYPE_STRING;
+        type = FieldType::OLAP_FIELD_TYPE_STRING;
     } else if (0 == upper_type_str.compare("JSONB")) {
-        type = OLAP_FIELD_TYPE_JSONB;
+        type = FieldType::OLAP_FIELD_TYPE_JSONB;
     } else if (0 == upper_type_str.compare("BOOLEAN")) {
-        type = OLAP_FIELD_TYPE_BOOL;
+        type = FieldType::OLAP_FIELD_TYPE_BOOL;
     } else if (0 == upper_type_str.compare(0, 3, "HLL")) {
-        type = OLAP_FIELD_TYPE_HLL;
+        type = FieldType::OLAP_FIELD_TYPE_HLL;
     } else if (0 == upper_type_str.compare("STRUCT")) {
-        type = OLAP_FIELD_TYPE_STRUCT;
+        type = FieldType::OLAP_FIELD_TYPE_STRUCT;
     } else if (0 == upper_type_str.compare("LIST")) {
-        type = OLAP_FIELD_TYPE_ARRAY;
+        type = FieldType::OLAP_FIELD_TYPE_ARRAY;
     } else if (0 == upper_type_str.compare("MAP")) {
-        type = OLAP_FIELD_TYPE_MAP;
+        type = FieldType::OLAP_FIELD_TYPE_MAP;
     } else if (0 == upper_type_str.compare("OBJECT")) {
-        type = OLAP_FIELD_TYPE_OBJECT;
+        type = FieldType::OLAP_FIELD_TYPE_OBJECT;
     } else if (0 == upper_type_str.compare("ARRAY")) {
-        type = OLAP_FIELD_TYPE_ARRAY;
+        type = FieldType::OLAP_FIELD_TYPE_ARRAY;
     } else if (0 == upper_type_str.compare("QUANTILE_STATE")) {
-        type = OLAP_FIELD_TYPE_QUANTILE_STATE;
+        type = FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
     } else {
         LOG(WARNING) << "invalid type string. [type='" << type_str << "']";
-        type = OLAP_FIELD_TYPE_UNKNOWN;
+        type = FieldType::OLAP_FIELD_TYPE_UNKNOWN;
     }
 
     return type;
@@ -143,96 +156,96 @@ FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::s
 
 std::string TabletColumn::get_string_by_field_type(FieldType type) {
     switch (type) {
-    case OLAP_FIELD_TYPE_TINYINT:
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
         return "TINYINT";
 
-    case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
         return "UNSIGNED_TINYINT";
 
-    case OLAP_FIELD_TYPE_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
         return "SMALLINT";
 
-    case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
         return "UNSIGNED_SMALLINT";
 
-    case OLAP_FIELD_TYPE_INT:
+    case FieldType::OLAP_FIELD_TYPE_INT:
         return "INT";
 
-    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT:
         return "UNSIGNED_INT";
 
-    case OLAP_FIELD_TYPE_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
         return "BIGINT";
 
-    case OLAP_FIELD_TYPE_LARGEINT:
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
         return "LARGEINT";
 
-    case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
         return "UNSIGNED_BIGINT";
 
-    case OLAP_FIELD_TYPE_FLOAT:
+    case FieldType::OLAP_FIELD_TYPE_FLOAT:
         return "FLOAT";
 
-    case OLAP_FIELD_TYPE_DOUBLE:
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
         return "DOUBLE";
 
-    case OLAP_FIELD_TYPE_DISCRETE_DOUBLE:
+    case FieldType::OLAP_FIELD_TYPE_DISCRETE_DOUBLE:
         return "DISCRETE_DOUBLE";
 
-    case OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
         return "CHAR";
 
-    case OLAP_FIELD_TYPE_DATE:
+    case FieldType::OLAP_FIELD_TYPE_DATE:
         return "DATE";
 
-    case OLAP_FIELD_TYPE_DATEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
         return "DATEV2";
 
-    case OLAP_FIELD_TYPE_DATETIME:
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
         return "DATETIME";
 
-    case OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return "DATETIMEV2";
 
-    case OLAP_FIELD_TYPE_DECIMAL:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
         return "DECIMAL";
 
-    case OLAP_FIELD_TYPE_DECIMAL32:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
         return "DECIMAL32";
 
-    case OLAP_FIELD_TYPE_DECIMAL64:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
         return "DECIMAL64";
 
-    case OLAP_FIELD_TYPE_DECIMAL128I:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         return "DECIMAL128I";
 
-    case OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         return "VARCHAR";
 
-    case OLAP_FIELD_TYPE_JSONB:
+    case FieldType::OLAP_FIELD_TYPE_JSONB:
         return "JSONB";
 
-    case OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
         return "STRING";
 
-    case OLAP_FIELD_TYPE_BOOL:
+    case FieldType::OLAP_FIELD_TYPE_BOOL:
         return "BOOLEAN";
 
-    case OLAP_FIELD_TYPE_HLL:
+    case FieldType::OLAP_FIELD_TYPE_HLL:
         return "HLL";
 
-    case OLAP_FIELD_TYPE_STRUCT:
+    case FieldType::OLAP_FIELD_TYPE_STRUCT:
         return "STRUCT";
 
-    case OLAP_FIELD_TYPE_ARRAY:
+    case FieldType::OLAP_FIELD_TYPE_ARRAY:
         return "ARRAY";
 
-    case OLAP_FIELD_TYPE_MAP:
+    case FieldType::OLAP_FIELD_TYPE_MAP:
         return "MAP";
 
-    case OLAP_FIELD_TYPE_OBJECT:
+    case FieldType::OLAP_FIELD_TYPE_OBJECT:
         return "OBJECT";
-    case OLAP_FIELD_TYPE_QUANTILE_STATE:
+    case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         return "QUANTILE_STATE";
 
     default:
@@ -456,17 +469,17 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     }
     column->set_visible(_visible);
 
-    if (_type == OLAP_FIELD_TYPE_STRUCT) {
+    if (_type == FieldType::OLAP_FIELD_TYPE_STRUCT) {
         for (size_t i = 0; i < _sub_columns.size(); i++) {
             ColumnPB* child = column->add_children_columns();
             _sub_columns[i].to_schema_pb(child);
         }
-    } else if (_type == OLAP_FIELD_TYPE_ARRAY) {
+    } else if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
         ColumnPB* child = column->add_children_columns();
         _sub_columns[0].to_schema_pb(child);
     }
-    if (_type == OLAP_FIELD_TYPE_MAP) {
+    if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
         DCHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
         ColumnPB* child_key = column->add_children_columns();
         _sub_columns[0].to_schema_pb(child_key);
@@ -847,6 +860,15 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
         indexes.emplace_back(std::move(index));
     }
     _indexes = std::move(indexes);
+}
+
+Status TabletSchema::have_column(const std::string& field_name) const {
+    if (!_field_name_to_index.count(field_name)) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "Not found field_name, field_name:{}, schema:{}", field_name,
+                get_all_field_names());
+    }
+    return Status::OK();
 }
 
 const TabletColumn& TabletSchema::column(const std::string& field_name) const {

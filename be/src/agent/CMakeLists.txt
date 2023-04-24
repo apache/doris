@@ -26,14 +26,12 @@ set(AGENT_SOURCES
     heartbeat_server.cpp
     task_worker_pool.cpp
     utils.cpp
-    cgroups_mgr.cpp
     topic_subscriber.cpp
     user_resource_listener.cpp
 )
 
 if (OS_MACOSX)
-    list(REMOVE_ITEM AGENT_SOURCES cgroups_mgr.cpp user_resource_listener.cpp)
-    list(APPEND AGENT_SOURCES cgroups_mgr_mac.cpp)
+    list(REMOVE_ITEM AGENT_SOURCES user_resource_listener.cpp)
 endif()
 
 add_library(Agent STATIC ${AGENT_SOURCES})

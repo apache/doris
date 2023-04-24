@@ -20,12 +20,9 @@
 
 #pragma once
 
-#include <string.h>
-
 #include <cstdint>
-#include <functional>
-#include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "runtime/types.h"
@@ -34,19 +31,7 @@ namespace doris {
 
 struct ColumnPtrWrapper;
 struct StringRef;
-class BitmapValue;
-class DecimalV2Value;
-class DateTimeValue;
-class CollectionValue;
-struct TypeDescriptor;
-
 class RuntimeState;
-// All input and output values will be one of the structs below. The struct is a simple
-// object containing a boolean to store if the value is nullptr and the value itself. The
-// value is unspecified if the nullptr boolean is set.
-struct AnyVal;
-struct StringRef;
-struct DateTimeVal;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -87,8 +72,6 @@ public:
     void set_constant_cols(const std::vector<std::shared_ptr<doris::ColumnPtrWrapper>>& cols);
 
     RuntimeState* state() { return _state; }
-
-    std::string& string_result() { return _string_result; }
 
     bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
 
@@ -179,48 +162,5 @@ private:
     std::string _string_result;
 };
 
-//----------------------------------------------------------------------------
-//-------------Implementation of the *Val structs ----------------------------
-//----------------------------------------------------------------------------
-struct AnyVal {
-    bool is_null;
-
-    AnyVal() : is_null(false) {}
-
-    AnyVal(bool is_null) : is_null(is_null) {}
-};
-
-// This object has a compatible storage format with boost::ptime.
-struct DateTimeVal : public AnyVal {
-    // MySQL packet time
-    int64_t packed_time;
-    // Indicate which type of this value.
-    int type;
-
-    // NOTE: Type 3 is TIME_DATETIME in runtime/datetime_value.h
-    DateTimeVal() : packed_time(0), type(3) {}
-
-    static DateTimeVal null() {
-        DateTimeVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const DateTimeVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return packed_time == other.packed_time;
-    }
-
-    bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
-};
-
-using doris::DateTimeVal;
 using doris::FunctionContext;
 } // namespace doris

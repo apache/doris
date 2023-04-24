@@ -17,6 +17,11 @@
 
 #include "vec/exec/format/parquet/byte_array_plain_decoder.h"
 
+#include <algorithm>
+#include <vector>
+
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
@@ -38,7 +43,8 @@ Status ByteArrayPlainDecoder::skip_values(size_t num_values) {
 }
 
 Status ByteArrayPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                            ColumnSelectVector& select_vector) {
+                                            ColumnSelectVector& select_vector,
+                                            bool is_dict_filter) {
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
     case TypeIndex::String:

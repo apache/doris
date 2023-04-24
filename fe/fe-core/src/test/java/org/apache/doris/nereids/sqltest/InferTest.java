@@ -82,11 +82,25 @@ public class InferTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        leftSemiLogicalJoin(
-                                logicalProject(
-                                        innerLogicalJoin()
-                                ),
+                        innerLogicalJoin(
+                                leftSemiLogicalJoin(),
                                 logicalProject()
+                        )
+                );
+    }
+
+    @Test
+    void aggEliminateOuterJoin() {
+        String sql = "select count(T2.score) from T1 left Join T2 on T1.id = T2.id";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalAggregate(
+                               logicalProject(
+                                       innerLogicalJoin()
+                               )
                         )
                 );
     }

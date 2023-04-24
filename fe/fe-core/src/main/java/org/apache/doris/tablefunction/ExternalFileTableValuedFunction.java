@@ -20,7 +20,6 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -29,9 +28,10 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
@@ -153,7 +153,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (fileType == TFileType.FILE_HDFS) {
             return locationProperties.get(HdfsTableValuedFunction.HADOOP_FS_NAME);
         } else if (fileType == TFileType.FILE_S3) {
-            return locationProperties.get(S3TableValuedFunction.S3_ENDPOINT);
+            return locationProperties.get(S3Properties.ENDPOINT);
         }
         return "";
     }
@@ -310,11 +310,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new ExternalFileScanNode(id, desc, false);
+        return new FileQueryScanNode(id, desc, false);
     }
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
+        if (FeConstants.runningUnitTest) {
+            return Lists.newArrayList();
+        }
         if (!csvSchema.isEmpty()) {
             return csvSchema;
         }
@@ -324,7 +327,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // get one BE address
         TNetworkAddress address = null;
         columns = Lists.newArrayList();
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : org.apache.doris.catalog.Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
                 address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
                 break;
@@ -377,7 +380,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 // only support ScalarType.
                 PScalarType scalarType = typeNode.getScalarType();
                 TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(scalarType.getType());
-                columns.add(new Column(colName, PrimitiveType.fromThrift(tPrimitiveType), true));
+                columns.add(new Column(colName, PrimitiveType.fromThrift(tPrimitiveType),
+                        scalarType.getLen() <= 0 ? -1 : scalarType.getLen(), scalarType.getPrecision(),
+                        scalarType.getScale(), true));
             }
         }
     }
@@ -414,6 +419,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileRangeDesc.setPath(firstFile.getPath());
         fileRangeDesc.setStartOffset(0);
         fileRangeDesc.setSize(firstFile.getSize());
+        fileRangeDesc.setFileSize(firstFile.getSize());
         // set TFileScanRange
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.addToRanges(fileRangeDesc);
@@ -422,3 +428,4 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 }
+

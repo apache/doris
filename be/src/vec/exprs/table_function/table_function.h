@@ -30,44 +30,49 @@ constexpr auto COMBINATOR_SUFFIX_OUTER = "_outer";
 
 class TableFunction {
 public:
-    virtual ~TableFunction() {}
+    virtual ~TableFunction() = default;
 
     virtual Status prepare() { return Status::OK(); }
 
     virtual Status open() { return Status::OK(); }
 
-    // only used for vectorized.
-    virtual Status process_init(vectorized::Block* block) = 0;
+    virtual Status process_init(Block* block) = 0;
 
-    // only used for vectorized.
-    virtual Status process_row(size_t row_idx) = 0;
+    virtual Status process_row(size_t row_idx) {
+        _cur_size = 0;
+        return reset();
+    }
 
     // only used for vectorized.
     virtual Status process_close() = 0;
 
-    virtual Status reset() = 0;
-
-    virtual Status get_value(void** output) = 0;
-
-    // only used for vectorized.
-    virtual Status get_value_length(int64_t* length) {
-        *length = -1;
+    virtual Status reset() {
+        _eos = false;
+        _cur_offset = 0;
         return Status::OK();
+    }
+
+    virtual void get_value(MutableColumnPtr& column) = 0;
+
+    virtual int get_value(MutableColumnPtr& column, int max_step) {
+        max_step = std::max(1, std::min(max_step, (int)(_cur_size - _cur_offset)));
+        int i = 0;
+        for (; i < max_step && !eos(); i++) {
+            get_value(column);
+            forward();
+        }
+        return i;
     }
 
     virtual Status close() { return Status::OK(); }
 
-    virtual Status forward(bool* eos) {
-        if (_is_current_empty) {
-            *eos = true;
+    virtual Status forward(int step = 1) {
+        if (current_empty()) {
             _eos = true;
         } else {
-            ++_cur_offset;
-            if (_cur_offset == _cur_size) {
-                *eos = true;
+            _cur_offset += step;
+            if (_cur_offset >= _cur_size) {
                 _eos = true;
-            } else {
-                *eos = false;
             }
         }
         return Status::OK();
@@ -76,9 +81,8 @@ public:
     std::string name() const { return _fn_name; }
     bool eos() const { return _eos; }
 
-    void set_vexpr_context(vectorized::VExprContext* vexpr_context) {
-        _vexpr_context = vexpr_context;
-    }
+    void set_vexpr_context(VExprContext* vexpr_context) { _vexpr_context = vexpr_context; }
+    void set_nullable() { _is_nullable = true; }
 
     bool is_outer() const { return _is_outer; }
     void set_outer() {
@@ -89,21 +93,21 @@ public:
         _fn_name += COMBINATOR_SUFFIX_OUTER;
     }
 
-    bool current_empty() const { return _is_current_empty; }
+    bool current_empty() const { return _cur_size == 0; }
 
 protected:
     std::string _fn_name;
-    vectorized::VExprContext* _vexpr_context = nullptr;
+    VExprContext* _vexpr_context = nullptr;
     // true if there is no more data can be read from this function.
     bool _eos = false;
-    // true means the function result set from current row is empty(eg, source value is null or empty).
-    // so that when calling reset(), we can do nothing and keep eos as false.
-    bool _is_current_empty = false;
     // the position of current cursor
     int64_t _cur_offset = 0;
     // the size of current result
     int64_t _cur_size = 0;
     // set _is_outer to false for explode function, and should not return tuple while array is null or empty
     bool _is_outer = false;
+
+    bool _is_nullable = false;
+    bool _is_const = false;
 };
 } // namespace doris::vectorized

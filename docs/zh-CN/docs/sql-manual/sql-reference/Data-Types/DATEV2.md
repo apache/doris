@@ -30,7 +30,7 @@ under the License.
 
 <version since="1.2.0">
 
-DATAV2
+DATEV2
 
 </version>
 

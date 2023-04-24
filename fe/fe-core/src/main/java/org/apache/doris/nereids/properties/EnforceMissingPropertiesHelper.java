@@ -152,7 +152,7 @@ public class EnforceMissingPropertiesHelper {
         ENFORCER_TRACER.log(EnforcerEvent.of(groupExpression, ((PhysicalPlan) enforcer.getPlan()),
                 oldOutputProperty, newOutputProperty));
         curTotalCost = CostCalculator.addChildCost(enforcer.getPlan(),
-                CostCalculator.calculateCost(enforcer),
+                CostCalculator.calculateCost(enforcer, Lists.newArrayList(oldOutputProperty)),
                 curTotalCost,
                 0);
         if (enforcer.updateLowestCostTable(newOutputProperty,

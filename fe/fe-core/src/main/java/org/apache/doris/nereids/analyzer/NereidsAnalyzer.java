@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySe
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
+import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
@@ -52,6 +53,9 @@ public class NereidsAnalyzer extends BatchRewriteJob {
                 new CheckPolicy(),
                 new UserAuthentication(),
                 new BindExpression()
+            ),
+            bottomUp(
+                new CheckBound()
             ),
             bottomUp(
                 new ProjectToGlobalAggregate(),

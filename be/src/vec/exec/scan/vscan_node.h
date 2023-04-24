@@ -17,15 +17,55 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <parallel_hashmap/phmap.h>
+#include <stdint.h>
+
+#include <functional>
+#include <list>
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include "common/global_types.h"
+#include "common/object_pool.h"
+#include "common/status.h"
 #include "exec/exec_node.h"
 #include "exec/olap_common.h"
 #include "exprs/function_filter.h"
-#include "exprs/runtime_filter.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_state.h"
 #include "util/lock.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/scan/scanner_context.h"
-#include "vec/exprs/vectorized_fn_call.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/exprs/vin_predicate.h"
+#include "vec/runtime/shared_scanner_controller.h"
+
+namespace doris {
+class BitmapFilterFuncBase;
+class BloomFilterFuncBase;
+class DescriptorTbl;
+class FunctionContext;
+class HybridSetBase;
+class IRuntimeFilter;
+class SlotDescriptor;
+class TScanRangeParams;
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+class VExpr;
+class VExprContext;
+class VInPredicate;
+class VectorizedFnCall;
+} // namespace vectorized
+struct StringRef;
+} // namespace doris
 
 namespace doris::pipeline {
 class ScanOperator;
@@ -73,6 +113,23 @@ public:
     Status open(RuntimeState* state) override;
 
     virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
+
+    void set_shared_scan(RuntimeState* state, bool shared_scan) {
+        _shared_scan_opt = shared_scan;
+        if (_is_pipeline_scan) {
+            if (_shared_scan_opt) {
+                _shared_scanner_controller =
+                        state->get_query_ctx()->get_shared_scanner_controller();
+                auto [should_create_scanner, queue_id] =
+                        _shared_scanner_controller->should_build_scanner_and_queue_id(id());
+                _should_create_scanner = should_create_scanner;
+                _context_queue_id = queue_id;
+            } else {
+                _should_create_scanner = true;
+                _context_queue_id = 0;
+            }
+        }
+    }
 
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
@@ -310,6 +367,9 @@ protected:
 
     RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+
+    std::unordered_map<std::string, int> _colname_to_slot_id;
+    std::vector<int> _col_distribute_ids;
 
 private:
     // Register and get all runtime filters at Init phase.

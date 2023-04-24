@@ -144,6 +144,35 @@ suite("test_string_function") {
     qt_sql "select substring('abc1', 5);"
     qt_sql "select substring('abc1def', 2, 2);"
 
+    sql """ drop table if exists test_string_function; """
+    sql """ create table test_string_function (
+        k1 varchar(16),
+        v1 int
+    ) distributed by hash (k1) buckets 1
+    properties ("replication_num"="1");
+    """
+    sql """ insert into test_string_function values
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1)
+    """
+    // bug fix
+    qt_sql_substring1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ substring(k1, cast(null as int), cast(null as int)) from test_string_function; """
+
     qt_sql "select substr('a',3,1);"
     qt_sql "select substr('a',2,1);"
     qt_sql "select substr('a',1,1);"
@@ -179,4 +208,73 @@ suite("test_string_function") {
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
+
+    // test function char
+    sql 'set enable_nereids_planner=false'
+    def success = false
+    try {
+        sql """ select char(68 using abc); """
+        success = true
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("only support charset name 'utf8'"), e.getMessage())
+    }
+    assertFalse(success)
+
+    // const
+    qt_sql_func_char_const1 """ select char(68); """
+    qt_sql_func_char_const2 """ select char(68, 111, 114, 105, 115); """
+    qt_sql_func_char_const3 """ select char(0, 68, 111, 114, 105, 115); """
+    qt_sql_func_char_const4 """ select char(68, 111, 114, 105, 115, 0); """
+    qt_sql_func_char_const5 """ select length(char(68, 111, 114, 105, 115, 0)); """
+    qt_sql_func_char_const6 """ select char(68, 111, 114, 0, 105, null, 115 using utf8); """
+    qt_sql_func_char_const7 """ select char(229, 164, 154); """
+    qt_sql_func_char_const8 """ select length(char(229, 164, 154 using utf8)); """
+    qt_sql_func_char_const9 """ select char(15049882, 15179199, 14989469); """
+
+    sql "drop table if exists test_function_char;";
+    sql """ create table test_function_char (
+        k1 tinyint not null,
+        k2 smallint,
+        k3 int,
+        k4 bigint
+    ) distributed by hash (k1) buckets 1
+    properties ("replication_num"="1");
+    """
+
+    sql """ insert into test_function_char values
+        (97, 98, 99, 100),
+        (97, null, 99, 100),
+        (97, 98, null, 100),
+        (97, 98, 99, null),
+        (0, 98, 99, 100),
+        (97, 0, 99, 100),
+        (97, 98, 0, 100),
+        (97, 98, 99, 0)
+    """
+    qt_sql_func_char1 """ select char(k1) from test_function_char order by k1; """
+    qt_sql_func_char2 """ select char(k1, k2, k3, k4) from test_function_char order by k1, k2, k3, k4; """
+    qt_sql_func_char3 """ select char(65, k1, k2, k3, k4) from test_function_char order by k1, k2, k3, k4; """
+    qt_sql_func_char4 """ select char(k1, 15049882, k2, k3, k4) from test_function_char order by k1, k2, k3, k4; """
+    qt_sql_func_char5 """ select char(k1, k2, k3, k4, 15049882) from test_function_char order by k1, k2, k3, k4; """
+
+    sql "drop table if exists test_function_char;";
+    sql """ create table test_function_char (
+        k1 int not null,
+        k2 int,
+        k3 int,
+        k4 int
+    ) distributed by hash (k1) buckets 1
+    properties ("replication_num"="1");
+    """
+
+    sql """ insert into test_function_char values
+        (229, 164, 154, 0),
+        (15049882, null, 15179199, 14989469),
+        (15049882, 15179199, null, 14989469),
+        (15049882, 15179199, 14989469, null)
+    """
+    qt_sql_func_char6 """ select char(k1) from test_function_char order by k1; """
+    qt_sql_func_char7 """ select char(k1, k2, k3, k4) from test_function_char order by k1, k2, k3, k4; """
+    qt_sql_func_char8 """ select char(k1, k2, k3, k4, 65) from test_function_char order by k1, k2, k3, k4; """
+
 }

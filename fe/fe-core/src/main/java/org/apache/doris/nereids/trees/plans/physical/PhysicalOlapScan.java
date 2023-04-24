@@ -41,6 +41,8 @@ import java.util.Optional;
  */
 public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
 
+    public static final String DEFERRED_MATERIALIZED_SLOTS = "deferred_materialized_slots";
+
     private final OlapTable olapTable;
     private final DistributionSpec distributionSpec;
     private final long selectedIndexId;
@@ -54,13 +56,8 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     public PhysicalOlapScan(ObjectId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             PreAggStatus preAggStatus, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
-        super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
-        this.olapTable = olapTable;
-        this.selectedIndexId = selectedIndexId;
-        this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
-        this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
-        this.distributionSpec = distributionSpec;
-        this.preAggStatus = preAggStatus;
+        this(id, olapTable, qualifier, selectedIndexId, selectedTabletIds, selectedPartitionIds, distributionSpec,
+                preAggStatus, groupExpression, logicalProperties, null, null);
     }
 
     /**
@@ -109,9 +106,8 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalOlapScan",
+        return Utils.toSqlString("PhysicalOlapScan[" + id.asInt() + "]" + getGroupIdAsString(),
                 "qualified", Utils.qualifiedName(qualifier, olapTable.getName()),
-                "output", getOutput(),
                 "stats", statistics
         );
     }
@@ -158,7 +154,15 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     public PhysicalOlapScan withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds, distributionSpec, preAggStatus, Optional.empty(),
+                selectedPartitionIds, distributionSpec, preAggStatus, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics);
     }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(this.getClass().getSimpleName()).append("[").append(olapTable.getName()).append("]");
+        return builder.toString();
+    }
+
 }

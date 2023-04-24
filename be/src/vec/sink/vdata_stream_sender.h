@@ -17,36 +17,54 @@
 
 #pragma once
 
-#include <memory>
+#include <brpc/controller.h>
+#include <butil/errno.h>
+#include <fmt/format.h>
+#include <gen_cpp/Partitions_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <stdint.h>
 
+#include <atomic>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/config.h"
 #include "common/global_types.h"
+#include "common/logging.h"
+#include "common/status.h"
 #include "exec/data_sink.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/data.pb.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "pipeline/exec/exchange_sink_buffer.h"
-#include "runtime/descriptors.h"
 #include "service/backend_options.h"
 #include "util/ref_count_closure.h"
+#include "util/runtime_profile.h"
 #include "util/uid_util.h"
-#include "vec/exprs/vexpr.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
 class ObjectPool;
 class RuntimeState;
-class RuntimeProfile;
-class BufferControlBlock;
 class MemTracker;
+class RowDescriptor;
+class TDataSink;
+class TDataStreamSink;
+class TPlanFragmentDestination;
+
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
 
 namespace pipeline {
 class ExchangeSinkOperator;
 }
 
 namespace vectorized {
-class VExprContext;
 class Channel;
 
 template <typename T>
@@ -233,8 +251,7 @@ public:
               _need_close(false),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
-              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
-              _capacity(std::max(1, buffer_size / std::max(_row_desc.get_row_size(), 1))) {
+              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
         std::string localhost = BackendOptions::get_localhost();
         _is_local = (_brpc_dest_addr.hostname == localhost) &&
                     (_brpc_dest_addr.port == config::brpc_port);
@@ -292,8 +309,6 @@ public:
         return uid.to_string();
     }
 
-    TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
-
     bool is_local() const { return _is_local; }
 
     virtual void ch_roll_pb_block();
@@ -302,7 +317,11 @@ public:
         if (!is_local()) {
             return true;
         }
-        return !_local_recvr || _local_recvr->is_closed() || !_local_recvr->exceeds_limit(0);
+
+        // if local recvr queue mem over the exchange node mem limit, we must ensure each queue
+        // has one block to do merge sort in exchange node to prevent the logic dead lock
+        return !_local_recvr || _local_recvr->is_closed() || !_local_recvr->exceeds_limit(0) ||
+               _local_recvr->sender_queue_empty(_parent->_sender_id);
     }
 
 protected:
@@ -363,7 +382,6 @@ protected:
     bool _send_query_statistics_with_every_batch;
     RuntimeState* _state;
 
-    size_t _capacity;
     bool _is_local;
     std::shared_ptr<VDataStreamRecvr> _local_recvr;
     // serialized blocks for broadcasting; we need two so we can write
@@ -426,6 +444,9 @@ public:
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
     Status send_block(PBlock* block, bool eos = false) override {
+        std::unique_ptr<PBlock> pblock_ptr;
+        pblock_ptr.reset(block);
+
         if (eos) {
             if (_eos_send) {
                 return Status::OK();
@@ -434,8 +455,7 @@ public:
             }
         }
         if (eos || block->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block(
-                    {this, block ? std::make_unique<PBlock>(*block) : nullptr, eos}));
+            RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos}));
         }
         return Status::OK();
     }
@@ -460,15 +480,14 @@ public:
             return send_local_block(eos);
         }
 
-        PBlock* block_ptr = nullptr;
+        auto block_ptr = std::make_unique<PBlock>();
         if (_mutable_block) {
-            block_ptr = new PBlock(); // TODO: need a pool of PBlock()
             auto block = _mutable_block->to_block();
-            RETURN_IF_ERROR(_parent->serialize_block(&block, block_ptr));
+            RETURN_IF_ERROR(_parent->serialize_block(&block, block_ptr.get()));
             block.clear_column_data();
             _mutable_block->set_muatable_columns(block.mutate_columns());
         }
-        RETURN_IF_ERROR(send_block(block_ptr, eos));
+        RETURN_IF_ERROR(send_block(block_ptr.release(), eos));
         return Status::OK();
     }
 

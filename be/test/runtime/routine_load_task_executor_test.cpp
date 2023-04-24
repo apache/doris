@@ -18,6 +18,7 @@
 #include "runtime/routine_load/routine_load_task_executor.h"
 
 #include <gtest/gtest.h>
+#include <librdkafka/rdkafkacpp.h>
 
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"

@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-Please use [JDBC Catalog](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc/) to access JDBC data sources.
+Please use [JDBC Catalog](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc/) to access JDBC data sources, this function will no longer be maintained after version 1.2.2.
 
 </version>
 
@@ -153,9 +153,9 @@ CREATE EXTERNAL TABLE `ext_pg` (
   `k1` int
 ) ENGINE=JDBC
 PROPERTIES (
-"resource" = "jdbc_pg",
-"table" = "pg_tbl",
-"table_type"="postgresql"
+    "resource" = "jdbc_pg",
+    "table" = "pg_tbl",
+    "table_type"="postgresql"
 );
 ```
 
@@ -177,8 +177,62 @@ Test information on more versions will be provided in the future.
 
 | ClickHouse Version | ClickHouse JDBC Driver Version        |
 | ------------------ | ------------------------------------- |
-| 22                 | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| 22           | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| 22           | clickhouse-jdbc-0.4.1-all.jar         |
 
+#### 6.Sap Hana Test
+
+| Sap Hana Version | Sap Hana JDBC Driver Version |
+|------------------|------------------------------|
+| 2.0              | ngdbc.jar                    |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_hana
+properties (
+    "type"="jdbc",
+    "user"="SYSTEM",
+    "password"="SAPHANA",
+    "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+    "driver_url" = "file:///path/to/ngdbc.jar",
+    "driver_class" = "com.sap.db.jdbc.Driver"
+);
+
+CREATE EXTERNAL TABLE `ext_hana` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_hana",
+    "table" = "TEST.HANA",
+    "table_type"="sap_hana"
+);
+```
+
+#### 7.Trino Test
+
+| Trino Version | Trino JDBC Driver Version |
+|---------------|---------------------------|
+| 389           | trino-jdbc-389.jar        |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_trino
+properties (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:trino://localhost:8080/hive",
+    "driver_url" = "file:///path/to/trino-jdbc-389.jar",
+    "driver_class" = "io.trino.jdbc.TrinoDriver"
+);
+
+CREATE EXTERNAL TABLE `ext_trino` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_trino",
+    "table" = "hive.test",
+    "table_type"="trino"
+);
+```
 
 ## Type Mapping
 
@@ -249,27 +303,73 @@ The followings list how data types in different databases are mapped in Doris.
 
 ### ClickHouse
 
-| ClickHouse |  Doris   |
-| :--------: | :------: |
-|  BOOLEAN   | BOOLEAN  |
-|    CHAR    |   CHAR   |
-|  VARCHAR   | VARCHAR  |
-|   STRING   |  STRING  |
-|    DATE    |   DATE   |
-|  Float32   |  FLOAT   |
-|  Float64   |  DOUBLE  |
-|    Int8    | TINYINT  |
-|   Int16    | SMALLINT |
-|   Int32    |   INT    |
-|   Int64    |  BIGINT  |
-|   Int128   | LARGEINT |
-|  DATETIME  | DATETIME |
-|  DECIMAL   | DECIMAL  |
+|                       ClickHouse                        |          Doris           |
+|:-------------------------------------------------------:|:------------------------:|
+|                         Boolean                         |         BOOLEAN          |
+|                         String                          |          STRING          |
+|                       Date/Date32                       |       DATE/DATEV2        |
+|                   DateTime/DateTime64                   |   DATETIME/DATETIMEV2    |
+|                         Float32                         |          FLOAT           |
+|                         Float64                         |          DOUBLE          |
+|                          Int8                           |         TINYINT          |
+|                       Int16/UInt8                       |         SMALLINT         |
+|                      Int32/UInt16                       |           INT            |
+|                      Int64/Uint32                       |          BIGINT          |
+|                      Int128/UInt64                      |         LARGEINT         |
+|                 Int256/UInt128/UInt256                  |          STRING          |
+|                         Decimal                         | DECIMAL/DECIMALV3/STRING |
+|                   Enum/IPv4/IPv6/UUID                   |          STRING          |
+| <version since="dev" type="inline"> Array(T) </version> |        ARRAY\<T\>        |
 
-Note:
 
+**Note:**
+
+- <version since="dev" type="inline"> For Array types in ClickHouse, use Doris's Array type to match them. For basic types in an Array, see Basic type matching rules. Nested arrays are not supported. </version>
 - Some data types in ClickHouse, such as UUID, IPv4, IPv6, and Enum8, will be mapped to Varchar/String in Doris. IPv4 and IPv6 will be displayed with an `/` as a prefix. You can use the `split_part` function to remove the `/` .
 - The Point Geo type in ClickHouse cannot be mapped in Doris by far. 
+
+### SAP HANA
+
+|   SAP_HANA   |        Doris        |
+|:------------:|:-------------------:|
+|   BOOLEAN    |       BOOLEAN       |
+|   TINYINT    |       TINYINT       |
+|   SMALLINT   |      SMALLINT       |
+|   INTERGER   |         INT         |
+|    BIGINT    |       BIGINT        |
+| SMALLDECIMAL |  DECIMAL/DECIMALV3  |
+|   DECIMAL    |  DECIMAL/DECIMALV3  |
+|     REAL     |        FLOAT        |
+|    DOUBLE    |       DOUBLE        |
+|     DATE     |     DATE/DATEV2     |
+|     TIME     |        TEXT         |
+|  TIMESTAMP   | DATETIME/DATETIMEV2 |
+|  SECONDDATE  | DATETIME/DATETIMEV2 |
+|   VARCHAR    |        TEXT         |
+|   NVARCHAR   |        TEXT         |
+|   ALPHANUM   |        TEXT         |
+|  SHORTTEXT   |        TEXT         |
+|     CHAR     |        CHAR         |
+|    NCHAR     |        CHAR         |
+
+### Trino
+
+|   Trino   |        Doris        |
+|:---------:|:-------------------:|
+|  boolean  |       BOOLEAN       |
+|  tinyint  |       TINYINT       |
+| smallint  |      SMALLINT       |
+|  integer  |         INT         |
+|  bigint   |       BIGINT        |
+|  decimal  |  DECIMAL/DECIMALV3  |
+|   real    |        FLOAT        |
+|  double   |       DOUBLE        |
+|   date    |     DATE/DATEV2     |
+| timestamp | DATETIME/DATETIMEV2 |
+|  varchar  |        TEXT         |
+|   char    |        CHAR         |
+|   array   |        ARRAY        |
+|  others   |     UNSUPPORTED     |
 
 ## Q&A
 

@@ -18,32 +18,71 @@
 #include "vec/exec/scan/vfile_scanner.h"
 
 #include <fmt/format.h>
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
 
-#include <vec/data_types/data_type_factory.hpp>
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <iterator>
+#include <map>
+#include <ostream>
+#include <tuple>
+#include <utility>
 
+#include "vec/data_types/data_type_factory.hpp"
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
-#include "common/utils.h"
-#include "exec/text_converter.hpp"
+#include "common/object_pool.h"
 #include "io/cache/block/block_file_cache_profile.h"
-#include "olap/iterators.h"
 #include "runtime/descriptors.h"
-#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/vscan_node.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vslot_ref.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace vectorized {
+class ShardedKVCache;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 using namespace ErrorCode;
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                            const TFileScanRange& scan_range, RuntimeProfile* profile,
-                           KVCache<std::string>& kv_cache)
+                           ShardedKVCache* kv_cache)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _params(scan_range.params),
           _ranges(scan_range.ranges),
@@ -59,9 +98,11 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 
 Status VFileScanner::prepare(
         VExprContext** vconjunct_ctx_ptr,
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const std::unordered_map<std::string, int>* colname_to_slot_id) {
     RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
     _colname_to_value_range = colname_to_value_range;
+    _col_name_to_slot_id = colname_to_slot_id;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
     _cast_to_input_block_timer =
@@ -73,12 +114,12 @@ Status VFileScanner::prepare(
     _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
     _convert_to_output_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
+    _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
 
-    _file_cache_statistics.reset(new FileCacheStatistics());
-    _io_ctx.reset(new IOContext());
+    _file_cache_statistics.reset(new io::FileCacheStatistics());
+    _io_ctx.reset(new io::IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->query_id = &_state->query_id();
-    _io_ctx->enable_file_cache = _state->query_options().enable_file_cache;
 
     if (_is_load) {
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
@@ -99,6 +140,60 @@ Status VFileScanner::prepare(
                                                   std::vector<bool>({false})));
 
     return Status::OK();
+}
+
+Status VFileScanner::_split_conjuncts(VExpr* conjunct_expr_root) {
+    static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
+    if (conjunct_expr_root != nullptr) {
+        if (is_leaf(conjunct_expr_root)) {
+            auto impl = conjunct_expr_root->get_impl();
+            // If impl is not null, which means this a conjuncts from runtime filter.
+            VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
+            VExprContext* new_ctx =
+                    _state->obj_pool()->add(VExprContext::create_unique(cur_expr).release());
+            _vconjunct_ctx->clone_fn_contexts(new_ctx);
+            RETURN_IF_ERROR(new_ctx->prepare(_state, *_default_val_row_desc));
+            RETURN_IF_ERROR(new_ctx->open(_state));
+
+            std::vector<int> slot_ids;
+            _get_slot_ids(cur_expr, &slot_ids);
+            if (slot_ids.size() == 0) {
+                _not_single_slot_filter_conjuncts.emplace_back(new_ctx);
+                return Status::OK();
+            }
+            bool single_slot = true;
+            for (int i = 1; i < slot_ids.size(); i++) {
+                if (slot_ids[i] != slot_ids[0]) {
+                    single_slot = false;
+                    break;
+                }
+            }
+            if (single_slot) {
+                SlotId slot_id = slot_ids[0];
+                if (_slot_id_to_filter_conjuncts.find(slot_id) ==
+                    _slot_id_to_filter_conjuncts.end()) {
+                    _slot_id_to_filter_conjuncts.insert({slot_id, std::vector<VExprContext*>()});
+                }
+                _slot_id_to_filter_conjuncts[slot_id].emplace_back(new_ctx);
+            } else {
+                _not_single_slot_filter_conjuncts.emplace_back(new_ctx);
+            }
+        } else {
+            RETURN_IF_ERROR(_split_conjuncts(conjunct_expr_root->children()[0]));
+            RETURN_IF_ERROR(_split_conjuncts(conjunct_expr_root->children()[1]));
+        }
+    }
+    return Status::OK();
+}
+
+void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
+    for (VExpr* child_expr : expr->children()) {
+        if (child_expr->is_slot_ref()) {
+            VSlotRef* slot_ref = reinterpret_cast<VSlotRef*>(child_expr);
+            slot_ids->emplace_back(slot_ref->slot_id());
+        }
+        _get_slot_ids(child_expr, slot_ids);
+    }
 }
 
 Status VFileScanner::open(RuntimeState* state) {
@@ -479,9 +574,10 @@ Status VFileScanner::_get_next_reader() {
         // TODO: use data lake type
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            ParquetReader* parquet_reader = new ParquetReader(
-                    _profile, _params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get());
+            ParquetReader* parquet_reader =
+                    new ParquetReader(_profile, _params, range, _state->query_options().batch_size,
+                                      const_cast<cctz::time_zone*>(&_state->timezone_obj()),
+                                      _io_ctx.get(), _state, _kv_cache);
             RETURN_IF_ERROR(parquet_reader->open());
             if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
@@ -492,20 +588,24 @@ Status VFileScanner::_get_next_reader() {
                 IcebergTableReader* iceberg_reader =
                         new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
                                                _params, range, _kv_cache, _io_ctx.get());
-                init_status = iceberg_reader->init_reader(_file_col_names, _col_id_name_map,
-                                                          _colname_to_value_range, _push_down_expr);
+                init_status = iceberg_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range, _push_down_expr,
+                        _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
                 std::vector<std::string> place_holder;
-                init_status = parquet_reader->init_reader(_file_col_names, place_holder,
-                                                          _colname_to_value_range, _push_down_expr);
+                init_status = parquet_reader->init_reader(
+                        _file_col_names, place_holder, _colname_to_value_range, _push_down_expr,
+                        _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 _cur_reader.reset((GenericReader*)parquet_reader);
             }
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            _cur_reader.reset(new OrcReader(_profile, _params, range, _file_col_names,
+            _cur_reader.reset(new OrcReader(_profile, _state, _params, range, _file_col_names,
                                             _state->query_options().batch_size, _state->timezone(),
                                             _io_ctx.get()));
             init_status = ((OrcReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
@@ -535,9 +635,12 @@ Status VFileScanner::_get_next_reader() {
         }
 
         if (init_status.is<END_OF_FILE>()) {
+            COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (!init_status.ok()) {
             if (init_status.is<ErrorCode::NOT_FOUND>()) {
+                COUNTER_UPDATE(_empty_file_counter, 1);
+                LOG(INFO) << "failed to find file: " << range.path;
                 return init_status;
             }
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
@@ -721,6 +824,11 @@ Status VFileScanner::_init_expr_ctxes() {
     // If last slot is_variant from stream plan which indicate table is dynamic schema
     _is_dynamic_schema =
             _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
+
+    // TODO: It should can move to scan node to process.
+    if (_vconjunct_ctx && _vconjunct_ctx->root()) {
+        _split_conjuncts(_vconjunct_ctx->root());
+    }
     return Status::OK();
 }
 
@@ -749,7 +857,21 @@ Status VFileScanner::close(RuntimeState* state) {
         _push_down_expr->close(state);
     }
 
-    if (config::enable_file_cache) {
+    for (auto& [k, v] : _slot_id_to_filter_conjuncts) {
+        for (auto& ctx : v) {
+            if (ctx != nullptr) {
+                ctx->close(state);
+            }
+        }
+    }
+
+    for (auto* ctx : _not_single_slot_filter_conjuncts) {
+        if (ctx != nullptr) {
+            ctx->close(state);
+        }
+    }
+
+    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(_profile);
         cache_profile.update(_file_cache_statistics.get());
     }

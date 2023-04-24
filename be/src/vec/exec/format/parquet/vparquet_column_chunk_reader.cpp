@@ -17,24 +17,52 @@
 
 #include "vparquet_column_chunk_reader.h"
 
+#include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "util/bit_util.h"
+#include "util/block_compression.h"
+#include "util/runtime_profile.h"
+#include "vec/columns/column.h"
+#include "vec/exec/format/parquet/decoder.h"
+#include "vec/exec/format/parquet/level_decoder.h"
+#include "vec/exec/format/parquet/schema_desc.h"
+#include "vec/exec/format/parquet/vparquet_page_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace io {
+class BufferedStreamReader;
+class IOContext;
+} // namespace io
+} // namespace doris
+
 namespace doris::vectorized {
 
-ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
+ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
                                      tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
-                                     cctz::time_zone* ctz)
+                                     cctz::time_zone* ctz, io::IOContext* io_ctx)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
           _metadata(column_chunk->meta_data),
-          _ctz(ctz) {}
+          _ctz(ctz),
+          _io_ctx(io_ctx) {}
 
 Status ColumnChunkReader::init() {
     size_t start_offset = _metadata.__isset.dictionary_page_offset
                                   ? _metadata.dictionary_page_offset
                                   : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
-    _page_reader = std::make_unique<PageReader>(_stream_reader, start_offset, chunk_size);
+    _page_reader = std::make_unique<PageReader>(_stream_reader, _io_ctx, start_offset, chunk_size);
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     if (_metadata.__isset.dictionary_page_offset) {
@@ -52,6 +80,9 @@ Status ColumnChunkReader::init() {
 }
 
 Status ColumnChunkReader::next_page() {
+    if (_state == HEADER_PARSED) {
+        return Status::OK();
+    }
     if (UNLIKELY(_state == NOT_INIT)) {
         return Status::Corruption("Should initialize chunk reader");
     }
@@ -230,7 +261,8 @@ void ColumnChunkReader::_reserve_decompress_buf(size_t size) {
 
 Status ColumnChunkReader::skip_values(size_t num_values, bool skip_data) {
     if (UNLIKELY(_remaining_num_values < num_values)) {
-        return Status::IOError("Skip too many values in current page");
+        return Status::IOError("Skip too many values in current page. {} vs. {}",
+                               _remaining_num_values, num_values);
     }
     _remaining_num_values -= num_values;
     if (skip_data) {
@@ -258,16 +290,16 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
 }
 
 Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                        ColumnSelectVector& select_vector) {
+                                        ColumnSelectVector& select_vector, bool is_dict_filter) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    if (UNLIKELY(doris_column->is_column_dictionary() && !_has_dict)) {
+    if (UNLIKELY((doris_column->is_column_dictionary() || is_dict_filter) && !_has_dict)) {
         return Status::IOError("Not dictionary coded");
     }
     if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
         return Status::IOError("Decode too many values in current page");
     }
     _remaining_num_values -= select_vector.num_values();
-    return _page_decoder->decode_values(doris_column, data_type, select_vector);
+    return _page_decoder->decode_values(doris_column, data_type, select_vector, is_dict_filter);
 }
 
 int32_t ColumnChunkReader::_get_type_length() {

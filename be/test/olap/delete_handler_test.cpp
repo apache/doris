@@ -17,6 +17,7 @@
 
 #include "olap/delete_handler.h"
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -27,14 +28,16 @@
 #include <string>
 #include <vector>
 
+#include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/push_handler.h"
+#include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "olap/utils.h"
 #include "util/cpu_info.h"
-#include "util/file_utils.h"
 
 using namespace std;
 using namespace doris;
@@ -50,9 +53,13 @@ static void set_up() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
-    FileUtils::remove_all(config::storage_root_path);
-    FileUtils::remove_all(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
-    FileUtils::create_dir(config::storage_root_path);
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->delete_and_create_directory(config::storage_root_path)
+                        .ok());
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
+                        .ok());
+
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
     config::min_file_descriptor_number = 1000;
@@ -70,8 +77,10 @@ static void tear_down() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
-    FileUtils::remove_all(config::storage_root_path);
-    FileUtils::remove_all(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
+                        .ok());
     if (k_engine != nullptr) {
         k_engine->stop();
         delete k_engine;
@@ -253,8 +262,9 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        FileUtils::remove_all(config::storage_root_path);
-        EXPECT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->delete_and_create_directory(config::storage_root_path)
+                            .ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -280,7 +290,8 @@ protected:
         dup_tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(_create_tablet.tablet_id,
                                                                  _create_tablet.replica_id, false);
-        EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
+        EXPECT_TRUE(
+                io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
@@ -427,8 +438,9 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        FileUtils::remove_all(config::storage_root_path);
-        EXPECT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->delete_and_create_directory(config::storage_root_path)
+                            .ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -446,7 +458,8 @@ protected:
         tablet.reset();
         k_engine->tablet_manager()->drop_tablet(_create_tablet.tablet_id, _create_tablet.replica_id,
                                                 false);
-        EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
+        EXPECT_TRUE(
+                io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
@@ -799,8 +812,9 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        FileUtils::remove_all(config::storage_root_path);
-        EXPECT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->delete_and_create_directory(config::storage_root_path)
+                            .ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -842,7 +856,8 @@ protected:
         _delete_handler.finalize();
         StorageEngine::instance()->tablet_manager()->drop_tablet(_create_tablet.tablet_id,
                                                                  _create_tablet.replica_id, false);
-        EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
+        EXPECT_TRUE(
+                io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
     }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {

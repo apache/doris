@@ -17,47 +17,61 @@
 
 #include "olap/storage_engine.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
 #include <rapidjson/document.h>
-#include <signal.h>
-#include <sys/syscall.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/resource.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/classification.hpp>
-#include <boost/algorithm/string/split.hpp>
-#include <boost/algorithm/string/trim.hpp>
-#include <cstdio>
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/container/detail/std_fwd.hpp>
 #include <filesystem>
+#include <iterator>
+#include <list>
 #include <new>
-#include <queue>
+#include <ostream>
 #include <random>
 #include <set>
+#include <thread>
+#include <utility>
 
-#include "agent/cgroups_mgr.h"
 #include "agent/task_worker_pool.h"
-#include "env/env.h"
-#include "env/env_util.h"
+#include "common/config.h"
+#include "common/logging.h"
+#include "gutil/strings/substitute.h"
+#include "io/fs/local_file_system.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
-#include "olap/lru_cache.h"
 #include "olap/memtable_flush_executor.h"
-#include "olap/push_handler.h"
-#include "olap/reader.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
-#include "olap/schema_change.h"
 #include "olap/segment_loader.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/utils.h"
+#include "olap/task/engine_task.h"
+#include "olap/txn_manager.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
-#include "util/file_utils.h"
-#include "util/pretty_printer.h"
-#include "util/scoped_cleanup.h"
-#include "util/time.h"
+#include "util/metrics.h"
+#include "util/priority_thread_pool.hpp"
+#include "util/spinlock.h"
+#include "util/stopwatch.hpp"
+#include "util/thread.h"
+#include "util/threadpool.h"
 #include "util/trace.h"
+#include "util/uid_util.h"
 
 using apache::thrift::ThriftDebugString;
 using std::filesystem::canonical;
@@ -72,7 +86,6 @@ using std::map;
 using std::nothrow;
 using std::pair;
 using std::set;
-using std::set_difference;
 using std::string;
 using std::stringstream;
 using std::vector;
@@ -776,7 +789,9 @@ void StorageEngine::_clean_unused_txns() {
 Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& local_now,
                                 const int32_t expire) {
     Status res = Status::OK();
-    if (!FileUtils::check_exist(scan_root)) {
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(scan_root, &exists));
+    if (!exists) {
         // dir not existed. no need to sweep trash.
         return res;
     }
@@ -809,11 +824,8 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
 
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
-                Status ret = FileUtils::remove_all(path_name);
-                if (!ret.ok()) {
-                    LOG(WARNING) << "fail to remove file or directory. path_desc: " << scan_root
-                                 << ", error=" << ret.to_string();
-                    res = Status::Error<OS_ERROR>();
+                res = io::global_local_filesystem()->delete_directory(path_name);
+                if (!res.ok()) {
                     continue;
                 }
             } else {

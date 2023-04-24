@@ -17,15 +17,14 @@
 
 #include "runtime/test_env.h"
 
+#include <gtest/gtest.h>
 #include <sys/stat.h>
 
 #include <memory>
 
 #include "olap/storage_engine.h"
-#include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "util/disk_info.h"
-#include "util/priority_thread_pool.hpp"
 
 namespace doris {
 
@@ -36,16 +35,6 @@ TestEnv::TestEnv() {
     // TODO may need rpc support, etc.
 }
 
-void TestEnv::init_tmp_file_mgr(const std::vector<std::string>& tmp_dirs, bool one_dir_per_device) {
-    _tmp_file_mgr = std::make_shared<TmpFileMgr>();
-    _exec_env->_tmp_file_mgr = _tmp_file_mgr.get();
-
-    DiskInfo::init();
-    // will use DiskInfo::num_disks(), DiskInfo should be initialized before
-    auto st = _tmp_file_mgr->init_custom(tmp_dirs, one_dir_per_device);
-    DCHECK(st.ok()) << st;
-}
-
 TestEnv::~TestEnv() {
     SAFE_DELETE(_exec_env->_result_queue_mgr);
 
@@ -54,13 +43,6 @@ TestEnv::~TestEnv() {
         StorageEngine::_s_instance = nullptr;
     }
     SAFE_DELETE(_engine);
-}
-
-RuntimeState* TestEnv::create_runtime_state(int64_t query_id) {
-    TExecPlanFragmentParams plan_params = TExecPlanFragmentParams();
-    plan_params.params.query_id.hi = 0;
-    plan_params.params.query_id.lo = query_id;
-    return new RuntimeState(plan_params.params, TQueryOptions(), TQueryGlobals(), _exec_env);
 }
 
 void TestEnv::tear_down_query_states() {
@@ -97,7 +79,7 @@ void TestEnv::init_storage_engine(bool need_open, const std::vector<std::string>
     } else {
         _engine = new StorageEngine(options);
     }
-    DCHECK(st.ok()) << st;
+    EXPECT_TRUE(st.ok());
     _exec_env->set_storage_engine(_engine);
 }
 

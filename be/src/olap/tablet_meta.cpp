@@ -17,16 +17,29 @@
 
 #include "olap/tablet_meta.h"
 
-#include <sstream>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <json2pb/pb_to_json.h>
+#include <time.h>
 
-#include "common/consts.h"
-#include "olap/file_helper.h"
+#include <set>
+#include <utility>
+
+#include "common/config.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_writer.h"
+#include "olap/data_dir.h"
+#include "olap/file_header.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/utils.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
-#include "util/url_coding.h"
 
 using std::string;
 using std::unordered_map;
@@ -107,25 +120,25 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     // compression_type used to compress segment page
     switch (compression_type) {
     case TCompressionType::NO_COMPRESSION:
-        schema->set_compression_type(NO_COMPRESSION);
+        schema->set_compression_type(segment_v2::NO_COMPRESSION);
         break;
     case TCompressionType::SNAPPY:
-        schema->set_compression_type(SNAPPY);
+        schema->set_compression_type(segment_v2::SNAPPY);
         break;
     case TCompressionType::LZ4:
-        schema->set_compression_type(LZ4);
+        schema->set_compression_type(segment_v2::LZ4);
         break;
     case TCompressionType::LZ4F:
-        schema->set_compression_type(LZ4F);
+        schema->set_compression_type(segment_v2::LZ4F);
         break;
     case TCompressionType::ZLIB:
-        schema->set_compression_type(ZLIB);
+        schema->set_compression_type(segment_v2::ZLIB);
         break;
     case TCompressionType::ZSTD:
-        schema->set_compression_type(ZSTD);
+        schema->set_compression_type(segment_v2::ZSTD);
         break;
     default:
-        schema->set_compression_type(LZ4F);
+        schema->set_compression_type(segment_v2::LZ4F);
         break;
     }
 
@@ -240,6 +253,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_store_row_column(tablet_schema.store_row_column);
     }
 
+    tablet_meta_pb.set_is_dropped(false);
+
     init_from_pb(tablet_meta_pb);
 }
 
@@ -263,7 +278,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _storage_policy_id(b._storage_policy_id),
           _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
-          _delete_bitmap(b._delete_bitmap) {};
+          _delete_bitmap(b._delete_bitmap),
+          _is_dropped(b._is_dropped) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -321,22 +337,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
 }
 
 Status TabletMeta::create_from_file(const string& file_path) {
-    FileHeader<TabletMetaPB> file_header;
-    FileHandler file_handler;
-
-    auto open_status = file_handler.open(file_path, O_RDONLY);
-
-    if (!open_status.ok()) {
-        LOG(WARNING) << "fail to open ordinal file. file=" << file_path;
-        return open_status;
-    }
-
-    // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
-    if (file_header.unserialize(&file_handler) != Status::OK()) {
-        LOG(WARNING) << "fail to unserialize tablet_meta. file='" << file_path;
-        return Status::Error<PARSE_PROTOBUF_ERROR>();
-    }
-
+    FileHeader<TabletMetaPB> file_header(file_path);
+    // In file_header.deserialize(), it validates file length, signature, checksum of protobuf.
+    RETURN_IF_ERROR(file_header.deserialize());
     TabletMetaPB tablet_meta_pb;
     try {
         tablet_meta_pb.CopyFrom(file_header.message());
@@ -398,30 +401,15 @@ Status TabletMeta::save(const string& file_path) {
 
 Status TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta_pb) {
     DCHECK(!file_path.empty());
-
-    FileHeader<TabletMetaPB> file_header;
-    FileHandler file_handler;
-
-    auto open_status =
-            file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR);
-    if (!open_status.ok()) {
-        LOG(WARNING) << "fail to open header file. file='" << file_path;
-        return open_status;
-    }
-
+    FileHeader<TabletMetaPB> file_header(file_path);
     try {
         file_header.mutable_message()->CopyFrom(tablet_meta_pb);
     } catch (...) {
         LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
         return Status::Error<ErrorCode::INTERNAL_ERROR>();
     }
-
-    if (file_header.prepare(&file_handler) != Status::OK() ||
-        file_header.serialize(&file_handler) != Status::OK()) {
-        LOG(WARNING) << "fail to serialize to file header. file='" << file_path;
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
-    }
-
+    RETURN_IF_ERROR(file_header.prepare());
+    RETURN_IF_ERROR(file_header.serialize());
     return Status::OK();
 }
 
@@ -567,6 +555,12 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
         }
     }
+
+    if (tablet_meta_pb.has_is_dropped()) {
+        _is_dropped = tablet_meta_pb.is_dropped();
+    } else {
+        _is_dropped = false;
+    }
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -578,8 +572,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_shard_id(shard_id());
     tablet_meta_pb->set_creation_time(creation_time());
     tablet_meta_pb->set_cumulative_layer_point(cumulative_layer_point());
-    tablet_meta_pb->set_local_data_size(tablet_local_size());
-    tablet_meta_pb->set_remote_data_size(tablet_remote_size());
     *(tablet_meta_pb->mutable_tablet_uid()) = tablet_uid().to_proto();
     tablet_meta_pb->set_tablet_type(_tablet_type);
     switch (tablet_state()) {
@@ -642,6 +634,8 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             *(delete_bitmap_pb->add_segment_delete_bitmaps()) = std::move(bitmap_data);
         }
     }
+
+    tablet_meta_pb->set_is_dropped(_is_dropped);
 }
 
 uint32_t TabletMeta::mem_size() const {

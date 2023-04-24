@@ -69,11 +69,11 @@ CREATE CATALOG jdbc_postgresql PROPERTIES (
 
 映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定Catalog下的一个 Schema（如示例中 `jdbc_url` 参数中 "demo"下的schemas）。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
 
-|Doris | PostgreSQL |
-|---|---|
-| Catalog | Database | 
-| Database | Schema |
-| Table | Table |
+| Doris    | PostgreSQL |
+|----------|------------|
+| Catalog  | Database   | 
+| Database | Schema     |
+| Table    | Table      |
 
 > Doris通过sql语句`select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` 来获得PG user能够访问的所有schema并将其映射为Doris的database
 
@@ -94,11 +94,11 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
 
 映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
 
-|Doris | Oracle |
-|---|---|
-| Catalog | Database | 
-| Database | User |
-| Table | Table |
+| Doris    | Oracle   |
+|----------|----------|
+| Catalog  | Database | 
+| Database | User     |
+| Table    | Table    |
 
 4. Clickhouse
 
@@ -132,15 +132,15 @@ CREATE CATALOG sqlserver_catalog PROPERTIES (
 
 映射 SQLServer 时，Doris 的一个 Database 对应于 SQLServer 中指定 Database（如示例中 `jdbc_url` 参数中的 "doris_test"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 SQLServer 中，Schema 下的 Tables。即映射关系如下：
 
-|Doris | SQLServer |
-|---|---|
-| Catalog | Database | 
-| Database | Schema |
-| Table | Table |
+| Doris    | SQLServer |
+|----------|-----------|
+| Catalog  | Database  | 
+| Database | Schema    |
+| Table    | Table     |
 
 6. Doris
 
-<version since="dev"></version>
+<version since="1.2.3"></version>
 
 Jdbc Catalog也支持连接另一个Doris数据库：
 
@@ -157,6 +157,50 @@ CREATE CATALOG doris_catalog PROPERTIES (
 
 目前Jdbc Catalog连接一个Doris数据库只支持用5.x版本的jdbc jar包。如果使用8.x jdbc jar包，可能会出现列类型无法匹配问题。
 
+7. SAP HANA
+
+<version since="1.2.3"></version>
+
+```sql
+CREATE CATALOG hana_catalog PROPERTIES (
+    "type"="jdbc",
+    "user"="SYSTEM",
+    "password"="SAPHANA",
+    "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+    "driver_url" = "ngdbc.jar",
+    "driver_class" = "com.sap.db.jdbc.Driver"
+)
+```
+
+| Doris    | SAP HANA |
+|----------|----------|
+| Catalog  | Database | 
+| Database | Schema   |
+| Table    | Table    |
+
+8. Trino
+
+<version since="dev"></version>
+
+```sql
+CREATE CATALOG trino_catalog PROPERTIES (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:trino://localhost:9000/hive",
+    "driver_url" = "trino-jdbc-389.jar",
+    "driver_class" = "io.trino.jdbc.TrinoDriver"
+);
+```
+
+映射 Trino 时，Doris 的 Database 对应于 Trino 中指定 Catalog（如示例中 `jdbc_url` 参数中的 "hive"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 Trino 中 Schema 下的 Tables。即映射关系如下：
+
+| Doris    | Trino   |
+|----------|---------|
+| Catalog  | Catalog | 
+| Database | Schema  |
+| Table    | Table   |
+
 ### 参数说明
 
 参数 | 是否必须 | 默认值 | 说明 
@@ -168,6 +212,7 @@ CREATE CATALOG doris_catalog PROPERTIES (
 `driver_class` | 是 |  | JDBC Driver Class 名称 |
 `only_specified_database` | 否 | "false" | 指定是否只同步指定的 database  |
 `lower_case_table_names` | 否 | "false" | 是否以小写的形式同步jdbc外部数据源的表名 |
+`specified_database_list` | 否 | "" | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
 
 > `driver_url` 可以通过以下三种方式指定：
 > 
@@ -179,7 +224,7 @@ CREATE CATALOG doris_catalog PROPERTIES (
 
 > `only_specified_database`:
 > 
-> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。`only_specified_database=true` 可以只同步指定的 database。
+> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。`only_specified_database=true` 且`specified_database_list`为空时，可以只同步指定的 database。当`only_specified_database=true`且`specified_database_list`指定了database列表时，则会同步指定的多个database。
 > 
 > 如果使用该参数时连接oracle数据库，要求使用ojdbc8.jar以上版本jar包。
 
@@ -307,25 +352,27 @@ set enable_odbc_transcation = true;
 
 ### Clickhouse
 
-| ClickHouse Type        | Doris Type | Comment                                             |
-|------------------------|------------|-----------------------------------------------------|
-| Bool                   | BOOLEAN    |                                                     |
-| String                 | STRING     |                                                     |
-| Date/Date32            | DATE       |                                                     |
-| DateTime/DateTime64    | DATETIME   | 对于超过了Doris最大的DateTime精度的数据，将截断处理                    |
-| Float32                | FLOAT      |                                                     |
-| Float64                | DOUBLE     |                                                     |
-| Int8                   | TINYINT    |                                                     |
-| Int16/UInt8            | SMALLINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
-| Int32/UInt16           | INT        | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
-| Int64/Uint32           | BIGINT     | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
-| Int128/UInt64          | LARGEINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
-| Int256/UInt128/UInt256 | STRING     | Doris没有这个数量级的数据类型，采用STRING处理                        |
-| DECIMAL                | DECIMAL    | 对于超过了Doris最大的Decimal精度的数据，将映射为STRING                |
-| Enum/IPv4/IPv6/UUID    | STRING     | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理 |
-|Other| UNSUPPORTED |
+| ClickHouse Type                                      | Doris Type               | Comment                                                                    |
+|------------------------------------------------------|--------------------------|----------------------------------------------------------------------------|
+| Bool                                                 | BOOLEAN                  |                                                                            |
+| String                                               | STRING                   |                                                                            |
+| Date/Date32                                          | DATEV2                   | Jdbc Catlog连接ClickHouse时默认使用DATEV2类型                                       |
+| DateTime/DateTime64                                  | DATETIMEV2               | Jdbc Catlog连接ClickHouse时默认使用DATETIMEV2类型                                        |
+| Float32                                              | FLOAT                    |                                                                            |
+| Float64                                              | DOUBLE                   |                                                                            |
+| Int8                                                 | TINYINT                  |                                                                            |
+| Int16/UInt8                                          | SMALLINT                 | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
+| Int32/UInt16                                         | INT                      | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
+| Int64/Uint32                                         | BIGINT                   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
+| Int128/UInt64                                        | LARGEINT                 | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
+| Int256/UInt128/UInt256                               | STRING                   | Doris没有这个数量级的数据类型，采用STRING处理                                               |
+| DECIMAL                                              | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
+| Enum/IPv4/IPv6/UUID                                  | STRING                   | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理                        |
+| <version since="dev" type="inline"> Array </version> | ARRAY                    | Array内部类型适配逻辑参考上述类型，不支持嵌套类型                                                |
+| Other                                                | UNSUPPORTED              |                                                                            |
 
 ### Doris
+
 | Doris Type | Jdbc Catlog Doris Type | Comment |
 |---|---|---|
 | BOOLEAN | BOOLEAN | |
@@ -346,11 +393,58 @@ set enable_odbc_transcation = true;
 | STRING | STRING | |
 | TEXT | STRING | |
 |Other| UNSUPPORTED |
+
+### SAP HANA
+
+| SAP HANA Type  | Doris Type               | Comment                                                                               |
+|----------------|--------------------------|---------------------------------------------------------------------------------------|
+| BOOLEAN        | BOOLEAN                  |                                                                                       |
+| TINYINT        | TINYINT                  |                                                                                       |
+| SMALLINT       | SMALLINT                 |                                                                                       |
+| INTERGER       | INT                      |                                                                                       |
+| BIGINT         | BIGINT                   |                                                                                       |
+| SMALLDECIMAL   | DECIMALV3                |                                                                                       |
+| DECIMAL        | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
+| REAL           | FLOAT                    |                                                                                       |
+| DOUBLE         | DOUBLE                   |                                                                                       |
+| DATE           | DATEV2                   | Jdbc Catlog连接HANA时默认使用DATEV2类型                                                  |
+| TIME           | TEXT                     |                                                                                       |
+| TIMESTAMP      | DATETIMEV2               | Jdbc Catlog连接HANA时默认使用DATETIMEV2类型                                              |
+| SECONDDATE     | DATETIMEV2               | Jdbc Catlog连接HANA时默认使用DATETIMEV2类型                                              |
+| VARCHAR        | TEXT                     |                                                                                       |
+| NVARCHAR       | TEXT                     |                                                                                       |
+| ALPHANUM       | TEXT                     |                                                                                       |
+| SHORTTEXT      | TEXT                     |                                                                                       |
+| CHAR           | CHAR                     |                                                                                       |
+| NCHAR          | CHAR                     |                                                                                       |
+
+### Trino
+
+| Trino Type                                           | Doris Type               | Comment                                                                   |
+|------------------------------------------------------|--------------------------|---------------------------------------------------------------------------|
+| boolean                                              | BOOLEAN                  |                                                                           |
+| tinyint                                              | TINYINT                  |                                                                           |
+| smallint                                             | SMALLINT                 |                                                                           |
+| integer                                              | INT                      |                                                                           |
+| bigint                                               | BIGINT                   |                                                                           |
+| decimal                                              | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型|
+| real                                                 | FLOAT                    |                                                                           |
+| double                                               | DOUBLE                   |                                                                           |
+| date                                                 | DATE/DATEV2              | Jdbc Catlog连接Trino时默认使用DATEV2类型                                      |
+| timestamp                                            | DATETIME/DATETIMEV2      | Jdbc Catlog连接Trino时默认使用DATETIMEV2类型                                  |
+| varchar                                              | TEXT                     |                                                                           |
+| char                                                 | CHAR                     |                                                                           |
+| <version since="dev" type="inline"> array </version> | ARRAY                    | Array内部类型适配逻辑参考上述类型，不支持嵌套类型                                  |
+| others                                               | UNSUPPORTED              |                                                                           |
+
+**Note:**
+目前仅针对Trino连接的Hive做了测试，其他的Trino连接的数据源暂时未测试。
+
 ## 常见问题
 
-1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse 是否能够支持更多的数据库
+1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA 是否能够支持更多的数据库
 
-    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写 MySQL外表的emoji表情出现乱码
 
@@ -432,3 +526,14 @@ set enable_odbc_transcation = true;
 7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
 
     如果MYSQL已经主动设置useCursorFetch，可以在be.conf中修改jvm_max_heap_size的值，尝试增大JVM的内存，目前默认值为1024M。
+
+8. 使用JDBC查询MYSQL大数据量时，如果查询偶尔能够成功，偶尔会报如下错误，且出现该错误时MYSQL的连接被全部断开，无法连接到MYSQL SERVER，过段时间后mysql又恢复正常，但是之前的连接都没了：
+
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
+    CAUSED BY: CommunicationsException: Communications link failure
+    The last packet successfully received from the server was 4,446 milliseconds ago. The last packet sent successfully to the server was 4,446 milliseconds ago.
+    ```
+
+    出现上述现象时，可能是Mysql Server自身的内存或CPU资源被耗尽导致Mysql服务不可用，可以尝试增大Mysql Server的内存或CPU配置。
+ 

@@ -17,11 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.backup.HdfsStorage;
-import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -33,6 +30,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
@@ -47,6 +46,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -62,23 +62,27 @@ public class OutFileClause {
     private static final Logger LOG = LogManager.getLogger(OutFileClause.class);
 
     public static final List<String> RESULT_COL_NAMES = Lists.newArrayList();
-    public static final List<PrimitiveType> RESULT_COL_TYPES = Lists.newArrayList();
+    public static final List<Type> RESULT_COL_TYPES = Lists.newArrayList();
     public static final Map<String, TParquetRepetitionType> PARQUET_REPETITION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetDataType> PARQUET_DATA_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetCompressionType> PARQUET_COMPRESSION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetVersion> PARQUET_VERSION_MAP = Maps.newHashMap();
     public static final Set<String> ORC_DATA_TYPE = Sets.newHashSet();
+    public static final String FILE_NUMBER = "FileNumber";
+    public static final String TOTAL_ROWS = "TotalRows";
+    public static final String FILE_SIZE = "FileSize";
+    public static final String URL = "URL";
 
     static {
-        RESULT_COL_NAMES.add("FileNumber");
-        RESULT_COL_NAMES.add("TotalRows");
-        RESULT_COL_NAMES.add("FileSize");
-        RESULT_COL_NAMES.add("URL");
+        RESULT_COL_NAMES.add(FILE_NUMBER);
+        RESULT_COL_NAMES.add(TOTAL_ROWS);
+        RESULT_COL_NAMES.add(FILE_SIZE);
+        RESULT_COL_NAMES.add(URL);
 
-        RESULT_COL_TYPES.add(PrimitiveType.INT);
-        RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
-        RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
-        RESULT_COL_TYPES.add(PrimitiveType.VARCHAR);
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.INT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
 
         PARQUET_REPETITION_TYPE_MAP.put("required", TParquetRepetitionType.REQUIRED);
         PARQUET_REPETITION_TYPE_MAP.put("repeated", TParquetRepetitionType.REPEATED);
@@ -122,9 +126,9 @@ public class OutFileClause {
     private static final String HADOOP_PROP_PREFIX = "hadoop.";
     private static final String BROKER_PROP_PREFIX = "broker.";
     private static final String PROP_BROKER_NAME = "broker.name";
-    private static final String PROP_COLUMN_SEPARATOR = "column_separator";
-    private static final String PROP_LINE_DELIMITER = "line_delimiter";
-    private static final String PROP_MAX_FILE_SIZE = "max_file_size";
+    public static final String PROP_COLUMN_SEPARATOR = "column_separator";
+    public static final String PROP_LINE_DELIMITER = "line_delimiter";
+    public static final String PROP_MAX_FILE_SIZE = "max_file_size";
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
     private static final String PARQUET_PROP_PREFIX = "parquet.";
     private static final String ORC_PROP_PREFIX = "orc.";
@@ -548,7 +552,14 @@ public class OutFileClause {
         } else {
             isLocalOutput = false;
         }
-
+        if (properties != null) {
+            String namePrefix = properties.containsKey(PROP_BROKER_NAME)
+                    ? BROKER_PROP_PREFIX + HdfsResource.DSF_NAMESERVICES : HdfsResource.DSF_NAMESERVICES;
+            String dfsNameServices = properties.getOrDefault(namePrefix, "");
+            if (!Strings.isNullOrEmpty(dfsNameServices) && !filePath.contains(dfsNameServices)) {
+                filePath = filePath.replace(HDFS_FILE_PREFIX, HDFS_FILE_PREFIX + dfsNameServices);
+            }
+        }
         if (Strings.isNullOrEmpty(filePath)) {
             throw new AnalysisException("Must specify file in OUTFILE clause");
         }
@@ -633,7 +644,8 @@ public class OutFileClause {
             if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
                 brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
                 processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().toUpperCase().startsWith(S3Resource.S3_PROPERTIES_PREFIX)) {
+            } else if (entry.getKey().toLowerCase().startsWith(S3Properties.S3_PREFIX)
+                    || entry.getKey().toUpperCase().startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
             } else if (entry.getKey().contains(HdfsResource.HADOOP_FS_NAME)
@@ -648,18 +660,24 @@ public class OutFileClause {
             }
         }
         if (storageType == StorageBackend.StorageType.S3) {
-            if (properties.containsKey(S3Resource.USE_PATH_STYLE)) {
-                brokerProps.put(S3Resource.USE_PATH_STYLE, properties.get(S3Resource.USE_PATH_STYLE));
-                processedPropKeys.add(S3Resource.USE_PATH_STYLE);
+            if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+                brokerProps.put(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
+                processedPropKeys.add(PropertyConverter.USE_PATH_STYLE);
             }
-            S3Storage.checkS3(brokerProps);
+            S3Properties.requiredS3Properties(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {
             if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
-                brokerProps.put(HdfsResource.HADOOP_FS_NAME, HdfsStorage.getFsName(filePath));
+                brokerProps.put(HdfsResource.HADOOP_FS_NAME, getFsName(filePath));
             }
         }
-
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
+    }
+
+    public static String getFsName(String path) {
+        Path hdfsPath = new Path(path);
+        String fullPath = hdfsPath.toUri().toString();
+        String filePath = hdfsPath.toUri().getPath();
+        return fullPath.replace(filePath, "");
     }
 
     void setParquetCompressionType(String propertyValue) {

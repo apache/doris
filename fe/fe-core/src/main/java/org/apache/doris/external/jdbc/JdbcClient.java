@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.jdbc;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PrimitiveType;
@@ -61,14 +62,19 @@ public class JdbcClient {
 
     private boolean isLowerCaseTableNames = false;
 
+    private Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
+
     // only used when isLowerCaseTableNames = true.
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
-            String onlySpecifiedDatabase, String isLowerCaseTableNames) {
+            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap) {
         this.jdbcUser = user;
         this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
         this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
+        if (specifiedDatabaseMap != null) {
+            this.specifiedDatabaseMap = specifiedDatabaseMap;
+        }
         try {
             this.dbType = JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -92,8 +98,10 @@ public class JdbcClient {
             dataSource.setUsername(jdbcUser);
             dataSource.setPassword(password);
             dataSource.setMinIdle(1);
-            dataSource.setInitialSize(2);
-            dataSource.setMaxActive(5);
+            dataSource.setInitialSize(1);
+            dataSource.setMaxActive(100);
+            dataSource.setTimeBetweenEvictionRunsMillis(600000);
+            dataSource.setMinEvictableIdleTimeMillis(300000);
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
@@ -166,10 +174,10 @@ public class JdbcClient {
      * @return list of database names
      */
     public List<String> getDatabaseNameList() {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         Statement stmt = null;
         ResultSet rs = null;
-        if (isOnlySpecifiedDatabase) {
+        if (isOnlySpecifiedDatabase && specifiedDatabaseMap.isEmpty()) {
             return getSpecifiedDatabase(conn);
         }
         List<String> databaseNames = Lists.newArrayList();
@@ -190,12 +198,27 @@ public class JdbcClient {
                 case JdbcResource.SQLSERVER:
                     rs = stmt.executeQuery("SELECT name FROM sys.schemas");
                     break;
+                case JdbcResource.SAP_HANA:
+                    rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'");
+                    break;
+                case JdbcResource.TRINO:
+                    rs = stmt.executeQuery("SHOW SCHEMAS");
+                    break;
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
             }
-
+            List<String> tempDatabaseNames = Lists.newArrayList();
             while (rs.next()) {
-                databaseNames.add(rs.getString(1));
+                tempDatabaseNames.add(rs.getString(1));
+            }
+            if (isOnlySpecifiedDatabase && !specifiedDatabaseMap.isEmpty()) {
+                for (String db : tempDatabaseNames) {
+                    if (specifiedDatabaseMap.get(db) != null) {
+                        databaseNames.add(db);
+                    }
+                }
+            } else {
+                databaseNames = tempDatabaseNames;
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
@@ -216,6 +239,8 @@ public class JdbcClient {
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
+                case JdbcResource.TRINO:
                     databaseNames.add(conn.getSchema());
                     break;
                 default:
@@ -233,12 +258,13 @@ public class JdbcClient {
      * get all tables of one database
      */
     public List<String> getTablesNameList(String dbName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
         List<String> tablesName = Lists.newArrayList();
-        String[] types = { "TABLE", "VIEW" };
+        String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
                     rs = databaseMetaData.getTables(dbName, null, null, types);
@@ -247,7 +273,11 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.TRINO:
+                    rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
@@ -269,11 +299,12 @@ public class JdbcClient {
     }
 
     public boolean isTableExist(String dbName, String tableName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
-        String[] types = { "TABLE", "VIEW" };
+        String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
                     rs = databaseMetaData.getTables(dbName, null, tableName, types);
@@ -282,7 +313,11 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.TRINO:
+                    rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type: " + dbType);
@@ -325,7 +360,7 @@ public class JdbcClient {
      * get all columns of one table
      */
     public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
         // if isLowerCaseTableNames == true, tableName is lower case
@@ -335,6 +370,7 @@ public class JdbcClient {
         }
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = conn.getCatalog();
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
             // catalog - the catalog of this table, `null` means all catalogs
             // schema - The schema of the table; corresponding to tablespace in Oracle
@@ -352,7 +388,11 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
+                    break;
+                case JdbcResource.TRINO:
+                    rs = databaseMetaData.getColumns(catalogName, dbName, tableName, null);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
@@ -397,6 +437,10 @@ public class JdbcClient {
                 return oracleTypeToDoris(fieldSchema);
             case JdbcResource.SQLSERVER:
                 return sqlserverTypeToDoris(fieldSchema);
+            case JdbcResource.SAP_HANA:
+                return saphanaTypeToDoris(fieldSchema);
+            case JdbcResource.TRINO:
+                return trinoTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -542,6 +586,7 @@ public class JdbcClient {
             case "varbit":
             case "jsonb":
             case "uuid":
+            case "bytea":
                 return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
@@ -568,7 +613,12 @@ public class JdbcClient {
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
         } else if (ckType.startsWith("DateTime")) {
-            return ScalarType.createDatetimeV2Type(0);
+            return ScalarType.createDatetimeV2Type(6);
+        } else if (ckType.startsWith("Array")) {
+            String cktype = ckType.substring(6, ckType.length() - 1);
+            fieldSchema.setDataTypeName(cktype);
+            Type type = clickhouseTypeToDoris(fieldSchema);
+            return ArrayType.create(type, true);
         }
         switch (ckType) {
             case "Bool":
@@ -601,7 +651,6 @@ public class JdbcClient {
             default:
                 return Type.UNSUPPORTED;
         }
-        // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
     }
 
     public Type oracleTypeToDoris(JdbcFieldSchema fieldSchema) {
@@ -683,7 +732,10 @@ public class JdbcClient {
     }
 
     public Type sqlserverTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String sqlserverType = fieldSchema.getDataTypeName();
+        String originSqlserverType = fieldSchema.getDataTypeName();
+        // For sqlserver IDENTITY type, such as 'INT IDENTITY'
+        // originSqlserverType is "int identity", so we only get "int".
+        String sqlserverType = originSqlserverType.split(" ")[0];
         switch (sqlserverType) {
             case "bit":
                 return Type.BOOLEAN;
@@ -727,6 +779,104 @@ public class JdbcClient {
                 return Type.UNSUPPORTED;
         }
     }
+
+    public Type saphanaTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String hanaType = fieldSchema.getDataTypeName();
+        switch (hanaType) {
+            case "TINYINT":
+                return Type.TINYINT;
+            case "SMALLINT":
+                return Type.SMALLINT;
+            case "INTEGER":
+                return Type.INT;
+            case "BIGINT":
+                return Type.BIGINT;
+            case "SMALLDECIMAL":
+            case "DECIMAL": {
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                return createDecimalOrStringType(precision, scale);
+            }
+            case "REAL":
+                return Type.FLOAT;
+            case "DOUBLE":
+                return Type.DOUBLE;
+            case "TIMESTAMP":
+            case "SECONDDATE":
+                return ScalarType.createDatetimeV2Type(6);
+            case "DATE":
+                return ScalarType.createDateV2Type();
+            case "BOOLEAN":
+                return Type.BOOLEAN;
+            case "CHAR":
+            case "NCHAR":
+                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+                charType.setLength(fieldSchema.columnSize);
+                return charType;
+            case "TIME":
+            case "VARCHAR":
+            case "NVARCHAR":
+            case "ALPHANUM":
+            case "SHORTTEXT":
+                return ScalarType.createStringType();
+            case "BINARY":
+            case "VARBINARY":
+            case "BLOB":
+            case "CLOB":
+            case "NCLOB":
+            case "TEXT":
+            case "BINTEXT":
+            case "ST_GEOMETRY":
+            case "ST_POINT":
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    public Type trinoTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String trinoType = fieldSchema.getDataTypeName();
+        if (trinoType.startsWith("decimal")) {
+            String[] split = trinoType.split("\\(");
+            String[] precisionAndScale = split[1].split(",");
+            int precision = Integer.parseInt(precisionAndScale[0]);
+            int scale = Integer.parseInt(precisionAndScale[1].substring(0, precisionAndScale[1].length() - 1));
+            return createDecimalOrStringType(precision, scale);
+        } else if (trinoType.startsWith("char")) {
+            ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+            charType.setLength(fieldSchema.columnSize);
+            return charType;
+        } else if (trinoType.startsWith("timestamp")) {
+            return ScalarType.createDatetimeV2Type(6);
+        } else if (trinoType.startsWith("array")) {
+            String trinoArrType = trinoType.substring(6, trinoType.length() - 1);
+            fieldSchema.setDataTypeName(trinoArrType);
+            Type type = trinoTypeToDoris(fieldSchema);
+            return ArrayType.create(type, true);
+        }
+        switch (trinoType) {
+            case "integer":
+                return Type.INT;
+            case "bigint":
+                return Type.BIGINT;
+            case "smallint":
+                return Type.SMALLINT;
+            case "tinyint":
+                return Type.TINYINT;
+            case "double":
+                return Type.DOUBLE;
+            case "real":
+                return Type.FLOAT;
+            case "boolean":
+                return Type.BOOLEAN;
+            case "varchar":
+                return ScalarType.createStringType();
+            case "date":
+                return ScalarType.createDateV2Type();
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
 
     private Type createDecimalOrStringType(int precision, int scale) {
         if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {

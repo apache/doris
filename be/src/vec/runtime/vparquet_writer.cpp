@@ -17,25 +17,48 @@
 
 #include "vec/runtime/vparquet_writer.h"
 
-#include <arrow/array.h>
-#include <arrow/status.h>
+#include <arrow/io/type_fwd.h>
+#include <glog/logging.h>
+#include <math.h>
+#include <parquet/column_writer.h>
+#include <parquet/platform.h>
+#include <parquet/schema.h>
+#include <parquet/type_fwd.h>
 #include <time.h>
 
-#include "io/file_writer.h"
+#include <algorithm>
+#include <exception>
+#include <ostream>
+#include <string>
+
+#include "io/fs/file_writer.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "util/binary_cast.hpp"
 #include "util/mysql_global.h"
 #include "util/types.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
-ParquetOutputStream::ParquetOutputStream(FileWriter* file_writer)
+ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
     set_mode(arrow::io::FileMode::WRITE);
 }
@@ -51,8 +74,8 @@ arrow::Status ParquetOutputStream::Write(const void* data, int64_t nbytes) {
     if (_is_closed) {
         return arrow::Status::OK();
     }
-    size_t written_len = 0;
-    Status st = _file_writer->write(static_cast<const uint8_t*>(data), nbytes, &written_len);
+    size_t written_len = nbytes;
+    Status st = _file_writer->append({static_cast<const uint8_t*>(data), written_len});
     if (!st.ok()) {
         return arrow::Status::IOError(st.to_string());
     }
@@ -204,7 +227,7 @@ void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& build
     }
 }
 
-VParquetWriterWrapper::VParquetWriterWrapper(doris::FileWriter* file_writer,
+VParquetWriterWrapper::VParquetWriterWrapper(doris::io::FileWriter* file_writer,
                                              const std::vector<VExprContext*>& output_vexpr_ctxs,
                                              const std::vector<TParquetSchema>& parquet_schemas,
                                              const TParquetCompressionType::type& compression_type,

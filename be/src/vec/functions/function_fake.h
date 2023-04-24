@@ -17,8 +17,22 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <memory>
+
 #include "common/status.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class FunctionContext;
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 // FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().

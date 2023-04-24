@@ -40,6 +40,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -126,6 +127,9 @@ public class Function implements Writable {
     // library's checksum to make sure all backends use one library to serve user's request
     protected String checksum = "";
 
+    // If true, this function is global function
+    protected boolean isGlobal = false;
+
     // Only used for serialization
     protected Function() {
     }
@@ -144,7 +148,7 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs,
-                    TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
+            TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
         this.id = id;
         this.name = name;
         this.hasVarArgs = hasVarArgs;
@@ -161,7 +165,7 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
-                    boolean hasVarArgs, boolean vectorized, NullableMode mode) {
+            boolean hasVarArgs, boolean vectorized, NullableMode mode) {
         this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
     }
 
@@ -272,6 +276,14 @@ public class Function implements Writable {
 
     public String getChecksum() {
         return checksum;
+    }
+
+    public boolean isGlobal() {
+        return isGlobal;
+    }
+
+    public void setGlobal(boolean global) {
+        isGlobal = global;
     }
 
     // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.
@@ -479,6 +491,15 @@ public class Function implements Writable {
             // Neither has var args and the lengths don't match
             return false;
         }
+    }
+
+    public boolean isInferenceFunction() {
+        for (Type arg : argTypes) {
+            if (arg instanceof AnyType) {
+                return true;
+            }
+        }
+        return retType instanceof AnyType;
     }
 
     public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
@@ -845,6 +866,28 @@ public class Function implements Writable {
         }
 
         return false;
+    }
+
+    public boolean hasVariadicTemplateArg() {
+        for (Type t : getArgs()) {
+            if (t.needExpandTemplateType()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // collect expand size of variadic template
+    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap) throws TypeException {
+        for (int i = argTypes.length - 1; i >= 0; i--) {
+            if (argTypes[i].hasTemplateType()) {
+                if (argTypes[i].needExpandTemplateType()) {
+                    argTypes[i].collectTemplateExpandSize(
+                            Arrays.copyOfRange(args, i, args.length), expandSizeMap);
+                }
+            }
+        }
     }
 
     @Override

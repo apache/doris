@@ -17,25 +17,43 @@
 
 #include "runtime/snapshot_loader.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <cstring>
+#include <filesystem>
+#include <istream>
+#include <utility>
 
 #include "common/logging.h"
-#include "env/env.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/TPaloBrokerService.h"
-#include "olap/file_helper.h"
+#include "io/fs/broker_file_system.h"
+#include "io/fs/file_system.h"
+#include "io/fs/hdfs_file_system.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
+#include "io/fs/remote_file_system.h"
+#include "io/fs/s3_file_system.h"
+#include "io/hdfs_builder.h"
+#include "olap/data_dir.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "runtime/broker_mgr.h"
+#include "olap/tablet_manager.h"
+#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
-#include "util/broker_storage_backend.h"
-#include "util/file_utils.h"
-#include "util/hdfs_storage_backend.h"
-#include "util/s3_storage_backend.h"
+#include "util/s3_uri.h"
+#include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
@@ -46,29 +64,42 @@ SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id)
           _task_id(task_id),
           _broker_addr(TNetworkAddress()),
           _prop(std::map<std::string, std::string>()),
-          _storage_backend(nullptr) {}
+          _remote_fs(nullptr) {}
 
 SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
                                const TNetworkAddress& broker_addr,
-                               const std::map<std::string, std::string>& prop,
-                               TStorageBackendType::type type)
-        : _env(env), _job_id(job_id), _task_id(task_id), _broker_addr(broker_addr), _prop(prop) {
+                               const std::map<std::string, std::string>& prop)
+        : _env(env), _job_id(job_id), _task_id(task_id), _broker_addr(broker_addr), _prop(prop) {}
+
+Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
     if (TStorageBackendType::type::S3 == type) {
-        _storage_backend.reset(new S3StorageBackend(_prop));
+        S3Conf s3_conf;
+        S3URI s3_uri(location);
+        RETURN_IF_ERROR(s3_uri.parse());
+        RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(_prop, s3_uri, &s3_conf));
+        std::shared_ptr<io::S3FileSystem> fs;
+        RETURN_IF_ERROR(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
+        _remote_fs = std::move(fs);
     } else if (TStorageBackendType::type::HDFS == type) {
-        _storage_backend.reset(new HDFSStorageBackend(_prop));
+        THdfsParams hdfs_params = parse_properties(_prop);
+        std::shared_ptr<io::HdfsFileSystem> fs;
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+        _remote_fs = std::move(fs);
     } else if (TStorageBackendType::type::BROKER == type) {
-        _storage_backend.reset(new BrokerStorageBackend(_env, _broker_addr, _prop));
+        std::shared_ptr<io::BrokerFileSystem> fs;
+        RETURN_IF_ERROR(io::BrokerFileSystem::create(_broker_addr, _prop, &fs));
+        _remote_fs = std::move(fs);
     } else {
-        _storage_backend = nullptr;
+        return Status::InternalError("Unknown storage tpye: {}", type);
     }
+    return Status::OK();
 }
 
 SnapshotLoader::~SnapshotLoader() = default;
 
 Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_dest_path,
                               std::map<int64_t, std::vector<std::string>>* tablet_files) {
-    if (!_storage_backend) {
+    if (!_remote_fs) {
         return Status::InternalError("Storage backend not initialized.");
     }
     LOG(INFO) << "begin to upload snapshot files. num: " << src_to_dest_path.size()
@@ -99,7 +130,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
 
         // 2.1 get existing files from remote path
         std::map<std::string, FileStat> remote_files;
-        RETURN_IF_ERROR(_storage_backend->list(dest_path, true, false, &remote_files));
+        RETURN_IF_ERROR(_list_with_checksum(dest_path, &remote_files));
 
         for (auto& tmp : remote_files) {
             VLOG_CRITICAL << "get remote file: " << tmp.first << ", checksum: " << tmp.second.md5;
@@ -118,13 +149,8 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             const std::string& local_file = *it;
             // calc md5sum of localfile
             std::string md5sum;
-            status = FileUtils::md5sum(src_path + "/" + local_file, &md5sum);
-            if (!status.ok()) {
-                std::stringstream ss;
-                ss << "failed to get md5sum of file: " << local_file << ": " << status;
-                LOG(WARNING) << ss.str();
-                return Status::InternalError(ss.str());
-            }
+            RETURN_IF_ERROR(
+                    io::global_local_filesystem()->md5sum(src_path + "/" + local_file, &md5sum));
             VLOG_CRITICAL << "get file checksum: " << local_file << ": " << md5sum;
             local_files_with_checksum.push_back(local_file + "." + md5sum);
 
@@ -151,8 +177,8 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             // upload
             std::string full_remote_file = dest_path + "/" + local_file;
             std::string full_local_file = src_path + "/" + local_file;
-            RETURN_IF_ERROR(_storage_backend->upload_with_checksum(full_local_file,
-                                                                   full_remote_file, md5sum));
+            RETURN_IF_ERROR(
+                    _remote_fs->upload_with_checksum(full_local_file, full_remote_file, md5sum));
         } // end for each tablet's local files
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
@@ -172,7 +198,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
  */
 Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to_dest_path,
                                 std::vector<int64_t>* downloaded_tablet_ids) {
-    if (!_storage_backend) {
+    if (!_remote_fs) {
         return Status::InternalError("Storage backend not initialized.");
     }
     LOG(INFO) << "begin to download snapshot files. num: " << src_to_dest_path.size()
@@ -213,7 +239,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
         // 2.2. get remote files
         std::map<std::string, FileStat> remote_files;
-        RETURN_IF_ERROR(_storage_backend->list(remote_path, true, false, &remote_files));
+        RETURN_IF_ERROR(_list_with_checksum(remote_path, &remote_files));
         if (remote_files.empty()) {
             std::stringstream ss;
             ss << "get nothing from remote path: " << remote_path;
@@ -249,7 +275,8 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
                 } else {
                     // check checksum
                     std::string local_md5sum;
-                    Status st = FileUtils::md5sum(local_path + "/" + remote_file, &local_md5sum);
+                    Status st = io::global_local_filesystem()->md5sum(
+                            local_path + "/" + remote_file, &local_md5sum);
                     if (!st.ok()) {
                         LOG(WARNING) << "failed to get md5sum of local file: " << remote_file
                                      << ". msg: " << st << ". download it";
@@ -287,17 +314,12 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             // remove file which will be downloaded now.
             // this file will be added to local_files if it be downloaded successfully.
             local_files.erase(find);
-            RETURN_IF_ERROR(_storage_backend->download(full_remote_file, full_local_file));
+            RETURN_IF_ERROR(_remote_fs->download(full_remote_file, full_local_file));
 
             // 3. check md5 of the downloaded file
             std::string downloaded_md5sum;
-            status = FileUtils::md5sum(full_local_file, &downloaded_md5sum);
-            if (!status.ok()) {
-                std::stringstream ss;
-                ss << "failed to get md5sum of file: " << full_local_file << ", err: " << status;
-                LOG(WARNING) << ss.str();
-                return Status::InternalError(ss.str());
-            }
+            RETURN_IF_ERROR(
+                    io::global_local_filesystem()->md5sum(full_local_file, &downloaded_md5sum));
             VLOG_CRITICAL << "get downloaded file checksum: " << full_local_file << ": "
                           << downloaded_md5sum;
             if (downloaded_md5sum != file_stat.md5) {
@@ -517,6 +539,7 @@ Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::
 
 Status SnapshotLoader::_check_local_snapshot_paths(
         const std::map<std::string, std::string>& src_to_dest_path, bool check_src) {
+    bool res = true;
     for (const auto& pair : src_to_dest_path) {
         std::string path;
         if (check_src) {
@@ -524,7 +547,9 @@ Status SnapshotLoader::_check_local_snapshot_paths(
         } else {
             path = pair.second;
         }
-        if (!FileUtils::is_dir(path)) {
+
+        RETURN_IF_ERROR(io::global_local_filesystem()->is_directory(path, &res));
+        if (!res) {
             std::stringstream ss;
             ss << "snapshot path is not directory or does not exist: " << path;
             LOG(WARNING) << ss.str();
@@ -537,12 +562,11 @@ Status SnapshotLoader::_check_local_snapshot_paths(
 
 Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_path,
                                                       std::vector<std::string>* local_files) {
-    Status status = FileUtils::list_files(Env::Default(), local_path, local_files);
-    if (!status.ok()) {
-        std::stringstream ss;
-        ss << "failed to list files in local path: " << local_path << ", msg: " << status;
-        LOG(WARNING) << ss.str();
-        return status;
+    bool exists = true;
+    std::vector<io::FileInfo> files;
+    RETURN_IF_ERROR(io::global_local_filesystem()->list(local_path, true, &files, &exists));
+    for (auto& file : files) {
+        local_files->push_back(file.file_name);
     }
     LOG(INFO) << "finished to list files in local path: " << local_path
               << ", file num: " << local_files->size();
@@ -625,6 +649,27 @@ Status SnapshotLoader::_report_every(int report_threshold, int* counter, int32_t
         LOG(INFO) << "job is cancelled. job id: " << _job_id << ", task id: " << _task_id;
         return Status::Cancelled("Cancelled");
     }
+    return Status::OK();
+}
+
+Status SnapshotLoader::_list_with_checksum(const std::string& dir,
+                                           std::map<std::string, FileStat>* md5_files) {
+    bool exists = true;
+    std::vector<io::FileInfo> files;
+    RETURN_IF_ERROR(_remote_fs->list(dir, true, &files, &exists));
+    for (auto& tmp_file : files) {
+        io::Path path(tmp_file.file_name);
+        std::string file_name = path.filename();
+        size_t pos = file_name.find_last_of(".");
+        if (pos == std::string::npos || pos == file_name.size() - 1) {
+            // Not found checksum separator, ignore this file
+            continue;
+        }
+        FileStat stat = {std::string(file_name, 0, pos), std::string(file_name, pos + 1),
+                         tmp_file.file_size};
+        md5_files->emplace(std::string(file_name, 0, pos), stat);
+    }
+
     return Status::OK();
 }
 

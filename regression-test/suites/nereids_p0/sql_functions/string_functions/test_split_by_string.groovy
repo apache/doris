@@ -17,8 +17,7 @@
 
 suite("test_split_by_string") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     // split by char
     // qt_sql "select split_by_string('abcde','');"
     // qt_sql "select split_by_string('12553','');"

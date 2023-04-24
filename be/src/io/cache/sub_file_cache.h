@@ -17,16 +17,28 @@
 
 #pragma once
 
-#include <future>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <map>
 #include <memory>
+#include <queue>
+#include <shared_mutex>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "io/cache/file_cache.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 class SubFileCache final : public FileCache {
 public:
@@ -35,11 +47,6 @@ public:
     ~SubFileCache() override;
 
     Status close() override { return _remote_file_reader->close(); }
-
-    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                   size_t* bytes_read) override;
-
-    Status read_at_impl(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read);
 
     const Path& path() const override { return _remote_file_reader->path(); }
 
@@ -65,6 +72,10 @@ public:
 
     FileSystemSPtr fs() const override { return _remote_file_reader->fs(); }
 
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
+
 private:
     Status _generate_cache_reader(size_t offset, size_t req_size);
 
@@ -75,7 +86,9 @@ private:
 
     std::pair<Path, Path> _cache_path(size_t offset);
 
-    void _init();
+    Status _init();
+
+    Status _get_all_sub_file_size(std::map<int64_t, int64_t>* expect_file_size_map);
 
 private:
     struct SubFileInfo {
@@ -97,7 +110,7 @@ private:
     // offset_begin -> local file reader
     std::map<size_t, io::FileReaderSPtr> _cache_file_readers;
 
-    std::once_flag init_flag;
+    bool _is_inited = false;
 };
 
 } // namespace io

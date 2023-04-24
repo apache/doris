@@ -27,7 +27,6 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 #include "util/debug_util.h"
 #include "vec/data_types/data_type_factory.hpp"
 
@@ -75,8 +74,8 @@ public:
         EXPECT_EQ(slices.size(), page_decoder->count());
 
         //check values
-        MemPool pool;
-        auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        vectorized::Arena pool;
+        auto type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
@@ -96,8 +95,8 @@ public:
         int n = 0;
         while (true) {
             //check values
-            MemPool pool;
-            auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            vectorized::Arena pool;
+            auto type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
             std::unique_ptr<ColumnVectorBatch> cvb;
             size_t size = 6;
             ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
@@ -187,7 +186,7 @@ public:
         EXPECT_TRUE(ret.ok());
         // because every slice is unique
         EXPECT_EQ(slices.size(), page_decoder->count());
-        auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        auto type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
 
         {
@@ -210,7 +209,6 @@ public:
             int n = 0;
             while (true) {
                 //check values
-                MemPool pool;
                 auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
                         type_info->type(), 1, 0);
                 auto column = data_type->create_column();

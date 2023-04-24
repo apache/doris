@@ -33,6 +33,9 @@ public class AnalysisTaskInfoBuilder {
     private JobType jobType;
     private AnalysisMethod analysisMethod;
     private AnalysisType analysisType;
+    private int maxBucketNum;
+    private int samplePercent;
+    private int sampleRows;
     private String message;
     private int lastExecTimeInMs;
     private AnalysisState state;
@@ -88,6 +91,21 @@ public class AnalysisTaskInfoBuilder {
         return this;
     }
 
+    public AnalysisTaskInfoBuilder setMaxBucketNum(int maxBucketNum) {
+        this.maxBucketNum = maxBucketNum;
+        return this;
+    }
+
+    public AnalysisTaskInfoBuilder setSamplePercent(int samplePercent) {
+        this.samplePercent = samplePercent;
+        return this;
+    }
+
+    public AnalysisTaskInfoBuilder setSampleRows(int sampleRows) {
+        this.sampleRows = sampleRows;
+        return this;
+    }
+
     public AnalysisTaskInfoBuilder setMessage(String message) {
         this.message = message;
         return this;
@@ -109,7 +127,29 @@ public class AnalysisTaskInfoBuilder {
     }
 
     public AnalysisTaskInfo build() {
-        return new AnalysisTaskInfo(jobId, taskId, catalogName, dbName, tblName, colName, indexId, jobType,
-                analysisMethod, analysisType, message, lastExecTimeInMs, state, scheduleType);
+        return new AnalysisTaskInfo(jobId, taskId, catalogName, dbName, tblName,
+                colName, indexId, jobType, analysisMethod, analysisType, samplePercent,
+                sampleRows, maxBucketNum, message, lastExecTimeInMs, state, scheduleType);
+    }
+
+    public AnalysisTaskInfoBuilder copy() {
+        return new AnalysisTaskInfoBuilder()
+                .setJobId(jobId)
+                .setTaskId(taskId)
+                .setCatalogName(catalogName)
+                .setDbName(dbName)
+                .setTblName(tblName)
+                .setColName(colName)
+                .setIndexId(indexId)
+                .setJobType(jobType)
+                .setAnalysisMethod(analysisMethod)
+                .setAnalysisType(analysisType)
+                .setSamplePercent(samplePercent)
+                .setSampleRows(sampleRows)
+                .setMaxBucketNum(maxBucketNum)
+                .setMessage(message)
+                .setLastExecTimeInMs(lastExecTimeInMs)
+                .setState(state)
+                .setScheduleType(scheduleType);
     }
 }

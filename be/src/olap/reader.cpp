@@ -17,23 +17,42 @@
 
 #include "olap/reader.h"
 
-#include <parallel_hashmap/phmap.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
+#include <functional>
+#include <iterator>
+#include <numeric>
+#include <ostream>
+#include <shared_mutex>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
+#include "exprs/bitmapfilter_predicate.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "olap/bloom_filter_predicate.h"
-#include "olap/comparison_predicate.h"
-#include "olap/in_list_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/itoken_extractor.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/predicate_creator.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/schema.h"
 #include "olap/tablet.h"
-#include "runtime/mem_pool.h"
+#include "olap/tablet_meta.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_predicate.h"
+#include "runtime/runtime_state.h"
+#include "vec/common/arena.h"
+#include "vec/core/block.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -95,7 +114,7 @@ TabletReader::~TabletReader() {
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
-    _predicate_mem_pool.reset(new MemPool());
+    _predicate_arena.reset(new vectorized::Arena());
 
     Status res = _init_params(read_params);
     if (!res.ok()) {
@@ -242,7 +261,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _tablet_schema = read_params.tablet_schema;
     _reader_context.runtime_state = read_params.runtime_state;
 
-    _init_conditions_param(read_params);
+    RETURN_IF_ERROR(_init_conditions_param(read_params));
     _init_conditions_param_except_leafnode_of_andnode(read_params);
 
     Status res = _init_delete_condition(read_params);
@@ -438,16 +457,16 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
+Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     for (auto& condition : read_params.conditions) {
         // These conditions is passed from OlapScannode, but not set column unique id here, so that set it here because it
         // is too complicated to modify related interface
         TCondition tmp_cond = condition;
-
+        RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
         auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
         tmp_cond.__set_column_unique_id(condition_col_uid);
         ColumnPredicate* predicate =
-                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
+                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_arena.get());
         if (predicate != nullptr) {
             // record condition value into predicate_params in order to pushdown segment_iterator,
             // _gen_predicate_result_sign will build predicate result unique sign with condition value
@@ -513,6 +532,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             }
         }
     }
+    return Status::OK();
 }
 
 void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
@@ -522,7 +542,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
         auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
         tmp_cond.__set_column_unique_id(condition_col_uid);
         ColumnPredicate* predicate =
-                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
+                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_arena.get());
         if (predicate != nullptr) {
             auto predicate_params = predicate->predicate_params();
             predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
@@ -533,7 +553,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
 
     if (read_params.use_topn_opt) {
         auto& runtime_predicate =
-                read_params.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+                read_params.runtime_state->get_query_ctx()->get_runtime_predicate();
         runtime_predicate.set_tablet_schema(_tablet_schema);
     }
 }

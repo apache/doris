@@ -156,7 +156,9 @@ public class JdbcScanNode extends ScanNode {
                 && (jdbcType == TOdbcTableType.MYSQL
                 || jdbcType == TOdbcTableType.POSTGRESQL
                 || jdbcType == TOdbcTableType.MONGODB
-                || jdbcType == TOdbcTableType.CLICKHOUSE)) {
+                || jdbcType == TOdbcTableType.CLICKHOUSE
+                || jdbcType == TOdbcTableType.SAP_HANA
+                || jdbcType == TOdbcTableType.TRINO)) {
             sql.append(" LIMIT ").append(limit);
         }
 

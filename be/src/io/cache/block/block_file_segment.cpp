@@ -20,7 +20,9 @@
 
 #include "io/cache/block/block_file_segment.h"
 
-#include <filesystem>
+#include <glog/logging.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <sstream>
 #include <string>
 #include <thread>
@@ -29,8 +31,6 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/iterators.h"
-#include "vec/common/hex.h"
 
 namespace doris {
 namespace io {
@@ -171,13 +171,11 @@ Status FileBlock::read_at(Slice buffer, size_t offset) {
         std::lock_guard segment_lock(_mutex);
         if (!_cache_reader) {
             auto download_path = get_path_in_local_cache();
-            RETURN_IF_ERROR(
-                    global_local_filesystem()->open_file(download_path, &_cache_reader, nullptr));
+            RETURN_IF_ERROR(global_local_filesystem()->open_file(download_path, &_cache_reader));
         }
     }
     size_t bytes_reads = buffer.size;
-    IOContext io_ctx;
-    RETURN_IF_ERROR(_cache_reader->read_at(offset, buffer, io_ctx, &bytes_reads));
+    RETURN_IF_ERROR(_cache_reader->read_at(offset, buffer, &bytes_reads));
     DCHECK(bytes_reads == buffer.size);
     return Status::OK();
 }

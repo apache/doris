@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -26,13 +27,13 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -52,6 +53,7 @@ public class PushdownProjectThroughInnerJoin extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalProject(logicalJoin())
+            .whenNot(LogicalProject::isAllSlots)
             .when(project -> project.child().getJoinType().isInnerJoin())
             .whenNot(project -> project.child().hasJoinHint())
             .then(project -> {
@@ -68,10 +70,16 @@ public class PushdownProjectThroughInnerJoin extends OneExplorationRuleFactory {
                     return null;
                 }
 
-                Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProjection(project.getProjects(),
-                        join.left());
-                List<NamedExpression> aProjects = map.get(true);
-                List<NamedExpression> bProjects = map.get(false);
+                List<NamedExpression> aProjects = new ArrayList<>();
+                List<NamedExpression> bProjects = new ArrayList<>();
+                for (NamedExpression namedExpression : project.getProjects()) {
+                    Set<ExprId> usedExprIds = namedExpression.getInputSlotExprIds();
+                    if (aOutputExprIdSet.containsAll(usedExprIds)) {
+                        aProjects.add(namedExpression);
+                    } else {
+                        bProjects.add(namedExpression);
+                    }
+                }
 
                 boolean leftContains = aProjects.stream().anyMatch(e -> !(e instanceof Slot));
                 boolean rightContains = bProjects.stream().anyMatch(e -> !(e instanceof Slot));
@@ -81,24 +89,24 @@ public class PushdownProjectThroughInnerJoin extends OneExplorationRuleFactory {
                 }
 
                 Builder<NamedExpression> newAProject = ImmutableList.<NamedExpression>builder().addAll(aProjects);
-                Set<Slot> aConditionSlots = JoinReorderUtils.joinChildConditionSlots(join, true);
+                Set<Slot> aConditionSlots = CBOUtils.joinChildConditionSlots(join, true);
                 Set<Slot> aProjectSlots = aProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet());
                 aConditionSlots.stream().filter(slot -> !aProjectSlots.contains(slot)).forEach(newAProject::add);
-                Plan newLeft = JoinReorderUtils.projectOrSelf(newAProject.build(), join.left());
+                Plan newLeft = CBOUtils.projectOrSelf(newAProject.build(), join.left());
 
                 if (!rightContains) {
-                    Plan newJoin = join.withChildren(newLeft, join.right());
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
+                    Plan newJoin = join.withChildrenNoContext(newLeft, join.right());
+                    return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
                 }
 
                 Builder<NamedExpression> newBProject = ImmutableList.<NamedExpression>builder().addAll(bProjects);
-                Set<Slot> bConditionSlots = JoinReorderUtils.joinChildConditionSlots(join, false);
+                Set<Slot> bConditionSlots = CBOUtils.joinChildConditionSlots(join, false);
                 Set<Slot> bProjectSlots = bProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet());
                 bConditionSlots.stream().filter(slot -> !bProjectSlots.contains(slot)).forEach(newBProject::add);
-                Plan newRight = JoinReorderUtils.projectOrSelf(newBProject.build(), join.right());
+                Plan newRight = CBOUtils.projectOrSelf(newBProject.build(), join.right());
 
-                Plan newJoin = join.withChildren(newLeft, newRight);
-                return JoinReorderUtils.projectOrSelfInOrder(new ArrayList<>(project.getOutput()), newJoin);
+                Plan newJoin = join.withChildrenNoContext(newLeft, newRight);
+                return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
             }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_JOIN);
     }
 }

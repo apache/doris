@@ -30,7 +30,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.Map;
 
@@ -75,12 +75,12 @@ public class FrontendClause extends AlterClause {
 
     @Override
     public String toSql() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("FrontendClause.toSql() not implemented");
     }
 
     @Override
     public Map<String, String> getProperties() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("FrontendClause.getProperties() not implemented");
     }
 
 }

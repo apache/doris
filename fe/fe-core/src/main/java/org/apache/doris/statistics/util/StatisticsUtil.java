@@ -64,6 +64,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -91,6 +92,7 @@ public class StatisticsUtil {
 
     public static void execUpdate(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
@@ -122,6 +124,8 @@ public class StatisticsUtil {
         sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
+        sessionVariable.setEnableNereidsPlanner(false);
+        sessionVariable.enableProfile = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -178,10 +182,6 @@ public class StatisticsUtil {
                 return new DateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
-                if (columnValue.length() > scalarType.getLength()) {
-                    throw new AnalysisException("Min/Max value is longer than length of column type: "
-                        + columnValue);
-                }
                 return new StringLiteral(columnValue);
             case HLL:
             case BITMAP:
@@ -282,5 +282,30 @@ public class StatisticsUtil {
             }
         }
         return tblIf.getColumn(columnName);
+    }
+
+    @SuppressWarnings({"unchecked"})
+    public static Column findColumn(String catalogName, String dbName, String tblName, String columnName)
+            throws Throwable {
+        TableIf tableIf = findTable(catalogName, dbName, tblName);
+        return tableIf.getColumn(columnName);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static TableIf findTable(String catalogName, String dbName, String tblName) throws Throwable {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(catalogName, c -> new RuntimeException("Catalog: " + c + " not exists"));
+        DatabaseIf db = catalog.getDbOrException(dbName,
+                d -> new RuntimeException("DB: " + d + " not exists"));
+        return db.getTableOrException(tblName,
+                t -> new RuntimeException("Table: " + t + " not exists"));
+    }
+
+    public static boolean isNullOrEmpty(String str) {
+        return Optional.ofNullable(str)
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .map(s -> "null".equalsIgnoreCase(s) || s.isEmpty())
+                .orElse(true);
     }
 }

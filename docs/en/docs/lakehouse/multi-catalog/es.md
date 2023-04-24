@@ -90,6 +90,7 @@ After switching to the ES Catalog, you will be in the `dafault_db`  so you don't
 | other         | unsupported |                                                                         |
 
 <version since="dev">
+
 ### Array Type
 
 Elasticsearch does not have an explicit array type, but one of its fields can contain 
@@ -155,6 +156,7 @@ curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type: application/j
 `array_fields`：Used to indicate a field that is an array type.
 
 </version>
+
 ## Best Practice
 
 ### Predicate Pushdown

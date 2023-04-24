@@ -17,21 +17,25 @@
 
 #pragma once
 
-#include <string>
+#include <gen_cpp/Descriptors_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/object_pool.h"
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "common/status.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/Types_types.h"
-#include "runtime/mem_pool.h"
+#include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
-#include "vec/core/block.h"
 
 namespace doris {
 
 // forehead declare class, because jni function init in DorisServer.
 class DorisServer;
 class RuntimeState;
+class ObjectPool;
+class TUserIdentity;
 
 namespace vectorized {
 class Block;
@@ -48,7 +52,6 @@ struct SchemaScannerParam {
     const std::string* ip;                   // frontend ip
     int32_t port;                            // frontend thrift port
     int64_t thread_id;
-    const std::vector<TSchemaTableStructure>* table_structure;
     const std::string* catalog;
     std::unique_ptr<RuntimeProfile> profile;
 
@@ -88,7 +91,6 @@ public:
     const std::vector<ColumnDesc>& get_column_desc() const { return _columns; }
     // factory function
     static SchemaScanner* create(TSchemaTableType::type type);
-    const TupleDescriptor* tuple_desc() const { return _tuple_desc; }
     TSchemaTableType::type type() const { return _schema_table_type; }
 
     static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
@@ -96,14 +98,12 @@ public:
 protected:
     Status fill_dest_column_for_range(vectorized::Block* block, size_t pos,
                                       const std::vector<void*>& datas);
-    Status create_tuple_desc(ObjectPool* pool);
 
     bool _is_init;
     // this is used for sub class
     SchemaScannerParam* _param;
     // schema table's column desc
     std::vector<ColumnDesc> _columns;
-    TupleDescriptor* _tuple_desc;
 
     static DorisServer* _s_doris_server;
 

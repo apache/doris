@@ -17,17 +17,21 @@
 
 #pragma once
 
-#include <string>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/config.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta.h"
-#include "olap/utils.h"
 
 namespace doris {
 
 class Tablet;
+struct Version;
 
 const static std::string CUMULATIVE_SIZE_BASED_POLICY = "SIZE_BASED";
 

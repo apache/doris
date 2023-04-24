@@ -23,11 +23,11 @@
 #include <thread>
 
 #include "olap/schema.h"
-#include "runtime/mem_pool.h"
 #include "testutil/test_util.h"
 #include "util/hash_util.hpp"
 #include "util/priority_thread_pool.hpp"
 #include "util/random.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -49,10 +49,10 @@ struct TestComparator {
 class SkipTest : public testing::Test {};
 
 TEST_F(SkipTest, Empty) {
-    std::unique_ptr<MemPool> mem_pool(new MemPool());
+    std::unique_ptr<vectorized::Arena> arena(new vectorized::Arena());
 
     TestComparator* cmp = new TestComparator();
-    SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
+    SkipList<Key, TestComparator> list(cmp, arena.get(), false);
     EXPECT_TRUE(!list.Contains(10));
 
     SkipList<Key, TestComparator>::Iterator iter(&list);
@@ -67,14 +67,14 @@ TEST_F(SkipTest, Empty) {
 }
 
 TEST_F(SkipTest, InsertAndLookup) {
-    std::unique_ptr<MemPool> mem_pool(new MemPool());
+    std::unique_ptr<vectorized::Arena> arena(new vectorized::Arena());
 
     const int N = 2000;
     const int R = 5000;
     Random rnd(1000);
     std::set<Key> keys;
     TestComparator* cmp = new TestComparator();
-    SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
+    SkipList<Key, TestComparator> list(cmp, arena.get(), false);
     for (int i = 0; i < N; i++) {
         Key key = rnd.Next() % R;
         if (keys.insert(key).second) {
@@ -148,14 +148,14 @@ TEST_F(SkipTest, InsertAndLookup) {
 
 // Only non-DUP model will use Find() and InsertWithHint().
 TEST_F(SkipTest, InsertWithHintNoneDupModel) {
-    std::unique_ptr<MemPool> mem_pool(new MemPool());
+    std::unique_ptr<vectorized::Arena> arena(new vectorized::Arena());
 
     const int N = 2000;
     const int R = 5000;
     Random rnd(1000);
     std::set<Key> keys;
     TestComparator* cmp = new TestComparator();
-    SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
+    SkipList<Key, TestComparator> list(cmp, arena.get(), false);
     SkipList<Key, TestComparator>::Hint hint;
     for (int i = 0; i < N; i++) {
         Key key = rnd.Next() % R;
@@ -254,7 +254,7 @@ private:
     // Current state of the test
     State _current;
 
-    std::unique_ptr<MemPool> _mem_pool;
+    std::unique_ptr<vectorized::Arena> _arena;
     std::shared_ptr<TestComparator> _comparator;
     // SkipList is not protected by _mu.  We just use a single writer
     // thread to modify it.
@@ -262,9 +262,9 @@ private:
 
 public:
     ConcurrentTest()
-            : _mem_pool(new MemPool()),
+            : _arena(new vectorized::Arena()),
               _comparator(new TestComparator()),
-              _list(_comparator.get(), _mem_pool.get(), false) {}
+              _list(_comparator.get(), _arena.get(), false) {}
 
     // REQUIRES: External synchronization
     void write_step(Random* rnd) {

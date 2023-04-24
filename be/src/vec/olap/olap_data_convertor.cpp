@@ -17,13 +17,31 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
+#include <new>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "olap/hll.h"
+#include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
+#include "runtime/decimalv2_value.h"
+#include "util/bitmap_value.h"
+#include "util/quantile_state.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -143,7 +161,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
                 create_olap_column_data_convertor(value_column));
     }
     default: {
-        DCHECK(false) << "Invalid type in RowBlockV2:" << column.type();
+        DCHECK(false) << "Invalid type in olap data convertor:" << int(column.type());
         return nullptr;
     }
     }
@@ -195,8 +213,9 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::clear_source_column() 
     _nullmap = nullptr;
 }
 
-// This should be called only in SegmentWriter. If you want to access nullmap in Convertor,
-// use `_nullmap` directly.
+// Obtain the converted nullmap with an offset of _row_pos.
+// This should be called only in SegmentWriter and `get_data_at` in Convertor.
+// If you want to access origin nullmap without offset, use `_nullmap` directly.
 const UInt8* OlapBlockDataConvertor::OlapColumnDataConvertorBase::get_nullmap() const {
     assert(_typed_column.column);
     return _nullmap ? _nullmap + _row_pos : nullptr;
@@ -218,8 +237,8 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorObject::get_data() co
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorObject::get_data_at(
         size_t offset) const {
     UInt8 null_flag = 0;
-    if (_nullmap) {
-        null_flag = _nullmap[offset];
+    if (get_nullmap()) {
+        null_flag = get_nullmap()[offset];
     }
     return null_flag ? nullptr : _slice.data() + offset;
 }
@@ -474,8 +493,8 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data() cons
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data_at(size_t offset) const {
     UInt8 null_flag = 0;
-    if (_nullmap) {
-        null_flag = _nullmap[offset];
+    if (get_nullmap()) {
+        null_flag = get_nullmap()[offset];
     }
     return null_flag ? nullptr : _slice.data() + offset;
 }
@@ -530,8 +549,8 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data_at(
         size_t offset) const {
     assert(offset < _slice.size());
     UInt8 null_flag = 0;
-    if (_nullmap) {
-        null_flag = _nullmap[offset];
+    if (get_nullmap()) {
+        null_flag = get_nullmap()[offset];
     }
     return null_flag ? nullptr : _slice.data() + offset;
 }
@@ -891,32 +910,46 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     ColumnPtr key_data = column_map->get_keys_ptr();
     ColumnPtr value_data = column_map->get_values_ptr();
 
-    // offsets data
-    auto& offsets = column_map->get_offsets();
-    // make first offset
-    auto offsets_col = ColumnArray::ColumnOffsets::create();
+    // NOTICE here are two situation:
+    // 1. Multi-SegmentWriter with different olap_convertor to convert same column_map(in memory which is from same block)
+    //   eg: Block(6 row): column_map offsets in memory: [10, 21, 33, 43, 54, 66]
+    //   After SegmentWriter1 with olap_convertor1 deal with first 3 rows:  _offsets(pre-disk)=[0, 10, 21], _base_offset=33
+    //   then SegmentWriter may flush data (see BetaRowsetWriter::_add_block(max_row_add < 1))
+    //   ColumnWriter will flush offset array to disk [0, 10, 21, 33]
+    //                                                 ---------  ----
+    //                                                 |--_offsets  |--set_next_array_item_ordinal(_kv_writers[0]->get_next_rowid())
+    //   new SegmentWriter2 with olap_convertor2 deal with next map offsets [43, 54, 66]
+    //   but in disk here is new segment file offset should start with 0, so after convert:
+    //      _offsets(pre-disk)=[0, 10, 21], _base_row=33, After flush data finally in disk: [0, 10, 21, 33]
+    //2. One-SegmentWriter with olap_convertor to convertor different blocks into one page
+    //    eg: Two blocks -> block1 [10, 21, 33] and block2 [1, 3, 6]
+    //      After first convert: _offsets_1(pre-disk)=[0, 10, 21], _base_row=33, without flush, just append to page,
+    //      then deal with coming block2, after current convert:
+    //      _offsets_2=[33, 34, 36], _base_offset=39
+    //      if we flush here, finally in disk offsets:[0, 10, 21, 33, 34, 36,        39]
+    //                                                ----------  ----------         ---
+    //                                                 |--_offsets_1  |--_offsets_2   |--set_next_array_item_ordinal(_kv_writers[0]->get_next_rowid())
+    auto start_offset = column_map->offset_at(_row_pos);
+    auto end_offset = column_map->offset_at(_row_pos + _num_rows);
+    auto elem_size = end_offset - start_offset;
 
-    // Now map column offsets data layout in memory is [3, 6, 9], and in disk should be [0, 3, 6, 9]
-    _offsets.reserve(offsets.size() + 1);
-    _offsets.push_back(_row_pos); // _offsets start with current map offsets
-    _offsets.insert_assume_reserved(offsets.begin(), offsets.end());
-
-    int64_t start_index = _row_pos - 1;
-    int64_t end_index = _row_pos + _num_rows - 1;
-    auto start = offsets[start_index];
-    auto size = offsets[end_index] - start;
-
+    _offsets.clear();
+    _offsets.reserve(_num_rows);
+    for (int i = 0; i < _num_rows; ++i) {
+        _offsets.push_back(column_map->offset_at(i + _row_pos) - start_offset + _base_offset);
+    }
+    _base_offset += elem_size;
     ColumnWithTypeAndName key_typed_column = {key_data, data_type_map->get_key_type(), "map.key"};
-    _key_convertor->set_source_column(key_typed_column, start, size);
+    _key_convertor->set_source_column(key_typed_column, start_offset, elem_size);
     _key_convertor->convert_to_olap();
 
     ColumnWithTypeAndName value_typed_column = {value_data, data_type_map->get_value_type(),
                                                 "map.value"};
-    _value_convertor->set_source_column(value_typed_column, start, size);
+    _value_convertor->set_source_column(value_typed_column, start_offset, elem_size);
     _value_convertor->convert_to_olap();
 
     // todo (Amory). put this value into MapValue
-    _results[0] = (void*)size;
+    _results[0] = (void*)elem_size;
     _results[1] = _offsets.data();
     _results[2] = _key_convertor->get_data();
     _results[3] = _value_convertor->get_data();

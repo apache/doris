@@ -17,6 +17,15 @@
 
 #include "vec/exec/format/parquet/bool_plain_decoder.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+
+#include "util/bit_util.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
+#include "vec/exec/format/parquet/parquet_common.h"
+
 namespace doris::vectorized {
 Status BoolPlainDecoder::skip_values(size_t num_values) {
     int skip_cached = std::min(num_unpacked_values_ - unpacked_value_idx_, (int)num_values);
@@ -43,7 +52,7 @@ Status BoolPlainDecoder::skip_values(size_t num_values) {
 }
 
 Status BoolPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                       ColumnSelectVector& select_vector) {
+                                       ColumnSelectVector& select_vector, bool is_dict_filter) {
     auto& column_data = static_cast<ColumnVector<UInt8>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
