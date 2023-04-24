@@ -64,6 +64,8 @@ public class RuntimeProfile {
 
     private String name;
 
+    private Long timestamp = -1L;
+
     public RuntimeProfile(String name) {
         this();
         this.name = name;
@@ -137,6 +139,11 @@ public class RuntimeProfile {
     // preorder traversal, idx should be modified in the traversal process
     private void update(List<TRuntimeProfileNode> nodes, Reference<Integer> idx) {
         TRuntimeProfileNode node = nodes.get(idx.getRef());
+        // Make sure to update the latest LoadChannel profile according to the timestamp.
+        if (node.timestamp != -1 && node.timestamp < timestamp) {
+            return;
+        }
+        Preconditions.checkState(timestamp == -1 || node.timestamp != -1);
         // update this level's counters
         if (node.counters != null) {
             for (TCounter tcounter : node.counters) {

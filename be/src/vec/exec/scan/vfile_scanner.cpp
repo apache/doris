@@ -149,7 +149,8 @@ Status VFileScanner::_split_conjuncts(VExpr* conjunct_expr_root) {
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
-            VExprContext* new_ctx = _state->obj_pool()->add(new VExprContext(cur_expr));
+            VExprContext* new_ctx =
+                    _state->obj_pool()->add(VExprContext::create_unique(cur_expr).release());
             _vconjunct_ctx->clone_fn_contexts(new_ctx);
             RETURN_IF_ERROR(new_ctx->prepare(_state, *_default_val_row_desc));
             RETURN_IF_ERROR(new_ctx->open(_state));

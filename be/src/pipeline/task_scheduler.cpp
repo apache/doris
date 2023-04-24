@@ -35,7 +35,7 @@
 #include "pipeline/pipeline_task.h"
 #include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "util/sse_util.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -124,9 +124,8 @@ void BlockedTaskScheduler::_schedule() {
                 } else {
                     _make_task_run(local_blocked_tasks, iter, ready_tasks);
                 }
-            } else if (task->query_fragments_context()->is_timeout(now)) {
-                LOG(WARNING) << "Timeout, query_id="
-                             << print_id(task->query_fragments_context()->query_id)
+            } else if (task->query_context()->is_timeout(now)) {
+                LOG(WARNING) << "Timeout, query_id=" << print_id(task->query_context()->query_id)
                              << ", instance_id="
                              << print_id(task->fragment_context()->get_fragment_instance_id());
 

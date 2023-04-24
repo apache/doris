@@ -419,6 +419,12 @@ Default：false
 Https enable flag. If the value is false, http is supported. Otherwise, both http and https are supported, and http requests are automatically redirected to https.
 If enable_https is true, you need to configure ssl certificate information in fe.conf.
 
+#### `enable_ssl`
+
+Default：true
+
+If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
+
 #### `qe_max_connection`
 
 Default：1024

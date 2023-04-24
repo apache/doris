@@ -125,7 +125,7 @@ TPCH 22 个测试查询语句 ： [TPCH-Query-SQL](https://github.com/apache/dor
 
 ## 6. 环境准备
 
-请先参照 [官方文档](../install/install-deploy.md) 进行 Doris 的安装部署，以获得一个正常运行中的 Doris 集群（至少包含 1 FE 1 BE，推荐 1 FE 3 BE）。
+请先参照 [官方文档](../install/standard-deployment.md) 进行 Doris 的安装部署，以获得一个正常运行中的 Doris 集群（至少包含 1 FE 1 BE，推荐 1 FE 3 BE）。
 
 ## 7. 数据准备
 

@@ -18,7 +18,7 @@
 
 #include "gutil/hash/jenkins.h"
 
-#include <common/logging.h>
+#include "common/logging.h"
 
 #include "gutil/hash/jenkins_lookup2.h"
 #include "gutil/integral_types.h"

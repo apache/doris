@@ -18,11 +18,18 @@
 #pragma once
 
 #include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
 #include <stddef.h>
+#include <stdint.h>
+
+#include <ostream>
+#include <string>
 
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "olap/olap_common.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -32,6 +39,7 @@ namespace doris {
 namespace vectorized {
 template <typename T>
 class ColumnDecimal;
+class Arena;
 
 template <typename T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {

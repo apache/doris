@@ -15,7 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_export") {
-    // todo: test export, select into outfile
-    sql "show export"
+package org.apache.doris.fs.remote;
+
+import org.apache.doris.fs.FileSystem;
+
+import java.util.Map;
+
+public abstract class RemoteFileSystem implements FileSystem {
+    protected org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
+    protected Map<String, String> properties;
 }
