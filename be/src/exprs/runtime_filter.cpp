@@ -1165,7 +1165,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_
 }
 
 Status IRuntimeFilter::get_prepared_vexprs(std::vector<vectorized::VExpr*>* vexprs,
-                                           const RowDescriptor& desc) {
+                                           const RowDescriptor& desc, RuntimeState* state) {
     _profile->add_info_string("Info", _format_status());
     if (_is_ignored) {
         return Status::OK();
@@ -1176,11 +1176,23 @@ Status IRuntimeFilter::get_prepared_vexprs(std::vector<vectorized::VExpr*>* vexp
     DCHECK(is_consumer());
     std::lock_guard guard(_inner_mutex);
 
-    if (_push_down_vexprs.empty()) {
-        RETURN_IF_ERROR(_wrapper->get_push_vexprs(&_push_down_vexprs, _vprobe_ctx));
+    if (_state) {
+        if (_push_down_vexprs.empty()) {
+            RETURN_IF_ERROR(_wrapper->get_push_vexprs(&_push_down_vexprs, _vprobe_ctx));
+        }
+        vexprs->insert(vexprs->end(), _push_down_vexprs.begin(), _push_down_vexprs.end());
+    } else {
+        auto fid = print_id(state->fragment_instance_id());
+        if (_instance_id_to_push_down_vexprs.count(fid) == 0) {
+            _instance_id_to_push_down_vexprs.insert({fid, {}});
+        }
+        if (_instance_id_to_push_down_vexprs[fid].empty()) {
+            RETURN_IF_ERROR(
+                    _wrapper->get_push_vexprs(&_instance_id_to_push_down_vexprs[fid], _vprobe_ctx));
+        }
+        vexprs->insert(vexprs->end(), _instance_id_to_push_down_vexprs[fid].begin(),
+                       _instance_id_to_push_down_vexprs[fid].end());
     }
-    // push expr
-    vexprs->insert(vexprs->end(), _push_down_vexprs.begin(), _push_down_vexprs.end());
     return Status::OK();
 }
 

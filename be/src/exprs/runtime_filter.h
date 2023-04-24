@@ -224,7 +224,7 @@ public:
     Status get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs);
 
     Status get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* push_vexprs,
-                               const RowDescriptor& desc);
+                               const RowDescriptor& desc, RuntimeState* state);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 
@@ -386,6 +386,7 @@ protected:
     std::string _ignored_msg;
 
     std::vector<doris::vectorized::VExpr*> _push_down_vexprs;
+    std::map<std::string, std::vector<doris::vectorized::VExpr*>> _instance_id_to_push_down_vexprs;
 
     struct rpc_context;
 
