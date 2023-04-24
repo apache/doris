@@ -61,7 +61,7 @@ private:
 
 inline std::string Exception::to_string() const {
     std::stringstream ostr;
-    ostr << '[E' << _code << "] ";
+    ostr << "[E" << _code << "] ";
     ostr << (_err_msg ? _err_msg->_msg : "");
     if (_err_msg && !_err_msg->_stack.empty()) {
         ostr << '\n' << _err_msg->_stack;
