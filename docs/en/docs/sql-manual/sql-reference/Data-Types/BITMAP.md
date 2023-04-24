@@ -61,7 +61,7 @@ Query data example:
 
     select hour, BITMAP_UNION_COUNT(pv) over(order by hour) uv from(
        select hour, BITMAP_UNION(device_id) as pv
-       from metric_table -- 查询每小时的累计UV
+       from metric_table -- Query the accumulated UV per hour
        where datekey=20200622
     group by hour order by 1
     ) final;
