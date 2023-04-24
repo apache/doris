@@ -15,9 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.backup;
+package org.apache.doris.fs.obj;
 
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.backup.RemoteFile;
+import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.UserException;
@@ -77,43 +79,36 @@ public class HdfsStorage extends BlobStorage {
         setName(StorageBackend.StorageType.HDFS.name());
     }
 
-    public static String getFsName(String path) {
-        Path hdfsPath = new Path(path);
-        String fullPath = hdfsPath.toUri().toString();
-        String filePath = hdfsPath.toUri().getPath();
-        return fullPath.replace(filePath, "");
-    }
-
     @Override
     public FileSystem getFileSystem(String remotePath) throws UserException {
-        if (dfsFileSystem == null) {
-            String username = hdfsProperties.get(HdfsResource.HADOOP_USER_NAME);
-            Configuration conf = new HdfsConfiguration();
-            boolean isSecurityEnabled = false;
-            for (Map.Entry<String, String> propEntry : hdfsProperties.entrySet()) {
-                conf.set(propEntry.getKey(), propEntry.getValue());
-                if (propEntry.getKey().equals(HdfsResource.HADOOP_SECURITY_AUTHENTICATION)
-                        && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
-                    isSecurityEnabled = true;
-                }
+        if (dfsFileSystem != null) {
+            return dfsFileSystem;
+        }
+        String username = hdfsProperties.get(HdfsResource.HADOOP_USER_NAME);
+        Configuration conf = new HdfsConfiguration();
+        boolean isSecurityEnabled = false;
+        for (Map.Entry<String, String> propEntry : hdfsProperties.entrySet()) {
+            conf.set(propEntry.getKey(), propEntry.getValue());
+            if (propEntry.getKey().equals(HdfsResource.HADOOP_SECURITY_AUTHENTICATION)
+                    && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
+                isSecurityEnabled = true;
             }
-
-            try {
-                if (isSecurityEnabled) {
-                    UserGroupInformation.setConfiguration(conf);
-                    UserGroupInformation.loginUserFromKeytab(
-                            hdfsProperties.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL),
-                            hdfsProperties.get(HdfsResource.HADOOP_KERBEROS_KEYTAB));
-                }
-                if (username == null) {
-                    dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf);
-                } else {
-                    dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf, username);
-                }
-            } catch (Exception e) {
-                LOG.error("errors while connect to " + remotePath, e);
-                throw new UserException("errors while connect to " + remotePath, e);
+        }
+        try {
+            if (isSecurityEnabled) {
+                UserGroupInformation.setConfiguration(conf);
+                UserGroupInformation.loginUserFromKeytab(
+                        hdfsProperties.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL),
+                        hdfsProperties.get(HdfsResource.HADOOP_KERBEROS_KEYTAB));
             }
+            if (username == null) {
+                dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf);
+            } else {
+                dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf, username);
+            }
+        } catch (Exception e) {
+            LOG.error("errors while connect to " + remotePath, e);
+            throw new UserException("errors while connect to " + remotePath, e);
         }
         return dfsFileSystem;
     }
