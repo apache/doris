@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_insert_unique") {
+suite("nereids_insert_unique_type_cast") {
     sql 'use nereids_insert_into_table_test'
 
     def tables = ['uni_t_type_cast', 'uni_light_sc_t_type_cast', 'uni_not_null_t_type_cast', 'uni_light_sc_not_null_t_type_cast',
@@ -229,7 +229,7 @@ suite("nereids_insert_unique") {
     '''
     // DDL end
 
-    sql 'set enable_nereids_planner=false'
+    sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into uni_t_type_cast

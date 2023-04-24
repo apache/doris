@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_insert_into_table") {
+suite("nereids_insert_array_type") {
     sql 'use nereids_insert_into_table_test'
 
     sql 'drop table if exists arr_t'

@@ -126,7 +126,7 @@ suite("nereids_insert_duplicate") {
     '''
     // DDL end
 
-    sql 'set enable_nereids_planner=false'
+    sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into dup_t_type_cast
