@@ -5352,6 +5352,73 @@ public class Env {
         return analysisManager.taskScheduler;
     }
 
+    /**
+     * mark all tablets of the table as dropped
+     */
+    public void markTableDropped(Table table) {
+        if (table.getType() != TableType.OLAP) {
+            return;
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        for (Partition partition : olapTable.getAllPartitions()) {
+            innerMarkPartitionDropped(partition, true);
+        }
+
+        LOG.info("mark all tablets of table: {} as dropped", table.getName());
+    }
+
+    /**
+     * mark all tablets of the table as undropped
+     */
+    public void unmarkTableDropped(Table table) {
+        if (table.getType() != TableType.OLAP) {
+            return;
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        for (Partition partition : olapTable.getAllPartitions()) {
+            innerMarkPartitionDropped(partition, false);
+        }
+
+        LOG.info("mark all tablets of table: {} as undropped", table.getName());
+    }
+
+    /**
+     * mark all tablets of the partition as dropped
+     */
+    public void markPartitionDropped(Partition partition) {
+        innerMarkPartitionDropped(partition, true);
+        LOG.info("mark all tablets of partition: {} as dropped", partition.getName());
+    }
+
+    /**
+     * mark all tablets of the partition as undropped
+     */
+    public void unmarkPartitionDropped(Partition partition) {
+        innerMarkPartitionDropped(partition, false);
+        LOG.info("mark all tablets of partition: {} as undropped", partition.getName());
+    }
+
+    private void innerMarkPartitionDropped(Partition partition, boolean isDropped) {
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+        for (MaterializedIndex materializedIndex : allIndices) {
+            for (Tablet tablet : materializedIndex.getTablets()) {
+                TabletMeta tabletMeta = invertedIndex.getTabletMeta(tablet.getId());
+                if (tabletMeta == null) {
+                    LOG.warn("cannot find tabletMeta of tabletId={}", tablet.getId());
+                    continue;
+                }
+                if (tabletMeta.getIsDropped() == isDropped) {
+                    continue;
+                }
+
+                tabletMeta.setIsDropped(isDropped);
+            } // end for tablets
+        } // end for indices
+    }
+
     // TODO:
     //  1. handle partition level analysis statement properly
     //  2. support sample job
