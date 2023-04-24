@@ -226,4 +226,5 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
     }
 
     public abstract LogicalSetOperation withNewChildren(List<Plan> children);
+
 }

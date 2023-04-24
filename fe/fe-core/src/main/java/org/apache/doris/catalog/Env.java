@@ -741,6 +741,9 @@ public class Env {
 
     // use this to get correct env's journal version
     public static int getCurrentEnvJournalVersion() {
+        if (MetaContext.get() == null) {
+            return FeMetaVersion.VERSION_CURRENT;
+        }
         return MetaContext.get().getMetaVersion();
     }
 
