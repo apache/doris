@@ -1196,6 +1196,9 @@ public class MaterializedViewHandler extends AlterHandler {
     @Override
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException, MetaNotFoundException {
+        if (olapTable.isDuplicateWithoutKey()) {
+            throw new DdlException("Duplicate table without keys do not support alter rollup!");
+        }
         Optional<AlterClause> alterClauseOptional = alterClauses.stream().findAny();
         if (alterClauseOptional.isPresent()) {
             if (alterClauseOptional.get() instanceof AddRollupClause) {
