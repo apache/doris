@@ -138,8 +138,6 @@ public class PropertyAnalyzer {
     // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
 
-    public static final String DUPLICATE_NO_KEYS = "duplicate_no_keys";
-
     /**
      * check and replace members of DataProperty by properties.
      *

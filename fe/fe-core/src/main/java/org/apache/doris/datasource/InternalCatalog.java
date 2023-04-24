@@ -1979,8 +1979,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
-        olapTable.setDuplicateNoKeys(isDupNoKeys);
-
         // analyze bloom filter columns
         Set<String> bfColumns = null;
         double bfFpp = 0;

@@ -1975,18 +1975,8 @@ public class OlapTable extends Table {
         return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 
-    public void setDuplicateNoKeys(boolean isDupNoKeys) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.setDuplicateNoKeys(isDupNoKeys);
-    }
-
-    public boolean getDuplicateNoKeys() {
-        if (tableProperty == null) {
-            return false;
-        }
-        return tableProperty.getDuplicateNoKeys();
+    public boolean isDuplicateNoKeys() {
+        return getKeysType() == KeysType.DUP_KEYS && getKeysNum() == 0;
     }
 
     // For non partitioned table:

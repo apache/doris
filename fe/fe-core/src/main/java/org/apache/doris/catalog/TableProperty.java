@@ -308,15 +308,6 @@ public class TableProperty implements Writable {
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true"));
     }
 
-    public void setDuplicateNoKeys(boolean enable) {
-        properties.put(PropertyAnalyzer.DUPLICATE_NO_KEYS, Boolean.toString(enable));
-    }
-
-    public boolean getDuplicateNoKeys() {
-        return Boolean.parseBoolean(properties.getOrDefault(
-                PropertyAnalyzer.DUPLICATE_NO_KEYS, "true"));
-    }
-
     public void setSequenceMapCol(String colName) {
         properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL, colName);
