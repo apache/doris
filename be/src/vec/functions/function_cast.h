@@ -1750,14 +1750,7 @@ protected:
     }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        const auto type_col =
-                check_and_get_column_const<ColumnString>(arguments.back().column.get());
-        if (!type_col) {
-            LOG(FATAL) << fmt::format(
-                    "Second argument to {} must be a constant string describing type", get_name());
-        }
-        auto type = DataTypeFactory::instance().get(type_col->get_value<String>());
-        DCHECK(type != nullptr);
+        DataTypePtr type = arguments[1].type;
 
         bool need_to_be_nullable = false;
         // 1. from_type is nullable
@@ -1775,7 +1768,7 @@ protected:
                                 arguments[0].type->get_type_id() != TypeIndex::DateTimeV2) &&
                                (type->get_type_id() == TypeIndex::DateV2 ||
                                 type->get_type_id() == TypeIndex::DateTimeV2);
-        if (need_to_be_nullable) {
+        if (need_to_be_nullable && !type->is_nullable()) {
             return make_nullable(type);
         }
 
