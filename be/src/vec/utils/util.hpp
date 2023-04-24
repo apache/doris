@@ -130,9 +130,8 @@ ThriftStruct from_json_string(const std::string& json_val) {
     using namespace apache::thrift::transport;
     using namespace apache::thrift::protocol;
     ThriftStruct ts;
-    TMemoryBuffer* buffer =
-            new TMemoryBuffer((uint8_t*)json_val.c_str(), (uint32_t)json_val.size());
-    std::shared_ptr<TTransport> trans(buffer);
+    std::shared_ptr<TTransport> trans =
+            std::make_shared<TMemoryBuffer>((uint8_t*)json_val.c_str(), (uint32_t)json_val.size());
     TJSONProtocol protocol(trans);
     ts.read(&protocol);
     return ts;

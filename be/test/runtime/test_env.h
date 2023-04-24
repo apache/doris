@@ -44,9 +44,6 @@ public:
     ExecEnv* exec_env() { return _exec_env; }
 
 private:
-    // Create a new RuntimeState sharing global environment.
-    RuntimeState* create_runtime_state(int64_t query_id);
-
     ExecEnv* _exec_env;
 
     // Per-query states with associated block managers.

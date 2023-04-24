@@ -35,6 +35,8 @@ class Block;
 namespace doris::vectorized {
 
 class VExplodeBitmapTableFunction final : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VExplodeBitmapTableFunction);
+
 public:
     VExplodeBitmapTableFunction();
     ~VExplodeBitmapTableFunction() override = default;

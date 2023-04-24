@@ -28,12 +28,14 @@
 namespace doris::vectorized {
 
 class VLambdaFunctionCallExpr : public VExpr {
+    ENABLE_FACTORY_CREATOR(VLambdaFunctionCallExpr);
+
 public:
     VLambdaFunctionCallExpr(const TExprNode& node) : VExpr(node) {}
     ~VLambdaFunctionCallExpr() override = default;
 
     VExpr* clone(ObjectPool* pool) const override {
-        return pool->add(new VLambdaFunctionCallExpr(*this));
+        return pool->add(VLambdaFunctionCallExpr::create_unique(*this).release());
     }
 
     doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
