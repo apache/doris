@@ -586,8 +586,9 @@ Status VFileScanner::_get_next_reader() {
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
                 std::unique_ptr<IcebergTableReader> iceberg_reader =
-                        IcebergTableReader::create_unique(parquet_reader.get(), _profile, _state,
-                                                          _params, range, _kv_cache, _io_ctx.get());
+                        IcebergTableReader::create_unique(std::move(parquet_reader), _profile,
+                                                          _state, _params, range, _kv_cache,
+                                                          _io_ctx.get());
                 init_status = iceberg_reader->init_reader(
                         _file_col_names, _col_id_name_map, _colname_to_value_range, _push_down_expr,
                         _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,

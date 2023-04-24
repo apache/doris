@@ -67,7 +67,7 @@ public:
         std::vector<std::pair<int, int>> range;
     };
 
-    IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
+    IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
                        const TFileRangeDesc& range, ShardedKVCache* kv_cache,
                        io::IOContext* io_ctx);
