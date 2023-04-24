@@ -295,15 +295,15 @@ Status VScanNode::_init_profile() {
     return Status::OK();
 }
 
-Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
+Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners) {
     if (_is_pipeline_scan) {
-        _scanner_ctx.reset(new pipeline::PipScannerContext(
+        _scanner_ctx = pipeline::PipScannerContext::create_shared(
                 _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
-                _state->query_options().mem_limit / 20, _col_distribute_ids));
+                _state->query_options().mem_limit / 20, _col_distribute_ids);
     } else {
-        _scanner_ctx.reset(new ScannerContext(_state, this, _input_tuple_desc, _output_tuple_desc,
-                                              scanners, limit(),
-                                              _state->query_options().mem_limit / 20));
+        _scanner_ctx = ScannerContext::create_shared(_state, this, _input_tuple_desc,
+                                                     _output_tuple_desc, scanners, limit(),
+                                                     _state->query_options().mem_limit / 20);
     }
     RETURN_IF_ERROR(_scanner_ctx->init());
     return Status::OK();
@@ -1401,7 +1401,7 @@ VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* 
 }
 
 Status VScanNode::_prepare_scanners() {
-    std::list<VScanner*> scanners;
+    std::list<VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     if (scanners.empty()) {
         _eos = true;

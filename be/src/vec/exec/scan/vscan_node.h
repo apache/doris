@@ -44,6 +44,7 @@
 #include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/scanner_context.h"
+#include "vec/exec/scan/vscanner.h"
 #include "vec/runtime/shared_scanner_controller.h"
 
 namespace doris {
@@ -197,7 +198,7 @@ protected:
     // predicate conditions, and scheduling strategy.
     // So this method needs to be implemented separately by the subclass of ScanNode.
     // Finally, a set of scanners that have been prepared are returned.
-    virtual Status _init_scanners(std::list<VScanner*>* scanners) { return Status::OK(); }
+    virtual Status _init_scanners(std::list<VScannerSPtr>* scanners) { return Status::OK(); }
 
     //  Different data sources can implement the following 3 methods to determine whether a predicate
     //  can be pushed down to the data source.
@@ -445,7 +446,7 @@ private:
                                       const std::string& fn_name, int slot_ref_child = -1);
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<VScanner*>& scanners);
+    Status _start_scanners(const std::list<VScannerSPtr>& scanners);
 };
 
 } // namespace doris::vectorized
