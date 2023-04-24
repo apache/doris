@@ -101,7 +101,7 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
     private Expression replace(Expression root, Map<String, Expression> constMap, Map<String, Expression> resultMap) {
         for (Entry<String, Expression> entry : constMap.entrySet()) {
             if (entry.getValue().equals(root)) {
-                return resultMap.get(entry.getKey());
+                return resultMap.getOrDefault(entry.getKey(), root);
             }
         }
         List<Expression> newChildren = new ArrayList<>();
