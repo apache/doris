@@ -40,17 +40,19 @@ public class ShowDataTypesStmt extends ShowStmt {
                     .build();
 
     public static ArrayList<PrimitiveType> getTypes() {
-        return PrimitiveType.getavailableInDdlTypes();
+        return PrimitiveType.getSupportedTypes();
     }
 
-    public static List<List<String>> getFilterTypes() {
+    public static List<List<String>> getTypesAvailableInDdl() {
         ArrayList<PrimitiveType> supportedTypes = getTypes();
         List<List<String>> rows = Lists.newArrayList();
         for (PrimitiveType type : supportedTypes) {
             List<String> row = new ArrayList<>();
-            row.add(type.toString());
-            row.add(Integer.toString(type.getSlotSize()));
-            rows.add(row);
+            if (type.isAvailableInDdl()) {
+                row.add(type.toString());
+                row.add(Integer.toString(type.getSlotSize()));
+                rows.add(row);
+            }
         }
         return rows;
     }

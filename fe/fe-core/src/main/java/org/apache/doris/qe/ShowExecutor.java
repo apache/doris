@@ -485,7 +485,7 @@ public class ShowExecutor {
 
     private void handleShowDataTypes() throws AnalysisException {
         ShowDataTypesStmt showStmt = (ShowDataTypesStmt) stmt;
-        List<List<String>> rows = showStmt.getFilterTypes();
+        List<List<String>> rows = showStmt.getTypesAvailableInDdl();
         showStmt.sortMetaData(rows);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
