@@ -78,8 +78,7 @@ public class MemoTestUtils {
     }
 
     public static CascadesContext createCascadesContext(StatementContext statementContext, Plan initPlan) {
-        CascadesContext cascadesContext = CascadesContext.newRewriteContext(
-                statementContext, initPlan, null);
+        CascadesContext cascadesContext = CascadesContext.newRewriteContext(statementContext, initPlan);
         cascadesContext.toMemo();
         MemoValidator.validateInitState(cascadesContext.getMemo(), initPlan);
         return cascadesContext;
