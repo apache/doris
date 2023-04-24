@@ -33,7 +33,7 @@ for table in $(cat ../conf/mysql_tables |grep -v '#' | awk -F '\n' '{print $1}')
         do
         d_d=$(echo $table |awk -F '.' '{print $1}')
         d_t=$(echo $table |awk -F '.' '{print $2}')
-        echo "show create table \`$d_d\`.\`$d_t\`;" |mysql -h$mysql_host -uroot -p$mysql_password  >> $path
+        echo "show create table \`$d_d\`.\`$d_t\`;" |mysql -h$mysql_host -u$mysql_user -p$mysql_password -P$mysql_port  >> $path
 done
 
 #adjust sql
@@ -51,7 +51,7 @@ rm -rf ../result/tmp111.sql
 mv ../result/tmp222.sql $path
 
 #start transform tables struct
-sed -i '/ENGINE=/a) ENGINE=ODBC\n COMMENT "ODBC"\nPROPERTIES (\n"host" = "ApacheDorisHostIp",\n"port" = "3306",\n"user" = "root",\n"password" = "ApacheDorisHostPassword",\n"database" = "ApacheDorisDataBases",\n"table" = "ApacheDorisTables",\n"driver" = "MySQL",\n"odbc_type" = "mysql");' $path
+sed -i '/ENGINE=/a) ENGINE=ODBC\n COMMENT "ODBC"\nPROPERTIES (\n"host" = "ApacheDorisHostIp",\n"port" = "'"$mysql_port"'",\n"user" = "'"$mysql_user"'",\n"password" = "'"$mysql_password"'",\n"database" = "ApacheDorisDataBases",\n"table" = "ApacheDorisTables",\n"driver" = "MySQL",\n"odbc_type" = "mysql");' $path
 sed -i "s/\"driver\" = \"MySQL\"/\"driver\" = \"$doris_odbc_name\"/g" $path
 
 
@@ -73,7 +73,6 @@ for t_name in $(cat ../conf/mysql_tables |grep -v '#' | awk -F '\n' '{print $1}'
         d=`echo $t_name | awk -F '.' '{print $1}'`
         t=`echo $t_name | awk -F '.' '{print $2}'`
         sed -i "0,/ApacheDorisHostIp/s/ApacheDorisHostIp/${mysql_host}/" $path
-        sed -i "0,/ApacheDorisHostPassword/s/ApacheDorisHostPassword/${mysql_password}/" $path
         sed -i "0,/ApacheDorisDataBases/s/ApacheDorisDataBases/$d/" $path
         sed -i "0,/ApacheDorisTables/s/ApacheDorisTables/$t/" $path
 done
