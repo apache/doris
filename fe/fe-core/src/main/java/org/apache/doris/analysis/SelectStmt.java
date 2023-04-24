@@ -724,6 +724,10 @@ public class SelectStmt extends QueryStmt {
                 || getAnalyticInfo() != null) {
             return false;
         }
+        // ignore short circuit query
+        if (isPointQueryShortCircuit()) {
+            return false;
+        }
         if (!analyzer.isRootAnalyzer()) {
             // ensure no sub query
             return false;
