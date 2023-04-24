@@ -569,6 +569,10 @@ public abstract class Type {
         return this instanceof StructType;
     }
 
+    public boolean isAnyType() {
+        return this instanceof AnyType;
+    }
+
     public boolean isDate() {
         return isScalarType(PrimitiveType.DATE);
     }

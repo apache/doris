@@ -70,8 +70,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto struct_type = check_and_get_data_type<DataTypeStruct>(block.get_by_position(0).type.get());
-        auto struct_col = check_and_get_column<ColumnStruct>(block.get_by_position(0).column.get());
+        auto struct_type = check_and_get_data_type<DataTypeStruct>(block.get_by_position(arguments[0]).type.get());
+        auto struct_col = check_and_get_column<ColumnStruct>(block.get_by_position(arguments[0]).column.get());
         if (!struct_col || !struct_type) {
             return Status::RuntimeError(
                     fmt::format("unsupported types for function {}({}, {})", get_name(),
@@ -98,11 +98,13 @@ private:
         if (is_integer(index_type)) {
             index = index_column->get_int(0);
             size_t limit = struct_type.get_elements().size() + 1;
-            if (index <= 0 || index >= limit) {
+            LOG(INFO) << "get_element_index:index, limit:" << index << " " << limit;
+            if (index < 1 || index >= limit) {
                 return Status::RuntimeError(
                         fmt::format("Index out of bound for function {}: index {} should base from 1 and less than {}.",
                                     get_name(), index, limit));
             }
+            index -= 1; // the index start from 1
         } else if (is_string(index_type)) {
             std::string field_name = index_column->get_data_at(0).to_string();
             std::optional<size_t> pos = struct_type.try_get_position_by_name(field_name);
@@ -121,6 +123,10 @@ private:
         return Status::OK();
     }
 };
+
+void register_function_struct_element(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionStructElement>();
+}
 
 } // namespace doris::vectorized
 

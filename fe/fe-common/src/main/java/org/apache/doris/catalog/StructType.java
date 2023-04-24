@@ -160,6 +160,10 @@ public class StructType extends Type {
             return true;
         }
 
+        if (t.isAnyType()) {
+            return t.matchesType(this);
+        }
+
         if (!t.isStructType()) {
             return false;
         }

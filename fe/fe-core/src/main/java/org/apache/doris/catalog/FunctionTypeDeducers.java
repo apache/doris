@@ -30,7 +30,7 @@ public class FunctionTypeDeducers {
 
     public static final ImmutableMap<String, TypeDeducer> DEDUCERS = ImmutableMap.<String, TypeDeducer>builder()
             .put("named_struct", new NamedStructDeducer())
-            .put("element_at", new ElementAtDeducer())
+            .put("struct_element", new StructElementDeducer())
             .build();
 
     public static Type deduce(String fnName, Type[] args) {
@@ -53,7 +53,7 @@ public class FunctionTypeDeducers {
         }
     }
 
-    public static class ElementAtDeducer implements TypeDeducer {
+    public static class StructElementDeducer implements TypeDeducer {
         @Override
         public Type deduce(Type[] args) {
             if (args[0] instanceof StructType) {
