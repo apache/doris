@@ -230,8 +230,8 @@ int64_t TabletsChannel::mem_consumption() {
 }
 
 template <typename TabletWriterAddRequest>
-Status TabletsChannel::_open_all_writers_in_partition(const int64_t& tablet_id,
-                                                      const TabletWriterAddRequest& request) {
+Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
+                                                       const TabletWriterAddRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
     for (auto& index : _schema->indexes()) {
@@ -267,22 +267,25 @@ Status TabletsChannel::_open_all_writers_in_partition(const int64_t& tablet_id,
         wrequest.is_high_priority = _is_high_priority;
         wrequest.table_schema_param = _schema;
 
-        DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
-        if (!st.ok()) {
-            auto err_msg = fmt::format(
-                    "open delta writer failed, tablet_id={}"
-                    ", txn_id={}, partition_id={}, err={}",
-                    tablet, _txn_id, partition_id, st.to_string());
-            LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
-        }
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            _tablet_writers.emplace(tablet, writer);
+
+            if (_tablet_writers.find(tablet) == _tablet_writers.end()) {
+                DeltaWriter* writer = nullptr;
+                auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
+                if (!st.ok()) {
+                    auto err_msg = fmt::format(
+                            "open delta writer failed, tablet_id={}"
+                            ", txn_id={}, partition_id={}, err={}",
+                            tablet, _txn_id, partition_id, st.to_string());
+                    LOG(WARNING) << err_msg;
+                    return Status::InternalError(err_msg);
+                }
+                _tablet_writers.emplace(tablet, writer);
+                _s_tablet_writer_count += tablets.size();
+            }
         }
     }
-    _s_tablet_writer_count += tablets.size();
     return Status::OK();
 }
 
@@ -363,23 +366,26 @@ Status TabletsChannel::open_all_writers_for_partition(const PartitionOpenRequest
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
         wrequest.table_schema_param = _schema;
-        DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
-        if (!st.ok()) {
-            auto err_msg = fmt::format(
-                    "open delta writer failed, tablet_id={}"
-                    ", txn_id={}, partition_id={}, err={}",
-                    tablet.tablet_id(), _txn_id, tablet.partition_id(), st.to_string());
-            LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
-        }
+
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            _tablet_writers.emplace(tablet.tablet_id(), writer);
+
+            if (_tablet_writers.find(tablet.tablet_id()) == _tablet_writers.end()) {
+                DeltaWriter* writer = nullptr;
+                auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
+                if (!st.ok()) {
+                    auto err_msg = fmt::format(
+                            "open delta writer failed, tablet_id={}"
+                            ", txn_id={}, partition_id={}, err={}",
+                            tablet.tablet_id(), _txn_id, tablet.partition_id(), st.to_string());
+                    LOG(WARNING) << err_msg;
+                    return Status::InternalError(err_msg);
+                }
+                _tablet_writers.emplace(tablet.tablet_id(), writer);
+                _s_tablet_writer_count += _tablet_writers.size();
+            }
         }
     }
-    _s_tablet_writer_count += _tablet_writers.size();
-    DCHECK_EQ(_tablet_writers.size(), request.tablets_size());
     return Status::OK();
 }
 
@@ -454,7 +460,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
                 response->mutable_tablet_errors();
         auto tablet_writer_it = _tablet_writers.find(tablet_id);
         if (tablet_writer_it == _tablet_writers.end()) {
-            RETURN_IF_ERROR(_open_all_writers_in_partition(tablet_id, request));
+            RETURN_IF_ERROR(_open_all_writers_for_partition(tablet_id, request));
             tablet_writer_it = _tablet_writers.find(tablet_id);
         }
         Status st = write_func(tablet_writer_it->second);

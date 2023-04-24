@@ -104,7 +104,7 @@ private:
     Status _get_current_seq(int64_t& cur_seq, const Request& request);
 
     template <typename TabletWriterAddRequest>
-    Status _open_all_writers_in_partition(const int64_t& tablet_id,
+    Status _open_all_writers_for_partition(const int64_t& tablet_id,
                                           const TabletWriterAddRequest& request);
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);

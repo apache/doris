@@ -34,7 +34,7 @@ template <typename T>
 class PartitionOpenClosure : public google::protobuf::Closure {
 public:
     PartitionOpenClosure(VNodeChannel* channel) : _channel(channel), _refs(0) {}
-    ~PartitionOpenClosure() {}
+    ~PartitionOpenClosure() = default;
 
     void ref() { _refs.fetch_add(1); }
     // If unref() returns true, this object should be delete
