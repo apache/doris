@@ -181,8 +181,8 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
 
             if (result.getStatus().getStatusCode() == 0) {
-                for (Entry<String, InternalService.PExprResultMap> e : result.getExprResultMap().entrySet()) {
-                    for (Entry<String, InternalService.PExprResult> e1 : e.getValue().getMap().entrySet()) {
+                for (Entry<String, InternalService.PExprResultMap> e : result.getExprResultMapMap().entrySet()) {
+                    for (Entry<String, InternalService.PExprResult> e1 : e.getValue().getMapMap().entrySet()) {
                         Expression ret;
                         if (e1.getValue().getSuccess()) {
                             TPrimitiveType type = TPrimitiveType.findByValue(e1.getValue().getType().getType());
@@ -192,9 +192,9 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                             DataType t1 = DataType.convertFromString(staleExpr.getType().getPrimitiveType().toString());
                             ret = Literal.of(staleExpr.getStringValue()).castTo(t1);
                         } else {
-                            ret = constMap.get(e.getKey());
+                            ret = constMap.get(e1.getKey());
                         }
-                        resultMap.put(e.getKey(), ret);
+                        resultMap.put(e1.getKey(), ret);
                     }
                 }
 
