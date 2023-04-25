@@ -107,7 +107,8 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
                 *reinterpret_cast<const Decimal128::NativeType*>(data_ref.data);
         result.writeInt128(val);
     } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
-        Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
+        Decimal128I::NativeType val =
+                *reinterpret_cast<const Decimal128I::NativeType*>(data_ref.data);
         result.writeInt128(val);
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
         Decimal32::NativeType val = *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
