@@ -59,13 +59,10 @@ public:
             }
         }
         CoreDataBlock* block = _blocks[block_id];
+        block = _blocks[block_id];
         if (block == nullptr) {
-            std::lock_guard<SpinLock> l(_lock);
-            block = _blocks[block_id];
-            if (block == nullptr) {
-                block = new CoreDataBlock();
-                _blocks[block_id] = block;
-            }
+            block = new CoreDataBlock();
+            _blocks[block_id] = block;
         }
         size_t offset = (id % ELEMENTS_PER_BLOCK) * ELEMENT_BYTES;
         return block->at(offset);
