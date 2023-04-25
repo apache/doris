@@ -455,7 +455,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
             if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
                 data_type == TPrimitiveType::STRING) {
                 if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
-                    srcs[i] = _desc_result.columns[i].columnDesc.columnLength * 4;
+                    srcs[i] = _desc_result.columns[i].columnDesc.columnLength * 4L;
                     datas[i] = srcs + i;
                 } else {
                     datas[i] = nullptr;
