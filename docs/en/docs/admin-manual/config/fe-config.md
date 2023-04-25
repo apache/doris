@@ -167,7 +167,7 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
-### grpc_threadmgr_threads_nums
+### `grpc_threadmgr_threads_nums`
 
 Default: 4096
 

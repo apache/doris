@@ -173,13 +173,13 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 元数据会同步写入到多个 Follower FE，这个参数用于控制 Master FE 等待 Follower FE 发送 ack 的超时时间。当写入的数据较大时，可能 ack 时间较长，如果超时，会导致写元数据失败，FE 进程退出。此时可以适当调大这个参数。
 
-### grpc_threadmgr_threads_nums
+### `grpc_threadmgr_threads_nums`
 
 默认值: 4096
 
 在grpc_threadmgr中处理grpc events的线程数量。
 
-#### `bdbje_lock_timeout_second`>>>>>>> 1b46f49ad0 (use customed threadpool instead of the default threadpool of grpc java to get better metrics)
+#### `bdbje_lock_timeout_second`
 
 默认值：1
 
