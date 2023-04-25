@@ -306,6 +306,8 @@ public class JdbcExecutor {
     private void setValidationQuery(DruidDataSource ds, TOdbcTableType tableType) {
         if (tableType == TOdbcTableType.ORACLE) {
             ds.setValidationQuery("SELECT 1 FROM dual");
+        } else if (tableType == TOdbcTableType.SAP_HANA) {
+            ds.setValidationQuery("SELECT 1 FROM DUMMY");
         } else {
             ds.setValidationQuery("SELECT 1");
         }
