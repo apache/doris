@@ -134,4 +134,3 @@ void register_function_struct_element(SimpleFunctionFactory& factory) {
 }
 
 } // namespace doris::vectorized
-
