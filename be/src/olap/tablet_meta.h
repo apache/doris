@@ -216,9 +216,6 @@ public:
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
-    bool duplicate_no_keys() const {
-        return _schema->keys_type() == KeysType::DUP_KEYS && _schema->num_key_columns() == 0;
-    }
 
     bool is_dropped() const;
     void set_is_dropped(bool is_dropped);

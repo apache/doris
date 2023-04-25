@@ -138,7 +138,6 @@ public:
     double bloom_filter_fpp() const;
     size_t next_unique_id() const;
     size_t row_size() const;
-    bool duplicate_no_keys() const;
 
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
@@ -740,10 +739,6 @@ inline size_t Tablet::next_unique_id() const {
 
 inline size_t Tablet::row_size() const {
     return _schema->row_size();
-}
-
-inline bool Tablet::duplicate_no_keys() const {
-    return _schema->keys_type() ==KeysType::DUP_KEYS && _schema->num_key_columns() == 0;
 }
 
 } // namespace doris

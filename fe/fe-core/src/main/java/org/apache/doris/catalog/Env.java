@@ -3712,7 +3712,7 @@ public class Env {
     }
 
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties,
-                boolean isDupNoKeys) throws DdlException {
+                boolean isKeysRequired) throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
         for (Column column : columns) {
             if (column.isKey()) {
@@ -3720,7 +3720,7 @@ public class Env {
             }
         }
         LOG.debug("index column size: {}", indexColumns.size());
-        if (isDupNoKeys != true) {
+        if (isKeysRequired) {
             Preconditions.checkArgument(indexColumns.size() > 0);
         }
 
@@ -3776,7 +3776,7 @@ public class Env {
                 }
                 ++shortKeyColumnCount;
             }
-            if (isDupNoKeys != true && shortKeyColumnCount == 0) {
+            if (isKeysRequired && shortKeyColumnCount == 0) {
                 throw new DdlException("The first column could not be float or double type, use decimal instead");
             }
 

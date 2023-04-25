@@ -1859,11 +1859,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         Preconditions.checkNotNull(keysDesc);
         KeysType keysType = keysDesc.getKeysType();
         int keysColumnSize = keysDesc.keysColumnSize();
-        boolean isDupNoKeys = (keysType == KeysType.DUP_KEYS && keysColumnSize == 0);
+        boolean isKeysRequired = !(keysType == KeysType.DUP_KEYS && keysColumnSize == 0);
 
         // create columns
         List<Column> baseSchema = stmt.getColumns();
-        validateColumns(baseSchema, isDupNoKeys);
+        validateColumns(baseSchema, isKeysRequired);
 
         // analyze replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(stmt.getProperties(), "");
@@ -1901,7 +1901,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         DistributionInfo defaultDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
 
         // calc short key column count
-        short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties(), isDupNoKeys);
+        short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties(), isKeysRequired);
         LOG.debug("create table[{}] short key column count: {}", tableName, shortKeyColumnCount);
 
         // create table
@@ -2141,7 +2141,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             List<Column> rollupColumns = Env.getCurrentEnv().getMaterializedViewHandler()
                     .checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
             short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties(),
-                                                        false/*isDupNoKeys*/);
+                                                        true/*isKeysRequired*/);
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
@@ -2390,7 +2390,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (baseSchema.isEmpty()) {
             baseSchema = esTable.genColumnsFromEs();
         }
-        validateColumns(baseSchema, false);
+        validateColumns(baseSchema, true);
         esTable.setNewFullSchema(baseSchema);
 
         // create partition info
@@ -2596,7 +2596,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     /*
      * generate and check columns' order and key's existence
      */
-    private void validateColumns(List<Column> columns, boolean isDupNoKeys) throws DdlException {
+    private void validateColumns(List<Column> columns, boolean isKeysRequired) throws DdlException {
         if (columns.isEmpty()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
@@ -2614,7 +2614,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        if (!hasKey && !isDupNoKeys) {
+        if (!hasKey && isKeysRequired) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_MUST_HAVE_KEYS);
         }
     }
