@@ -53,7 +53,7 @@ public class StructType extends Type {
         Preconditions.checkNotNull(fields);
         this.fields = fields;
         for (int i = 0; i < this.fields.size(); ++i) {
-            this.fields.get(i).setPosition(i + 1);
+            this.fields.get(i).setPosition(i);
             fieldMap.put(this.fields.get(i).getName().toLowerCase(), this.fields.get(i));
         }
     }
