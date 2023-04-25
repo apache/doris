@@ -52,7 +52,7 @@ jobs:
       - name: Setup thrift
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y thrift-compiler=0.13.0-2build2
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y thrift-compiler=0.16.0-2
           thrift --version
           mkdir -p thirdparty/installed/bin/
           cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
