@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -37,6 +38,7 @@ public class SemiJoinAggTransposeProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalProject(logicalAggregate()), any())
+                .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
                 .when(join -> join.getJoinType().isLeftSemiOrAntiJoin())
                 .when(join -> join.left().getProjects().stream().allMatch(n -> n instanceof Slot))
                 .then(join -> {
