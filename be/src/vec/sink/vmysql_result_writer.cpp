@@ -131,7 +131,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             const auto col_index = index_check_const(i, arg_const);
 
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(col_index)) {
+                if (assert_cast<const ColumnNullable*>(column_ptr.get())->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
@@ -209,7 +209,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             const auto col_index = index_check_const(i, arg_const);
 
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(col_index)) {
+                if (assert_cast<const ColumnNullable*>(column_ptr.get())->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
@@ -250,7 +250,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             const auto col_index = index_check_const(i, arg_const);
 
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(col_index)) {
+                if (assert_cast<const ColumnNullable*>(column_ptr.get())->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
@@ -272,7 +272,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             const auto col_index = index_check_const(i, arg_const);
 
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(col_index)) {
+                if (assert_cast<const ColumnNullable*>(column_ptr.get())->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
@@ -313,7 +313,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             const auto col_index = index_check_const(i, arg_const);
 
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(col_index)) {
+                if (assert_cast<const ColumnNullable*>(column_ptr.get())->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
@@ -333,7 +333,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             const auto col_index = index_check_const(i, arg_const);
 
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(col_index)) {
+                if (assert_cast<const ColumnNullable*>(column_ptr.get())->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
