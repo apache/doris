@@ -385,7 +385,8 @@ enum TOdbcTableType {
     CLICKHOUSE,
     SAP_HANA,
     TRINO,
-    OCEANBASE
+    OCEANBASE,
+    OCEANBASE_ORACLE
 }
 
 struct TJdbcExecutorCtorParams {

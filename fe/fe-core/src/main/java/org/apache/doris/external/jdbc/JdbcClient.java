@@ -66,16 +66,20 @@ public class JdbcClient {
     // only used when isLowerCaseTableNames = true.
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
 
+    private String oceanbaseMode = "";
+
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
-            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap) {
+            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap,
+            String oceanbaseMode) {
         this.jdbcUser = user;
         this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
         this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
         if (specifiedDatabaseMap != null) {
             this.specifiedDatabaseMap = specifiedDatabaseMap;
         }
+        this.oceanbaseMode = oceanbaseMode;
         try {
-            this.dbType = JdbcResource.parseDbType(jdbcUrl);
+            this.dbType = JdbcResource.parseDbType(jdbcUrl, oceanbaseMode);
         } catch (DdlException e) {
             throw new JdbcClientException("Failed to parse db type from jdbcUrl: " + jdbcUrl, e);
         }
@@ -193,6 +197,7 @@ public class JdbcClient {
                             + "'" + jdbcUser + "', nspname, 'USAGE');");
                     break;
                 case JdbcResource.ORACLE:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
                     break;
                 case JdbcResource.SQLSERVER:
@@ -242,6 +247,7 @@ public class JdbcClient {
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
                 case JdbcResource.TRINO:
+                case JdbcResource.OCEANBASE_ORACLE:
                     databaseNames.add(conn.getSchema());
                     break;
                 default:
@@ -276,6 +282,7 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 case JdbcResource.TRINO:
@@ -317,6 +324,7 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 case JdbcResource.TRINO:
@@ -393,6 +401,7 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
                 case JdbcResource.TRINO:
@@ -432,12 +441,14 @@ public class JdbcClient {
     public Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         switch (dbType) {
             case JdbcResource.MYSQL:
+            case JdbcResource.OCEANBASE:
                 return mysqlTypeToDoris(fieldSchema);
             case JdbcResource.POSTGRESQL:
                 return postgresqlTypeToDoris(fieldSchema);
             case JdbcResource.CLICKHOUSE:
                 return clickhouseTypeToDoris(fieldSchema);
             case JdbcResource.ORACLE:
+            case JdbcResource.OCEANBASE_ORACLE:
                 return oracleTypeToDoris(fieldSchema);
             case JdbcResource.SQLSERVER:
                 return sqlserverTypeToDoris(fieldSchema);
@@ -445,8 +456,6 @@ public class JdbcClient {
                 return saphanaTypeToDoris(fieldSchema);
             case JdbcResource.TRINO:
                 return trinoTypeToDoris(fieldSchema);
-            case JdbcResource.OCEANBASE:
-                return oceanbaseTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -878,83 +887,6 @@ public class JdbcClient {
                 return ScalarType.createStringType();
             case "date":
                 return ScalarType.createDateV2Type();
-            default:
-                return Type.UNSUPPORTED;
-        }
-    }
-
-    public Type oceanbaseTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String[] typeFields = fieldSchema.getDataTypeName().split(" ");
-        String oceanbaseType = typeFields[0];
-        if (typeFields.length > 1 && "UNSIGNED".equals(typeFields[1])) {
-            switch (oceanbaseType) {
-                case "TINYINT":
-                    return Type.SMALLINT;
-                case "SMALLINT":
-                    return Type.INT;
-                case "MEDIUMINT":
-                    return Type.INT;
-                case "INT":
-                    return Type.BIGINT;
-                case "BIGINT":
-                    return Type.LARGEINT;
-                case "DECIMAL":
-                    int precision = fieldSchema.getColumnSize() + 1;
-                    int scale = fieldSchema.getDecimalDigits();
-                    return createDecimalOrStringType(precision, scale);
-                default:
-                    throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + oceanbaseType + "]");
-            }
-        }
-        switch (oceanbaseType) {
-            case "TINYINT":
-                return Type.TINYINT;
-            case "SMALLINT":
-                return Type.SMALLINT;
-            case "MEDIUMINT":
-            case "INT":
-                return Type.INT;
-            case "BIGINT":
-                return Type.BIGINT;
-            case "DATE":
-            case "YEAR":
-                return ScalarType.createDateV2Type();
-            case "TIMESTAMP":
-            case "DATETIME":
-                return ScalarType.createDatetimeV2Type(0);
-            case "FLOAT":
-                return Type.FLOAT;
-            case "DOUBLE":
-                return Type.DOUBLE;
-            case "DECIMAL":
-                int precision = fieldSchema.getColumnSize();
-                int scale = fieldSchema.getDecimalDigits();
-                return createDecimalOrStringType(precision, scale);
-            case "CHAR":
-                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.columnSize);
-                return charType;
-            case "VARCHAR":
-                return ScalarType.createVarcharType(fieldSchema.columnSize);
-            case "TIME":
-            case "TINYTEXT":
-            case "TEXT":
-            case "MEDIUMTEXT":
-            case "LONGTEXT":
-            case "TINYBLOB":
-            case "BLOB":
-            case "MEDIUMBLOB":
-            case "LONGBLOB":
-            case "TINYSTRING":
-            case "STRING":
-            case "MEDIUMSTRING":
-            case "LONGSTRING":
-            case "JSON":
-            case "SET":
-            case "BINARY":
-            case "VARBINARY":
-            case "ENUM":
-                return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
         }

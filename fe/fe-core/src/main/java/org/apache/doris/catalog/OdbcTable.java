@@ -112,6 +112,14 @@ public class OdbcTable extends Table {
         return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
     }
 
+    private static String oceanbaseOracleProperName(String name) {
+        String[] parts = name.split("\\.");
+        if (parts.length > 1) {
+            return "\"" + parts[1] + "\"";
+        }
+        return "\"" + name + "\"";
+    }
+
     public static String databaseProperName(TOdbcTableType tableType, String name) {
         switch (tableType) {
             case MYSQL:
@@ -129,6 +137,8 @@ public class OdbcTable extends Table {
                 return saphanaProperName(name);
             case TRINO:
                 return trinoProperName(name);
+            case OCEANBASE_ORACLE:
+                return oceanbaseOracleProperName(name);
             default:
                 return name;
         }
