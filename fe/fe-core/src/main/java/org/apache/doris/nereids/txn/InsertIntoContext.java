@@ -26,7 +26,6 @@ import java.util.List;
  */
 public class InsertIntoContext {
     private List<Column> targetSchema = null;
-    private int keyNums = 0;
 
     public void setTargetSchema(List<Column> targetSchema) {
         this.targetSchema = targetSchema;
@@ -34,13 +33,5 @@ public class InsertIntoContext {
 
     public List<Column> getTargetSchema() {
         return targetSchema;
-    }
-
-    public void setKeyNums(int keyNums) {
-        this.keyNums = keyNums;
-    }
-
-    public int getKeyNums() {
-        return keyNums;
     }
 }
