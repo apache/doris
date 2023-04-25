@@ -33,7 +33,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 ## 使用限制
 
-1. 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse、Doris
+1. 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse、Doris、SAP HANA、Trino、OceanBase
 
 ## 创建 Catalog
 
@@ -180,7 +180,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 
 8. Trino
 
-<version since="dev"></version>
+<version since="1.2.4"></version>
 
 ```sql
 CREATE CATALOG trino_catalog PROPERTIES (
@@ -200,6 +200,21 @@ CREATE CATALOG trino_catalog PROPERTIES (
 | Catalog  | Catalog | 
 | Database | Schema  |
 | Table    | Table   |
+
+9. OceanBase
+
+<version since="dev"></version>
+
+```sql
+CREATE CATALOG jdbc_oceanbase PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Drive"
+)
+```
 
 ### 参数说明
 
@@ -440,11 +455,40 @@ set enable_odbc_transcation = true;
 **Note:**
 目前仅针对Trino连接的Hive做了测试，其他的Trino连接的数据源暂时未测试。
 
+### OceanBase
+
+| OceanBase Type                                                                                                                                      | Doris Type  | Comment                       |
+|-----------------------------------------------------------------------------------------------------------------------------------------------------|-------------|-------------------------------|
+| TINYINT                                                                                                                                             | TINYINT     |                               |
+| SMALLINT                                                                                                                                            | SMALLINT    |                               |
+| MEDIUMINT                                                                                                                                           | INT         |                               |
+| INT                                                                                                                                                 | INT         |                               |
+| BIGINT                                                                                                                                              | BIGINT      |                               |
+| UNSIGNED TINYINT                                                                                                                                    | SMALLINT    | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
+| UNSIGNED MEDIUMINT                                                                                                                                  | INT         | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
+| UNSIGNED INT                                                                                                                                        | BIGINT      | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
+| UNSIGNED BIGINT                                                                                                                                     | LARGEINT    | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
+| FLOAT                                                                                                                                               | FLOAT       |                               |
+| DOUBLE                                                                                                                                              | DOUBLE      |                               |
+| DECIMAL                                                                                                                                             | DECIMALV3   |                               |
+| DATE                                                                                                                                                | DATEV2      |                               |
+| TIMESTAMP                                                                                                                                           | DATETIMEV2  |                               |
+| DATETIME                                                                                                                                            | DATETIMEV2  |                               |
+| YEAR                                                                                                                                                | DATETIMEV2  |                               |
+| TIME                                                                                                                                                | STRING      |                               |
+| CHAR                                                                                                                                                | CHAR        |                               |
+| VARCHAR                                                                                                                                             | VARCHAR     |                               |
+| BOOLEAN、TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING      |                               |
+| Other                                                                                                                                               | UNSUPPORTED |                               |
+
+**Note:**
+目前仅针对OceanBase的MySQL模式做了适配，Oracle模式并未完整测试
+
 ## 常见问题
 
-1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA 是否能够支持更多的数据库
+1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino,OceanBase 是否能够支持更多的数据库
 
-    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino,OceanBase. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写 MySQL外表的emoji表情出现乱码
 

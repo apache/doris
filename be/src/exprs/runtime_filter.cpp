@@ -277,7 +277,8 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
         return Status::InvalidArgument("Invalid type!");
     }
 
-    *reinterpret_cast<vectorized::VExpr**>(expr) = pool->add(new vectorized::VLiteral(node));
+    *reinterpret_cast<vectorized::VExpr**>(expr) =
+            pool->add(vectorized::VLiteral::create_unique(node).release());
 
     return Status::OK();
 }
@@ -353,7 +354,8 @@ public:
               _fragment_instance_id(params->fragment_instance_id),
               _filter_id(params->filter_id),
               _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
-                                                          _column_return_type)) {}
+                                                          _column_return_type)),
+              _use_new_hash(_state->be_exec_version() >= 2) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
     RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool, PrimitiveType column_type,
@@ -366,7 +368,8 @@ public:
               _fragment_instance_id(fragment_instance_id),
               _filter_id(filter_id),
               _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
-                                                          _column_return_type)) {}
+                                                          _column_return_type)),
+              _use_new_hash(_state->be_exec_version() >= 2) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
@@ -430,7 +433,12 @@ public:
                 }
             } else {
                 while (it->has_next()) {
-                    bloom_filter->insert(it->get_value());
+                    if (_use_new_hash) {
+                        bloom_filter->insert_crc32_hash(it->get_value());
+                    } else {
+                        bloom_filter->insert(it->get_value());
+                    }
+
                     it->next();
                 }
             }
@@ -453,12 +461,20 @@ public:
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            _context.bloom_filter_func->insert(data);
+            if (_use_new_hash) {
+                _context.bloom_filter_func->insert_crc32_hash(data);
+            } else {
+                _context.bloom_filter_func->insert(data);
+            }
             break;
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             if (_is_bloomfilter) {
-                _context.bloom_filter_func->insert(data);
+                if (_use_new_hash) {
+                    _context.bloom_filter_func->insert_crc32_hash(data);
+                } else {
+                    _context.bloom_filter_func->insert(data);
+                }
             } else {
                 _context.hybrid_set->insert(data);
             }
@@ -1036,6 +1052,10 @@ private:
 
     // When _column_return_type is invalid, _use_batch will be always false.
     bool _use_batch;
+
+    // When _use_new_hash is set to true, use the new hash method.
+    // This is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    const bool _use_new_hash;
 };
 
 Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
@@ -1763,11 +1783,13 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
             node.__set_vector_opcode(to_in_opcode(_column_return_type));
             node.__set_is_nullable(false);
 
-            auto in_pred = _pool->add(new vectorized::VDirectInPredicate(node));
+            auto in_pred =
+                    _pool->add(vectorized::VDirectInPredicate::create_unique(node).release());
             in_pred->set_filter(_context.hybrid_set);
             auto cloned_vexpr = vprob_expr->root()->clone(_pool);
             in_pred->add_child(cloned_vexpr);
-            auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, in_pred));
+            auto wrapper = _pool->add(
+                    vectorized::VRuntimeFilterWrapper::create_unique(node, in_pred).release());
             container->push_back(wrapper);
         }
         break;
@@ -1785,7 +1807,8 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
         max_pred->add_child(cloned_vexpr);
         max_pred->add_child(max_literal);
         container->push_back(
-                _pool->add(new vectorized::VRuntimeFilterWrapper(max_pred_node, max_pred)));
+                _pool->add(vectorized::VRuntimeFilterWrapper::create_unique(max_pred_node, max_pred)
+                                   .release()));
 
         // create min filter
         vectorized::VExpr* min_pred = nullptr;
@@ -1799,7 +1822,8 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
         min_pred->add_child(cloned_vexpr);
         min_pred->add_child(min_literal);
         container->push_back(
-                _pool->add(new vectorized::VRuntimeFilterWrapper(min_pred_node, min_pred)));
+                _pool->add(vectorized::VRuntimeFilterWrapper::create_unique(min_pred_node, min_pred)
+                                   .release()));
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
@@ -1813,11 +1837,12 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
-        auto bloom_pred = _pool->add(new vectorized::VBloomPredicate(node));
+        auto bloom_pred = _pool->add(vectorized::VBloomPredicate::create_unique(node).release());
         bloom_pred->set_filter(_context.bloom_filter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         bloom_pred->add_child(cloned_vexpr);
-        auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, bloom_pred));
+        auto wrapper = _pool->add(
+                vectorized::VRuntimeFilterWrapper::create_unique(node, bloom_pred).release());
         container->push_back(wrapper);
         break;
     }
@@ -1832,11 +1857,12 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
-        auto bitmap_pred = _pool->add(new vectorized::VBitmapPredicate(node));
+        auto bitmap_pred = _pool->add(vectorized::VBitmapPredicate::create_unique(node).release());
         bitmap_pred->set_filter(_context.bitmap_filter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         bitmap_pred->add_child(cloned_vexpr);
-        auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, bitmap_pred));
+        auto wrapper = _pool->add(
+                vectorized::VRuntimeFilterWrapper::create_unique(node, bitmap_pred).release());
         container->push_back(wrapper);
         break;
     }

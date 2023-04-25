@@ -2013,6 +2013,13 @@ public class Config extends ConfigBase {
     public static boolean enable_func_pushdown = true;
 
     /**
+     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
+     * otherwise it will throw an AnalysisException.
+     */
+    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
+    public static boolean enable_query_hive_views = false;
+
+    /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
      */
     @ConfField(masterOnly = true)
@@ -2135,5 +2142,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean infodb_support_ext_catalog = false;
+
+    /**
+     * If true, auth check will be disabled. The default value is false.
+     * This is to solve the case that user forgot the password.
+     */
+    @ConfField(mutable = false)
+    public static boolean skip_localhost_auth_check  = false;
 }
 

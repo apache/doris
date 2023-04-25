@@ -17,13 +17,20 @@
 
 #include "vec/olap/vgeneric_iterators.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <vector>
 
+#include "gtest/gtest_pred_impl.h"
+#include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/schema.h"
-#include "util/slice.h"
+#include "olap/tablet_schema.h"
+#include "vec/columns/column.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 using namespace ErrorCode;

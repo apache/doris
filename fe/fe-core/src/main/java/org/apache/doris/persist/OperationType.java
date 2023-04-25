@@ -283,6 +283,7 @@ public class OperationType {
 
     // resource group 410 ~ 419
     public static final short OP_CREATE_RESOURCE_GROUP = 410;
+    public static final short OP_DROP_RESOURCE_GROUP = 411;
 
     /**
      * Get opcode name by op code.

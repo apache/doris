@@ -17,6 +17,9 @@
 
 #include "olap/tablet_schema_helper.h"
 
+#include <string.h>
+
+#include "util/slice.h"
 #include "vec/common/arena.h"
 
 namespace doris {

@@ -50,7 +50,6 @@ suite("test_mysql_jdbc_catalog", "p0") {
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
 
-        sql """ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "true");"""
         sql """drop catalog if exists ${catalog_name} """
         sql """ drop resource if exists ${resource_name} """
 

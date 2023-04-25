@@ -17,22 +17,32 @@
 
 #include "vec/exprs/vexpr.h"
 
-#include <gtest/gtest.h>
-#include <thrift/protocol/TJSONProtocol.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
 
 #include <cmath>
-#include <iostream>
+#include <limits>
+#include <new>
+#include <type_traits>
 
+#include "common/object_pool.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
+#include "gtest/gtest_pred_impl.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/large_int_value.h"
 #include "runtime/memory/chunk_allocator.h"
-#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"

@@ -42,7 +42,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase {
         new PlanPostProcessors(checker.getCascadesContext()).process(plan);
         Assertions.assertTrue(plan.children().get(0) instanceof PhysicalTopN);
         PhysicalTopN localTopN = (PhysicalTopN) plan.children().get(0);
-        Assertions.assertTrue(localTopN.getMutableState(PhysicalTopN.TOPN_OPT).isPresent());
+        Assertions.assertTrue(localTopN.getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent());
     }
 
     // topn rf do not apply on string-like and float column
@@ -56,6 +56,6 @@ public class TopNRuntimeFilterTest extends SSBTestBase {
         new PlanPostProcessors(checker.getCascadesContext()).process(plan);
         Assertions.assertTrue(plan.children().get(0) instanceof PhysicalTopN);
         PhysicalTopN localTopN = (PhysicalTopN) plan.children().get(0);
-        Assertions.assertFalse(localTopN.getMutableState(PhysicalTopN.TOPN_OPT).isPresent());
+        Assertions.assertFalse(localTopN.getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent());
     }
 }

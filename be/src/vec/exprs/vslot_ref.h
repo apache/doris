@@ -33,6 +33,8 @@ class Block;
 class VExprContext;
 
 class VSlotRef final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VSlotRef);
+
 public:
     VSlotRef(const doris::TExprNode& node);
     VSlotRef(const SlotDescriptor* desc);
@@ -41,7 +43,7 @@ public:
     virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                                   VExprContext* context) override;
     virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VSlotRef(*this));
+        return pool->add(VSlotRef::create_unique(*this).release());
     }
 
     virtual const std::string& expr_name() const override;

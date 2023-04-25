@@ -191,7 +191,9 @@ public class Coordinator {
 
     private RuntimeProfile queryProfile;
 
+    private RuntimeProfile fragmentsProfile;
     private List<RuntimeProfile> fragmentProfile;
+    private RuntimeProfile loadChannelProfile;
 
     private ProfileWriter profileWriter;
 
@@ -526,11 +528,16 @@ public class Coordinator {
         int fragmentSize = fragments.size();
         queryProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
 
+        fragmentsProfile = new RuntimeProfile("Fragments");
+        queryProfile.addChild(fragmentsProfile);
         fragmentProfile = new ArrayList<RuntimeProfile>();
         for (int i = 0; i < fragmentSize; i++) {
             fragmentProfile.add(new RuntimeProfile("Fragment " + i));
-            queryProfile.addChild(fragmentProfile.get(i));
+            fragmentsProfile.addChild(fragmentProfile.get(i));
         }
+
+        loadChannelProfile = new RuntimeProfile("LoadChannels");
+        queryProfile.addChild(loadChannelProfile);
 
         this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
         if (LOG.isDebugEnabled()) {
@@ -729,7 +736,7 @@ public class Coordinator {
                 for (TExecPlanFragmentParams tParam : tParams) {
                     BackendExecState execState =
                             new BackendExecState(fragment.getFragmentId(), instanceId++,
-                                    profileFragmentId, tParam, this.addressToBackendID);
+                                    profileFragmentId, tParam, this.addressToBackendID, loadChannelProfile);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -2562,6 +2569,7 @@ public class Coordinator {
         boolean hasCanceled;
         int profileFragmentId;
         RuntimeProfile profile;
+        RuntimeProfile loadChannelProfile;
         TNetworkAddress brpcAddress;
         TNetworkAddress address;
         Backend backend;
@@ -2569,7 +2577,8 @@ public class Coordinator {
         TUniqueId instanceId;
 
         public BackendExecState(PlanFragmentId fragmentId, int instanceId, int profileFragmentId,
-                                TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID) {
+                                TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID,
+                                RuntimeProfile loadChannelProfile) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
@@ -2582,6 +2591,7 @@ public class Coordinator {
             this.brpcAddress = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
 
             String name = "Instance " + DebugUtil.printId(fi.instanceId) + " (host=" + address + ")";
+            this.loadChannelProfile = loadChannelProfile;
             this.profile = new RuntimeProfile(name);
             this.hasCanceled = false;
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
@@ -2610,6 +2620,9 @@ public class Coordinator {
             }
             if (params.isSetProfile()) {
                 profile.update(params.profile);
+            }
+            if (params.isSetLoadChannelProfile()) {
+                loadChannelProfile.update(params.loadChannelProfile);
             }
             this.done = params.done;
             if (statsErrorEstimator != null) {
