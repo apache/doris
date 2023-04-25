@@ -47,7 +47,7 @@ public:
     // Get function name.
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_nulls() const override { return true; }
 
     bool use_default_implementation_for_constants() const override { return true; }
 
@@ -65,7 +65,8 @@ public:
         // Due to the inability to get the actual value of the index column
         // in function's build stage, we directly return nothing here.
         // Todo(xy): Is there any good way to return right type?
-        return make_nullable(std::make_shared<DataTypeNothing>());
+        // return make_nullable(std::make_shared<DataTypeNothing>());
+        return std::make_shared<DataTypeNothing>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
