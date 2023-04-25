@@ -278,12 +278,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _storage_policy_id(b._storage_policy_id),
           _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
-<<<<<<< HEAD
           _delete_bitmap(b._delete_bitmap),
           _is_dropped(b._is_dropped) {};
-=======
-          _delete_bitmap(b._delete_bitmap) {};
->>>>>>> 9c5ae33390 (fix code 100)
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
