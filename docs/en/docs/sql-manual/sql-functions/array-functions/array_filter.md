@@ -34,6 +34,12 @@ array_filter(lambda,array)
 
 ### description
 
+#### Syntax
+```sql
+ARRAY<T> array_filter(lambda, ARRAY<T> arr1, ARRAY<T> arr2, ... )
+ARRAY<T> array_filter(ARRAY<T> arr)
+```
+
 Use the lambda expression as the input parameter to calculate and filter the data of the ARRAY column of the other input parameter.
 And filter out the values of 0 and NULL in the result.
 

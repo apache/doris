@@ -34,6 +34,9 @@ array_map(lambda,array1,array2....)
 
 ### description
 
+#### Syntax
+`ARRAY<T> array_map(lambda, ARRAY<T> array1, ARRAY<T> array2)`
+
 使用一个lambda表达式作为输入参数，对其他的输入ARRAY参数的内部数据做对应表达式计算。
 在lambda表达式中输入的参数为1个或多个，必须和后面的输入array列数量一致。
 在lambda中可以执行合法的标量函数，不支持聚合函数等。

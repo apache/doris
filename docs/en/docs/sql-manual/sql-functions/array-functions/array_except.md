@@ -36,9 +36,7 @@ array_except
 
 #### Syntax
 
-```
-ARRAY<T> array_except(ARRAY<T> array1, ARRAY<T> array2)
-```
+`ARRAY<T> array_except(ARRAY<T> array1, ARRAY<T> array2)`
 
 Returns an array of the elements in array1 but not in array2, without duplicates. If the input parameter is null, null is returned.
 
