@@ -175,7 +175,7 @@ void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, Prim
         if (type == TYPE_DATE || type == TYPE_DATETIME) {
             char buf[64];
             auto date_convert_do_crc = [&](size_t i) {
-                const DateTimeValue& date_val = (const DateTimeValue&)data[i];
+                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[i];
                 auto len = date_val.to_buffer(buf);
                 hashes[i] = HashUtil::zlib_crc_hash(buf, len, hashes[i]);
             };
