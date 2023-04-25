@@ -54,7 +54,7 @@ suite("test_all_types", "types") {
     // aggModel start 
 
     def TableName1 = "data_types_agg"
-
+    sql "DROP TABLE IF EXISTS ${TableName1}"
     List<List<String>> dataTypes1 = sql "SHOW data types"
 
     def createTBSQL1 = "CREATE TABLE IF NOT EXISTS ${TableName1} ("
@@ -70,6 +70,18 @@ suite("test_all_types", "types") {
         index1++
         if (dataType == "ARRAY" || dataType == "MAP") {
             return
+        } else if (dataType == "DECIMAL128") {
+            masterKey1 += "k${index1}, "
+            createTBSQL1 += "k${index1} DECIMALV3(36,3), "
+        } else if (dataType == "DECIMAL32") {
+            masterKey1 += "k${index1}, "
+            createTBSQL1 += "k${index1} DECIMALV3(6,3), "
+        } else if (dataType == "DECIMAL64") {
+            masterKey1 += "k${index1}, "
+            createTBSQL1 += "k${index1} DECIMALV3(16,3), "
+        } else if (dataType == "DECIMALV2") {
+            masterKey1 += "k${index1}, "
+            createTBSQL1 += "k${index1} DECIMAL, "
         } else if (dataType == "JSONB") {
             subSQL1 += "k${index1} ${dataType} REPLACE, "
         } else if (dataType == "STRING") {
@@ -103,17 +115,17 @@ suite("test_all_types", "types") {
     sql "${createTBSQL1}"
 
     // aggModel insert load
-    sql """ insert into ${TableName1} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k15, k17, k20, k22, k23, k3, k12, k13, k14, k16, k19, k21) values 
-    (1, 1, 'x', '1999-01-08', '1999-01-08 02:05:06', '1999-01-08 02:05:06', '1999-01-08',2, 2, 1, 1, 1, 1, 'x', to_bitmap(17), 1, 1, hll_hash(17), '"a"', to_quantile_state(1,2048), 'text1'),
-    (2,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',2,2,2,2,2,2,'a',to_bitmap(2),2.2,2.2,hll_hash(18),'"b"',to_quantile_state(2,2048),'text2'),
-    (3,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',3,3,3,3,3,3,'c',to_bitmap(3),3.3,3.3,hll_hash(3),'"c"',to_quantile_state(3,2048),'text3'),
-    (4,0,'d','2002-01-08','2002-01-08 02:05:06','2002-01-08 02:05:06','2002-01-08',4,4,4,4,4,4,'d',to_bitmap(4),4.4,4.4,hll_hash(4),'"d"',to_quantile_state(4,2048),'text4'),
-    (5,1,'e','2003-03-08','2003-03-08 02:05:06','2003-03-08 02:05:06','2003-03-08',5,5,5,5,5,5,'e',to_bitmap(5),5.5,5.5,hll_hash(5),'"e"',to_quantile_state(5,2048),'text5'),
-    (6,0,'f','2004-03-08','2004-03-08 02:05:06','2004-03-08 02:05:06','2004-03-08',6,6,6,6,6,6,'f',to_bitmap(6),6.6,6.6,hll_hash(6),'"f"',to_quantile_state(6,2048),'text6'),
-    (7,1,'g','2005-03-08','2005-03-08 02:05:06','2005-03-08 02:05:06','2005-03-08',7,7,7,7,7,7,'g',to_bitmap(7),7.7,7.7,hll_hash(7),'"g"',to_quantile_state(7,2048),'text7'),
-    (8,0,'h','2007-03-08','2007-03-08 07:05:07','2007-03-08 07:05:07','2007-03-08',8,8,8,8,8,8,'h',to_bitmap(8),8.8,8.8,hll_hash(8),'"h"',to_quantile_state(8,2048),'text8'),
-    (9,1,'j','2009-03-08','2009-03-08 07:05:07','2009-03-08 07:05:07','2009-03-08',9,9,9,9,9,9,'j',to_bitmap(9),9.9,9.9,hll_hash(9),'"j"',to_quantile_state(9,2048),'text9'),
-    (19,0,'k','2019-03-08','2019-03-08 07:05:07','2019-03-08 07:05:07','2019-03-08',19,19,19,19,19,19,'k',to_bitmap(19),19.9,19.9,hll_hash(19),'"k"',to_quantile_state(19,2048),'text19');
+    sql """ insert into ${TableName1} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k3, k14, k15, k16, k18, k21, k23) values 
+    (11,1,'x','1999-01-08','1999-01-08 02:05:06','1999-01-08 02:05:06','1999-01-08',11.11,11.11,11.11,11,1,1,1,1,'x',to_bitmap(1),1,1,hll_hash(17),'"a"',to_quantile_state(1,2048),'text1'),
+    (12,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',22.22,22.22,22.22,22,2,2,2,2,'a',to_bitmap(2),2.2,2.2,hll_hash(18),'"b"',to_quantile_state(2,2048),'text2'),
+    (13,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',33.33,33.33,33.33,33,3,3,3,3,'c',to_bitmap(3),3.3,3.3,hll_hash(3),'"c"',to_quantile_state(3,2048),'text3'),
+    (14,0,'d','2002-01-08','2002-01-08 02:05:06','2002-01-08 02:05:06','2002-01-08',44.44,44.44,44.44,44,4,4,4,4,'d',to_bitmap(4),4.4,4.4,hll_hash(4),'"d"',to_quantile_state(4,2048),'text4'),
+    (15,1,'e','2003-03-08','2003-03-08 02:05:06','2003-03-08 02:05:06','2003-03-08',55.55,55.55,55.55,55,5,5,5,5,'e',to_bitmap(5),5.5,5.5,hll_hash(5),'"e"',to_quantile_state(5,2048),'text5'),
+    (16,0,'f','2004-03-08','2004-03-08 02:05:06','2004-03-08 02:05:06','2004-03-08',66.66,66.66,66.66,66,6,6,6,6,'f',to_bitmap(6),6.6,6.6,hll_hash(6),'"f"',to_quantile_state(6,2048),'text6'),
+    (17,1,'g','2005-03-08','2005-03-08 02:05:06','2005-03-08 02:05:06','2005-03-08',77.77,77.77,77.77,77,7,7,7,7,'g',to_bitmap(7),7.7,7.7,hll_hash(7),'"g"',to_quantile_state(7,2048),'text7'),
+    (18,0,'h','2007-03-08','2007-03-08 07:05:07','2007-03-08 07:05:07','2007-03-08',88.88,88.88,88.88,88,8,8,8,8,'h',to_bitmap(8),8.8,8.8,hll_hash(8),'"h"',to_quantile_state(8,2048),'text8'),
+    (19,1,'j','2009-03-08','2009-03-08 07:05:07','2009-03-08 07:05:07','2009-03-08',99.99,99.99,99.99,99,9,9,9,9,'j',to_bitmap(9),9.9,9.9,hll_hash(9),'"j"',to_quantile_state(9,2048),'text9'),
+    (119,0,'k','2019-03-08','2019-03-08 07:05:07','2019-03-08 07:05:07','2019-03-08',19.11,19.11,19.11,11,19,19,19,19,'k',to_bitmap(19),19.9,19.9,hll_hash(19),'"k"',to_quantile_state(19,2048),'text19');
     """
 
     // aggModel stream load
@@ -122,49 +134,49 @@ suite("test_all_types", "types") {
 
         set 'column_separator', '|'  
 
-        set 'columns', 'k2, k4, k5, k6, k7, k8, k9, k10, k11, k15, k17, k20, k22, k23, k1, k3, k12, k13, k14, k16, k18, k19, k21 ,k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k3=to_bitmap(k3), k12=k12, k13=k13, k14=hll_hash(k14), k16=k16, k19=to_quantile_state(k19,2048), k21=k21'
+        set 'columns', 'k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k3, k14, k15, k16, k18, k20, k21, k23, k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k12=k12, k13=k13, k17=k17, k19=k19, k22=k22, k24=k24, k25=k25, k3=to_bitmap(k3), k14=k14, k15=k15, k16=hll_hash(k16), k18=k18, k21=to_quantile_state(k21,2048), k23=k23'
 
         file 'streamload_input.csv'
 
         time 10000 
     }
 
-    def uuid = UUID.randomUUID().toString().replace("-", "0")
+    // def uuid = UUID.randomUUID().toString().replace("-", "0")
 
     def outFilePath = """${context.file.parent}/test_all_types"""
 
-    def columns = "k2, k4, k5, k6, k7, k8, k9, k10, k11, k15, k17, k20, k22, k23, k1, k3, k12, k13, k14, k16, k18, k19, k21"
-    String columns_str = ("$columns" != "") ? "($columns)" : "";
+    // def columns = "k2, k4, k5, k6, k7, k8, k9, k10, k11, k15, k17, k20, k22, k23, k1, k3, k12, k13, k14, k16, k18, k19, k21"
+    // String columns_str = ("$columns" != "") ? "($columns)" : "";
 
-    def loadLabel1 = TableName1 + '_' + uuid
+    // def loadLabel1 = TableName1 + '_' + uuid
 
-    // // aggModel s3 load
-    // sql """
-    //         LOAD LABEL $loadLabel1 (
-    //             DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
-    //             INTO TABLE $TableName1
-    //             COLUMNS TERMINATED BY "|"
-    //             $columns_str
-    //             SET 
-    //             (
-    //                 k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k3=to_bitmap(k3), k12=k12, k13=k13, k14=hll_hash(k14), k16=k16, k19=to_quantile_state(k19,2048), k21=k21
-    //             )
-    //         )
-    //         WITH S3 (
-    //             "AWS_ACCESS_KEY" = "$ak",
-    //             "AWS_SECRET_KEY" = "$sk",
-    //             "AWS_ENDPOINT" = "$endpoint",
-    //             "AWS_REGION" = "$region"
-    //         )
-    //         properties(
-    //             "use_new_load_scan_node" = "true"
-    //         )
+    // // // aggModel s3 load
+    // // sql """
+    // //         LOAD LABEL $loadLabel1 (
+    // //             DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
+    // //             INTO TABLE $TableName1
+    // //             COLUMNS TERMINATED BY "|"
+    // //             $columns_str
+    // //             SET 
+    // //             (
+    // //                 k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k3=to_bitmap(k3), k12=k12, k13=k13, k14=hll_hash(k14), k16=k16, k19=to_quantile_state(k19,2048), k21=k21
+    // //             )
+    // //         )
+    // //         WITH S3 (
+    // //             "AWS_ACCESS_KEY" = "$ak",
+    // //             "AWS_SECRET_KEY" = "$sk",
+    // //             "AWS_ENDPOINT" = "$endpoint",
+    // //             "AWS_REGION" = "$region"
+    // //         )
+    // //         properties(
+    // //             "use_new_load_scan_node" = "true"
+    // //         )
             
-    //     """
-    // waitForS3LoadFinished(loadLabel1)
+    // //     """
+    // // waitForS3LoadFinished(loadLabel1)
     
-    // def stateResult1 = sql "show load where Label = '${loadLabel1}'"
-    // println(stateResult1)
+    // // def stateResult1 = sql "show load where Label = '${loadLabel1}'"
+    // // println(stateResult1)
 
     // aggModel output to .out
     qt_sql "SELECT * FROM ${TableName1} ORDER BY k2"
@@ -211,6 +223,18 @@ suite("test_all_types", "types") {
         index2++
         if (dataType == "QUANTILE_STATE") {
             return
+        } else if (dataType == "DECIMAL128") {
+            masterKey2 += "k${index2}, "
+            createTBSQL2 += "k${index2} DECIMALV3(36,3), "
+        } else if (dataType == "DECIMAL32") {
+            masterKey2 += "k${index2}, "
+            createTBSQL2 += "k${index2} DECIMALV3(6,3), "
+        } else if (dataType == "DECIMAL64") {
+            masterKey2 += "k${index2}, "
+            createTBSQL2 += "k${index2} DECIMALV3(16,3), "
+        } else if (dataType == "DECIMALV2") {
+            masterKey2 += "k${index2}, "
+            createTBSQL2 += "k${index2} DECIMAL, "
         } else if (dataType == "ARRAY") {
             return
         }else if (dataType == "QUANTILE_STATE" || dataType == "HLL" || dataType == "BITMAP" || dataType == "MAP") {
@@ -237,18 +261,19 @@ suite("test_all_types", "types") {
     sql "${createTBSQL2}"
 
     // uniModel_read insert load
-    sql """ insert into ${TableName2} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k15, k17, k20, k22, k23, k12, k13, k16, k21) values 
-    (1, 1, 'x', '1999-01-08', '1999-01-08 02:05:06', '1999-01-08 02:05:06', '1999-01-08',2, 2, 1, 1, 1, 1, 'x', 1, 1, '"a"', 'text1'),
-    (2,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',2,2,2,2,2,2,'a',2.2,2.2,'"b"','text2'),
-    (3,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',3,3,3,3,3,3,'c',3.3,3.3,'"c"','text3'),
-    (4,0,'d','2002-01-08','2002-01-08 02:05:06','2002-01-08 02:05:06','2002-01-08',4,4,4,4,4,4,'d',4.4,4.4,'"d"','text4'),
-    (5,1,'e','2003-03-08','2003-03-08 02:05:06','2003-03-08 02:05:06','2003-03-08',5,5,5,5,5,5,'e',5.5,5.5,'"e"','text5'),
-    (6,0,'f','2004-03-08','2004-03-08 02:05:06','2004-03-08 02:05:06','2004-03-08',6,6,6,6,6,6,'f',6.6,6.6,'"f"','text6'),
-    (7,1,'g','2005-03-08','2005-03-08 02:05:06','2005-03-08 02:05:06','2005-03-08',7,7,7,7,7,7,'g',7.7,7.7,'"g"','text7'),
-    (8,0,'h','2007-03-08','2007-03-08 07:05:07','2007-03-08 07:05:07','2007-03-08',8,8,8,8,8,8,'h',8.8,8.8,'"h"','text8'),
-    (9,1,'j','2009-03-08','2009-03-08 07:05:07','2009-03-08 07:05:07','2009-03-08',9,9,9,9,9,9,'j',9.9,9.9,'"j"','text9'),
-    (19,0,'k','2019-03-08','2019-03-08 07:05:07','2019-03-08 07:05:07','2019-03-08',19,19,19,19,19,19,'k',19.9,19.9,'"k"','text19');
+    sql """ insert into ${TableName2} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k14, k15, k18, k23) values 
+    (11,1,'x','1999-01-08','1999-01-08 02:05:06','1999-01-08 02:05:06','1999-01-08',11.11,11.11,11.11,11,1,1,1,1,'x',1,1,'"a"','text1'),
+    (12,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',22.22,22.22,22.22,22,2,2,2,2,'a',2.2,2.2,'"b"','text2'),
+    (13,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',33.33,33.33,33.33,33,3,3,3,3,'c',3.3,3.3,'"c"','text3'),
+    (14,0,'d','2002-01-08','2002-01-08 02:05:06','2002-01-08 02:05:06','2002-01-08',44.44,44.44,44.44,44,4,4,4,4,'d',4.4,4.4,'"d"','text4'),
+    (15,1,'e','2003-03-08','2003-03-08 02:05:06','2003-03-08 02:05:06','2003-03-08',55.55,55.55,55.55,55,5,5,5,5,'e',5.5,5.5,'"e"','text5'),
+    (16,0,'f','2004-03-08','2004-03-08 02:05:06','2004-03-08 02:05:06','2004-03-08',66.66,66.66,66.66,66,6,6,6,6,'f',6.6,6.6,'"f"','text6'),
+    (17,1,'g','2005-03-08','2005-03-08 02:05:06','2005-03-08 02:05:06','2005-03-08',77.77,77.77,77.77,77,7,7,7,7,'g',7.7,7.7,'"g"','text7'),
+    (18,0,'h','2007-03-08','2007-03-08 07:05:07','2007-03-08 07:05:07','2007-03-08',88.88,88.88,88.88,88,8,8,8,8,'h',8.8,8.8,'"h"','text8'),
+    (19,1,'j','2009-03-08','2009-03-08 07:05:07','2009-03-08 07:05:07','2009-03-08',99.99,99.99,99.99,99,9,9,9,9,'j',9.9,9.9,'"j"','text9'),
+    (119,0,'k','2019-03-08','2019-03-08 07:05:07','2019-03-08 07:05:07','2019-03-08',19.11,19.11,19.11,11,19,19,19,19,'k',19.9,19.9,'"k"','text19');
     """
+
 
     // uniModel_read stream load
     streamLoad {
@@ -256,42 +281,42 @@ suite("test_all_types", "types") {
 
         set 'column_separator', '|'  
 
-        set 'columns', 'k2, k4, k5, k6, k7, k8, k9, k10, k11, k15, k17, k20, k22, k23, k1, k3, k12, k13, k14, k16, k18, k19, k21, k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k12=k12, k13=k13, k16=k16, k21=k21'
+        set 'columns', 'k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k3, k14, k15, k16, k18, k20, k21, k23, k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k12=k12, k13=k13, k17=k17, k19=k19, k22=k22, k24=k24, k25=k25, k14=k14, k15=k15, k18=k18, k23=k23'
 
         file 'streamload_input.csv'
 
         time 10000 
     }
 
-    // // uniModel_read s3 load
-    // def loadLabel2 = TableName2 + '_' + uuid
+    // // // uniModel_read s3 load
+    // // def loadLabel2 = TableName2 + '_' + uuid
 
-    // sql """
-    //         LOAD LABEL $loadLabel2 (
-    //             DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
-    //             INTO TABLE $TableName2
-    //             COLUMNS TERMINATED BY "|"
-    //             $columns_str
-    //             SET 
-    //             (
-    //                 k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k12=k12, k13=k13, k16=k16, k21=k21
-    //             )
-    //         )
-    //         WITH S3 (
-    //             "AWS_ACCESS_KEY" = "$ak",
-    //             "AWS_SECRET_KEY" = "$sk",
-    //             "AWS_ENDPOINT" = "$endpoint",
-    //             "AWS_REGION" = "$region"
-    //         )
-    //         properties(
-    //             "use_new_load_scan_node" = "true"
-    //         )
+    // // sql """
+    // //         LOAD LABEL $loadLabel2 (
+    // //             DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
+    // //             INTO TABLE $TableName2
+    // //             COLUMNS TERMINATED BY "|"
+    // //             $columns_str
+    // //             SET 
+    // //             (
+    // //                 k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k12=k12, k13=k13, k16=k16, k21=k21
+    // //             )
+    // //         )
+    // //         WITH S3 (
+    // //             "AWS_ACCESS_KEY" = "$ak",
+    // //             "AWS_SECRET_KEY" = "$sk",
+    // //             "AWS_ENDPOINT" = "$endpoint",
+    // //             "AWS_REGION" = "$region"
+    // //         )
+    // //         properties(
+    // //             "use_new_load_scan_node" = "true"
+    // //         )
             
-    //     """
-    // waitForS3LoadFinished(loadLabel2)
+    // //     """
+    // // waitForS3LoadFinished(loadLabel2)
     
-    // def stateResult2 = sql "show load where Label = '${loadLabel2}'"
-    // println(stateResult2)
+    // // def stateResult2 = sql "show load where Label = '${loadLabel2}'"
+    // // println(stateResult2)
 
     // uniModel_read output to .out
     qt_sql "SELECT * FROM ${TableName2} ORDER BY k2"
@@ -325,7 +350,7 @@ suite("test_all_types", "types") {
     // uniModel_write start 
 
     def TableName3 = "data_types_uni_write"
-
+    sql "DROP TABLE IF EXISTS ${TableName3}"
     def createTBSQL3 = "CREATE TABLE IF NOT EXISTS ${TableName3} ("
     def subSQL3 = ""
 
@@ -338,7 +363,19 @@ suite("test_all_types", "types") {
         index3++
         if (dataType == "ARRAY") {
             return
-        }else if (dataType == "QUANTILE_STATE" || dataType == "HLL" || dataType == "BITMAP" || dataType == "MAP") {
+        } else if (dataType == "DECIMAL128") {
+            masterKey3 += "k${index3}, "
+            createTBSQL3 += "k${index3} DECIMALV3(36,3), "
+        } else if (dataType == "DECIMAL32") {
+            masterKey3 += "k${index3}, "
+            createTBSQL3 += "k${index3} DECIMALV3(6,3), "
+        } else if (dataType == "DECIMAL64") {
+            masterKey3 += "k${index3}, "
+            createTBSQL3 += "k${index3} DECIMALV3(16,3), "
+        } else if (dataType == "DECIMALV2") {
+            masterKey3 += "k${index3}, "
+            createTBSQL3 += "k${index3} DECIMAL, "
+        } else if (dataType == "QUANTILE_STATE" || dataType == "HLL" || dataType == "BITMAP" || dataType == "MAP") {
             return
         }else if (dataType == "STRING" || dataType == "JSONB" || dataType == "FLOAT" || dataType == "DOUBLE") {
             subSQL3 += "k${index3} ${dataType}, "
@@ -361,17 +398,17 @@ suite("test_all_types", "types") {
     sql "${createTBSQL3}"
 
     // uniModel_write insert load
-    sql """ insert into ${TableName3} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k15, k17, k20, k22, k23, k12, k13, k16, k21) values 
-    (1, 1, 'x', '1999-01-08', '1999-01-08 02:05:06', '1999-01-08 02:05:06', '1999-01-08',2, 2, 1, 1, 1, 1, 'x', 1, 1, '"a"', 'text1'),
-    (2,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',2,2,2,2,2,2,'a',2.2,2.2,'"b"','text2'),
-    (3,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',3,3,3,3,3,3,'c',3.3,3.3,'"c"','text3'),
-    (4,0,'d','2002-01-08','2002-01-08 02:05:06','2002-01-08 02:05:06','2002-01-08',4,4,4,4,4,4,'d',4.4,4.4,'"d"','text4'),
-    (5,1,'e','2003-03-08','2003-03-08 02:05:06','2003-03-08 02:05:06','2003-03-08',5,5,5,5,5,5,'e',5.5,5.5,'"e"','text5'),
-    (6,0,'f','2004-03-08','2004-03-08 02:05:06','2004-03-08 02:05:06','2004-03-08',6,6,6,6,6,6,'f',6.6,6.6,'"f"','text6'),
-    (7,1,'g','2005-03-08','2005-03-08 02:05:06','2005-03-08 02:05:06','2005-03-08',7,7,7,7,7,7,'g',7.7,7.7,'"g"','text7'),
-    (8,0,'h','2007-03-08','2007-03-08 07:05:07','2007-03-08 07:05:07','2007-03-08',8,8,8,8,8,8,'h',8.8,8.8,'"h"','text8'),
-    (9,1,'j','2009-03-08','2009-03-08 07:05:07','2009-03-08 07:05:07','2009-03-08',9,9,9,9,9,9,'j',9.9,9.9,'"j"','text9'),
-    (19,0,'k','2019-03-08','2019-03-08 07:05:07','2019-03-08 07:05:07','2019-03-08',19,19,19,19,19,19,'k',19.9,19.9,'"k"','text19');
+    sql """ insert into ${TableName3} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k14, k15, k18, k23) values 
+    (11,1,'x','1999-01-08','1999-01-08 02:05:06','1999-01-08 02:05:06','1999-01-08',11.11,11.11,11.11,11,1,1,1,1,'x',1,1,'"a"','text1'),
+    (12,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',22.22,22.22,22.22,22,2,2,2,2,'a',2.2,2.2,'"b"','text2'),
+    (13,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',33.33,33.33,33.33,33,3,3,3,3,'c',3.3,3.3,'"c"','text3'),
+    (14,0,'d','2002-01-08','2002-01-08 02:05:06','2002-01-08 02:05:06','2002-01-08',44.44,44.44,44.44,44,4,4,4,4,'d',4.4,4.4,'"d"','text4'),
+    (15,1,'e','2003-03-08','2003-03-08 02:05:06','2003-03-08 02:05:06','2003-03-08',55.55,55.55,55.55,55,5,5,5,5,'e',5.5,5.5,'"e"','text5'),
+    (16,0,'f','2004-03-08','2004-03-08 02:05:06','2004-03-08 02:05:06','2004-03-08',66.66,66.66,66.66,66,6,6,6,6,'f',6.6,6.6,'"f"','text6'),
+    (17,1,'g','2005-03-08','2005-03-08 02:05:06','2005-03-08 02:05:06','2005-03-08',77.77,77.77,77.77,77,7,7,7,7,'g',7.7,7.7,'"g"','text7'),
+    (18,0,'h','2007-03-08','2007-03-08 07:05:07','2007-03-08 07:05:07','2007-03-08',88.88,88.88,88.88,88,8,8,8,8,'h',8.8,8.8,'"h"','text8'),
+    (19,1,'j','2009-03-08','2009-03-08 07:05:07','2009-03-08 07:05:07','2009-03-08',99.99,99.99,99.99,99,9,9,9,9,'j',9.9,9.9,'"j"','text9'),
+    (119,0,'k','2019-03-08','2019-03-08 07:05:07','2019-03-08 07:05:07','2019-03-08',19.11,19.11,19.11,11,19,19,19,19,'k',19.9,19.9,'"k"','text19');
     """
 
     // uniModel_write stream load
@@ -380,41 +417,41 @@ suite("test_all_types", "types") {
 
         set 'column_separator', '|'  
 
-        set 'columns', 'k2, k4, k5, k6, k7, k8, k9, k10, k11, k15, k17, k20, k22, k23, k1, k3, k12, k13, k14, k16, k18, k19, k21, k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k12=k12, k13=k13, k16=k16, k21=k21'
+        set 'columns', 'k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k3, k14, k15, k16, k18, k20, k21, k23, k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k12=k12, k13=k13, k17=k17, k19=k19, k22=k22, k24=k24, k25=k25, k14=k14, k15=k15, k18=k18, k23=k23'
 
         file 'streamload_input.csv'
 
         time 10000 
     }
     
-    // // uniModel_write s3 load
-    // def loadLabel3 = TableName3 + '_' + uuid
-    // sql """
-    //         LOAD LABEL $loadLabel3 (
-    //             DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
-    //             INTO TABLE $TableName3
-    //             COLUMNS TERMINATED BY "|"
-    //             $columns_str
-    //             SET 
-    //             (
-    //                 k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k12=k12, k13=k13, k16=k16, k21=k21
-    //             )
-    //         )
-    //         WITH S3 (
-    //             "AWS_ACCESS_KEY" = "$ak",
-    //             "AWS_SECRET_KEY" = "$sk",
-    //             "AWS_ENDPOINT" = "$endpoint",
-    //             "AWS_REGION" = "$region"
-    //         )
-    //         properties(
-    //             "use_new_load_scan_node" = "true"
-    //         )
+    // // // uniModel_write s3 load
+    // // def loadLabel3 = TableName3 + '_' + uuid
+    // // sql """
+    // //         LOAD LABEL $loadLabel3 (
+    // //             DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
+    // //             INTO TABLE $TableName3
+    // //             COLUMNS TERMINATED BY "|"
+    // //             $columns_str
+    // //             SET 
+    // //             (
+    // //                 k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k12=k12, k13=k13, k16=k16, k21=k21
+    // //             )
+    // //         )
+    // //         WITH S3 (
+    // //             "AWS_ACCESS_KEY" = "$ak",
+    // //             "AWS_SECRET_KEY" = "$sk",
+    // //             "AWS_ENDPOINT" = "$endpoint",
+    // //             "AWS_REGION" = "$region"
+    // //         )
+    // //         properties(
+    // //             "use_new_load_scan_node" = "true"
+    // //         )
             
-    //     """
-    // waitForS3LoadFinished(loadLabel3)
+    // //     """
+    // // waitForS3LoadFinished(loadLabel3)
     
-    // def stateResult3 = sql "show load where Label = '${loadLabel3}'"
-    // println(stateResult3)
+    // // def stateResult3 = sql "show load where Label = '${loadLabel3}'"
+    // // println(stateResult3)
 
     // uniModel_write output to .out
     qt_sql "SELECT * FROM ${TableName3} ORDER BY k2"
@@ -463,6 +500,18 @@ suite("test_all_types", "types") {
         index4++
         if (dataType == "QUANTILE_STATE") {
             return
+        } else if (dataType == "DECIMAL128") {
+            masterKey4 += "k${index4}, "
+            createTBSQL4 += "k${index4} DECIMALV3(36,3), "
+        } else if (dataType == "DECIMAL32") {
+            masterKey4 += "k${index4}, "
+            createTBSQL4 += "k${index4} DECIMALV3(6,3), "
+        } else if (dataType == "DECIMAL64") {
+            masterKey4 += "k${index4}, "
+            createTBSQL4 += "k${index4} DECIMALV3(16,3), "
+        } else if (dataType == "DECIMALV2") {
+            masterKey4 += "k${index4}, "
+            createTBSQL4 += "k${index4} DECIMAL, "
         } else if (dataType == "QUANTILE_STATE" || dataType == "HLL" || dataType == "BITMAP") {
             return
         } else if (dataType == "ARRAY") {
@@ -491,18 +540,19 @@ suite("test_all_types", "types") {
     sql "${createTBSQL4}"
 
     // DupModel insert load
-    sql """ insert into ${TableName4} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k15, k17, k20, k22, k23, k1, k12, k13, k16, k18, k21) values 
-    (1, 1, 'x', '1999-01-08', '1999-01-08 02:05:06', '1999-01-08 02:05:06', '1999-01-08',2, 2, 1, 1, 1, 1, 'x', [1, 1], 1, 1, '"a"', {"k1":1}, 'text1'),
-    (2,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',2,2,2,2,2,2,'a',[2, 2],2.2,2.2,'"b"', {"k2":2},'text2'),
-    (3,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',3,3,3,3,3,3,'c',[3, 3],3.3,3.3,'"c"', {"k3":3},'text3'),
-    (4,0,'d','2002-01-08','2002-01-08 02:05:06','2002-01-08 02:05:06','2002-01-08',4,4,4,4,4,4,'d',[4, 4],4.4,4.4,'"d"', {"k4":4},'text4'),
-    (5,1,'e','2003-03-08','2003-03-08 02:05:06','2003-03-08 02:05:06','2003-03-08',5,5,5,5,5,5,'e',[5, 5],5.5,5.5,'"e"', {"k5":5},'text5'),
-    (6,0,'f','2004-03-08','2004-03-08 02:05:06','2004-03-08 02:05:06','2004-03-08',6,6,6,6,6,6,'f',[6, 6],6.6,6.6,'"f"', {"k6":6},'text6'),
-    (7,1,'g','2005-03-08','2005-03-08 02:05:06','2005-03-08 02:05:06','2005-03-08',7,7,7,7,7,7,'g',[7, 7],7.7,7.7,'"g"', {"k7":7},'text7'),
-    (8,0,'h','2007-03-08','2007-03-08 07:05:07','2007-03-08 07:05:07','2007-03-08',8,8,8,8,8,8,'h',[8, 8],8.8,8.8,'"h"', {"k8":8},'text8'),
-    (9,1,'j','2009-03-08','2009-03-08 07:05:07','2009-03-08 07:05:07','2009-03-08',9,9,9,9,9,9,'j',[9, 9],9.9,9.9,'"j"', {"k9":9},'text9'),
-    (19,0,'k','2019-03-08','2019-03-08 07:05:07','2019-03-08 07:05:07','2019-03-08',19,19,19,19,19,19,'k',[19, 19],19.9,19.9,'"k"', {"k19":19},'text19');
+    sql """ insert into ${TableName4} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k14, k15, k18, k20, k23) values 
+    (11,1,'x','1999-01-08','1999-01-08 02:05:06','1999-01-08 02:05:06','1999-01-08',11.11,11.11,11.11,11,1,1,1,1,'x',1,1,'"a"',{"k1":1},'text1'),
+    (12,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',22.22,22.22,22.22,22,2,2,2,2,'a',2.2,2.2,'"b"',{"k2":2},'text2'),
+    (13,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',33.33,33.33,33.33,33,3,3,3,3,'c',3.3,3.3,'"c"',{"k3":3},'text3'),
+    (14,0,'d','2002-01-08','2002-01-08 02:05:06','2002-01-08 02:05:06','2002-01-08',44.44,44.44,44.44,44,4,4,4,4,'d',4.4,4.4,'"d"',{"k4":4},'text4'),
+    (15,1,'e','2003-03-08','2003-03-08 02:05:06','2003-03-08 02:05:06','2003-03-08',55.55,55.55,55.55,55,5,5,5,5,'e',5.5,5.5,'"e"',{"k5":5},'text5'),
+    (16,0,'f','2004-03-08','2004-03-08 02:05:06','2004-03-08 02:05:06','2004-03-08',66.66,66.66,66.66,66,6,6,6,6,'f',6.6,6.6,'"f"',{"k6":6},'text6'),
+    (17,1,'g','2005-03-08','2005-03-08 02:05:06','2005-03-08 02:05:06','2005-03-08',77.77,77.77,77.77,77,7,7,7,7,'g',7.7,7.7,'"g"',{"k7":7},'text7'),
+    (18,0,'h','2007-03-08','2007-03-08 07:05:07','2007-03-08 07:05:07','2007-03-08',88.88,88.88,88.88,88,8,8,8,8,'h',8.8,8.8,'"h"',{"k8":8},'text8'),
+    (19,1,'j','2009-03-08','2009-03-08 07:05:07','2009-03-08 07:05:07','2009-03-08',99.99,99.99,99.99,99,9,9,9,9,'j',9.9,9.9,'"j"',{"k9":9},'text9'),
+    (119,0,'k','2019-03-08','2019-03-08 07:05:07','2019-03-08 07:05:07','2019-03-08',19.11,19.11,19.11,11,19,19,19,19,'k',19.9,19.9,'"k"',{"k19":19},'text19');
     """
+
 
     // DupModel stream load
     streamLoad {
@@ -510,42 +560,42 @@ suite("test_all_types", "types") {
 
         set 'column_separator', '|'  
 
-        set 'columns', 'k2, k4, k5, k6, k7, k8, k9, k10, k11, k15, k17, k20, k22, k23, k1, k3, k12, k13, k14, k16, k18, k19, k21, k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k1=k1, k12=k12, k13=k13, k16=k16, k18=k18, k21=k21'
+        set 'columns', 'k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k3, k14, k15, k16, k18, k20, k21, k23, k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k12=k12, k13=k13, k17=k17, k19=k19, k22=k22, k24=k24, k25=k25, k14=k14, k15=k15, k18=k18, k20=k20, k23=k23'
 
         file 'streamload_input.csv'
 
         time 10000 
     }
 
-    // // DupModel s3 load
+    // // // DupModel s3 load
 
-    // def loadLabel4 = TableName4 + '_' + uuid
-    // sql """
-    //         LOAD LABEL $loadLabel4 (
-    //             DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
-    //             INTO TABLE $TableName4
-    //             COLUMNS TERMINATED BY "|"
-    //             $columns_str
-    //             SET 
-    //             (
-    //                 k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k1=k1, k12=k12, k13=k13, k16=k16, k18=k18, k21=k21
-    //             )
-    //         )
-    //         WITH S3 (
-    //             "AWS_ACCESS_KEY" = "$ak",
-    //             "AWS_SECRET_KEY" = "$sk",
-    //             "AWS_ENDPOINT" = "$endpoint",
-    //             "AWS_REGION" = "$region"
-    //         )
-    //         properties(
-    //             "use_new_load_scan_node" = "true"
-    //         )
+    // // def loadLabel4 = TableName4 + '_' + uuid
+    // // sql """
+    // //         LOAD LABEL $loadLabel4 (
+    // //             DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
+    // //             INTO TABLE $TableName4
+    // //             COLUMNS TERMINATED BY "|"
+    // //             $columns_str
+    // //             SET 
+    // //             (
+    // //                 k2=k2, k4=k4, k5=k5, k6=k6, k7=k7, k8=k8, k9=k9, k10=k10, k11=k11, k15=k15, k17=k17, k20=k20, k22=k22, k23=k23, k1=k1, k12=k12, k13=k13, k16=k16, k18=k18, k21=k21
+    // //             )
+    // //         )
+    // //         WITH S3 (
+    // //             "AWS_ACCESS_KEY" = "$ak",
+    // //             "AWS_SECRET_KEY" = "$sk",
+    // //             "AWS_ENDPOINT" = "$endpoint",
+    // //             "AWS_REGION" = "$region"
+    // //         )
+    // //         properties(
+    // //             "use_new_load_scan_node" = "true"
+    // //         )
             
-    //     """
-    // waitForS3LoadFinished(loadLabel4)
+    // //     """
+    // // waitForS3LoadFinished(loadLabel4)
     
-    // def stateResult4 = sql "show load where Label = '${loadLabel4}'"
-    // println(stateResult4)
+    // // def stateResult4 = sql "show load where Label = '${loadLabel4}'"
+    // // println(stateResult4)
 
     // DupModel output to .out
     qt_sql "SELECT * FROM ${TableName4} ORDER BY k2"
