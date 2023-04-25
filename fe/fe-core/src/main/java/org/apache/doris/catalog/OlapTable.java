@@ -1975,7 +1975,7 @@ public class OlapTable extends Table {
         return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 
-    public boolean isDuplicateNoKeys() {
+    public boolean isDuplicateWithoutKey() {
         return getKeysType() == KeysType.DUP_KEYS && getKeysNum() == 0;
     }
 
