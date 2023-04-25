@@ -158,12 +158,15 @@ public class CancelExportStmtTest extends TestWithFeService {
         ExportJob job3 = new ExportJob();
         job3.updateState(ExportJob.JobState.EXPORTING, false);
         ExportJob job4 = new ExportJob();
+        ExportJob job5 = new ExportJob();
+        job5.updateState(ExportJob.JobState.IN_QUEUE, false);
         exportJobList1.add(job1);
         exportJobList1.add(job2);
         exportJobList1.add(job3);
         exportJobList1.add(job4);
         exportJobList2.add(job1);
         exportJobList2.add(job2);
+        exportJobList2.add(job5);
 
         SlotRef stateSlotRef = new SlotRef(null, "state");
         StringLiteral stateStringLiteral = new StringLiteral("PENDING");
@@ -184,6 +187,15 @@ public class CancelExportStmtTest extends TestWithFeService {
         filter = ExportMgr.buildCancelJobFilter(stmt);
 
         Assert.assertTrue(exportJobList1.stream().filter(filter).count() == 1);
+
+        stateStringLiteral = new StringLiteral("IN_QUEUE");
+        stateEqPredicate =
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
+        stmt = new CancelExportStmt(null, stateEqPredicate);
+        stmt.analyze(analyzer);
+        filter = ExportMgr.buildCancelJobFilter(stmt);
+
+        Assert.assertTrue(exportJobList2.stream().filter(filter).count() == 1);
 
     }
 
