@@ -111,7 +111,7 @@ public class DemoTest extends TestWithFeService {
         String queryStr = "explain select * from db1.tbl1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.getPlanner();
+        Planner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
         Assertions.assertEquals(1, fragments.size());
         PlanFragment fragment = fragments.get(0);

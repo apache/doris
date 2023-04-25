@@ -82,7 +82,7 @@ public class CreateEncryptKeyTest {
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
         Assert.assertNotEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
-        Planner planner = stmtExecutor.getPlanner();
+        Planner planner = stmtExecutor.planner();
         Assert.assertEquals(1, planner.getFragments().size());
         PlanFragment fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);

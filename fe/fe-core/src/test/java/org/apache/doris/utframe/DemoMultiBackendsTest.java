@@ -187,7 +187,7 @@ public class DemoMultiBackendsTest {
         System.out.println(a);
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.getPlanner();
+        Planner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
         Assert.assertEquals(2, fragments.size());
         PlanFragment fragment = fragments.get(1);

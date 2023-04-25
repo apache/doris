@@ -335,7 +335,7 @@ public class UtFrameUtils {
         ConnectContext.get().setExecutor(stmtExecutor);
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
-            Planner planner = stmtExecutor.getPlanner();
+            Planner planner = stmtExecutor.planner();
             return planner.getExplainString(new ExplainOptions(isVerbose, false));
         } else {
             return ctx.getState().getErrorMessage();
@@ -347,7 +347,7 @@ public class UtFrameUtils {
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
-            return stmtExecutor.getPlanner();
+            return stmtExecutor.planner();
         } else {
             return null;
         }
