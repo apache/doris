@@ -47,18 +47,10 @@ Status BaseCompaction::prepare_compact() {
         return Status::Error<INVALID_ARGUMENT>();
     }
 
-    std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
-    if (!lock.owns_lock()) {
-        LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
-        return Status::Error<TRY_LOCK_FAILED>();
-    }
-    TRACE("got base compaction lock");
-
     // 1. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
     TRACE("rowsets picked");
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
-    _tablet->set_clone_occurred(false);
 
     return Status::OK();
 }
@@ -71,15 +63,14 @@ Status BaseCompaction::execute_compact_impl() {
 #endif
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
+        LOG(INFO) << "The tablet is under clone, tablet=" << _tablet->full_name();
         return Status::Error<TRY_LOCK_FAILED>();
     }
     TRACE("got base compaction lock");
 
     // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
     // for compaction may change. In this case, current compaction task should not be executed.
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
+    if (get_clone_occurred()) {
         return Status::Error<BE_CLONE_OCCURRED>();
     }
 

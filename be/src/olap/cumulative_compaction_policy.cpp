@@ -141,33 +141,152 @@ void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
         // if tablet under alter process, do not update cumulative point
         return;
     }
-    // if rowsets have delete version, move to the last directly
-    if (last_delete_version.first != -1) {
-        tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
-    } else {
-        // if rowsets have no delete version, check output_rowset total disk size
-        // satisfies promotion size.
-        size_t total_size = output_rowset->rowset_meta()->total_disk_size();
-        if (total_size >= tablet->cumulative_promotion_size()) {
-            tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
+
+    int64_t promotion_size = tablet->cumulative_promotion_size();
+    auto can_forward = [=](const RowsetMetaSharedPtr& rs_meta) {
+        return rs_meta->has_delete_predicate() || (!rs_meta->is_segments_overlapping() &&
+                                                   rs_meta->total_disk_size() >= promotion_size);
+    };
+
+    auto rowsets = tablet->pick_candidate_rowsets_to_cumulative_compaction();
+    int64_t new_point = tablet->cumulative_layer_point();
+    // first, forward cumulative_point if has delete predicate or size exceeded promotion_size
+    for (auto& rs : rowsets) {
+        if (rs->start_version() == new_point && can_forward(rs->rowset_meta())) {
+            new_point = rs->end_version() + 1;
+        } else {
+            break;
         }
+    }
+
+    bool need_forward_cumulative_point = false;
+    if (new_point == output_rowset->start_version()) {
+        if (last_delete_version.first != -1) {
+            new_point = output_rowset->end_version() + 1;
+            need_forward_cumulative_point = true;
+        } else if (output_rowset->rowset_meta()->total_disk_size() >= promotion_size) {
+            new_point = output_rowset->end_version() + 1;
+            need_forward_cumulative_point = true;
+        }
+    }
+
+    if (need_forward_cumulative_point) {
+        for (auto& rs : rowsets) {
+            if (rs->start_version() < new_point) {
+                continue;
+            }
+
+            if (rs->start_version() > new_point) {
+                break;
+            }
+
+            if (can_forward(rs->rowset_meta())) {
+                new_point = rs->end_version() + 1;
+            }
+        }
+    }
+
+    if (new_point > tablet->cumulative_layer_point()) {
+        tablet->set_cumulative_layer_point(new_point);
+        LOG(INFO) << "successfully forward cumulative_point to " << new_point
+                  << ", output_rowset=" << output_rowset->version()
+                  << ", tablet=" << tablet->full_name();
+    } else {
+        LOG(INFO) << "cannot forward cumulative_point, current point="
+                  << tablet->cumulative_layer_point()
+                  << ", out size=" << output_rowset->rowset_meta()->total_disk_size()
+                  << ", promotion_size=" << promotion_size
+                  << ", output_rowset=" << output_rowset->version()
+                  << ", tablet=" << tablet->full_name();
     }
 }
 
-uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(Tablet* tablet) {
-    uint32_t score = 0;
-    bool base_rowset_exist = false;
-    const int64_t point = tablet->cumulative_layer_point();
-    int64_t promotion_size = 0;
+uint32_t SizeBasedCumulativeCompactionPolicy::_calc_max_score(
+        const std::vector<RowsetSharedPtr>& rowsets, int64_t promotion_size,
+        std::vector<RowsetSharedPtr>* max_score_rowsets) const {
+    uint32_t max_score = 0;
+    size_t rowsets_sz = rowsets.size();
+    for (size_t idx = 0; idx < rowsets_sz;) {
+        // firstly skip the rowsets whose size exceeds promoto_size
+        for (; idx < rowsets_sz; ++idx) {
+            if (rowsets[idx]->is_segments_overlapping() ||
+                rowsets[idx]->rowset_meta()->total_disk_size() < promotion_size) {
+                break;
+            }
+        }
 
-    std::vector<RowsetMetaSharedPtr> rowset_to_compact;
-    int64_t total_size = 0;
+        if (idx >= rowsets_sz) {
+            break;
+        }
+
+        // get successive version
+        std::vector<RowsetSharedPtr> rowset_to_compact;
+        {
+            rowset_to_compact.push_back(rowsets[idx]);
+            size_t inner_idx = idx + 1;
+            for (; inner_idx < rowsets_sz; ++inner_idx) {
+                // break if the version isn't successive
+                if (rowsets[inner_idx]->start_version() !=
+                    rowset_to_compact.back()->end_version() + 1) {
+                    break;
+                }
+                rowset_to_compact.push_back(rowsets[inner_idx]);
+            }
+            idx = inner_idx;
+        }
+
+        // calcuate compaction score of the successive rowsets
+        uint32_t score = 0;
+        int64_t total_size = 0;
+        for (auto& rs : rowset_to_compact) {
+            total_size += rs->rowset_meta()->total_disk_size();
+            score += rs->rowset_meta()->get_compaction_score();
+        }
+
+        // pruning
+        if (score <= max_score) {
+            continue;
+        }
+
+        if (total_size < promotion_size) {
+            // calculate the rowsets to do cumulative compaction
+            // eg: size of rowset_to_compact are:
+            // 128, 16, 16, 16
+            // we will choose [16,16,16] to compact.
+            for (auto& rs : rowset_to_compact) {
+                int current_level = _level_size(rs->rowset_meta()->total_disk_size());
+                int remain_level = _level_size(total_size - rs->rowset_meta()->total_disk_size());
+                // if current level less then remain level, score contains current rowset
+                // and process return; otherwise, score does not contains current rowset.
+                if (current_level <= remain_level) {
+                    break;
+                }
+                total_size -= rs->rowset_meta()->total_disk_size();
+                score -= rs->rowset_meta()->get_compaction_score();
+            }
+        }
+
+        if (score > max_score) {
+            max_score = score;
+            if (max_score_rowsets != nullptr) {
+                *max_score_rowsets = std::move(rowset_to_compact);
+            }
+        }
+    }
+
+    return max_score;
+}
+
+uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(Tablet* tablet) {
+    bool base_rowset_exist = false;
+    int64_t promotion_size = 0;
 
     RowsetMetaSharedPtr first_meta;
     int64_t first_version = INT64_MAX;
-    // NOTE: tablet._meta_lock is hold
+    // NOTE: tablet._meta_lock is held
     auto& rs_metas = tablet->tablet_meta()->all_rs_metas();
-    // check the base rowset and collect the rowsets of cumulative part
+
+    // check the base rowset
     for (auto& rs_meta : rs_metas) {
         if (rs_meta->start_version() < first_version) {
             first_version = rs_meta->start_version();
@@ -176,15 +295,6 @@ uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(T
         // check base rowset
         if (rs_meta->start_version() == 0) {
             base_rowset_exist = true;
-        }
-        if (rs_meta->end_version() < point || !rs_meta->is_local()) {
-            // all_rs_metas() is not sorted, so we use _continue_ other than _break_ here.
-            continue;
-        } else {
-            // collect the rowsets of cumulative part
-            total_size += rs_meta->total_disk_size();
-            score += rs_meta->get_compaction_score();
-            rowset_to_compact.push_back(rs_meta);
         }
     }
 
@@ -203,38 +313,30 @@ uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(T
         return 0;
     }
 
-    // if total_size is greater than promotion_size, return total score
-    if (total_size >= promotion_size) {
-        return score;
-    }
-
-    // sort the rowsets of cumulative part
-    std::sort(rowset_to_compact.begin(), rowset_to_compact.end(), RowsetMeta::comparator);
-
-    // calculate the rowsets to do cumulative compaction
-    // eg: size of rowset_to_compact are:
-    // 128, 16, 16, 16
-    // we will choose [16,16,16] to compact.
-    for (auto& rs_meta : rowset_to_compact) {
-        int current_level = _level_size(rs_meta->total_disk_size());
-        int remain_level = _level_size(total_size - rs_meta->total_disk_size());
-        // if current level less then remain level, score contains current rowset
-        // and process return; otherwise, score does not contains current rowset.
-        if (current_level <= remain_level) {
-            return score;
-        }
-        total_size -= rs_meta->total_disk_size();
-        score -= rs_meta->get_compaction_score();
-    }
-    return score;
+    auto rowsets = tablet->pick_rowsets_not_in_compaction();
+    return _calc_max_score(rowsets, promotion_size);
 }
 
 int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
-        Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+        Tablet* tablet, std::vector<RowsetSharedPtr>& candidate_rowsets,
         const int64_t max_compaction_score, const int64_t min_compaction_score,
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
         size_t* compaction_score) {
     size_t promotion_size = tablet->cumulative_promotion_size();
+    {
+        // candidate_rowsets may not be continuous
+        // we need to choose the successive rowsets with max score.
+        std::vector<RowsetSharedPtr> rowsets_to_compact;
+        _calc_max_score(candidate_rowsets, promotion_size, &rowsets_to_compact);
+
+        // change candidate_rowsets because the caller will use it
+        candidate_rowsets = std::move(rowsets_to_compact);
+
+        if (candidate_rowsets.empty()) {
+            return 0;
+        }
+    }
+
     auto max_version = tablet->max_version().first;
     int transient_size = 0;
     *compaction_score = 0;
@@ -335,7 +437,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     return transient_size;
 }
 
-int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
+int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) const {
     if (size < 1024) return 0;
     int64_t max_level = (int64_t)1
                         << (sizeof(_promotion_size) * 8 - 1 - __builtin_clzl(_promotion_size / 2));

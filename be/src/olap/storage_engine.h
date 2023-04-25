@@ -387,7 +387,7 @@ private:
 
     std::mutex _tablet_submitted_compaction_mutex;
     // a tablet can do base and cumulative compaction at same time
-    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
+    std::map<DataDir*, std::unordered_multiset<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
 
     std::atomic<int32_t> _wakeup_producer_flag {0};

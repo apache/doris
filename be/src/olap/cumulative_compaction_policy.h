@@ -66,8 +66,7 @@ public:
     /// return input_rowsets, the vector container as return
     /// return last_delete_version, if has delete rowset, record the delete version from input_rowsets
     /// return compaction_score, calculate the compaction score of picked input rowset
-    virtual int pick_input_rowsets(Tablet* tablet,
-                                   const std::vector<RowsetSharedPtr>& candidate_rowsets,
+    virtual int pick_input_rowsets(Tablet* tablet, std::vector<RowsetSharedPtr>& candidate_rowsets,
                                    const int64_t max_compaction_score,
                                    const int64_t min_compaction_score,
                                    std::vector<RowsetSharedPtr>* input_rowsets,
@@ -130,7 +129,7 @@ public:
     /// Its main policy is picking rowsets from candidate rowsets by comparing accumulative compaction_score,
     /// max_cumulative_compaction_num_singleton_deltas or checking whether there is delete version rowset,
     /// and choose those rowset in the same level to do cumulative compaction.
-    int pick_input_rowsets(Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+    int pick_input_rowsets(Tablet* tablet, std::vector<RowsetSharedPtr>& candidate_rowsets,
                            const int64_t max_compaction_score, const int64_t min_compaction_score,
                            std::vector<RowsetSharedPtr>* input_rowsets,
                            Version* last_delete_version, size_t* compaction_score) override;
@@ -155,10 +154,14 @@ private:
 
     /// calculate the disk size belong to which level, the level is divide by power of 2
     /// between compaction_promotion_size_mbytes and 1KB
-    int64_t _level_size(const int64_t size);
+    int64_t _level_size(const int64_t size) const;
 
     /// when policy calculate cumulative_compaction_score, update promotion size at the same time
     void _refresh_tablet_promotion_size(Tablet* tablet, int64_t promotion_size);
+
+    // calculate max compaction score of rowsets, and set max_score_rowsets to successive rowsets with max score
+    uint32_t _calc_max_score(const std::vector<RowsetSharedPtr>& rowsets, int64_t promotion_size,
+                             std::vector<RowsetSharedPtr>* max_score_rowsets = nullptr) const;
 
 private:
     /// cumulative compaction promotion size, unit is byte.

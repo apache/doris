@@ -462,5 +462,6 @@ struct HashOfRowsetId {
 };
 
 using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
+using VersionUnorderedSet = std::unordered_set<Version, HashOfVersion>;
 
 } // namespace doris

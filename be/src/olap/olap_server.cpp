@@ -443,7 +443,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 #endif
     LOG(INFO) << "try to start compaction producer process!";
 
-    std::unordered_set<TTabletId> tablet_submitted_cumu;
+    std::unordered_multiset<TTabletId> tablet_submitted_cumu;
     std::unordered_set<TTabletId> tablet_submitted_base;
     std::vector<DataDir*> data_dirs;
     for (auto& tmp_store : _store_map) {
@@ -544,13 +544,15 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 
     // Copy _tablet_submitted_xxx_compaction map so that we don't need to hold _tablet_submitted_compaction_mutex
     // when traversing the data dir
-    std::map<DataDir*, std::unordered_set<TTabletId>> copied_cumu_map;
+    std::map<DataDir*, std::unordered_multiset<TTabletId>> copied_cumu_map;
     std::map<DataDir*, std::unordered_set<TTabletId>> copied_base_map;
     {
         std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
         copied_cumu_map = _tablet_submitted_cumu_compaction;
         copied_base_map = _tablet_submitted_base_compaction;
     }
+
+    std::unordered_set<TTabletId> empty_cumu_map;
     for (auto data_dir : data_dirs) {
         bool need_pick_tablet = true;
         // We need to reserve at least one Slot for cumulative compaction.
@@ -586,7 +588,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
             TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
                     compaction_type, data_dir,
                     compaction_type == CompactionType::CUMULATIVE_COMPACTION
-                            ? copied_cumu_map[data_dir]
+                            ? empty_cumu_map
                             : copied_base_map[data_dir],
                     &disk_max_score, _cumulative_compaction_policy);
             if (tablet != nullptr) {
@@ -630,9 +632,7 @@ bool StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr table
     bool already_existed = false;
     switch (compaction_type) {
     case CompactionType::CUMULATIVE_COMPACTION:
-        already_existed = !(_tablet_submitted_cumu_compaction[tablet->data_dir()]
-                                    .insert(tablet->tablet_id())
-                                    .second);
+        _tablet_submitted_cumu_compaction[tablet->data_dir()].insert(tablet->tablet_id());
         break;
     default:
         already_existed = !(_tablet_submitted_base_compaction[tablet->data_dir()]
@@ -648,9 +648,14 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
     std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
     int removed = 0;
     switch (compaction_type) {
-    case CompactionType::CUMULATIVE_COMPACTION:
-        removed = _tablet_submitted_cumu_compaction[tablet->data_dir()].erase(tablet->tablet_id());
+    case CompactionType::CUMULATIVE_COMPACTION: {
+        auto it = _tablet_submitted_cumu_compaction[tablet->data_dir()].find(tablet->tablet_id());
+        if (it != _tablet_submitted_cumu_compaction[tablet->data_dir()].end()) {
+            _tablet_submitted_cumu_compaction[tablet->data_dir()].erase(it);
+            removed = 1;
+        }
         break;
+    }
     default:
         removed = _tablet_submitted_base_compaction[tablet->data_dir()].erase(tablet->tablet_id());
         break;
@@ -672,23 +677,27 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 tablet->tablet_id(), compaction_type);
     }
     int64_t permits = 0;
-    Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
+
+    std::shared_ptr<Compaction> compaction_task;
+    Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits,
+                                                                 &compaction_task);
     if (st.ok() && permits > 0 && _permit_limiter.request(permits)) {
         std::unique_ptr<ThreadPool>& thread_pool =
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
-        auto st = thread_pool->submit_func([tablet, compaction_type, permits, this]() {
-            tablet->execute_compaction(compaction_type);
-            _permit_limiter.release(permits);
-            // reset compaction
-            tablet->reset_compaction(compaction_type);
-            _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-        });
+        auto st = thread_pool->submit_func(
+                [tablet, compaction_type, permits, this, compaction_task]() {
+                    tablet->execute_compaction(compaction_type, compaction_task);
+                    _permit_limiter.release(permits);
+                    // reset compaction
+                    tablet->reset_compaction(compaction_type, compaction_task);
+                    _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+                });
         if (!st.ok()) {
             _permit_limiter.release(permits);
             // reset compaction
-            tablet->reset_compaction(compaction_type);
+            tablet->reset_compaction(compaction_type, compaction_task);
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
             return Status::InternalError(
                     "failed to submit compaction task to thread pool, "
@@ -698,7 +707,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         return Status::OK();
     } else {
         // reset compaction
-        tablet->reset_compaction(compaction_type);
+        tablet->reset_compaction(compaction_type, compaction_task);
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         if (!st.ok()) {
             return Status::InternalError(

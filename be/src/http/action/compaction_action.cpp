@@ -155,8 +155,8 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
 
         {
             // use try lock to check this tablet is running cumulative compaction
-            std::unique_lock<std::mutex> lock_cumulative(tablet->get_cumulative_compaction_lock(),
-                                                         std::try_to_lock);
+            std::unique_lock lock_cumulative(tablet->get_cumulative_compaction_lock(),
+                                             std::try_to_lock);
             if (!lock_cumulative.owns_lock()) {
                 msg = "compaction task for this tablet is running";
                 compaction_type = "cumulative";
@@ -199,8 +199,30 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
     }
     Status res = Status::OK();
     if (compaction_type == PARAM_COMPACTION_BASE) {
-        BaseCompaction base_compaction(tablet);
-        res = base_compaction.compact();
+        std::shared_ptr<BaseCompaction> base_compaction;
+        bool need_reset = false;
+        {
+            std::unique_lock compaction_meta_lock(tablet->get_compaction_meta_lock());
+            if (tablet->get_base_compaction() != nullptr) {
+                LOG(INFO) << "another base compaction is running, tablet=" << tablet->full_name();
+                res = Status::Error<TRY_LOCK_FAILED>();
+            } else {
+                StorageEngine::instance()->create_base_compaction(tablet, base_compaction);
+                Status res = base_compaction->prepare_compact();
+                if (res.ok()) {
+                    tablet->set_base_compaction(base_compaction);
+                    need_reset = true;
+                }
+            }
+        }
+
+        if (res.ok()) {
+            res = base_compaction->execute_compact();
+        }
+        if (need_reset) {
+            tablet->reset_compaction(BASE_COMPACTION, base_compaction);
+        }
+
         if (!res) {
             if (res.is<BE_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
@@ -208,22 +230,39 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                             << tablet->full_name();
             } else {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to init base compaction. res=" << res
+                LOG(WARNING) << "failed to do base compaction. res=" << res
                              << ", tablet=" << tablet->full_name();
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
-        CumulativeCompaction cumulative_compaction(tablet);
-        res = cumulative_compaction.compact();
+        std::shared_ptr<CumulativeCompaction> cumu_compaction;
+        StorageEngine::instance()->create_cumulative_compaction(tablet, cumu_compaction);
+        bool need_reset = false;
+        {
+            std::unique_lock compaction_meta_lock(tablet->get_compaction_meta_lock());
+            Status res = cumu_compaction->prepare_compact();
+            if (res.ok()) {
+                tablet->add_cumulative_compaction_unlocked(cumu_compaction);
+                need_reset = true;
+            }
+        }
+
+        if (res.ok()) {
+            res = cumu_compaction->execute_compact();
+        }
+        if (need_reset) {
+            tablet->reset_compaction(CUMULATIVE_COMPACTION, cumu_compaction);
+        }
+
         if (!res) {
-            if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
+            if (res.is<BE_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
                             << "tablet=" << tablet->full_name();
             } else {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 LOG(WARNING) << "failed to do cumulative compaction. res=" << res
-                             << ", table=" << tablet->full_name();
+                             << ", tablet=" << tablet->full_name();
             }
         }
     }

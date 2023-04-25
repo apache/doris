@@ -64,7 +64,8 @@ Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
           _input_row_num(0),
           _input_num_segments(0),
           _input_index_size(0),
-          _state(CompactionState::INITED) {
+          _state(CompactionState::INITED),
+          _is_clone_occurred(false) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
 }
 
@@ -82,6 +83,18 @@ Status Compaction::execute_compact() {
         gc_output_rowset();
     }
     return st;
+}
+
+const std::vector<RowsetSharedPtr>& Compaction::get_input_rowsets() const {
+    return _input_rowsets;
+}
+
+void Compaction::set_clone_occurred() {
+    _is_clone_occurred = true;
+}
+
+bool Compaction::get_clone_occurred() {
+    return _is_clone_occurred;
 }
 
 Status Compaction::do_compaction(int64_t permits) {

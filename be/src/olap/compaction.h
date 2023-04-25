@@ -57,6 +57,12 @@ public:
     virtual Status prepare_compact() = 0;
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
+
+    const std::vector<RowsetSharedPtr>& get_input_rowsets() const;
+
+    void set_clone_occurred();
+    bool get_clone_occurred();
+
 #ifdef BE_TEST
     void set_input_rowset(const std::vector<RowsetSharedPtr>& rowsets);
     RowsetSharedPtr output_rowset();
@@ -114,6 +120,8 @@ protected:
     int64_t _newest_write_timestamp;
     RowIdConversion _rowid_conversion;
     TabletSchemaSPtr _cur_tablet_schema;
+
+    std::atomic<bool> _is_clone_occurred;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

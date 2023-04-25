@@ -47,13 +47,6 @@ Status CumulativeCompaction::prepare_compact() {
         return Status::Error<CUMULATIVE_INVALID_PARAMETERS>();
     }
 
-    std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
-    if (!lock.owns_lock()) {
-        LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return Status::Error<TRY_LOCK_FAILED>();
-    }
-    TRACE("got cumulative compaction lock");
-
     // 1. calculate cumulative point
     _tablet->calculate_cumulative_point();
     TRACE("calculated cumulative point");
@@ -64,23 +57,21 @@ Status CumulativeCompaction::prepare_compact() {
     RETURN_NOT_OK(pick_rowsets_to_compact());
     TRACE("rowsets picked");
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
-    _tablet->set_clone_occurred(false);
 
     return Status::OK();
 }
 
 Status CumulativeCompaction::execute_compact_impl() {
-    std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
+    std::shared_lock lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
+        LOG(INFO) << "The tablet is under clone, tablet=" << _tablet->full_name();
         return Status::Error<TRY_LOCK_FAILED>();
     }
     TRACE("got cumulative compaction lock");
 
     // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
     // for compaction may change. In this case, current compaction task should not be executed.
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
+    if (get_clone_occurred()) {
         return Status::Error<CUMULATIVE_CLONE_OCCURRED>();
     }
 
@@ -95,8 +86,12 @@ Status CumulativeCompaction::execute_compact_impl() {
     _state = CompactionState::SUCCESS;
 
     // 5. set cumulative point
-    _tablet->cumulative_compaction_policy()->update_cumulative_point(
-            _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
+    {
+        std::lock_guard compact_meta_lock(_tablet->get_compaction_meta_lock());
+        _tablet->cumulative_compaction_policy()->update_cumulative_point(
+                _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
+    }
+
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
@@ -114,27 +109,24 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
     }
 
-    // candidate_rowsets may not be continuous
-    // So we need to choose the longest continuous path from it.
-    std::vector<Version> missing_versions;
-    RETURN_NOT_OK(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
-    if (!missing_versions.empty()) {
-        DCHECK(missing_versions.size() == 2);
-        LOG(WARNING) << "There are missed versions among rowsets. "
-                     << "prev rowset verison=" << missing_versions[0]
-                     << ", next rowset version=" << missing_versions[1]
-                     << ", tablet=" << _tablet->full_name();
-    }
-
     size_t compaction_score = 0;
     _tablet->cumulative_compaction_policy()->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, config::cumulative_compaction_max_deltas,
             config::cumulative_compaction_min_deltas, &_input_rowsets, &_last_delete_version,
             &compaction_score);
 
+    if (candidate_rowsets.empty()) {
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
+    }
+
     // Cumulative compaction will process with at least 1 rowset.
     // So when there is no rowset being chosen, we should return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>():
     if (_input_rowsets.empty()) {
+        Version begin_version = candidate_rowsets[0]->version();
+        if (begin_version.first != _tablet->cumulative_layer_point()) {
+            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
+        }
+
         if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.

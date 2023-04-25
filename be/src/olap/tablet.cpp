@@ -51,7 +51,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
-#include <shared_mutex>
+#include <sstream>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -989,6 +989,8 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
 uint32_t Tablet::calc_compaction_score(
         CompactionType compaction_type,
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+    // Need _compaction_meta_lock, because it will iterator _cumulative_compactions.
+    std::lock_guard compaction_meta_lock(_compaction_meta_lock);
     // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
     std::shared_lock rdlock(_meta_lock);
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
@@ -1258,12 +1260,34 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compac
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return candidate_rowsets;
     }
+
+    VersionUnorderedSet version_in_compact;
+    get_in_compacted_rowsets(&version_in_compact);
     {
         std::shared_lock rlock(_meta_lock);
         for (const auto& [version, rs] : _rs_version_map) {
-            if (version.first >= _cumulative_point && rs->is_local()) {
+            if (version.first >= _cumulative_point && rs->is_local() &&
+                version_in_compact.find(rs->version()) == version_in_compact.end()) {
                 candidate_rowsets.push_back(rs);
             }
+        }
+    }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
+}
+
+std::vector<RowsetSharedPtr> Tablet::pick_rowsets_not_in_compaction() const {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
+        return candidate_rowsets;
+    }
+    VersionUnorderedSet version_in_compact;
+    get_in_compacted_rowsets(&version_in_compact);
+
+    for (const auto& [version, rs] : _rs_version_map) {
+        if (version.first >= _cumulative_point && rs->is_local() &&
+            version_in_compact.find(rs->version()) == version_in_compact.end()) {
+            candidate_rowsets.push_back(rs);
         }
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
@@ -1596,8 +1620,8 @@ void Tablet::generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_m
 }
 
 Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                        TabletSharedPtr tablet, int64_t* permits) {
-    std::vector<RowsetSharedPtr> compaction_rowsets;
+                                                        TabletSharedPtr tablet, int64_t* permits,
+                                                        std::shared_ptr<Compaction>* compaction) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         scoped_refptr<Trace> trace(new Trace);
         MonotonicStopWatch watch;
@@ -1610,9 +1634,15 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         ADOPT_TRACE(trace.get());
 
         TRACE("create cumulative compaction");
-        StorageEngine::instance()->create_cumulative_compaction(tablet, _cumulative_compaction);
+        std::shared_ptr<CumulativeCompaction> cumu_compaction;
+        StorageEngine::instance()->create_cumulative_compaction(tablet, cumu_compaction);
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
-        Status res = _cumulative_compaction->prepare_compact();
+
+        // choose rowsets to compact and add compact task to _cumulative_compactions should be an atomic operation
+        std::unique_lock compaction_meta_lock(_compaction_meta_lock);
+        TRACE("got compaction meta lock");
+
+        Status res = cumu_compaction->prepare_compact();
         if (!res.ok()) {
             set_last_cumu_compaction_failure_time(UnixMillis());
             *permits = 0;
@@ -1625,7 +1655,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
             return Status::OK();
         }
-        compaction_rowsets = _cumulative_compaction->get_input_rowsets();
+        add_cumulative_compaction_unlocked(cumu_compaction);
+        *compaction = std::move(cumu_compaction);
     } else {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
         scoped_refptr<Trace> trace(new Trace);
@@ -1638,10 +1669,21 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         });
         ADOPT_TRACE(trace.get());
 
+        std::unique_lock compaction_meta_lock(_compaction_meta_lock);
+        TRACE("got compaction meta lock");
+
+        if (get_base_compaction() != nullptr) {
+            *permits = 0;
+            LOG(WARNING) << "another base compaction is running, tablet=" << full_name();
+            return Status::OK();
+        }
+
         TRACE("create base compaction");
-        StorageEngine::instance()->create_base_compaction(tablet, _base_compaction);
+        std::shared_ptr<BaseCompaction> base_compaction;
+        StorageEngine::instance()->create_base_compaction(tablet, base_compaction);
         DorisMetrics::instance()->base_compaction_request_total->increment(1);
-        Status res = _base_compaction->prepare_compact();
+
+        Status res = base_compaction->prepare_compact();
         if (!res.ok()) {
             set_last_base_compaction_failure_time(UnixMillis());
             *permits = 0;
@@ -1654,16 +1696,30 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
             return Status::OK();
         }
-        compaction_rowsets = _base_compaction->get_input_rowsets();
+        set_base_compaction(base_compaction);
+        *compaction = std::move(base_compaction);
     }
+
     *permits = 0;
+    auto& compaction_rowsets = compaction->get()->get_input_rowsets();
     for (auto rowset : compaction_rowsets) {
         *permits += rowset->rowset_meta()->get_compaction_score();
     }
+    auto type_str =
+            compaction_type == CompactionType::CUMULATIVE_COMPACTION ? "Cumulative" : "Base";
+    std::stringstream ss;
+    ss << "successfully prepare compact, type=" << type_str << ", permits=" << *permits
+       << ", tablet=" << full_name() << ", input_rowsets={ ";
+    for (auto rowset : compaction_rowsets) {
+        ss << rowset->version() << ", ";
+    }
+    ss << "}";
+    LOG(INFO) << ss.str();
     return Status::OK();
 }
 
-void Tablet::execute_compaction(CompactionType compaction_type) {
+void Tablet::execute_compaction(CompactionType compaction_type,
+                                const std::shared_ptr<Compaction>& compaction) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         scoped_refptr<Trace> trace(new Trace);
         MonotonicStopWatch watch;
@@ -1677,7 +1733,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         ADOPT_TRACE(trace.get());
 
         TRACE("execute cumulative compaction");
-        Status res = _cumulative_compaction->execute_compact();
+        Status res = compaction->execute_compact();
         if (!res.ok()) {
             set_last_cumu_compaction_failure_time(UnixMillis());
             DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
@@ -1712,10 +1768,17 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
     }
 }
 
-void Tablet::reset_compaction(CompactionType compaction_type) {
+void Tablet::reset_compaction(CompactionType compaction_type,
+                              const std::shared_ptr<Compaction>& compaction) {
+    if (compaction == nullptr) {
+        return;
+    }
+    std::unique_lock cumu_compaction_meta_lock(_compaction_meta_lock);
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-        _cumulative_compaction.reset();
+        remove_cumulative_compaction_unlocked(
+                std::dynamic_pointer_cast<CumulativeCompaction>(compaction));
     } else {
+        CHECK(compaction == _base_compaction);
         _base_compaction.reset();
     }
 }
@@ -2883,6 +2946,30 @@ bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now)
         return true;
     }
     return false;
+}
+
+void Tablet::get_in_compacted_rowsets(VersionUnorderedSet* rowset_versions) const {
+    for (auto& cumulative_compact : _cumulative_compactions) {
+        const auto& input_rowset = cumulative_compact->get_input_rowsets();
+        for (auto& rs : input_rowset) {
+            rowset_versions->insert(rs->version());
+        }
+
+        // output_version may be added to the rowsets before
+        // the compaction task was removed from _cumulative_compactions,
+        // to prevent premature use of this version, we mark output_version as in compacted
+        rowset_versions->insert(
+                Version(input_rowset.front()->start_version(), input_rowset.back()->end_version()));
+    }
+}
+
+void Tablet::set_clone_occurred() {
+    for (auto& cumu_compaction : _cumulative_compactions) {
+        cumu_compaction->set_clone_occurred();
+    }
+    if (_base_compaction != nullptr) {
+        _base_compaction->set_clone_occurred();
+    }
 }
 
 } // namespace doris

@@ -712,10 +712,11 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                     continue;
                 }
             } else {
-                std::unique_lock<std::mutex> lock(tablet_ptr->get_cumulative_compaction_lock(),
-                                                  std::try_to_lock);
+                std::shared_lock lock(tablet_ptr->get_cumulative_compaction_lock(),
+                                      std::try_to_lock);
                 if (!lock.owns_lock()) {
-                    LOG(INFO) << "can not get cumu lock: " << tablet_ptr->tablet_id();
+                    // the tablet is under clone
+                    LOG(INFO) << "can not get shared cumu lock: " << tablet_ptr->tablet_id();
                     continue;
                 }
             }

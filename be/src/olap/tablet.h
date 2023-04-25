@@ -33,6 +33,7 @@
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -57,6 +58,7 @@ namespace doris {
 
 class Tablet;
 class CumulativeCompactionPolicy;
+class Compaction;
 class CumulativeCompaction;
 class BaseCompaction;
 class RowsetWriter;
@@ -192,7 +194,8 @@ public:
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
-    std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
+    std::shared_mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
+    std::mutex& get_compaction_meta_lock() { return _compaction_meta_lock; }
 
     std::shared_mutex& get_migration_lock() { return _migration_lock; }
 
@@ -247,6 +250,9 @@ public:
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
+    // similar to pick_candidate_rowsets_to_cumulative_compaction, but does not acquire _meta_lock,
+    // which means that caller should hold _meta_lock
+    std::vector<RowsetSharedPtr> pick_rowsets_not_in_compaction() const;
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -276,13 +282,13 @@ public:
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
 
-    Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                    TabletSharedPtr tablet, int64_t* permits);
-    void execute_compaction(CompactionType compaction_type);
-    void reset_compaction(CompactionType compaction_type);
-
-    void set_clone_occurred(bool clone_occurred) { _is_clone_occurred = clone_occurred; }
-    bool get_clone_occurred() { return _is_clone_occurred; }
+    Status prepare_compaction_and_calculate_permits(
+            CompactionType compaction_type, TabletSharedPtr tablet, int64_t* permits,
+            std::shared_ptr<Compaction>* cumulative_compaction);
+    void execute_compaction(CompactionType compaction_type,
+                            const std::shared_ptr<Compaction>& compaction);
+    void reset_compaction(CompactionType compaction_type,
+                          const std::shared_ptr<Compaction>& compaction);
 
     void set_cumulative_compaction_policy(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
@@ -456,6 +462,25 @@ public:
         return config::max_tablet_io_errors > 0 && _io_error_times >= config::max_tablet_io_errors;
     }
 
+    ////////////////////////////////////////////////////////////////////////////
+    // following functions are protected by _compaction_meta_lock
+    ////////////////////////////////////////////////////////////////////////////
+    void get_in_compacted_rowsets(VersionUnorderedSet* rowset_versions) const;
+
+    void add_cumulative_compaction_unlocked(
+            const std::shared_ptr<CumulativeCompaction>& cumu_compaction);
+    void remove_cumulative_compaction_unlocked(
+            const std::shared_ptr<CumulativeCompaction>& cumu_compaction);
+
+    const std::shared_ptr<BaseCompaction>& get_base_compaction() const;
+    void set_base_compaction(const std::shared_ptr<BaseCompaction>& base_compaction);
+
+    void set_clone_occurred();
+
+    ////////////////////////////////////////////////////////////////////////////
+    // end
+    ////////////////////////////////////////////////////////////////////////////
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -515,9 +540,10 @@ private:
     std::shared_mutex _meta_store_lock;
     std::mutex _ingest_lock;
     std::mutex _base_compaction_lock;
-    std::mutex _cumulative_compaction_lock;
+    std::shared_mutex _cumulative_compaction_lock;
     std::mutex _schema_change_lock;
     std::shared_mutex _migration_lock;
+    std::mutex _compaction_meta_lock;
 
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
     // explain how these two locks work together.
@@ -558,7 +584,8 @@ private:
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string _cumulative_compaction_type;
 
-    std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
+    // protected by _compaction_meta_lock
+    std::vector<std::shared_ptr<CumulativeCompaction>> _cumulative_compactions;
     std::shared_ptr<BaseCompaction> _base_compaction;
     // whether clone task occurred during the tablet is in thread pool queue to wait for compaction
     std::atomic<bool> _is_clone_occurred;
@@ -597,6 +624,29 @@ public:
     IntCounter* flush_finish_count;
     std::atomic<int64_t> publised_count = 0;
 };
+
+inline void Tablet::add_cumulative_compaction_unlocked(
+        const std::shared_ptr<CumulativeCompaction>& cumu_compaction) {
+    _cumulative_compactions.push_back(cumu_compaction);
+}
+
+inline void Tablet::remove_cumulative_compaction_unlocked(
+        const std::shared_ptr<CumulativeCompaction>& cumu_compaction) {
+    for (auto it = _cumulative_compactions.begin(); it != _cumulative_compactions.end(); ++it) {
+        if ((*it) == cumu_compaction) {
+            _cumulative_compactions.erase(it);
+            break;
+        }
+    }
+}
+
+inline const std::shared_ptr<BaseCompaction>& Tablet::get_base_compaction() const {
+    return _base_compaction;
+}
+
+inline void Tablet::set_base_compaction(const std::shared_ptr<BaseCompaction>& base_compaction) {
+    _base_compaction = base_compaction;
+}
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {
     return _cumulative_compaction_policy.get();

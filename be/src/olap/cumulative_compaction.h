@@ -36,10 +36,11 @@ public:
     CumulativeCompaction(const TabletSharedPtr& tablet);
     ~CumulativeCompaction() override;
 
+    // caller should hold compaction_meta_lock when call this function
     Status prepare_compact() override;
     Status execute_compact_impl() override;
 
-    std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
+    const std::vector<RowsetSharedPtr>& get_input_rowsets() { return _input_rowsets; }
 
 protected:
     Status pick_rowsets_to_compact() override;
