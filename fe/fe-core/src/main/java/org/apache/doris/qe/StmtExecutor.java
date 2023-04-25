@@ -269,7 +269,7 @@ public class StmtExecutor {
         this.profile = new Profile("Query", context.getSessionVariable().enableProfile());
     }
 
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
+    private static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
         if (cols.isEmpty()) {
             return null;
         }
@@ -1773,6 +1773,7 @@ public class StmtExecutor {
                 } else {
                     txnStatus = TransactionStatus.COMMITTED;
                 }
+
             } catch (Throwable t) {
                 // if any throwable being thrown during insert operation, first we should abort this txn
                 LOG.warn("handle insert stmt fail: {}", label, t);
