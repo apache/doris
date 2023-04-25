@@ -225,7 +225,6 @@ services:
     container_name: adhoc-1
     env_file:
       - ./hadoop.env
-    command: /bin/bash /var/scripts/setup_demo_container_adhoc_1.sh
     depends_on:
       - sparkmaster
     ports:
@@ -250,7 +249,6 @@ services:
     container_name: adhoc-2
     env_file:
       - ./hadoop.env
-    command: /bin/bash /var/scripts/setup_demo_container_adhoc_2.sh
     ports:
       # JVM debugging port (mapped to 5005 on the host)
       - "5005:5005"

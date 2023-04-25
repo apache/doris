@@ -1,4 +1,4 @@
-
+#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -19,7 +19,13 @@
 echo "Copying spark default config and setting up configs"
 cp /var/scripts/config/spark-defaults.conf $SPARK_CONF_DIR/.
 cp /var/scripts/config/log4j2.properties $SPARK_CONF_DIR/.
+echo "sleep 10"
+sleep 10
+echo "hadoop fs -mkdir -p /var/demo/"
 hadoop fs -mkdir -p /var/demo/
+echo "hadoop fs -mkdir -p /tmp/spark-events"
 hadoop fs -mkdir -p /tmp/spark-events
-hadoop fs -copyFromLocal  -f /var/scripts/config /var/demo/.
+echo "hadoop fs -copyFromLocal -f /var/scripts/config /var/demo/."
+hadoop fs -copyFromLocal -f /var/scripts/config /var/demo/.
+echo "chmod +x /var/scripts/run_sync_tool.sh"
 chmod +x /var/scripts/run_sync_tool.sh
