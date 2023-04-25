@@ -327,7 +327,7 @@ public class StmtExecutor {
         }
     }
 
-    public Planner getPlanner() {
+    public Planner planner() {
         return planner;
     }
 
