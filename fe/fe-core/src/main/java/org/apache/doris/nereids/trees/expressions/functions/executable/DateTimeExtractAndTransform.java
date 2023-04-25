@@ -30,6 +30,8 @@ import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 
 /**
  * executable function:
@@ -318,7 +320,7 @@ public class DateTimeExtractAndTransform {
             case "year":
                 month = 0;
             case "quarter": // CHECKSTYLE IGNORE THIS LINE
-                month = ((month - 1) / 4) * 4 + 1;
+                month = ((month - 1) / 3) * 3 + 1;
             case "month": // CHECKSTYLE IGNORE THIS LINE
                 day = 1;
                 break;
@@ -331,6 +333,10 @@ public class DateTimeExtractAndTransform {
                 break;
         }
         switch (trunc.toLowerCase()) {
+            case "year":
+            case "quarter":
+            case "month":
+            case "week":
             case "day": // CHECKSTYLE IGNORE THIS LINE
                 hour = 0;
             case "hour": // CHECKSTYLE IGNORE THIS LINE
@@ -415,10 +421,7 @@ public class DateTimeExtractAndTransform {
         if (second.getValue() < 0 || second.getValue() >= 253402271999L) {
             return null;
         }
-        return dateFormat(DateTimeLiteral.fromJavaDateType(
-                LocalDateTime.of(1970, 1, 1, 0, 0, 0)
-                        .plusSeconds(second.getValue())),
-                new VarcharLiteral("%Y-%m-%d %H:%i:%s"));
+        return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s"));
     }
 
     /**
@@ -429,9 +432,10 @@ public class DateTimeExtractAndTransform {
         if (second.getValue() < 0 || second.getValue() >= 253402271999L) {
             return null;
         }
-        return dateFormat(DateTimeLiteral.fromJavaDateType(
-                        LocalDateTime.of(1970, 1, 1, 0, 0, 0)
-                                .plusSeconds(second.getValue())),
+        ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
+                .atZone(ZoneOffset.UTC).plusSeconds(second.getValue());
+        return dateFormat(new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(),
+                        dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond()),
                 format);
     }
 
@@ -496,7 +500,8 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "to_days", argTypes = {"DATETIME"}, returnType = "INT")
     public static IntegerLiteral toDays(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) Duration.between(LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
+        return new IntegerLiteral(((int) Duration.between(
+                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
     }
 
     @ExecFunction(name = "to_days", argTypes = {"DATETIMEV2"}, returnType = "INT")

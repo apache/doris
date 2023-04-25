@@ -107,7 +107,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     @Override
-    public DateTimeV2Literal plusSeconds(int seconds) {
+    public DateTimeV2Literal plusSeconds(long seconds) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
                 .plusSeconds(seconds));
     }

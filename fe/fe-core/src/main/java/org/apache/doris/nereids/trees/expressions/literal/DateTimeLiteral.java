@@ -301,7 +301,7 @@ public class DateTimeLiteral extends DateLiteral {
                 d.getHour(), d.getMinute(), d.getSecond());
     }
 
-    public DateTimeLiteral plusSeconds(int seconds) {
+    public DateTimeLiteral plusSeconds(long seconds) {
         LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusSeconds(seconds);
         return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
                 d.getHour(), d.getMinute(), d.getSecond());
