@@ -489,6 +489,12 @@ public class StmtExecutor implements ProfileWriter {
                         LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
                         parsedStmt = null;
                         context.getState().setNereids(false);
+                        try {
+                            VariableMgr.revertSessionValue(sessionVariable);
+                        } catch (DdlException ex) {
+                            LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), ex);
+                            context.getState().setError(ex.getMysqlErrorCode(), ex.getMessage());
+                        }
                         analyze(context.getSessionVariable().toThrift());
                     }
                 } catch (Exception e) {
