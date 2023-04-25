@@ -379,7 +379,7 @@ protected:
     // this filter won't filter any data
     bool _always_true;
 
-    doris::vectorized::VExprContext* _vprobe_ctx;
+    doris::vectorized::VExprContext* _vprobe_ctx = nullptr;
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;
