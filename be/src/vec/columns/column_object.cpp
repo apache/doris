@@ -560,7 +560,8 @@ void ColumnObject::check_consistency() const {
     }
     for (const auto& leaf : subcolumns) {
         if (num_rows != leaf->data.size()) {
-            assert(false);
+            LOG(FATAL) << "unmatched column:" << leaf->path.get_path()
+                       << ", expeted rows:" << num_rows << ", but meet:" << leaf->data.size();
         }
     }
 }
