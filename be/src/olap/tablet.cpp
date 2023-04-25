@@ -977,6 +977,10 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
+    if (_tablet_meta->is_dropped()) {
+        return false;
+    }
+
     if (tablet_state() == TABLET_NOTREADY) {
         // In TABLET_NOTREADY, we keep last 10 versions in new tablet so base tablet max_version
         // not merged in new tablet and then we can do compaction
@@ -1576,6 +1580,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // tablet may not have cooldowned data, but the storage policy is set
         tablet_info->__set_cooldown_term(_cooldown_term);
     }
+    tablet_info->__set_is_dropped(_tablet_meta->is_dropped());
 }
 
 // should use this method to get a copy of current tablet meta

@@ -277,7 +277,8 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
         return Status::InvalidArgument("Invalid type!");
     }
 
-    *reinterpret_cast<vectorized::VExpr**>(expr) = pool->add(new vectorized::VLiteral(node));
+    *reinterpret_cast<vectorized::VExpr**>(expr) =
+            pool->add(vectorized::VLiteral::create_unique(node).release());
 
     return Status::OK();
 }
@@ -1782,11 +1783,13 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
             node.__set_vector_opcode(to_in_opcode(_column_return_type));
             node.__set_is_nullable(false);
 
-            auto in_pred = _pool->add(new vectorized::VDirectInPredicate(node));
+            auto in_pred =
+                    _pool->add(vectorized::VDirectInPredicate::create_unique(node).release());
             in_pred->set_filter(_context.hybrid_set);
             auto cloned_vexpr = vprob_expr->root()->clone(_pool);
             in_pred->add_child(cloned_vexpr);
-            auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, in_pred));
+            auto wrapper = _pool->add(
+                    vectorized::VRuntimeFilterWrapper::create_unique(node, in_pred).release());
             container->push_back(wrapper);
         }
         break;
@@ -1804,7 +1807,8 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
         max_pred->add_child(cloned_vexpr);
         max_pred->add_child(max_literal);
         container->push_back(
-                _pool->add(new vectorized::VRuntimeFilterWrapper(max_pred_node, max_pred)));
+                _pool->add(vectorized::VRuntimeFilterWrapper::create_unique(max_pred_node, max_pred)
+                                   .release()));
 
         // create min filter
         vectorized::VExpr* min_pred = nullptr;
@@ -1818,7 +1822,8 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
         min_pred->add_child(cloned_vexpr);
         min_pred->add_child(min_literal);
         container->push_back(
-                _pool->add(new vectorized::VRuntimeFilterWrapper(min_pred_node, min_pred)));
+                _pool->add(vectorized::VRuntimeFilterWrapper::create_unique(min_pred_node, min_pred)
+                                   .release()));
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
@@ -1832,11 +1837,12 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
-        auto bloom_pred = _pool->add(new vectorized::VBloomPredicate(node));
+        auto bloom_pred = _pool->add(vectorized::VBloomPredicate::create_unique(node).release());
         bloom_pred->set_filter(_context.bloom_filter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         bloom_pred->add_child(cloned_vexpr);
-        auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, bloom_pred));
+        auto wrapper = _pool->add(
+                vectorized::VRuntimeFilterWrapper::create_unique(node, bloom_pred).release());
         container->push_back(wrapper);
         break;
     }
@@ -1851,11 +1857,12 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
-        auto bitmap_pred = _pool->add(new vectorized::VBitmapPredicate(node));
+        auto bitmap_pred = _pool->add(vectorized::VBitmapPredicate::create_unique(node).release());
         bitmap_pred->set_filter(_context.bitmap_filter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         bitmap_pred->add_child(cloned_vexpr);
-        auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, bitmap_pred));
+        auto wrapper = _pool->add(
+                vectorized::VRuntimeFilterWrapper::create_unique(node, bitmap_pred).release());
         container->push_back(wrapper);
         break;
     }

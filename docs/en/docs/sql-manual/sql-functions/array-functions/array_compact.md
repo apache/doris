@@ -36,9 +36,7 @@ Removes consecutive duplicate elements from an array. The order of result values
 
 #### Syntax
 
-```sql
-array_compact(arr)
-```
+`Array<T> array_compact(arr)`
 
 #### Arguments
 

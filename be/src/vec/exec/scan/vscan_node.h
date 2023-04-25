@@ -39,7 +39,7 @@
 #include "exec/olap_common.h"
 #include "exprs/function_filter.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
@@ -119,7 +119,7 @@ public:
         if (_is_pipeline_scan) {
             if (_shared_scan_opt) {
                 _shared_scanner_controller =
-                        state->get_query_fragments_ctx()->get_shared_scanner_controller();
+                        state->get_query_ctx()->get_shared_scanner_controller();
                 auto [should_create_scanner, queue_id] =
                         _shared_scanner_controller->should_build_scanner_and_queue_id(id());
                 _should_create_scanner = should_create_scanner;

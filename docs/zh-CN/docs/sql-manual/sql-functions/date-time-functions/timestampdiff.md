@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`INT TIMESTAMPDIFF(unit,DATETIME datetime_expr1, DATETIME datetime_expr2)`
+`INT TIMESTAMPDIFF(unit, DATETIME datetime_expr1, DATETIME datetime_expr2)`
 
 返回datetime_expr2−datetime_expr1，其中datetime_expr1和datetime_expr2是日期或日期时间表达式。
 

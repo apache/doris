@@ -28,6 +28,10 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.fs.obj.BlobStorage;
+import org.apache.doris.fs.obj.BrokerStorage;
+import org.apache.doris.fs.obj.HdfsStorage;
+import org.apache.doris.fs.obj.S3Storage;
 import org.apache.doris.system.Backend;
 
 import com.google.common.base.Joiner;

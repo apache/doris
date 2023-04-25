@@ -15,17 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 #include <memory>
+#include <roaring/roaring.hh>
 #include <string>
+#include <utility>
 
-#include "common/logging.h"
-#include "io/fs/file_reader.h"
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"

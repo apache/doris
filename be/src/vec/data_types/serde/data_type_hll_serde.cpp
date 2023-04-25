@@ -24,6 +24,7 @@
 #include <string>
 
 #include "olap/hll.h"
+#include "util/jsonb_document.h"
 #include "util/slice.h"
 #include "vec/columns/column_complex.h"
 #include "vec/common/arena.h"

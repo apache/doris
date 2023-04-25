@@ -149,7 +149,8 @@ Status VFileScanner::_split_conjuncts(VExpr* conjunct_expr_root) {
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
-            VExprContext* new_ctx = _state->obj_pool()->add(new VExprContext(cur_expr));
+            VExprContext* new_ctx =
+                    _state->obj_pool()->add(VExprContext::create_unique(cur_expr).release());
             _vconjunct_ctx->clone_fn_contexts(new_ctx);
             RETURN_IF_ERROR(new_ctx->prepare(_state, *_default_val_row_desc));
             RETURN_IF_ERROR(new_ctx->open(_state));
@@ -573,10 +574,10 @@ Status VFileScanner::_get_next_reader() {
         // TODO: use data lake type
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            ParquetReader* parquet_reader =
-                    new ParquetReader(_profile, _params, range, _state->query_options().batch_size,
-                                      const_cast<cctz::time_zone*>(&_state->timezone_obj()),
-                                      _io_ctx.get(), _state, _kv_cache);
+            std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
+                    _profile, _params, range, _state->query_options().batch_size,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
+                    _kv_cache);
             RETURN_IF_ERROR(parquet_reader->open());
             if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
@@ -584,29 +585,30 @@ Status VFileScanner::_get_next_reader() {
             }
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
-                IcebergTableReader* iceberg_reader =
-                        new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
-                                               _params, range, _kv_cache, _io_ctx.get());
+                std::unique_ptr<IcebergTableReader> iceberg_reader =
+                        IcebergTableReader::create_unique(std::move(parquet_reader), _profile,
+                                                          _state, _params, range, _kv_cache,
+                                                          _io_ctx.get());
                 init_status = iceberg_reader->init_reader(
                         _file_col_names, _col_id_name_map, _colname_to_value_range, _push_down_expr,
                         _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
-                _cur_reader.reset((GenericReader*)iceberg_reader);
+                _cur_reader = std::move(iceberg_reader);
             } else {
                 std::vector<std::string> place_holder;
                 init_status = parquet_reader->init_reader(
                         _file_col_names, place_holder, _colname_to_value_range, _push_down_expr,
                         _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
-                _cur_reader.reset((GenericReader*)parquet_reader);
+                _cur_reader = std::move(parquet_reader);
             }
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            _cur_reader.reset(new OrcReader(_profile, _state, _params, range, _file_col_names,
-                                            _state->query_options().batch_size, _state->timezone(),
-                                            _io_ctx.get()));
+            _cur_reader = OrcReader::create_unique(
+                    _profile, _state, _params, range, _file_col_names,
+                    _state->query_options().batch_size, _state->timezone(), _io_ctx.get());
             init_status = ((OrcReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;
         }
@@ -617,15 +619,15 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE:
         case TFileFormatType::FORMAT_PROTO: {
-            _cur_reader.reset(new CsvReader(_state, _profile, &_counter, _params, range,
-                                            _file_slot_descs, _io_ctx.get()));
+            _cur_reader = CsvReader::create_unique(_state, _profile, &_counter, _params, range,
+                                                   _file_slot_descs, _io_ctx.get());
             init_status = ((CsvReader*)(_cur_reader.get()))->init_reader(_is_load);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            _cur_reader.reset(new NewJsonReader(_state, _profile, &_counter, _params, range,
-                                                _file_slot_descs, &_scanner_eof, _io_ctx.get(),
-                                                _is_dynamic_schema));
+            _cur_reader = NewJsonReader::create_unique(_state, _profile, &_counter, _params, range,
+                                                       _file_slot_descs, &_scanner_eof,
+                                                       _io_ctx.get(), _is_dynamic_schema);
             init_status = ((NewJsonReader*)(_cur_reader.get()))->init_reader();
             break;
         }

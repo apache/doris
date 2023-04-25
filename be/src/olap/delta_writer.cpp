@@ -307,8 +307,8 @@ void DeltaWriter::_reset_mem_table() {
 #endif
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
-        _mem_table_tracker.push_back(mem_table_insert_tracker);
-        _mem_table_tracker.push_back(mem_table_flush_tracker);
+        _mem_table_insert_trackers.push_back(mem_table_insert_tracker);
+        _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
     }
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
@@ -463,7 +463,7 @@ Status DeltaWriter::cancel_with_status(const Status& st) {
 
 void DeltaWriter::save_mem_consumption_snapshot() {
     std::lock_guard<std::mutex> l(_lock);
-    _mem_consumption_snapshot = mem_consumption();
+    _mem_consumption_snapshot = mem_consumption(MemType::ALL);
     if (_mem_table == nullptr) {
         _memtable_consumption_snapshot = 0;
     } else {
@@ -480,7 +480,7 @@ int64_t DeltaWriter::get_memtable_consumption_snapshot() const {
     return _memtable_consumption_snapshot;
 }
 
-int64_t DeltaWriter::mem_consumption() {
+int64_t DeltaWriter::mem_consumption(MemType mem) {
     if (_flush_token == nullptr) {
         // This method may be called before this writer is initialized.
         // So _flush_token may be null.
@@ -489,8 +489,15 @@ int64_t DeltaWriter::mem_consumption() {
     int64_t mem_usage = 0;
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
-        for (auto mem_table_tracker : _mem_table_tracker) {
-            mem_usage += mem_table_tracker->consumption();
+        if ((mem & MemType::WRITE) == MemType::WRITE) { // 3 & 2 = 2
+            for (auto mem_table_tracker : _mem_table_insert_trackers) {
+                mem_usage += mem_table_tracker->consumption();
+            }
+        }
+        if ((mem & MemType::FLUSH) == MemType::FLUSH) { // 3 & 1 = 1
+            for (auto mem_table_tracker : _mem_table_flush_trackers) {
+                mem_usage += mem_table_tracker->consumption();
+            }
         }
     }
     return mem_usage;

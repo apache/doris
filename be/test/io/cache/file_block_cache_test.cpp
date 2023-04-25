@@ -18,16 +18,30 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/tests/gtest_lru_file_cache.cpp
 // and modified by Doris
 
-#include <gtest/gtest.h>
+#include <gen_cpp/Types_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <condition_variable>
 #include <filesystem>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_cache_settings.h"
 #include "io/cache/block/block_file_segment.h"
 #include "io/cache/block/block_lru_file_cache.h"
+#include "io/fs/path.h"
 #include "olap/options.h"
 #include "util/slice.h"
 

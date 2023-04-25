@@ -92,7 +92,7 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
     DCHECK(_opened);
     DCHECK(*new_ctx == nullptr);
 
-    *new_ctx = state->obj_pool()->add(new VExprContext(_root));
+    *new_ctx = state->obj_pool()->add(VExprContext::create_unique(_root).release());
     for (auto& _fn_context : _fn_contexts) {
         (*new_ctx)->_fn_contexts.push_back(_fn_context->clone());
     }

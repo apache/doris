@@ -36,9 +36,7 @@ array_distinct
 
 #### Syntax
 
-```
-ARRAY<T> array_distinct(ARRAY<T> arr)
-```
+`ARRAY<T> array_distinct(ARRAY<T> arr)`
 
 返回去除了重复元素的数组，如果输入数组为NULL，则返回NULL。
 

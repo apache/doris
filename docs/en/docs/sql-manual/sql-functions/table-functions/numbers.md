@@ -32,8 +32,9 @@ Table-Value-Function, generate a temporary table with only one column named 'num
 
 This function is used in FROM clauses.
 
-grammar:
-```
+#### syntax
+
+```sql
 numbers(
   "number" = "n",
   "backend_num" = "m"

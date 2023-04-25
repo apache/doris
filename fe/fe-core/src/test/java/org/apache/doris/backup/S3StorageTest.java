@@ -18,6 +18,7 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.fs.obj.S3Storage;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.junit.Assert;

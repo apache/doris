@@ -20,7 +20,6 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -28,6 +27,7 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.obj.BlobStorage;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.annotations.VisibleForTesting;
