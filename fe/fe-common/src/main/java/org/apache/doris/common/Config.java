@@ -2147,7 +2147,7 @@ public class Config extends ConfigBase {
      * If true, auth check will be disabled. The default value is false.
      * This is to solve the case that user forgot the password.
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = false)
     public static boolean skip_localhost_auth_check  = false;
 }
 
