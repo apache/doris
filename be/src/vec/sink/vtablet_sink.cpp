@@ -1057,12 +1057,12 @@ Status VOlapTableSink::open(RuntimeState* state) {
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
     RETURN_IF_ERROR(Thread::create(
             "OlapTableSink", "send_batch_process",
-            [this, state]() { this->_send_batch_process(state); }, &_sender_thread));
+            [this, state]() { this->send_batch_process(state); }, &_sender_thread));
 
     return Status::OK();
 }
 
-void VOlapTableSink::_send_batch_process(RuntimeState* state) {
+void VOlapTableSink::send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
@@ -1094,7 +1094,7 @@ size_t VOlapTableSink::get_pending_bytes() const {
     return mem_consumption;
 }
 
-Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
+Status VOlapTableSink::_find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
                                    const VOlapTablePartition** partition, uint32_t& tablet_index,
                                    bool& stop_processing, bool& is_continue) {
     Status status = Status::OK();
@@ -1224,7 +1224,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         const VOlapTablePartition* partition = nullptr;
         bool is_continue = false;
         uint32_t tablet_index = 0;
-        RETURN_IF_ERROR(find_tablet(state, &block, i, &partition, tablet_index, stop_processing,
+        RETURN_IF_ERROR(_find_tablet(state, &block, i, &partition, tablet_index, stop_processing,
                                     is_continue));
         if (is_continue) {
             continue;

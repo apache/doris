@@ -456,7 +456,7 @@ public:
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
-    void _send_batch_process(RuntimeState* state);
+    void send_batch_process(RuntimeState* state);
 
 private:
     friend class VNodeChannel;
@@ -491,7 +491,7 @@ private:
     // so here need to do the convert operation
     void _convert_to_dest_desc_block(vectorized::Block* block);
 
-    Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
+    Status _find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
                        bool& stop_processing, bool& is_continue);
 
