@@ -26,6 +26,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -141,6 +142,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 }
                 isChanged = handleHbResponse(response, false);
                 if (response.isBackEnd()) {
+                    int coreSize = (int) ((BackendHbResponse) response).getCoreSize();
+                    ConnectContext.get().getSessionVariable().setParallelExecInstanceNum((coreSize + 1) / 2);
                     LOG.warn("yxc get CoreSize: {}", ((BackendHbResponse) response).getCoreSize());
                 }
                 if (isChanged) {
