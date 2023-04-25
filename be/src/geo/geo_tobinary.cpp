@@ -93,6 +93,7 @@ bool toBinary::writeGeoPolygon(doris::GeoPolygon* polygon, ToBinaryContext* ctx)
     for (int i = 0; i < coordss->list.size(); ++i) {
         writeCoordinateList(*coordss->list[i], true, ctx);
     }
+    delete coordss;
     return true;
 }
 

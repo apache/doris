@@ -295,6 +295,7 @@ GeoCoordinateListList* GeoPolygon::to_coords() const {
             }
         }
         coordss->add(coords);
+        delete coords;
     }
     return coordss;
 }
