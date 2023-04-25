@@ -294,7 +294,7 @@ public:
     Status consumer_close();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr);
+    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr, bool opt_remote_rf);
     Status join_rpc();
 
     void init_profile(RuntimeProfile* parent_profile);

@@ -193,7 +193,7 @@ public final class RuntimeFilter {
         boolean optRemoteRf = true;
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
-            // TODO: support FunctionCallExpr
+            // TODO: now only support SlotRef
             optRemoteRf = optRemoteRf && target.expr instanceof SlotRef;
         }
         tFilter.setType(runtimeFilterType);

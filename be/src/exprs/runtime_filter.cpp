@@ -1143,7 +1143,8 @@ Status IRuntimeFilter::publish() {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
         RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_merge_addr(&addr));
-        return push_to_remote(_state, &addr);
+        // TODO: now only support slot ref
+        return push_to_remote(_state, &addr, _vprobe_ctx->root()->is_slot_ref());
     }
 }
 
