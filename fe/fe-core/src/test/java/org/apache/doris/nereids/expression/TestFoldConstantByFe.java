@@ -25,260 +25,206 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Arrays;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
 public class TestFoldConstantByFe {
-    private final DateLiteral[] dateForTest = new DateLiteral[] {
-            new DateLiteral("2021-04-12"), new DateLiteral("1969-12-31"),
-            new DateLiteral("1356-12-12"), new DateLiteral("0001-01-01"),
-            new DateLiteral("9998-12-31")
-    };
-    private final DateTimeLiteral[] dateTimeForTest = new DateTimeLiteral[] {
-            new DateTimeLiteral("2021-04-12 12:54:53"), new DateTimeLiteral("1969-12-31 23:59:59"),
-            new DateTimeLiteral("1356-12-12 12:56:12"), new DateTimeLiteral("0001-01-01 00:00:01"),
-            new DateTimeLiteral("9998-12-31 00:00:59")
-    };
-    private final DateV2Literal[] dateV2ForTest = new DateV2Literal[] {
-            new DateV2Literal("2021-04-12"), new DateV2Literal("1969-12-31"),
-            new DateV2Literal("1356-12-12"), new DateV2Literal("0001-01-01"),
-            new DateV2Literal("9998-12-31")
-    };
-    private final DateTimeV2Literal[] dateTimeV2ForTest = new DateTimeV2Literal[] {
-            new DateTimeV2Literal("2021-04-12 12:54:53"), new DateTimeV2Literal("1969-12-31 23:59:59"),
-            new DateTimeV2Literal("1356-12-12 12:56:12"), new DateTimeV2Literal("0001-01-01 00:00:01"),
-            new DateTimeV2Literal("9998-12-31 00:00:59")
-    };
-    private final IntegerLiteral[] intForTest = new IntegerLiteral[] {
-            new IntegerLiteral(1), new IntegerLiteral(10),
-            new IntegerLiteral(25), new IntegerLiteral(50),
-            new IntegerLiteral(1024)
-    };
 
     @Test
-    public void testDateTimeArithmeticFunctions() {
-        Object[] answer = {
+    public void testDateTypeDateTimeArithmeticFunctions() {
+        DateLiteral dateLiteral = new DateLiteral("1999-12-31");
+        IntegerLiteral integerLiteral = new IntegerLiteral(30);
+        VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
+        String[] answer = {
+                "2000-01-30", "1999-12-01", "2029-12-31", "1969-12-31",
+                "2002-06-30", "1997-06-30", "2000-01-30", "1999-12-01",
+                "1999", "4", "12", "6", "31", "365", "31",
+                "'1999-12-31'", "1999-12-27", "1999-12-31"
         };
         int answerIdx = 0;
-        for (DateLiteral dateLiteral : dateForTest) {
-            for (IntegerLiteral integerLiteral : intForTest) {
-                Assertions.assertEquals(DateTimeArithmetic.dateAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.dateSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.yearsAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-            }
-        }
+        
+        Assertions.assertEquals(DateTimeArithmetic.dateAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.dateSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.yearsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
 
-        for (DateTimeLiteral dateLiteral : dateTimeForTest) {
-            for (IntegerLiteral integerLiteral : intForTest) {
-                Assertions.assertEquals(DateTimeArithmetic.dateAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.dateSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.yearsAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.hoursAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.hoursSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.minutesAdd(dateLiteral, integerLiteral),
-                        answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.minutesSub(dateLiteral, integerLiteral),
-                        answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.secondsAdd(dateLiteral, integerLiteral),
-                        answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.secondsSub(dateLiteral, integerLiteral),
-                        answer[answerIdx++]);
-            }
-        }
+        Assertions.assertEquals(DateTimeExtractAndTransform.year(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.quarter(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.month(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfWeek(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfMonth(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.day(dateLiteral).toSql(), answer[answerIdx++]);
 
-        for (DateV2Literal dateLiteral : dateV2ForTest) {
-            for (IntegerLiteral integerLiteral : intForTest) {
-                Assertions.assertEquals(DateTimeArithmetic.dateAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.dateSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.yearsAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-            }
-        }
-
-        for (DateTimeV2Literal dateLiteral : dateTimeV2ForTest) {
-            for (IntegerLiteral integerLiteral : intForTest) {
-                Assertions.assertEquals(DateTimeArithmetic.dateAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.dateSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.yearsAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.hoursAdd(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.hoursSub(dateLiteral, integerLiteral), answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.minutesAdd(dateLiteral, integerLiteral),
-                        answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.minutesSub(dateLiteral, integerLiteral),
-                        answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.secondsAdd(dateLiteral, integerLiteral),
-                        answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.secondsSub(dateLiteral, integerLiteral),
-                        answer[answerIdx++]);
-                Assertions.assertEquals(DateTimeArithmetic.microSecondsAdd(dateLiteral, integerLiteral),
-                        answer[answerIdx++]);
-            }
-        }
-
-        for (DateTimeLiteral dateTimeLiteral : dateTimeForTest) {
-            for (DateTimeLiteral dateTimeLiteral1 : dateTimeForTest) {
-                Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeLiteral, dateTimeLiteral1),
-                        answer[answerIdx]);
-            }
-        }
-        for (DateV2Literal dateTimeLiteral : dateV2ForTest) {
-            for (DateV2Literal dateTimeLiteral1 : dateV2ForTest) {
-                Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeLiteral, dateTimeLiteral1),
-                        answer[answerIdx]);
-            }
-        }
-        for (DateV2Literal dateTimeLiteral : dateV2ForTest) {
-            for (DateTimeV2Literal dateTimeLiteral1 : dateTimeV2ForTest) {
-                Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeLiteral, dateTimeLiteral1),
-                        answer[answerIdx]);
-            }
-        }
-        for (DateTimeV2Literal dateTimeLiteral : dateTimeV2ForTest) {
-            for (DateV2Literal dateTimeLiteral1 : dateV2ForTest) {
-                Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeLiteral, dateTimeLiteral1),
-                        answer[answerIdx]);
-            }
-        }
-        for (DateTimeV2Literal dateTimeLiteral : dateTimeV2ForTest) {
-            for (DateTimeV2Literal dateTimeLiteral1 : dateTimeV2ForTest) {
-                Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeLiteral, dateTimeLiteral1),
-                        answer[answerIdx]);
-            }
-        }
+        Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx]);
     }
 
     @Test
-    public void testDateTimeExtractAndTransform() {
+    public void testDateTimeTypeDateTimeArithmeticFunctions() {
+        DateTimeLiteral dateLiteral = new DateTimeLiteral("1999-12-31 23:59:59");
+        IntegerLiteral integerLiteral = new IntegerLiteral(30);
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
-        VarcharLiteral[] truncTags = new VarcharLiteral[] {
-                new VarcharLiteral("second"), new VarcharLiteral("minute"),
-                new VarcharLiteral("hour"), new VarcharLiteral("day"),
-                new VarcharLiteral("month"), new VarcharLiteral("year")
-        };
 
-        Object[] answer = {};
+        String[] answer = {
+                "2000-01-30 23:59:59", "1999-12-01 23:59:59", "2029-12-31 23:59:59", "1969-12-31 23:59:59",
+                "2002-06-30 23:59:59", "1997-06-30 23:59:59", "2000-01-30 23:59:59", "1999-12-01 23:59:59",
+                "2000-01-02 05:59:59", "1999-12-30 17:59:59", "2000-01-01 00:29:59",
+                "1999-12-31 23:29:59", "2000-01-01 00:00:29", "1999-12-31 23:59:29",
+                "1999", "4", "12", "6", "31", "365", "31", "23", "59", "59",
+                "'1999-12-31'", "1999-12-27", "1999-12-31", "1999-12-31", "730484", "1999-12-31"
+        };
         int answerIdx = 0;
-        for (DateTimeLiteral literal : dateTimeForTest) {
-            Assertions.assertEquals(DateTimeExtractAndTransform.date(literal), answer[answerIdx++]);
-        }
-        for (DateTimeV2Literal literal : dateTimeV2ForTest) {
-            Assertions.assertEquals(DateTimeExtractAndTransform.date(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dateV2(literal), answer[answerIdx++]);
-        }
-        for (DateLiteral literal : dateForTest) {
-            Assertions.assertEquals(DateTimeExtractAndTransform.year(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.quarter(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.month(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfWeek(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfMonth(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.day(literal), answer[answerIdx++]);
 
-            Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(literal, format), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(literal), answer[answerIdx++]);
-        }
-        for (DateTimeLiteral literal : dateTimeForTest) {
-            Assertions.assertEquals(DateTimeExtractAndTransform.year(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.quarter(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.month(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfWeek(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfMonth(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.day(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.hour(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.minute(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.second(literal), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.dateAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.dateSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.yearsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.hoursAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.hoursSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.minutesAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.minutesSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.secondsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.secondsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
 
-            Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(literal, format), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.toDate(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.toDays(literal), answer[answerIdx++]);
-            for (VarcharLiteral literal1 : truncTags) {
-                Assertions.assertEquals(DateTimeExtractAndTransform.dateTrunc(literal, literal1), answer[answerIdx++]);
-            }
-        }
-        for (DateV2Literal literal : dateV2ForTest) {
-            Assertions.assertEquals(DateTimeExtractAndTransform.year(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.quarter(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.month(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfWeek(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfMonth(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.day(literal), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.year(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.quarter(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.month(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfWeek(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfMonth(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.day(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.hour(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.minute(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.second(dateLiteral).toSql(), answer[answerIdx++]);
 
-            Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(literal, format), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(literal), answer[answerIdx++]);
-        }
-        for (DateTimeV2Literal literal : dateTimeV2ForTest) {
-            Assertions.assertEquals(DateTimeExtractAndTransform.year(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.quarter(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.month(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfWeek(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfMonth(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.day(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.hour(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.minute(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.second(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.hour(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.minute(literal), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.toDate(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.toDays(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.date(dateLiteral).toSql(), answer[answerIdx]);
+    }
 
-            Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(literal, format), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.toDate(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.toDays(literal), answer[answerIdx++]);
-            Assertions.assertEquals(DateTimeExtractAndTransform.toDate(literal), answer[answerIdx++]);
-            for (VarcharLiteral literal1 : truncTags) {
-                Assertions.assertEquals(DateTimeExtractAndTransform.dateTrunc(literal, literal1), answer[answerIdx++]);
-            }
-        }
+    @Test
+    public void testDateV2TypeDateTimeArithmeticFunctions() {
+        DateV2Literal dateLiteral = new DateV2Literal("1999-12-31");
+        IntegerLiteral integerLiteral = new IntegerLiteral(30);
+        VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
-        // test makedate and strToDate
-        IntegerLiteral[] years = new IntegerLiteral[] {
-                new IntegerLiteral(1945), new IntegerLiteral(1968),
-                new IntegerLiteral(9999), new IntegerLiteral(0),
-                new IntegerLiteral(1234)
+        String[] answer = {
+                "2000-01-30", "1999-12-01", "2029-12-31", "1969-12-31",
+                "2002-06-30", "1997-06-30", "2000-01-30", "1999-12-01",
+                "1999", "4", "12", "6", "31", "365", "31",
+                "'1999-12-31'", "1999-12-27", "1999-12-31"
         };
-        IntegerLiteral[] days = new IntegerLiteral[] {
-                new IntegerLiteral(45), new IntegerLiteral(168),
-                new IntegerLiteral(99), new IntegerLiteral(1),
-                new IntegerLiteral(234)
+        int answerIdx = 0;
+
+        Assertions.assertEquals(DateTimeArithmetic.dateAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.dateSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.yearsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+
+        Assertions.assertEquals(DateTimeExtractAndTransform.year(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.quarter(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.month(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfWeek(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfMonth(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.day(dateLiteral).toSql(), answer[answerIdx++]);
+
+        Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx]);
+    }
+
+    @Test
+    public void testDateTimeV2TypeDateTimeArithmeticFunctions() {
+        DateTimeV2Literal dateLiteral = new DateTimeV2Literal(DateTimeV2Type.MAX, "1999-12-31 23:59:59");
+        IntegerLiteral integerLiteral = new IntegerLiteral(30);
+        VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
+
+        String[] answer = {
+                "2000-01-30 23:59:59", "1999-12-01 23:59:59", "2029-12-31 23:59:59", "1969-12-31 23:59:59",
+                "2002-06-30 23:59:59", "1997-06-30 23:59:59", "2000-01-30 23:59:59", "1999-12-01 23:59:59",
+                "2000-01-02 05:59:59", "1999-12-30 17:59:59", "2000-01-01 00:29:59",
+                "1999-12-31 23:29:59", "2000-01-01 00:00:29", "1999-12-31 23:59:29", "1999-12-31 23:59:59",
+                "1999", "4", "12", "6", "31", "365", "31", "23", "59", "59",
+                "'1999-12-31'", "1999-12-27", "1999-12-31", "1999-12-31", "730484", "1999-12-31", "1999-12-31"
         };
-        for (IntegerLiteral literal : Stream.concat(Arrays.stream(intForTest), Arrays.stream(years))
-                .collect(Collectors.toList())) {
-            for (IntegerLiteral literal1 : Stream.concat(Arrays.stream(intForTest), Arrays.stream(days))
-                    .collect(Collectors.toList())) {
-                Assertions.assertEquals(DateTimeExtractAndTransform.makeDate(literal, literal1), answer[answerIdx++]);
-            }
-        }
+        int answerIdx = 0;
+
+        Assertions.assertEquals(DateTimeArithmetic.dateAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.dateSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.yearsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.hoursAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.hoursSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.minutesAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.minutesSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.secondsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.secondsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.microSecondsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+
+        Assertions.assertEquals(DateTimeExtractAndTransform.year(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.quarter(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.month(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfWeek(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfMonth(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.day(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.hour(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.minute(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.second(dateLiteral).toSql(), answer[answerIdx++]);
+
+        Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.toDate(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.toDays(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.date(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dateV2(dateLiteral).toSql(), answer[answerIdx]);
+    }
+
+    @Test
+    public void testDateDiff() {
+        DateTimeLiteral dateTimeLiteral = new DateTimeLiteral("2001-12-31 00:00:01");
+        DateV2Literal dateV2Literal = new DateV2Literal("2001-12-31");
+        DateTimeV2Literal dateTimeV2Literal = new DateTimeV2Literal("2001-12-31 00:00:01");
+
+        DateTimeLiteral dateTimeLiteral1 = new DateTimeLiteral("2006-12-31 00:00:01");
+        DateV2Literal dateV2Literal1 = new DateV2Literal("2006-12-31");
+        DateTimeV2Literal dateTimeV2Literal1 = new DateTimeV2Literal("2006-12-31 01:00:01");
+
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeLiteral, dateTimeLiteral1).toSql(), "-1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeLiteral1, dateTimeLiteral).toSql(), "1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal, dateV2Literal1).toSql(), "-1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal1, dateV2Literal).toSql(), "1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal, dateTimeV2Literal1).toSql(), "-1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeV2Literal1, dateV2Literal).toSql(), "1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeV2Literal, dateV2Literal1).toSql(), "-1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal1, dateTimeV2Literal).toSql(), "1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeV2Literal, dateTimeLiteral1).toSql(), "-1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeV2Literal1, dateTimeLiteral).toSql(), "1826");
     }
 }

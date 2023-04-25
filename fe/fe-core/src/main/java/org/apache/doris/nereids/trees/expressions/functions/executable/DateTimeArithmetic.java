@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -25,8 +24,8 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 
 /**
  * executable function:
@@ -37,22 +36,22 @@ public class DateTimeArithmetic {
      * datetime arithmetic function date-add.
      */
     @ExecFunction(name = "date_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
-    public static DateLiteral dateAdd(DateLiteral date, IntegerLiteral day) throws AnalysisException {
+    public static DateLiteral dateAdd(DateLiteral date, IntegerLiteral day) {
         return daysAdd(date, day);
     }
 
     @ExecFunction(name = "date_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral dateAdd(DateTimeLiteral date, IntegerLiteral day) throws AnalysisException {
+    public static DateTimeLiteral dateAdd(DateTimeLiteral date, IntegerLiteral day) {
         return daysAdd(date, day);
     }
 
     @ExecFunction(name = "date_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
-    public static DateV2Literal dateAdd(DateV2Literal date, IntegerLiteral day) throws AnalysisException {
+    public static DateV2Literal dateAdd(DateV2Literal date, IntegerLiteral day) {
         return daysAdd(date, day);
     }
 
     @ExecFunction(name = "date_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal dateAdd(DateTimeV2Literal date, IntegerLiteral day) throws AnalysisException {
+    public static DateTimeV2Literal dateAdd(DateTimeV2Literal date, IntegerLiteral day) {
         return daysAdd(date, day);
     }
 
@@ -60,22 +59,22 @@ public class DateTimeArithmetic {
      * datetime arithmetic function date-sub.
      */
     @ExecFunction(name = "date_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
-    public static DateLiteral dateSub(DateLiteral date, IntegerLiteral day) throws AnalysisException {
+    public static DateLiteral dateSub(DateLiteral date, IntegerLiteral day) {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
     @ExecFunction(name = "date_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral dateSub(DateTimeLiteral date, IntegerLiteral day) throws AnalysisException {
+    public static DateTimeLiteral dateSub(DateTimeLiteral date, IntegerLiteral day) {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
     @ExecFunction(name = "date_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
-    public static DateV2Literal dateSub(DateV2Literal date, IntegerLiteral day) throws AnalysisException {
+    public static DateV2Literal dateSub(DateV2Literal date, IntegerLiteral day) {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
     @ExecFunction(name = "date_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal dateSub(DateTimeV2Literal date, IntegerLiteral day) throws AnalysisException {
+    public static DateTimeV2Literal dateSub(DateTimeV2Literal date, IntegerLiteral day) {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
@@ -83,22 +82,22 @@ public class DateTimeArithmetic {
      * datetime arithmetic function years-add.
      */
     @ExecFunction(name = "years_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
-    public static DateLiteral yearsAdd(DateLiteral date, IntegerLiteral year) throws AnalysisException {
+    public static DateLiteral yearsAdd(DateLiteral date, IntegerLiteral year) {
         return date.plusYears(year.getValue());
     }
 
     @ExecFunction(name = "years_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral yearsAdd(DateTimeLiteral date, IntegerLiteral year) throws AnalysisException {
+    public static DateTimeLiteral yearsAdd(DateTimeLiteral date, IntegerLiteral year) {
         return date.plusYears(year.getValue());
     }
 
     @ExecFunction(name = "years_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
-    public static DateV2Literal yearsAdd(DateV2Literal date, IntegerLiteral year) throws AnalysisException {
+    public static DateV2Literal yearsAdd(DateV2Literal date, IntegerLiteral year) {
         return date.plusYears(year.getValue());
     }
 
     @ExecFunction(name = "years_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal yearsAdd(DateTimeV2Literal date, IntegerLiteral year) throws AnalysisException {
+    public static DateTimeV2Literal yearsAdd(DateTimeV2Literal date, IntegerLiteral year) {
         return date.plusYears(year.getValue());
     }
 
@@ -106,22 +105,22 @@ public class DateTimeArithmetic {
      * datetime arithmetic function months-add.
      */
     @ExecFunction(name = "months_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
-    public static DateLiteral monthsAdd(DateLiteral date, IntegerLiteral month) throws AnalysisException {
+    public static DateLiteral monthsAdd(DateLiteral date, IntegerLiteral month) {
         return date.plusMonths(month.getValue());
     }
 
     @ExecFunction(name = "months_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral monthsAdd(DateTimeLiteral date, IntegerLiteral month) throws AnalysisException {
+    public static DateTimeLiteral monthsAdd(DateTimeLiteral date, IntegerLiteral month) {
         return date.plusMonths(month.getValue());
     }
 
     @ExecFunction(name = "months_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
-    public static DateV2Literal monthsAdd(DateV2Literal date, IntegerLiteral month) throws AnalysisException {
+    public static DateV2Literal monthsAdd(DateV2Literal date, IntegerLiteral month) {
         return date.plusMonths(month.getValue());
     }
 
     @ExecFunction(name = "months_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal monthsAdd(DateTimeV2Literal date, IntegerLiteral month) throws AnalysisException {
+    public static DateTimeV2Literal monthsAdd(DateTimeV2Literal date, IntegerLiteral month) {
         return date.plusMonths(month.getValue());
     }
 
@@ -129,22 +128,22 @@ public class DateTimeArithmetic {
      * datetime arithmetic function days-add.
      */
     @ExecFunction(name = "days_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
-    public static DateLiteral daysAdd(DateLiteral date, IntegerLiteral day) throws AnalysisException {
+    public static DateLiteral daysAdd(DateLiteral date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
     }
 
     @ExecFunction(name = "days_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral daysAdd(DateTimeLiteral date, IntegerLiteral day) throws AnalysisException {
+    public static DateTimeLiteral daysAdd(DateTimeLiteral date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
     }
 
     @ExecFunction(name = "days_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
-    public static DateV2Literal daysAdd(DateV2Literal date, IntegerLiteral day) throws AnalysisException {
+    public static DateV2Literal daysAdd(DateV2Literal date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
     }
 
     @ExecFunction(name = "days_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal daysAdd(DateTimeV2Literal date, IntegerLiteral day) throws AnalysisException {
+    public static DateTimeV2Literal daysAdd(DateTimeV2Literal date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
     }
 
@@ -152,12 +151,12 @@ public class DateTimeArithmetic {
      * datetime arithmetic function hours-add.
      */
     @ExecFunction(name = "hours_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral hoursAdd(DateTimeLiteral date, IntegerLiteral hour) throws AnalysisException {
+    public static DateTimeLiteral hoursAdd(DateTimeLiteral date, IntegerLiteral hour) {
         return date.plusHours(hour.getValue());
     }
 
     @ExecFunction(name = "hours_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal hoursAdd(DateTimeV2Literal date, IntegerLiteral hour) throws AnalysisException {
+    public static DateTimeV2Literal hoursAdd(DateTimeV2Literal date, IntegerLiteral hour) {
         return date.plusHours(hour.getValue());
     }
 
@@ -165,12 +164,12 @@ public class DateTimeArithmetic {
      * datetime arithmetic function minutes-add.
      */
     @ExecFunction(name = "minutes_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral minutesAdd(DateTimeLiteral date, IntegerLiteral minute) throws AnalysisException {
+    public static DateTimeLiteral minutesAdd(DateTimeLiteral date, IntegerLiteral minute) {
         return date.plusMinutes(minute.getValue());
     }
 
     @ExecFunction(name = "minutes_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal minutesAdd(DateTimeV2Literal date, IntegerLiteral minute) throws AnalysisException {
+    public static DateTimeV2Literal minutesAdd(DateTimeV2Literal date, IntegerLiteral minute) {
         return date.plusMinutes(minute.getValue());
     }
 
@@ -178,12 +177,12 @@ public class DateTimeArithmetic {
      * datetime arithmetic function seconds-add.
      */
     @ExecFunction(name = "seconds_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral secondsAdd(DateTimeLiteral date, IntegerLiteral second) throws AnalysisException {
+    public static DateTimeLiteral secondsAdd(DateTimeLiteral date, IntegerLiteral second) {
         return date.plusSeconds(second.getValue());
     }
 
     @ExecFunction(name = "seconds_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal secondsAdd(DateTimeV2Literal date, IntegerLiteral second) throws AnalysisException {
+    public static DateTimeV2Literal secondsAdd(DateTimeV2Literal date, IntegerLiteral second) {
         return date.plusSeconds(second.getValue());
     }
 
@@ -191,8 +190,7 @@ public class DateTimeArithmetic {
      * datetime arithmetic function microseconds-add.
      */
     @ExecFunction(name = "seconds_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal microSecondsAdd(DateTimeV2Literal date, IntegerLiteral microSecond)
-            throws AnalysisException {
+    public static DateTimeV2Literal microSecondsAdd(DateTimeV2Literal date, IntegerLiteral microSecond) {
         return date.plusMicroSeconds(microSecond.getValue());
     }
 
@@ -200,22 +198,22 @@ public class DateTimeArithmetic {
      * datetime arithmetic function years-sub.
      */
     @ExecFunction(name = "years_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
-    public static DateLiteral yearsSub(DateLiteral date, IntegerLiteral year) throws AnalysisException {
+    public static DateLiteral yearsSub(DateLiteral date, IntegerLiteral year) {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
     }
 
     @ExecFunction(name = "years_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral yearsSub(DateTimeLiteral date, IntegerLiteral year) throws AnalysisException {
+    public static DateTimeLiteral yearsSub(DateTimeLiteral date, IntegerLiteral year) {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
     }
 
     @ExecFunction(name = "years_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
-    public static DateV2Literal yearsSub(DateV2Literal date, IntegerLiteral year) throws AnalysisException {
+    public static DateV2Literal yearsSub(DateV2Literal date, IntegerLiteral year) {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
     }
 
     @ExecFunction(name = "years_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal yearsSub(DateTimeV2Literal date, IntegerLiteral year) throws AnalysisException {
+    public static DateTimeV2Literal yearsSub(DateTimeV2Literal date, IntegerLiteral year) {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
     }
 
@@ -223,22 +221,22 @@ public class DateTimeArithmetic {
      * datetime arithmetic function months-sub
      */
     @ExecFunction(name = "months_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
-    public static DateLiteral monthsSub(DateLiteral date, IntegerLiteral month) throws AnalysisException {
+    public static DateLiteral monthsSub(DateLiteral date, IntegerLiteral month) {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
     }
 
     @ExecFunction(name = "months_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral monthsSub(DateTimeLiteral date, IntegerLiteral month) throws AnalysisException {
+    public static DateTimeLiteral monthsSub(DateTimeLiteral date, IntegerLiteral month) {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
     }
 
     @ExecFunction(name = "months_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
-    public static DateV2Literal monthsSub(DateV2Literal date, IntegerLiteral month) throws AnalysisException {
+    public static DateV2Literal monthsSub(DateV2Literal date, IntegerLiteral month) {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
     }
 
     @ExecFunction(name = "months_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal monthsSub(DateTimeV2Literal date, IntegerLiteral month) throws AnalysisException {
+    public static DateTimeV2Literal monthsSub(DateTimeV2Literal date, IntegerLiteral month) {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
     }
 
@@ -246,22 +244,22 @@ public class DateTimeArithmetic {
      * datetime arithmetic function days-sub
      */
     @ExecFunction(name = "days_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
-    public static DateLiteral daysSub(DateLiteral date, IntegerLiteral day) throws AnalysisException {
+    public static DateLiteral daysSub(DateLiteral date, IntegerLiteral day) {
         return daysAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
     @ExecFunction(name = "days_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral daysSub(DateTimeLiteral date, IntegerLiteral day) throws AnalysisException {
+    public static DateTimeLiteral daysSub(DateTimeLiteral date, IntegerLiteral day) {
         return daysAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
     @ExecFunction(name = "days_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
-    public static DateV2Literal daysSub(DateV2Literal date, IntegerLiteral day) throws AnalysisException {
+    public static DateV2Literal daysSub(DateV2Literal date, IntegerLiteral day) {
         return daysAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
     @ExecFunction(name = "days_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal daysSub(DateTimeV2Literal date, IntegerLiteral day) throws AnalysisException {
+    public static DateTimeV2Literal daysSub(DateTimeV2Literal date, IntegerLiteral day) {
         return daysAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
@@ -269,12 +267,12 @@ public class DateTimeArithmetic {
      * datetime arithmetic function hours-sub
      */
     @ExecFunction(name = "hours_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral hoursSub(DateTimeLiteral date, IntegerLiteral hour) throws AnalysisException {
+    public static DateTimeLiteral hoursSub(DateTimeLiteral date, IntegerLiteral hour) {
         return hoursAdd(date, new IntegerLiteral(-hour.getValue()));
     }
 
     @ExecFunction(name = "hours_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal hoursSub(DateTimeV2Literal date, IntegerLiteral hour) throws AnalysisException {
+    public static DateTimeV2Literal hoursSub(DateTimeV2Literal date, IntegerLiteral hour) {
         return hoursAdd(date, new IntegerLiteral(-hour.getValue()));
     }
 
@@ -282,12 +280,12 @@ public class DateTimeArithmetic {
      * datetime arithmetic function minutes-sub
      */
     @ExecFunction(name = "minutes_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral minutesSub(DateTimeLiteral date, IntegerLiteral minute) throws AnalysisException {
+    public static DateTimeLiteral minutesSub(DateTimeLiteral date, IntegerLiteral minute) {
         return minutesAdd(date, new IntegerLiteral(-minute.getValue()));
     }
 
     @ExecFunction(name = "minutes_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal minutesSub(DateTimeV2Literal date, IntegerLiteral minute) throws AnalysisException {
+    public static DateTimeV2Literal minutesSub(DateTimeV2Literal date, IntegerLiteral minute) {
         return minutesAdd(date, new IntegerLiteral(-minute.getValue()));
     }
 
@@ -295,12 +293,12 @@ public class DateTimeArithmetic {
      * datetime arithmetic function seconds-sub
      */
     @ExecFunction(name = "seconds_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
-    public static DateTimeLiteral secondsSub(DateTimeLiteral date, IntegerLiteral second) throws AnalysisException {
+    public static DateTimeLiteral secondsSub(DateTimeLiteral date, IntegerLiteral second) {
         return secondsAdd(date, new IntegerLiteral(-second.getValue()));
     }
 
     @ExecFunction(name = "seconds_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal secondsSub(DateTimeV2Literal date, IntegerLiteral second) throws AnalysisException {
+    public static DateTimeV2Literal secondsSub(DateTimeV2Literal date, IntegerLiteral second) {
         return secondsAdd(date, new IntegerLiteral(-second.getValue()));
     }
 
@@ -333,6 +331,6 @@ public class DateTimeArithmetic {
     }
 
     private static int dateDiff(LocalDateTime date1, LocalDateTime date2) {
-        return ((int) Duration.between(date1, date2).toDays());
+        return ((int) ChronoUnit.DAYS.between(date2.toLocalDate(), date1.toLocalDate()));
     }
 }

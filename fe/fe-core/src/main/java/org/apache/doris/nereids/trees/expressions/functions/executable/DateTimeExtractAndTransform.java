@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.Duration;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -73,22 +72,22 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "quarter", argTypes = {"DATE"}, returnType = "INT")
     public static IntegerLiteral quarter(DateLiteral date) {
-        return new IntegerLiteral(((int) date.getMonth() - 1) % 3 + 1);
+        return new IntegerLiteral(((int) date.getMonth() - 1) / 3 + 1);
     }
 
     @ExecFunction(name = "quarter", argTypes = {"DATETIME"}, returnType = "INT")
     public static IntegerLiteral quarter(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) date.getMonth() - 1) % 3 + 1);
+        return new IntegerLiteral(((int) date.getMonth() - 1) / 3 + 1);
     }
 
     @ExecFunction(name = "quarter", argTypes = {"DATEV2"}, returnType = "INT")
     public static IntegerLiteral quarter(DateV2Literal date) {
-        return new IntegerLiteral(((int) date.getMonth() - 1) % 3 + 1);
+        return new IntegerLiteral(((int) date.getMonth() - 1) / 3 + 1);
     }
 
     @ExecFunction(name = "quarter", argTypes = {"DATETIMEV2"}, returnType = "INT")
     public static IntegerLiteral quarter(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) date.getMonth() - 1) % 3 + 1);
+        return new IntegerLiteral(((int) date.getMonth() - 1) / 3 + 1);
     }
 
     /**
@@ -356,10 +355,10 @@ public class DateTimeExtractAndTransform {
     }
 
     @ExecFunction(name = "last_day", argTypes = {"DATETIME"}, returnType = "DATE")
-    public static DateTimeLiteral lastDay(DateTimeLiteral date) {
+    public static DateLiteral lastDay(DateTimeLiteral date) {
         LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
                 0, 0, 0).plusMonths(1);
-        return DateTimeLiteral.fromJavaDateType(nextMonthFirstDay.minusDays(1));
+        return DateLiteral.fromJavaDateType(nextMonthFirstDay.minusDays(1));
     }
 
     @ExecFunction(name = "last_day", argTypes = {"DATEV2"}, returnType = "DATEV2")
@@ -384,9 +383,9 @@ public class DateTimeExtractAndTransform {
         return DateLiteral.fromJavaDateType(toMonday(date.toJavaDateType()));
     }
 
-    @ExecFunction(name = "to_monday", argTypes = {"DATETIME"}, returnType = "DATETIME")
-    public static DateTimeLiteral toMonday(DateTimeLiteral date) {
-        return DateTimeLiteral.fromJavaDateType(toMonday(date.toJavaDateType()));
+    @ExecFunction(name = "to_monday", argTypes = {"DATETIME"}, returnType = "DATE")
+    public static DateLiteral toMonday(DateTimeLiteral date) {
+        return DateLiteral.fromJavaDateType(toMonday(date.toJavaDateType()));
     }
 
     @ExecFunction(name = "to_monday", argTypes = {"DATEV2"}, returnType = "DATEV2")
@@ -394,9 +393,9 @@ public class DateTimeExtractAndTransform {
         return DateV2Literal.fromJavaDateType(toMonday(date.toJavaDateType()));
     }
 
-    @ExecFunction(name = "to_monday", argTypes = {"DATE"}, returnType = "DATE")
-    public static DateTimeV2Literal toMonday(DateTimeV2Literal date) {
-        return DateTimeV2Literal.fromJavaDateType(toMonday(date.toJavaDateType()));
+    @ExecFunction(name = "to_monday", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    public static DateV2Literal toMonday(DateTimeV2Literal date) {
+        return DateV2Literal.fromJavaDateType(toMonday(date.toJavaDateType()));
     }
 
     private static LocalDateTime toMonday(LocalDateTime dateTime) {
@@ -497,12 +496,13 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "to_days", argTypes = {"DATETIME"}, returnType = "INT")
     public static IntegerLiteral toDays(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) Duration.between(LocalDate.of(0, 1, 1), date.toJavaDateType()).toDays()));
+        return new IntegerLiteral(((int) Duration.between(LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
     }
 
     @ExecFunction(name = "to_days", argTypes = {"DATETIMEV2"}, returnType = "INT")
     public static IntegerLiteral toDays(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) Duration.between(LocalDate.of(0, 1, 1), date.toJavaDateType()).toDays()));
+        return new IntegerLiteral(((int) Duration.between(
+                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
     }
 
     /**
