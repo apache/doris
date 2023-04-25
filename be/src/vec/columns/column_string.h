@@ -136,11 +136,6 @@ public:
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
-    StringRef get_string_data_at(size_t n) const {
-        assert(n < size());
-        return StringRef(&chars[offset_at(n)], size_at(n));
-    }
-
 /// Suppress gcc 7.3.1 warning: '*((void*)&<anonymous> +8)' may be used uninitialized in this function
 #if !__clang__
 #pragma GCC diagnostic push

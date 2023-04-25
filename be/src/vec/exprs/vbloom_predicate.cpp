@@ -106,7 +106,7 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
                     ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));
                 } else {
                     auto ele = assert_cast<const ColumnString*>(column_nested.get())
-                                       ->get_string_data_at(i);
+                                       ->get_data_at(i);
                     const StringRef v(ele.data, ele.size);
                     ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));
                 }
@@ -118,7 +118,7 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
                     ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
                 } else {
                     auto ele = assert_cast<const ColumnString*>(column_nested.get())
-                                       ->get_string_data_at(i);
+                                       ->get_data_at(i);
                     const StringRef v(ele.data, ele.size);
                     ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
                 }
