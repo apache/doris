@@ -238,7 +238,7 @@ public class BeLoadRebalancer extends Rebalancer {
             if (be == null) {
                 throw new SchedException(Status.UNRECOVERABLE, "backend is dropped: " + replica.getBackendId());
             }
-            hosts.add(be.getIp());
+            hosts.add(be.getHost());
         }
         if (!hasHighReplica) {
             throw new SchedException(Status.UNRECOVERABLE, "no replica on high load backend");
@@ -271,7 +271,7 @@ public class BeLoadRebalancer extends Rebalancer {
                 if (lowBackend == null) {
                     continue;
                 }
-                if (!Config.allow_replica_on_same_host && hosts.contains(lowBackend.getIp())) {
+                if (!Config.allow_replica_on_same_host && hosts.contains(lowBackend.getHost())) {
                     continue;
                 }
 

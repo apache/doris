@@ -41,10 +41,8 @@ public class Frontend implements Writable {
     @SerializedName("nodeName")
     private String nodeName;
     @SerializedName("ip")
-    private volatile String ip;
+    private volatile String host;
     // used for getIpByHostname
-    @SerializedName("hostName")
-    private String hostName;
     @SerializedName("editLogPort")
     private int editLogPort;
     private String version;
@@ -60,15 +58,14 @@ public class Frontend implements Writable {
 
     public Frontend() {}
 
-    public Frontend(FrontendNodeType role, String nodeName, String ip, int editLogPort) {
-        this(role, nodeName, ip, "", editLogPort);
+    public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
+        this(role, nodeName, host, "", editLogPort);
     }
 
-    public Frontend(FrontendNodeType role, String nodeName, String ip, String hostName, int editLogPort) {
+    public Frontend(FrontendNodeType role, String nodeName, String host, String hostName, int editLogPort) {
         this.role = role;
         this.nodeName = nodeName;
-        this.ip = ip;
-        this.hostName = hostName;
+        this.host = host;
         this.editLogPort = editLogPort;
     }
 
@@ -76,20 +73,12 @@ public class Frontend implements Writable {
         return this.role;
     }
 
-    public String getIp() {
-        return this.hostName;
+    public String getHost() {
+        return this.host;
     }
 
     public String getVersion() {
         return version;
-    }
-
-    public String getHostName() {
-        return hostName;
-    }
-
-    public void setHostName(String hostName) {
-        this.hostName = hostName;
     }
 
     public String getNodeName() {
@@ -169,7 +158,7 @@ public class Frontend implements Writable {
             // we changed REPLICA to FOLLOWER
             role = FrontendNodeType.FOLLOWER;
         }
-        ip = Text.readString(in);
+        host = Text.readString(in);
         editLogPort = in.readInt();
         nodeName = Text.readString(in);
     }
@@ -188,16 +177,15 @@ public class Frontend implements Writable {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("name: ").append(nodeName).append(", role: ").append(role.name());
-        sb.append(", hostname: ").append(hostName);
-        sb.append(", ").append(ip).append(":").append(editLogPort);
+        sb.append(", ").append(host).append(":").append(editLogPort);
         return sb.toString();
     }
 
-    public void setIp(String ip) {
-        this.ip = ip;
+    public void setHost(String host) {
+        this.host = host;
     }
 
     public HostInfo toHostInfo() {
-        return new HostInfo(ip, hostName, editLogPort);
+        return new HostInfo(host, editLogPort);
     }
 }

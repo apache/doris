@@ -205,7 +205,7 @@ public class BDBEnvironment {
                 .getFrontends(FrontendNodeType.FOLLOWER)
                 .stream()
                 .filter(Frontend::isAlive)
-                .map(fe -> new InetSocketAddress(fe.getIp(), fe.getEditLogPort()))
+                .map(fe -> new InetSocketAddress(fe.getHost(), fe.getEditLogPort()))
                 .collect(Collectors.toSet());
         return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses);
     }

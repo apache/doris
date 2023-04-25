@@ -253,7 +253,7 @@ public class FileGroupInfo {
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             FsBroker broker = null;
             try {
-                broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getIp());
+                broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getHost());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
@@ -276,7 +276,7 @@ public class FileGroupInfo {
         if (jobType == JobType.BULK_LOAD) {
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(selectedBackend.getId());
-            location.setServer(new TNetworkAddress(selectedBackend.getIp(), selectedBackend.getBePort()));
+            location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
             locations.addToLocations(location);
         } else {
             // stream load do not need locations

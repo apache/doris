@@ -52,7 +52,7 @@ public class KafkaUtil {
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             // create request
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
@@ -98,7 +98,7 @@ public class KafkaUtil {
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             // create request
             InternalService.PKafkaMetaProxyRequest.Builder metaRequestBuilder =
@@ -158,7 +158,7 @@ public class KafkaUtil {
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             // create request
             InternalService.PKafkaMetaProxyRequest.Builder metaRequestBuilder =

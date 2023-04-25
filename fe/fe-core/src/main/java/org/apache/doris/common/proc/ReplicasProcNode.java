@@ -75,7 +75,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
 
         for (Replica replica : replicas) {
             Backend be = backendMap.get(replica.getBackendId());
-            String host = (be == null ? Backend.DUMMY_IP : be.getIp());
+            String host = (be == null ? Backend.DUMMY_IP : be.getHost());
             int port = (be == null ? 0 : be.getHttpPort());
             String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
             String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d", tabletId);

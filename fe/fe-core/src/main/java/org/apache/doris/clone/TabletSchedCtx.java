@@ -490,14 +490,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // return true so that it won't choose this backend.
             return true;
         }
-        String host = backend.getIp();
+        String host = backend.getHost();
         for (Replica replica : tablet.getReplicas()) {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null) {
                 // BE has been dropped, skip it
                 continue;
             }
-            if (!Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && host.equals(be.getIp())) {
+            if (!Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && host.equals(be.getHost())) {
                 return true;
             }
 
@@ -844,7 +844,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     committedVersion, /* use committed version as last failed version */
                     -1 /* last success version */);
 
-            TBackend tSrcBe = new TBackend(srcBe.getIp(), srcBe.getBePort(), srcBe.getHttpPort());
+            TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
             cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
                 tabletId, cloneReplica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
                 visibleVersion, (int) (taskTimeoutMs / 1000));
@@ -865,7 +865,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                         + "current: " + replica.getPathHash() + ", scheduled: " + destPathHash);
             }
 
-            TBackend tSrcBe = new TBackend(srcBe.getIp(), srcBe.getBePort(), srcBe.getHttpPort());
+            TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
             cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
                 tabletId, replica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
                 visibleVersion, (int) (taskTimeoutMs / 1000));

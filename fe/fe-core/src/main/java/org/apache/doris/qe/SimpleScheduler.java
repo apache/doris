@@ -71,7 +71,7 @@ public class SimpleScheduler {
 
         if (isAvailable(backend)) {
             backendIdRef.setRef(backendId);
-            return new TNetworkAddress(backend.getIp(), backend.getBePort());
+            return new TNetworkAddress(backend.getHost(), backend.getBePort());
         } else {
             for (TScanRangeLocation location : locations) {
                 if (location.backend_id == backendId) {
@@ -81,7 +81,7 @@ public class SimpleScheduler {
                 Backend candidateBackend = backends.get(location.backend_id);
                 if (isAvailable(candidateBackend)) {
                     backendIdRef.setRef(location.backend_id);
-                    return new TNetworkAddress(candidateBackend.getIp(), candidateBackend.getBePort());
+                    return new TNetworkAddress(candidateBackend.getHost(), candidateBackend.getBePort());
                 }
             }
         }
@@ -140,7 +140,7 @@ public class SimpleScheduler {
         if (backendEntry != null) {
             Backend backend = backendEntry.getValue();
             backendIdRef.setRef(backendEntry.getKey());
-            return new TNetworkAddress(backend.getIp(), backend.getBePort());
+            return new TNetworkAddress(backend.getHost(), backend.getBePort());
         }
         // no backend returned
         throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG

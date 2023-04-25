@@ -250,7 +250,7 @@ public class EsScanNode extends ScanNode {
                     TScanRangeLocation location = new TScanRangeLocation();
                     Backend be = backendPolicy.getNextBe();
                     location.setBackendId(be.getId());
-                    location.setServer(new TNetworkAddress(be.getIp(), be.getBePort()));
+                    location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
                     locations.addToLocations(location);
                 }
 

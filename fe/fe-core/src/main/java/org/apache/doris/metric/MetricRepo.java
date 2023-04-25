@@ -599,7 +599,7 @@ public final class MetricRepo {
                     return (long) invertedIndex.getTabletNumByBackendId(beId);
                 }
             };
-            tabletNum.addLabel(new MetricLabel("backend", be.getIp() + ":" + be.getHeartbeatPort()));
+            tabletNum.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
             DORIS_METRIC_REGISTER.addMetrics(tabletNum);
 
             // max compaction score of tablets on each backends
@@ -613,7 +613,7 @@ public final class MetricRepo {
                     return be.getTabletMaxCompactionScore();
                 }
             };
-            tabletMaxCompactionScore.addLabel(new MetricLabel("backend", be.getIp() + ":" + be.getHeartbeatPort()));
+            tabletMaxCompactionScore.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
             DORIS_METRIC_REGISTER.addMetrics(tabletMaxCompactionScore);
 
         } // end for backends

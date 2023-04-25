@@ -24,7 +24,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -47,7 +46,7 @@ public class BackendsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(BackendsProcDir.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
+            .add("BackendId").add("Cluster").add("Host").add("HeartbeatPort")
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
@@ -117,13 +116,8 @@ public class BackendsProcDir implements ProcDirInterface {
             List<Comparable> backendInfo = Lists.newArrayList();
             backendInfo.add(String.valueOf(backendId));
             backendInfo.add(backend.getOwnerClusterName());
-            backendInfo.add(backend.getIp());
+            backendInfo.add(backend.getHost());
             if (Strings.isNullOrEmpty(clusterName)) {
-                if (backend.getHostName() != null) {
-                    backendInfo.add(backend.getHostName());
-                } else {
-                    backendInfo.add(NetUtils.getHostnameByIp(backend.getIp()));
-                }
                 backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
                 backendInfo.add(String.valueOf(backend.getBePort()));
                 backendInfo.add(String.valueOf(backend.getHttpPort()));

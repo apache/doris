@@ -28,16 +28,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.Map;
 
 public class FrontendClause extends AlterClause {
     protected String hostPort;
-    protected String ip;
-    protected String hostName;
+    protected String host;
     protected int port;
     protected FrontendNodeType role;
 
@@ -48,11 +45,11 @@ public class FrontendClause extends AlterClause {
     }
 
     public String getIp() {
-        return hostName;
+        return host;
     }
 
-    public String getHostName() {
-        return hostName;
+    public String getHost() {
+        return host;
     }
 
     public int getPort() {
@@ -67,10 +64,8 @@ public class FrontendClause extends AlterClause {
         }
 
         HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort, true);
-        this.ip = hostInfo.getIp();
-        this.hostName = hostInfo.getHostName();
+        this.host = hostInfo.getHost();
         this.port = hostInfo.getPort();
-        Preconditions.checkState(!Strings.isNullOrEmpty(ip));
     }
 
     @Override

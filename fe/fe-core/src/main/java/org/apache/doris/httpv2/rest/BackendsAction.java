@@ -86,7 +86,7 @@ public class BackendsAction extends RestBaseController {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
             if (be != null) {
                 BackendRow backendRow = new BackendRow();
-                backendRow.ip = be.getIp();
+                backendRow.ip = be.getHost();
                 backendRow.httpPort = be.getHttpPort();
                 backendRow.isAlive = be.isAlive();
                 backendInfo.backends.add(backendRow);

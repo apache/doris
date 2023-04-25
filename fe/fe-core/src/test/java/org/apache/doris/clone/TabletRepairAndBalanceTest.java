@@ -206,7 +206,7 @@ public class TabletRepairAndBalanceTest {
             if (i > 2) {
                 tag = "zone2";
             }
-            String stmtStr = "alter system modify backend \"" + be.getIp() + ":" + be.getHeartbeatPort()
+            String stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
                     + "\" set ('tag.location' = '" + tag + "')";
             AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
             DdlExecutor.execute(Env.getCurrentEnv(), stmt);
@@ -214,21 +214,21 @@ public class TabletRepairAndBalanceTest {
 
         // Test set tag without location type, expect throw exception
         Backend be1 = backends.get(0);
-        String alterString = "alter system modify backend \"" + be1.getIp() + ":" + be1.getHeartbeatPort()
+        String alterString = "alter system modify backend \"" + be1.getHost() + ":" + be1.getHeartbeatPort()
                 + "\" set ('tag.compute' = 'abc')";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendClause.NEED_LOCATION_TAG_MSG,
                 () -> UtFrameUtils.parseAndAnalyzeStmt(alterString, connectContext));
 
         // Test set multi tag for a Backend when Config.enable_multi_tags is false
         Config.enable_multi_tags = false;
-        String alterString2 = "alter system modify backend \"" + be1.getIp() + ":" + be1.getHeartbeatPort()
+        String alterString2 = "alter system modify backend \"" + be1.getHost() + ":" + be1.getHeartbeatPort()
                 + "\" set ('tag.location' = 'zone3', 'tag.compution' = 'abc')";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendClause.MUTLI_TAG_DISABLED_MSG,
                 () -> UtFrameUtils.parseAndAnalyzeStmt(alterString2, connectContext));
 
         // Test set multi tag for a Backend when Config.enable_multi_tags is true
         Config.enable_multi_tags = true;
-        String stmtStr3 = "alter system modify backend \"" + be1.getIp() + ":" + be1.getHeartbeatPort()
+        String stmtStr3 = "alter system modify backend \"" + be1.getHost() + ":" + be1.getHeartbeatPort()
                 + "\" set ('tag.location' = 'zone1', 'tag.compute' = 'c1')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr3, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
@@ -335,7 +335,7 @@ public class TabletRepairAndBalanceTest {
         // set tag for all backends. 0-2 to zone1, 4 and 5 to zone2
         // and wait all replica reallocating to correct backend
         Backend be = backends.get(2);
-        String stmtStr = "alter system modify backend \"" + be.getIp() + ":" + be.getHeartbeatPort()
+        String stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
                 + "\" set ('tag.location' = 'zone2')";
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
@@ -397,7 +397,7 @@ public class TabletRepairAndBalanceTest {
         // [0, 1, 4]: zone1
         // [2, 3]:    zone2
         be = backends.get(4);
-        stmtStr = "alter system modify backend \"" + be.getIp() + ":" + be.getHeartbeatPort()
+        stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
                 + "\" set ('tag.location' = 'zone1')";
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
@@ -442,7 +442,7 @@ public class TabletRepairAndBalanceTest {
         // set all backends' tag to default
         for (int i = 0; i < backends.size(); ++i) {
             Backend backend = backends.get(i);
-            String backendStmt = "alter system modify backend \"" + backend.getIp() + ":" + backend.getHeartbeatPort()
+            String backendStmt = "alter system modify backend \"" + backend.getHost() + ":" + backend.getHeartbeatPort()
                     + "\" set ('tag.location' = 'default')";
             AlterSystemStmt systemStmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(backendStmt,
                     connectContext);

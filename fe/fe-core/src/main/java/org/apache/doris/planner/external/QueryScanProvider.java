@@ -171,7 +171,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
         TScanRangeLocation location = new TScanRangeLocation();
         Backend selectedBackend = backendPolicy.getNextBe();
         location.setBackendId(selectedBackend.getId());
-        location.setServer(new TNetworkAddress(selectedBackend.getIp(), selectedBackend.getBePort()));
+        location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
         locations.addToLocations(location);
 
         return locations;

@@ -36,7 +36,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import org.apache.commons.lang3.NotImplementedException;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -329,13 +328,13 @@ public class DeployManager extends MasterDaemon {
         LOG.info("sorted fe host list: {}", feHostInfos);
 
         // 4. return the first one as helper
-        return Lists.newArrayList(new HostInfo(feHostInfos.get(0).getIp(), feHostInfos.get(0).getHostName(),
+        return Lists.newArrayList(new HostInfo(feHostInfos.get(0).getHost(),
                 feHostInfos.get(0).getPort()));
     }
 
     private boolean checkIpIfNotNull(List<HostInfo> hostInfos) {
         for (HostInfo hostInfo : hostInfos) {
-            if (hostInfo.getIp() == null) {
+            if (hostInfo.getHost() == null) {
                 return false;
             }
         }
@@ -496,9 +495,8 @@ public class DeployManager extends MasterDaemon {
     }
 
     private void dealDropLocal(HostInfo localHostInfo, NodeType nodeType) {
-        String localIp = localHostInfo.getIp();
         Integer localPort = localHostInfo.getPort();
-        String localHostName = localHostInfo.getHostName();
+        String localHost = localHostInfo.getHost();
         // Double check if is it self
         if (isSelf(localHostInfo)) {
             // This is it self. Shut down now.
@@ -511,63 +509,57 @@ public class DeployManager extends MasterDaemon {
         try {
             switch (nodeType) {
                 case ELECTABLE:
-                    env.dropFrontend(FrontendNodeType.FOLLOWER, localIp, localHostName, localPort);
+                    env.dropFrontend(FrontendNodeType.FOLLOWER, localHost, localPort);
                     break;
                 case OBSERVER:
-                    env.dropFrontend(FrontendNodeType.OBSERVER, localIp, localHostName, localPort);
+                    env.dropFrontend(FrontendNodeType.OBSERVER, localHost, localPort);
                     break;
                 case BACKEND:
                 case BACKEND_CN:
-                    Env.getCurrentSystemInfo().dropBackend(localIp, localHostName, localPort);
+                    Env.getCurrentSystemInfo().dropBackend(localHost, localPort);
                     break;
                 case BROKER:
-                    env.getBrokerMgr().dropBrokers(getBrokerName(), Lists.newArrayList(Pair.of(localIp, localPort)));
+                    env.getBrokerMgr().dropBrokers(getBrokerName(), Lists.newArrayList(Pair.of(localHost, localPort)));
                     break;
                 default:
                     break;
             }
         } catch (DdlException e) {
-            LOG.error("Failed to drop {} node: {}:{}", nodeType, localIp, localPort, e);
+            LOG.error("Failed to drop {} node: {}:{}", nodeType, localHost, localPort, e);
         }
 
-        LOG.info("Finished to drop {} node: {}:{}", nodeType, localIp, localPort);
+        LOG.info("Finished to drop {} node: {}:{}", nodeType, localHost, localPort);
     }
 
     private void dealAddRemote(HostInfo remoteHostInfo, NodeType nodeType) {
-        String remoteIp = remoteHostInfo.getIp();
         Integer remotePort = remoteHostInfo.getPort();
-        String remoteHostName = remoteHostInfo.getHostName();
-        // Can not find remote host in local hosts,
-        // which means this remote host need to be added.
-        if (StringUtils.isEmpty(remoteIp)) {
-            LOG.info("remote node is not ready,need wait.");
-            return;
-        }
+        String remoteHost = remoteHostInfo.getHost();
+
         try {
             switch (nodeType) {
                 case ELECTABLE:
-                    env.addFrontend(FrontendNodeType.FOLLOWER, remoteIp, remoteHostName, remotePort);
+                    env.addFrontend(FrontendNodeType.FOLLOWER, remoteHost, remotePort);
                     break;
                 case OBSERVER:
-                    env.addFrontend(FrontendNodeType.OBSERVER, remoteIp, remoteHostName, remotePort);
+                    env.addFrontend(FrontendNodeType.OBSERVER, remoteHost, remotePort);
                     break;
                 case BACKEND:
                 case BACKEND_CN:
                     List<HostInfo> newBackends = Lists.newArrayList();
-                    newBackends.add(new HostInfo(remoteIp, remoteHostName, remotePort));
+                    newBackends.add(new HostInfo(remoteHost, remotePort));
                     Env.getCurrentSystemInfo().addBackends(newBackends, false);
                     break;
                 case BROKER:
-                    env.getBrokerMgr().addBrokers(getBrokerName(), Lists.newArrayList(Pair.of(remoteIp, remotePort)));
+                    env.getBrokerMgr().addBrokers(getBrokerName(), Lists.newArrayList(Pair.of(remoteHost, remotePort)));
                     break;
                 default:
                     break;
             }
         } catch (UserException e) {
-            LOG.error("Failed to add {} node: {}:{}", nodeType, remoteIp, remotePort, e);
+            LOG.error("Failed to add {} node: {}:{}", nodeType, remoteHost, remotePort, e);
         }
 
-        LOG.info("Finished to add {} node: {}:{}", nodeType, remoteIp, remotePort);
+        LOG.info("Finished to add {} node: {}:{}", nodeType, remoteHost, remotePort);
     }
 
     // Get host port pair from pair list. Return null if not found
@@ -575,16 +567,9 @@ public class DeployManager extends MasterDaemon {
     private HostInfo getFromHostInfos(List<HostInfo> hostInfos,
             HostInfo hostInfo) {
         for (HostInfo h : hostInfos) {
-            if (StringUtils.isEmpty(hostInfo.hostName) || StringUtils.isEmpty(h.hostName)) {
-                if (hostInfo.getIp().equals(h.getIp()) && hostInfo.getPort() == (h.getPort())) {
-                    return hostInfo;
-                }
-            } else {
-                if (hostInfo.getHostName().equals(h.getHostName()) && hostInfo.getPort() == (h.getPort())) {
-                    return hostInfo;
-                }
+            if (hostInfo.getHost().equals(h.getHost()) && hostInfo.getPort() == (h.getPort())) {
+                return hostInfo;
             }
-
         }
         return null;
     }
@@ -614,19 +599,19 @@ public class DeployManager extends MasterDaemon {
     }
 
     private HostInfo convertToHostInfo(Frontend frontend) {
-        return new HostInfo(frontend.getIp(), frontend.getHostName(), frontend.getEditLogPort());
+        return new HostInfo(frontend.getHost(), frontend.getEditLogPort());
     }
 
     private HostInfo convertToHostInfo(FsBroker broker) {
-        return new HostInfo(broker.ip, null, broker.port);
+        return new HostInfo(broker.ip, broker.port);
     }
 
     private HostInfo convertToHostInfo(Backend backend) {
-        return new HostInfo(backend.getIp(), backend.getHostName(), backend.getHeartbeatPort());
+        return new HostInfo(backend.getHost(), backend.getHeartbeatPort());
     }
 
     private boolean isSelf(HostInfo hostInfo) {
-        if (env.getMasterIp().equals(hostInfo.getIp()) && Config.edit_log_port == hostInfo.getPort()) {
+        if (env.getMasterHost().equals(hostInfo.getHost()) && Config.edit_log_port == hostInfo.getPort()) {
             return true;
         }
         return false;

@@ -234,7 +234,7 @@ public class ResourceTagQueryTest {
             if (i > 2) {
                 break;
             }
-            String stmtStr = "alter system modify backend \"" + be.getIp() + ":" + be.getHeartbeatPort()
+            String stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
                     + "\" set ('tag.location' = '" + tag + "')";
             AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
             DdlExecutor.execute(Env.getCurrentEnv(), stmt);

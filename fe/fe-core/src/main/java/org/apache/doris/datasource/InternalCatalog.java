@@ -3043,7 +3043,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Long id : decomBackendIds) {
                     final Backend backend = Env.getCurrentSystemInfo().getBackend(id);
                     hostPortList.add(
-                            new StringBuilder().append(backend.getIp()).append(":").append(backend.getHeartbeatPort())
+                            new StringBuilder().append(backend.getHost()).append(":").append(backend.getHeartbeatPort())
                                     .toString());
                 }
 
@@ -3417,12 +3417,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         // make sure one host hold only one backend.
         Set<String> beHost = Sets.newHashSet();
         for (Backend be : defaultClusterBackends) {
-            if (beHost.contains(be.getIp())) {
+            if (beHost.contains(be.getHost())) {
                 // we can not handle this situation automatically.
-                LOG.error("found more than one backends in same host: {}", be.getIp());
+                LOG.error("found more than one backends in same host: {}", be.getHost());
                 System.exit(-1);
             } else {
-                beHost.add(be.getIp());
+                beHost.add(be.getHost());
             }
         }
 

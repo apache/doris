@@ -217,7 +217,7 @@ public class K8sDeployManager extends DeployManager {
 
             List<EndpointAddress> addrs = subset.getAddresses();
             for (EndpointAddress eaddr : addrs) {
-                result.add(new HostInfo(eaddr.getIp(), null, port));
+                result.add(new HostInfo(eaddr.getIp(), port));
             }
         }
 
@@ -299,7 +299,7 @@ public class K8sDeployManager extends DeployManager {
             //The podName rule of k8s is $(statefulset name) - $(sequence number)
             //can see https://www.cnblogs.com/xiaokantianse/p/14267987.html#_label1_4
             String domainName = getDomainName(statefulsetName + "-" + i, serviceName);
-            hostInfos.add(new HostInfo(getIpByDomain(domainName), domainName, servicePort));
+            hostInfos.add(new HostInfo(domainName, servicePort));
         }
         return hostInfos;
     }

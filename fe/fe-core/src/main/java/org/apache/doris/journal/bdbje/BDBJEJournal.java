@@ -83,15 +83,11 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         environmentPath = Env.getServingEnv().getBdbDir();
         HostInfo selfNode = Env.getServingEnv().getSelfNode();
         selfNodeName = nodeName;
-        if (Config.enable_fqdn_mode) {
-            // We use the hostname as the address of the bdbje node,
-            // so that we do not need to update bdbje when the IP changes.
-            // WARNING:However, it is necessary to ensure that the hostname of the node
-            // can be resolved and accessed by other nodes.
-            selfNodeHostPort = selfNode.getHostName() + ":" + selfNode.getPort();
-        } else {
-            selfNodeHostPort = selfNode.getIp() + ":" + selfNode.getPort();
-        }
+        // We use the hostname as the address of the bdbje node,
+        // so that we do not need to update bdbje when the IP changes.
+        // WARNING:However, it is necessary to ensure that the hostname of the node
+        // can be resolved and accessed by other nodes.
+        selfNodeHostPort = selfNode.getHost() + ":" + selfNode.getPort();
     }
 
     /*
@@ -116,7 +112,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             currentJournalDB = bdbEnvironment.openDatabase(Long.toString(newName));
         } else {
             String msg = String.format("roll journal error! journalId and db journal numbers is not match. "
-                    + "journal id: %d, current db: %s, expected db count: %d",
+                            + "journal id: %d, current db: %s, expected db count: %d",
                     newName, currentDbName, newNameVerify);
             LOG.error(msg);
             Util.stdoutWithTime(msg);
@@ -309,9 +305,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             File dbEnv = new File(environmentPath);
             bdbEnvironment = new BDBEnvironment();
             HostInfo helperNode = Env.getServingEnv().getHelperNode();
-            String helperHostPort = helperNode.getIp() + ":" + helperNode.getPort();
+            String helperHostPort = helperNode.getHost() + ":" + helperNode.getPort();
             if (Config.enable_fqdn_mode) {
-                helperHostPort = helperNode.getHostName() + ":" + helperNode.getPort();
+                helperHostPort = helperNode.getHost() + ":" + helperNode.getPort();
             }
             try {
                 bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort, helperHostPort,
@@ -381,7 +377,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         restore.execute(insufficientLogEx, config);
         bdbEnvironment.close();
         bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
-                helperNode.getIp() + ":" + helperNode.getPort(), Env.getServingEnv().isElectable());
+                helperNode.getHost() + ":" + helperNode.getPort(), Env.getServingEnv().isElectable());
     }
 
     @Override

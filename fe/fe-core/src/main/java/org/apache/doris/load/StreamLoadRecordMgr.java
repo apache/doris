@@ -239,7 +239,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
             TNetworkAddress address = null;
             boolean ok = false;
             try {
-                address = new TNetworkAddress(backend.getIp(), backend.getBePort());
+                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 TStreamLoadRecordResult result = client.getStreamLoadRecord(backend.getLastStreamLoadTime());
                 Map<String, TStreamLoadRecord> streamLoadRecordBatch = result.getStreamLoadRecord();
@@ -257,7 +257,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                         + " status: {}, message: {}, error_url: {},"
                                         + " total_rows: {}, loaded_rows: {}, filtered_rows: {}, unselected_rows: {},"
                                         + " load_bytes: {}, start_time: {}, finish_time: {}.",
-                                backend.getIp(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
+                                backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
                                 streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
                                 streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
                                 streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
@@ -352,7 +352,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
             if (beIdToLastStreamLoad.containsKey(backend.getId())) {
                 long lastStreamLoadTime = beIdToLastStreamLoad.get(backend.getId());
                 LOG.info("Replay stream load bdbje. backend: {}, last stream load time: {}",
-                        backend.getIp(), lastStreamLoadTime);
+                        backend.getHost(), lastStreamLoadTime);
                 backend.setLastStreamLoadTime(lastStreamLoadTime);
             }
         }

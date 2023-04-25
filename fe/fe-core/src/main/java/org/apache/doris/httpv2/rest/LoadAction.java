@@ -222,6 +222,6 @@ public class LoadAction extends RestBaseController {
         if (backend == null) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        return new TNetworkAddress(backend.getIp(), backend.getHttpPort());
+        return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
     }
 }

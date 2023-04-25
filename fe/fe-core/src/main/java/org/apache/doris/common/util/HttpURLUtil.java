@@ -15,20 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.common.util;
 
-public class ModifyBackendHostNameClause extends ModifyNodeHostNameClause {
-    public ModifyBackendHostNameClause(String hostPort, String hostName) {
-        super(hostPort, hostName);
-    }
 
-    @Override
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("ALTER SYSTEM MODIFY BACKEND \"");
-        sb.append(hostPort).append("\"");
-        sb.append(" HOSTNAME ").append("\"");
-        sb.append(newHost).append("\"");
-        return sb.toString();
+import org.apache.doris.catalog.Env;
+import org.apache.doris.system.SystemInfoService.HostInfo;
+
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
+public class HttpURLUtil {
+
+
+    public static HttpURLConnection getConnectionWithNodeIdent(String request) throws IOException {
+        URL url = new URL(request);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
+        conn.setRequestProperty(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
+        conn.setRequestProperty(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
+        return conn;
     }
 }
