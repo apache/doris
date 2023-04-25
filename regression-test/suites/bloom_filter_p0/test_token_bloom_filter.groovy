@@ -38,8 +38,8 @@ suite("test_token_bloom_filter") {
     sql """insert into ${test_tb} values(2, 'aaa.abcd1.com', 'aaa.abcd.1com', 'aaa.abcd.5com')"""
     sql """insert into ${test_tb} values(3, 'aaa.ab1cd1.com', 'aaa.ab2cd2.com', 'aaa.ab3cd3.com')"""
 
-    qt_select_like_a1_tb "SELECT * FROM ${test_tb} where a1 like '%.abcd.%'"
-    qt_select_like_a2_tb "SELECT * FROM ${test_tb} where a2 like '%.abcd.%'"
-    qt_select_like_a3_tb "SELECT * FROM ${test_tb} where a3 like '%.abcd.%'"
+    qt_select_like_a1_tb "SELECT * FROM ${test_tb} where a1 like '%.abcd.%' order by k1"
+    qt_select_like_a2_tb "SELECT * FROM ${test_tb} where a2 like '%.abcd.%' order by k1"
+    qt_select_like_a3_tb "SELECT * FROM ${test_tb} where a3 like '%.abcd.%' order by k1"
 
 }
