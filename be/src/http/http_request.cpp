@@ -28,14 +28,19 @@
 #include <utility>
 
 #include "http/http_handler.h"
+#include "util/url_coding.h"
+#include "bvar/bvar.h"
 
 namespace doris {
 
 static std::string s_empty = "";
 
-HttpRequest::HttpRequest(evhttp_request* evhttp_request) : _ev_req(evhttp_request) {}
+bvar::Adder<int64_t> g_http_request_cnt("http_request", "request_cnt");
+
+HttpRequest::HttpRequest(evhttp_request* evhttp_request) : _ev_req(evhttp_request) {g_http_request_cnt << 1;}
 
 HttpRequest::~HttpRequest() {
+    g_http_request_cnt << -1;
     if (_handler_ctx != nullptr) {
         DCHECK(_handler != nullptr);
         _handler->free_handler_ctx(_handler_ctx);

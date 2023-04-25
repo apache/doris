@@ -23,8 +23,12 @@
 #include <memory>
 
 #include "common/logging.h"
+#include "bvar/bvar.h"
 
 namespace doris {
+
+extern bvar::Adder<uint64_t> g_byte_buffer_allocate_kb;
+extern bvar::Adder<uint64_t> g_byte_buffer_cnt;
 
 struct ByteBuffer;
 using ByteBufferPtr = std::shared_ptr<ByteBuffer>;
@@ -35,7 +39,11 @@ struct ByteBuffer {
         return ptr;
     }
 
-    ~ByteBuffer() { delete[] ptr; }
+    ~ByteBuffer() {
+        delete[] ptr;
+        g_byte_buffer_allocate_kb << -(capacity / 1024);
+        g_byte_buffer_cnt << -1;
+    }
 
     void put_bytes(const char* data, size_t size) {
         memcpy(ptr + pos, data, size);
@@ -62,8 +70,12 @@ struct ByteBuffer {
     size_t capacity;
 
 private:
+
     ByteBuffer(size_t capacity_)
-            : ptr(new char[capacity_]), pos(0), limit(capacity_), capacity(capacity_) {}
+            : ptr(new char[capacity_]), pos(0), limit(capacity_), capacity(capacity_) {
+        g_byte_buffer_allocate_kb << capacity / 1024;
+        g_byte_buffer_cnt << 1;
+    }
 };
 
 } // namespace doris

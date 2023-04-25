@@ -54,6 +54,12 @@ static void on_chunked(struct evhttp_request* ev_req, void* param) {
     request->handler()->on_chunk_data(request);
 }
 
+#if 0
+static void on_free(evhttp_connection* con, void* arg) {
+    HttpRequest* request = (HttpRequest*)arg;
+    delete request;
+}
+#endif
 static void on_free(struct evhttp_request* ev_req, void* arg) {
     HttpRequest* request = (HttpRequest*)arg;
     delete request;
@@ -77,7 +83,7 @@ static int on_header(struct evhttp_request* ev_req, void* param) {
 static int on_connection(struct evhttp_request* req, void* param) {
     evhttp_request_set_header_cb(req, on_header);
     // only used on_complete_cb's argument
-    evhttp_request_set_on_complete_cb(req, nullptr, param);
+    evhttp_request_set_on_complete_cb(req, nullptr, param); //TODO??
     return 0;
 }
 
@@ -125,6 +131,7 @@ void EvHttpServer::start() {
                           std::shared_ptr<evhttp> http(evhttp_new(base.get()),
                                                        [](evhttp* http) { evhttp_free(http); });
                           CHECK(http != nullptr) << "Couldn't create an evhttp.";
+                          evhttp_set_timeout(http.get(), 60 /* timeout in seconds */);
 
                           auto res = evhttp_accept_socket(http.get(), _server_fd);
                           CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
@@ -262,6 +269,14 @@ int EvHttpServer::on_header(struct evhttp_request* ev_req) {
     }
 
     evhttp_request_set_on_free_cb(ev_req, on_free, request.release());
+#if 0
+    struct evhttp_connection * httpcon = evhttp_request_get_connection(ev_req);
+    // void evhttp_connection_set_closecb(struct evhttp_connection *evcon, void (*)(struct evhttp_connection *, void *), void *);
+    evhttp_connection_set_closecb(httpcon, on_free, request.release());
+    struct bufferevent* bufev = evhttp_connection_get_bufferevent(httpcon);
+    if (bufev)
+        bufferevent_enable(bufev, EV_READ);
+#endif
     return 0;
 }
 
