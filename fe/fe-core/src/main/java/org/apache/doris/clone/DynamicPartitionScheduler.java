@@ -273,8 +273,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 } catch (Exception e) {
                     isPartitionExists = true;
                     if (addPartitionKeyRange.equals(partitionItem.getItems())) {
-                        LOG.info("partition range {} exist in table {}, clear fail msg",
-                                addPartitionKeyRange, olapTable.getName());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("partition range {} exist in table {}, clear fail msg",
+                                    addPartitionKeyRange, olapTable.getName());
+                        }
                         clearCreatePartitionFailedMsg(olapTable.getId());
                     } else {
                         recordCreatePartitionFailedMsg(db.getFullName(), olapTable.getName(),
