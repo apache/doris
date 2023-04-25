@@ -728,8 +728,12 @@ public class SelectStmt extends QueryStmt {
         if (isPointQueryShortCircuit()) {
             return false;
         }
+        // ignore insert into select
+        if (fromInsert) {
+            return false;
+        }
+        // ensure no sub query
         if (!analyzer.isRootAnalyzer()) {
-            // ensure no sub query
             return false;
         }
         // If select stmt has inline view or this is an inline view query stmt analyze call
@@ -777,8 +781,8 @@ public class SelectStmt extends QueryStmt {
             return true;
         } else {
             // case2: optimize scan utilize row store column, query like select * from tbl where xxx [limit xxx]
-            // TODO: check colum count
-            return olapTable.storeRowColumn() && !fromInsert;
+            // TODO: we only optimize query with select * at present
+            return olapTable.storeRowColumn() && selectList.getItems().stream().anyMatch(e -> e.isStar());
         }
         // return false;
     }

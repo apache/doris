@@ -49,6 +49,9 @@ public class ResultSink extends DataSink {
             strBuilder.append("V");
         }
         strBuilder.append("RESULT SINK\n");
+        if (useTwoPhaseFetch) {
+            strBuilder.append(prefix).append("   ").append("OPT TWO PHASE\n");
+        }
         return strBuilder.toString();
     }
 
