@@ -119,7 +119,7 @@ public class AnotherDemoTest {
         String queryStr = "explain select * from db1.tbl1";
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.getPlanner();
+        Planner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
         Assert.assertEquals(1, fragments.size());
         PlanFragment fragment = fragments.get(0);

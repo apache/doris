@@ -204,7 +204,7 @@ public class DorisAssert {
                         throw new Exception(queryState.getErrorMessage());
                 }
             }
-            Planner planner = stmtExecutor.getPlanner();
+            Planner planner = stmtExecutor.planner();
             String explainString = planner.getExplainString(new ExplainOptions(false, false));
             System.out.println(explainString);
             return explainString;
@@ -217,7 +217,7 @@ public class DorisAssert {
             StmtExecutor stmtExecutor = new StmtExecutor(connectContext, stmts.get(0));
             stmtExecutor.execute();
 
-            return stmtExecutor.getPlanner();
+            return stmtExecutor.planner();
         }
     }
 }

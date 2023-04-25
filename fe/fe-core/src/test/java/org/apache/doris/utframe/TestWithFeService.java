@@ -456,7 +456,7 @@ public abstract class TestWithFeService {
         ConnectContext.get().setExecutor(stmtExecutor);
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
-            Planner planner = stmtExecutor.getPlanner();
+            Planner planner = stmtExecutor.planner();
             return planner.getExplainString(new ExplainOptions(isVerbose, false));
         } else {
             return ctx.getState().getErrorMessage();
@@ -468,7 +468,7 @@ public abstract class TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
         if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR) {
-            return stmtExecutor.getPlanner();
+            return stmtExecutor.planner();
         } else {
             throw new Exception(
                     connectContext.getState().toString() + ", " + connectContext.getState().getErrorMessage());
