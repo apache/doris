@@ -113,7 +113,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         getPartition();
 
         ctx.getStatementContext().getInsertIntoContext().setTargetSchema(targetColumns);
-        ctx.getStatementContext().getInsertIntoContext().setKeyNums(((OlapTable) table).getKeysNum());
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         planner = new NereidsPlanner(ctx.getStatementContext());

@@ -62,7 +62,7 @@ public class StatementContext {
     private Set<String> columnNames;
 
     private ColumnAliasGenerator columnAliasGenerator;
-    private InsertIntoContext insertIntoContext = new InsertIntoContext();
+    private final InsertIntoContext insertIntoContext = new InsertIntoContext();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
