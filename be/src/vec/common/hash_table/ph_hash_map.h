@@ -129,11 +129,16 @@ public:
     void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted) {
         const auto& key = key_holder_get_key(key_holder);
         inserted = false;
-        it = &*_hash_map.lazy_emplace(key, [&](const auto& ctor) {
-            inserted = true;
-            key_holder_persist_key(key_holder);
-            ctor(key_holder_get_key(key_holder), nullptr);
-        });
+        try {
+            it = &*_hash_map.lazy_emplace(key, [&](const auto& ctor) {
+                inserted = true;
+                key_holder_persist_key(key_holder);
+                ctor(key_holder_get_key(key_holder), nullptr);
+            });
+        } catch (std::bad_alloc const& e) {
+            _hash_map.erase(key);
+            throw e;
+        }
 
         if constexpr (PartitionedHashTable) {
             _check_if_need_partition();
@@ -143,10 +148,15 @@ public:
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
         const auto& key = key_holder_get_key(key_holder);
-        it = &*_hash_map.lazy_emplace(key, [&](const auto& ctor) {
-            key_holder_persist_key(key_holder);
-            f(ctor, key);
-        });
+        try {
+            it = &*_hash_map.lazy_emplace(key, [&](const auto& ctor) {
+                key_holder_persist_key(key_holder);
+                f(ctor, key);
+            });
+        } catch (std::bad_alloc const& e) {
+            _hash_map.erase(key);
+            throw e;
+        }
 
         if constexpr (PartitionedHashTable) {
             _check_if_need_partition();
@@ -158,11 +168,16 @@ public:
                                bool& inserted) {
         const auto& key = key_holder_get_key(key_holder);
         inserted = false;
-        it = &*_hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
-            inserted = true;
-            key_holder_persist_key(key_holder);
-            ctor(key, nullptr);
-        });
+        try {
+            it = &*_hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
+                inserted = true;
+                key_holder_persist_key(key_holder);
+                ctor(key, nullptr);
+            });
+        } catch (std::bad_alloc const& e) {
+            _hash_map.erase(key);
+            throw e;
+        }
 
         if constexpr (PartitionedHashTable) {
             _check_if_need_partition();
@@ -174,10 +189,15 @@ public:
                                     Func&& f) {
         const auto& key = key_holder_get_key(key_holder);
 
-        it = &*_hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
-            key_holder_persist_key(key_holder);
-            f(ctor, key);
-        });
+        try {
+            it = &*_hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
+                key_holder_persist_key(key_holder);
+                f(ctor, key);
+            });
+        } catch (std::bad_alloc const& e) {
+            _hash_map.erase(key);
+            throw e;
+        }
 
         if constexpr (PartitionedHashTable) {
             _check_if_need_partition();
