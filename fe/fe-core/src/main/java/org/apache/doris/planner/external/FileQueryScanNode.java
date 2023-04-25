@@ -18,11 +18,8 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionGenTable;
@@ -40,7 +37,6 @@ import org.apache.doris.planner.external.iceberg.IcebergScanProvider;
 import org.apache.doris.planner.external.iceberg.IcebergSource;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
-import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 
@@ -80,43 +76,74 @@ public class FileQueryScanNode extends FileScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-
-        computeColumnFilter();
-        if (this.desc.getTable() instanceof HMSExternalTable) {
-            HMSExternalTable hmsTable = (HMSExternalTable) this.desc.getTable();
-            initHMSExternalTable(hmsTable);
-        } else if (this.desc.getTable() instanceof FunctionGenTable) {
-            FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
-            initFunctionGenTable(table, (ExternalFileTableValuedFunction) table.getTvf());
-        } else if (this.desc.getTable() instanceof IcebergExternalTable) {
-            IcebergExternalTable table = (IcebergExternalTable) this.desc.getTable();
-            initIcebergExternalTable(table);
-        }
-        backendPolicy.init();
-        numNodes = backendPolicy.numBackends();
-        initScanRangeParams();
+        doInitialize();
     }
 
     /**
      * Init ExternalFileScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
      */
     public void init() throws UserException {
-        // prepare for partition prune
-        // computeColumnFilter();
+        doInitialize();
+    }
+
+    // Init scan provider and schema related params.
+    private void doInitialize() throws UserException {
+        Preconditions.checkNotNull(desc);
+        computeColumnFilter();
+        initScanProvider();
+        initBackendPolicy();
+        initSchemaParams();
+    }
+
+    private void initScanProvider() throws UserException {
         if (this.desc.getTable() instanceof HMSExternalTable) {
             HMSExternalTable hmsTable = (HMSExternalTable) this.desc.getTable();
-            initHMSExternalTable(hmsTable);
+            initHMSTableScanProvider(hmsTable);
         } else if (this.desc.getTable() instanceof FunctionGenTable) {
             FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
-            initFunctionGenTable(table, (ExternalFileTableValuedFunction) table.getTvf());
+            initTVFScanProvider(table, (ExternalFileTableValuedFunction) table.getTvf());
         } else if (this.desc.getTable() instanceof IcebergExternalTable) {
             IcebergExternalTable table = (IcebergExternalTable) this.desc.getTable();
-            initIcebergExternalTable(table);
+            initIcebergScanProvider(table);
         }
+    }
 
+    // Init schema (Tuple/Slot) related params.
+    private void initSchemaParams() throws UserException {
+        destSlotDescByName = Maps.newHashMap();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            destSlotDescByName.put(slot.getColumn().getName(), slot);
+        }
+        params = new TFileScanRangeParams();
+        params.setDestTupleId(desc.getId().asInt());
+        List<String> partitionKeys = scanProvider.getPathPartitionKeys();
+        List<Column> columns = desc.getTable().getBaseSchema(false);
+        params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (!slot.isMaterialized()) {
+                continue;
+            }
+            TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
+            slotInfo.setSlotId(slot.getId().asInt());
+            slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
+            params.addToRequiredSlots(slotInfo);
+        }
+        setDefaultValueExprs(scanProvider, destSlotDescByName, params, false);
+        setColumnPositionMappingForTextFile();
+        // For query, set src tuple id to -1.
+        params.setSrcTupleId(-1);
+        TableIf table = desc.getTable();
+        // Slot to schema id map is used for supporting hive 1.x orc internal column name (col0, col1, col2...)
+        if (table instanceof HMSExternalTable) {
+            if (((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
+                genSlotToSchemaIdMap();
+            }
+        }
+    }
+
+    private void initBackendPolicy() throws UserException {
         backendPolicy.init();
         numNodes = backendPolicy.numBackends();
-        initScanRangeParams();
     }
 
     /**
@@ -139,7 +166,7 @@ public class FileQueryScanNode extends FileScanNode {
         }
     }
 
-    private void initHMSExternalTable(HMSExternalTable hmsTable) throws UserException {
+    private void initHMSTableScanProvider(HMSExternalTable hmsTable) throws UserException {
         Preconditions.checkNotNull(hmsTable);
 
         if (hmsTable.isView()) {
@@ -174,7 +201,7 @@ public class FileQueryScanNode extends FileScanNode {
         }
     }
 
-    private void initIcebergExternalTable(IcebergExternalTable icebergTable) throws UserException {
+    private void initIcebergScanProvider(IcebergExternalTable icebergTable) throws UserException {
         Preconditions.checkNotNull(icebergTable);
         if (icebergTable.isView()) {
             throw new AnalysisException(
@@ -197,68 +224,26 @@ public class FileQueryScanNode extends FileScanNode {
         }
     }
 
-    private void initFunctionGenTable(FunctionGenTable table, ExternalFileTableValuedFunction tvf) {
+    private void initTVFScanProvider(FunctionGenTable table, ExternalFileTableValuedFunction tvf) {
         Preconditions.checkNotNull(table);
         scanProvider = new TVFScanProvider(table, desc, tvf);
     }
 
-    // Create a corresponding TFileScanRangeParams
-    private void initScanRangeParams() throws UserException {
-        Preconditions.checkNotNull(desc);
-        destSlotDescByName = Maps.newHashMap();
-        for (SlotDescriptor slot : desc.getSlots()) {
-            destSlotDescByName.put(slot.getColumn().getName(), slot);
-        }
-        params = new TFileScanRangeParams();
-        params.setDestTupleId(desc.getId().asInt());
-        List<String> partitionKeys = scanProvider.getPathPartitionKeys();
-        List<Column> columns = desc.getTable().getBaseSchema(false);
-        params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
-        for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
-            TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
-            slotInfo.setSlotId(slot.getId().asInt());
-            slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
-            params.addToRequiredSlots(slotInfo);
-        }
-    }
-
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
-        setDefaultValueExprs();
-        setColumnPositionMappingForTextFile();
-        params.setSrcTupleId(-1);
-        createScanRangeLocations(conjuncts, params, scanProvider);
-        this.inputSplitsNum += scanProvider.getInputSplitNum();
-        this.totalFileSize += scanProvider.getInputFileSize();
-        TableIf table = desc.getTable();
-        if (table instanceof HMSExternalTable) {
-            if (((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
-                genSlotToSchemaIdMap();
-            }
-        }
-        if (scanProvider instanceof HiveScanProvider) {
-            this.totalPartitionNum = ((HiveScanProvider) scanProvider).getTotalPartitionNum();
-            this.readPartitionNum = ((HiveScanProvider) scanProvider).getReadPartitionNum();
-        }
+        doFinalize();
     }
 
     @Override
     public void finalizeForNereids() throws UserException {
-        setDefaultValueExprs();
-        setColumnPositionMappingForTextFile();
-        params.setSrcTupleId(-1);
+        doFinalize();
+    }
+
+    // Create scan range locations and the statistics.
+    private void doFinalize() throws UserException {
         createScanRangeLocations(conjuncts, params, scanProvider);
         this.inputSplitsNum += scanProvider.getInputSplitNum();
         this.totalFileSize += scanProvider.getInputFileSize();
-        TableIf table = desc.getTable();
-        if (table instanceof HMSExternalTable) {
-            if (((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
-                genSlotToSchemaIdMap();
-            }
-        }
         if (scanProvider instanceof HiveScanProvider) {
             this.totalPartitionNum = ((HiveScanProvider) scanProvider).getTotalPartitionNum();
             this.readPartitionNum = ((HiveScanProvider) scanProvider).getReadPartitionNum();
@@ -285,45 +270,7 @@ public class FileQueryScanNode extends FileScanNode {
         params.setColumnIdxs(columnIdxs);
     }
 
-    protected void setDefaultValueExprs()
-            throws UserException {
-        TableIf tbl = scanProvider.getTargetTable();
-        Preconditions.checkNotNull(tbl);
-        TExpr tExpr = new TExpr();
-        tExpr.setNodes(Lists.newArrayList());
-
-        for (Column column : tbl.getBaseSchema()) {
-            Expr expr;
-            if (column.getDefaultValue() != null) {
-                if (column.getDefaultValueExprDef() != null) {
-                    expr = column.getDefaultValueExpr();
-                } else {
-                    expr = new StringLiteral(column.getDefaultValue());
-                }
-            } else {
-                if (column.isAllowNull()) {
-                    expr = NullLiteral.create(column.getType());
-                } else {
-                    expr = null;
-                }
-            }
-            SlotDescriptor slotDesc = destSlotDescByName.get(column.getName());
-            // if slot desc is null, which mean it is an unrelated slot, just skip.
-            // eg:
-            // (a, b, c) set (x=a, y=b, z=c)
-            // c does not exist in file, the z will be filled with null, even if z has default value.
-            // and if z is not nullable, the load will fail.
-            if (slotDesc != null) {
-                if (expr != null) {
-                    expr = castToSlot(slotDesc, expr);
-                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
-                } else {
-                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
-                }
-            }
-        }
-    }
-
+    // To Support Hive 1.x orc internal column name like (_col0, _col1, _col2...)
     private void genSlotToSchemaIdMap() {
         List<Column> baseSchema = desc.getTable().getBaseSchema();
         Map<String, Integer> columnNameToPosition = Maps.newHashMap();
