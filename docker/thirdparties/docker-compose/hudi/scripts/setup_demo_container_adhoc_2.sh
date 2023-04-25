@@ -21,49 +21,49 @@ cp /var/scripts/config/spark-defaults.conf $SPARK_CONF_DIR/.
 cp /var/scripts/config/log4j2.properties $SPARK_CONF_DIR/.
 hadoop fs -mkdir -p /var/demo/
 hadoop fs -mkdir -p /tmp/spark-events
-hadoop fs -mkdir -p /user/hive/
+#hadoop fs -mkdir -p /user/hive/
 hadoop fs -copyFromLocal -f /var/scripts/config /var/demo/.
-hadoop fs -put /var/scripts/warehouse /user/hive/
+#hadoop fs -put /var/scripts/warehouse /user/hive/
 chmod +x /var/scripts/run_sync_tool.sh
-sleep 10
-echo "Start synchronizing the stock_ticks_cow table"
-/var/scripts/run_sync_tool.sh \
-  --jdbc-url jdbc:hive2://hiveserver:10000 \
-  --user hive \
-  --pass hive \
-  --partitioned-by date \
-  --base-path /user/hive/warehouse/stock_ticks_cow \
-  --database default \
-  --table stock_ticks_cow \
-  --partition-value-extractor org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor
-
-echo "Start synchronizing the stock_ticks_mor table"
-/var/scripts/run_sync_tool.sh \
-  --jdbc-url jdbc:hive2://hiveserver:10000 \
-  --user hive \
-  --pass hive \
-  --partitioned-by date \
-  --base-path /user/hive/warehouse/stock_ticks_mor \
-  --database default \
-  --table stock_ticks_mor \
-  --partition-value-extractor org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor
-
-echo "Start synchronizing the hudi_cow_pt_tbl table"
-/var/scripts/run_sync_tool.sh \
-  --jdbc-url jdbc:hive2://hiveserver:10000 \
-  --user hive \
-  --pass hive \
-  --partitioned-by dt \
-  --base-path /user/hive/warehouse/hudi_cow_pt_tbl \
-  --database default \
-  --table hudi_cow_pt_tbl \
-  --partition-value-extractor org.apache.hudi.hive.HiveStylePartitionValueExtractor
-
-echo "Start synchronizing the hudi_non_part_cow table"
-/var/scripts/run_sync_tool.sh \
-  --jdbc-url jdbc:hive2://hiveserver:10000 \
-  --user hive \
-  --pass hive \
-  --base-path /user/hive/warehouse/hudi_non_part_cow \
-  --database default \
-  --table hudi_non_part_cow \
+#sleep 10
+#echo "Start synchronizing the stock_ticks_cow table"
+#/var/scripts/run_sync_tool.sh \
+#  --jdbc-url jdbc:hive2://hiveserver:10000 \
+#  --user hive \
+#  --pass hive \
+#  --partitioned-by date \
+#  --base-path /user/hive/warehouse/stock_ticks_cow \
+#  --database default \
+#  --table stock_ticks_cow \
+#  --partition-value-extractor org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor
+#
+#echo "Start synchronizing the stock_ticks_mor table"
+#/var/scripts/run_sync_tool.sh \
+#  --jdbc-url jdbc:hive2://hiveserver:10000 \
+#  --user hive \
+#  --pass hive \
+#  --partitioned-by date \
+#  --base-path /user/hive/warehouse/stock_ticks_mor \
+#  --database default \
+#  --table stock_ticks_mor \
+#  --partition-value-extractor org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor
+#
+#echo "Start synchronizing the hudi_cow_pt_tbl table"
+#/var/scripts/run_sync_tool.sh \
+#  --jdbc-url jdbc:hive2://hiveserver:10000 \
+#  --user hive \
+#  --pass hive \
+#  --partitioned-by dt \
+#  --base-path /user/hive/warehouse/hudi_cow_pt_tbl \
+#  --database default \
+#  --table hudi_cow_pt_tbl \
+#  --partition-value-extractor org.apache.hudi.hive.HiveStylePartitionValueExtractor
+#
+#echo "Start synchronizing the hudi_non_part_cow table"
+#/var/scripts/run_sync_tool.sh \
+#  --jdbc-url jdbc:hive2://hiveserver:10000 \
+#  --user hive \
+#  --pass hive \
+#  --base-path /user/hive/warehouse/hudi_non_part_cow \
+#  --database default \
+#  --table hudi_non_part_cow \
