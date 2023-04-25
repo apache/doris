@@ -31,6 +31,8 @@ class Block;
 } // namespace vectorized
 
 class SchemaSchemaPrivilegesScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaSchemaPrivilegesScanner);
+
 public:
     SchemaSchemaPrivilegesScanner();
     ~SchemaSchemaPrivilegesScanner() override;

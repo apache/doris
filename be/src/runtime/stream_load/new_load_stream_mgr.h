@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/factory_creator.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "util/uid_util.h"
@@ -34,6 +35,8 @@ class StreamLoadContext;
 
 // used to register all streams in process so that other module can get this stream
 class NewLoadStreamMgr {
+    ENABLE_FACTORY_CREATOR(NewLoadStreamMgr);
+
 public:
     NewLoadStreamMgr();
     ~NewLoadStreamMgr();
