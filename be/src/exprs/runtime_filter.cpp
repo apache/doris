@@ -1144,11 +1144,8 @@ Status IRuntimeFilter::publish() {
         DCHECK(_state != nullptr);
         RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_merge_addr(&addr));
         // TODO: now only support slot ref
-        if (_vprobe_ctx == nullptr) {
-            return push_to_remote(_state, &addr, false);
-        }
-        DCHECK(_vprobe_ctx->root() != nullptr);
-        return push_to_remote(_state, &addr, _vprobe_ctx->root()->is_slot_ref());
+        return push_to_remote(_state, &addr,
+                              _vprobe_ctx != nullptr && _vprobe_ctx->root()->is_slot_ref());
     }
 }
 
