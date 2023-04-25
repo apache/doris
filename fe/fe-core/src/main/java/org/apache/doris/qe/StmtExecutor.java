@@ -794,8 +794,9 @@ public class StmtExecutor implements ProfileWriter {
         if (parsedStmt instanceof SetStmt) {
             SetStmt setStmt = (SetStmt) parsedStmt;
             setStmt.modifySetVarsForExecute();
-            SetExecutor executor = new SetExecutor(context, setStmt);
-            executor.execute();
+            for (SetVar var : setStmt.getSetVars()) {
+                VariableMgr.setVarForNonMasterFE(context.getSessionVariable(), var);
+            }
         }
     }
 
