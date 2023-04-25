@@ -371,7 +371,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     }
 
     size_t num_values = parsed_values - ancestor_nulls;
-    if (num_values > 0) {
+    {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         select_vector.set_run_length_null_map(null_map, num_values, map_data_column);
     }
