@@ -65,7 +65,7 @@ echo "Start synchronizing the hudi_cow_pt_tbl table"
   --base-path /user/hive/warehouse/hudi_cow_pt_tbl \
   --database default \
   --table hudi_cow_pt_tbl \
-  --partition-value-extractor org.apache.hudi.hive.HiveStylePartitionValueExtractorz
+  --partition-value-extractor org.apache.hudi.hive.HiveStylePartitionValueExtractor
 
 echo "Start synchronizing the hudi_non_part_cow table"
 /var/scripts/run_sync_tool.sh \
