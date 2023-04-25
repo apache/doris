@@ -255,10 +255,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             DataPartition dataPartition;
             if (distribute.getDistributionSpec().equals(PhysicalProperties.GATHER.getDistributionSpec())) {
                 dataPartition = DataPartition.UNPARTITIONED;
+            } else if (distribute.getDistributionSpec() instanceof DistributionSpecHash) {
+                DistributionSpecHash specHash = ((DistributionSpecHash) distribute.getDistributionSpec());
+                List<ExprId> ids = specHash.getOrderedShuffledColumns();
+                dataPartition = DataPartition.hashPartitioned(ids.stream()
+                        .map(context::findSlotRef)
+                        .collect(Collectors.toList()));
             } else {
                 throw new AnalysisException("Unsupported PhysicalDistribute in the root plan: " + distribute);
             }
-
             ExchangeNode exchangeNode = (ExchangeNode) rootFragment.getPlanRoot();
             PlanFragment currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
             rootFragment.setOutputPartition(dataPartition);
