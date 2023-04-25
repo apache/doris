@@ -71,8 +71,10 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto struct_type = check_and_get_data_type<DataTypeStruct>(block.get_by_position(arguments[0]).type.get());
-        auto struct_col = check_and_get_column<ColumnStruct>(block.get_by_position(arguments[0]).column.get());
+        auto struct_type = check_and_get_data_type<DataTypeStruct>(
+                block.get_by_position(arguments[0]).type.get());
+        auto struct_col = check_and_get_column<ColumnStruct>(
+                block.get_by_position(arguments[0]).column.get());
         if (!struct_col || !struct_type) {
             return Status::RuntimeError(
                     fmt::format("unsupported types for function {}({}, {})", get_name(),
@@ -102,7 +104,8 @@ private:
             LOG(INFO) << "get_element_index:index, limit:" << index << " " << limit;
             if (index < 1 || index >= limit) {
                 return Status::RuntimeError(
-                        fmt::format("Index out of bound for function {}: index {} should base from 1 and less than {}.",
+                        fmt::format("Index out of bound for function {}: index {} should base from "
+                                    "1 and less than {}.",
                                     get_name(), index, limit));
             }
             index -= 1; // the index start from 1
@@ -117,7 +120,8 @@ private:
             index = pos.value();
         } else {
             return Status::RuntimeError(
-                    fmt::format("Argument not supported for function {}: second arg type {} should be int or string.",
+                    fmt::format("Argument not supported for function {}: second arg type {} should "
+                                "be int or string.",
                                 get_name(), index_type->get_name()));
         }
         *result = index;
