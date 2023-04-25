@@ -103,6 +103,8 @@ suite("test_add_drop_index_with_ignore_case_column", "inverted_index"){
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    sql "build index idx_desc on ${indexTbName1}"
+    sleep(3000)
 
     // show index after add index
     show_result = sql "show index from ${indexTbName1}"
@@ -167,6 +169,8 @@ suite("test_add_drop_index_with_ignore_case_column", "inverted_index"){
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(DESCRIPTION) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    sql "build index idx_desc on ${indexTbName1}"
+    sleep(3000)
 
     // query rows where description match 'desc'
     select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"

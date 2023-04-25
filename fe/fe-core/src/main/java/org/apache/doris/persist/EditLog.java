@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
+import org.apache.doris.alter.InvertedIndexJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -870,7 +871,12 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
                     final TableAddOrDropInvertedIndicesInfo info =
                             (TableAddOrDropInvertedIndicesInfo) journal.getData();
-                    env.getSchemaChangeHandler().replaymodifyTableAddOrDropInvertedIndices(info);
+                    env.getSchemaChangeHandler().replayModifyTableAddOrDropInvertedIndices(info);
+                    break;
+                }
+                case OperationType.OP_INVERTED_INDEX_JOB: {
+                    InvertedIndexJob invertedIndexJob = (InvertedIndexJob) journal.getData();
+                    env.getSchemaChangeHandler().replayInvertedIndexJob(invertedIndexJob);
                     break;
                 }
                 case OperationType.OP_CLEAN_LABEL: {
@@ -1709,6 +1715,10 @@ public class EditLog {
 
     public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {
         logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
+    }
+
+    public void logInvertedIndexJob(InvertedIndexJob invertedIndexJob) {
+        logEdit(OperationType.OP_INVERTED_INDEX_JOB, invertedIndexJob);
     }
 
     public void logCleanLabel(CleanLabelOperationLog log) {

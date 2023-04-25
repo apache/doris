@@ -32,6 +32,7 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/olap_define.h"
 #include "olap/types.h"
 #include "olap/utils.h"
@@ -631,6 +632,10 @@ void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
     _num_columns++;
 }
 
+void TabletSchema::append_index(TabletIndex index) {
+    _indexes.push_back(std::move(index));
+}
+
 void TabletSchema::clear_columns() {
     _field_name_to_index.clear();
     _field_id_to_index.clear();
@@ -717,6 +722,17 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     tablet_schema.to_schema_pb(&tablet_schema_pb);
     init_from_pb(tablet_schema_pb);
+}
+
+void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema, 
+                                    const std::vector<TColumn>& t_columns) {
+    copy_from(tablet_schema);
+    if (!t_columns.empty() && t_columns[0].col_unique_id >= 0) {
+        clear_columns();
+        for (const auto& column : t_columns) {
+            append_column(TabletColumn(column));
+        }
+    }
 }
 
 std::string TabletSchema::to_key() const {

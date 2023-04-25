@@ -43,6 +43,7 @@
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet.h"
+#include "olap/task/build_inverted_index.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 
@@ -199,6 +200,8 @@ public:
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
+    Status process_inverted_index_task(const TAlterInvertedIndexReq& reqest);
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -285,6 +288,9 @@ private:
 
     Status _handle_seg_compaction(BetaRowsetWriter* writer,
                                   SegCompactionCandidatesSharedPtr segments);
+
+    Status _handle_alter_inverted_index(BuildInvertedIndexSharedPtr build_inverted_index);
+    bool _tablet_busy(TabletSharedPtr tablet);
 
 private:
     struct CompactionCandidate {

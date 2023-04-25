@@ -178,11 +178,11 @@ struct TAlterTabletReqV2 {
 struct TAlterInvertedIndexReq {
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
-    3: optional Types.TVersion alter_version
-    4: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
+    3: optional Types.TVersion alter_version // Deprecated
+    4: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE // Deprecated
     5: optional bool is_drop_op= false
     6: optional list<Descriptors.TOlapTableIndex> alter_inverted_indexes
-    7: optional list<Descriptors.TOlapTableIndex> indexes
+    7: optional list<Descriptors.TOlapTableIndex> indexes_desc
     8: optional list<Descriptors.TColumn> columns
     9: optional i64 job_id
     10: optional i64 expiration

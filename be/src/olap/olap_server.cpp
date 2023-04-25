@@ -51,11 +51,13 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/segcompaction.h"
+#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "olap/task/build_inverted_index.h"
 #include "service/point_query_executor.h"
 #include "util/countdown_latch.h"
 #include "util/doris_metrics.h"
@@ -736,6 +738,50 @@ Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
                                                  SegCompactionCandidatesSharedPtr segments) {
     return _seg_compaction_thread_pool->submit_func(
             std::bind<void>(&StorageEngine::_handle_seg_compaction, this, writer, segments));
+}
+
+Status StorageEngine::process_inverted_index_task(const TAlterInvertedIndexReq& request) {
+    auto tablet_id = request.tablet_id;
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "tablet: " << tablet_id << " not exist";
+        return Status::InternalError(
+                    "tablet not exist, tablet_id={}.", tablet_id);
+    }
+    bool tablet_busy = _tablet_busy(tablet);
+    if (tablet_busy) {
+        // can not do task this time
+        LOG(WARNING) << "tablet: " << tablet_id << " can not do build inverted index this time";
+        return Status::InternalError(
+                "tablet is busy, can not do build inverted index this time, tablet_id={}.", tablet_id);
+    }
+
+    BuildInvertedIndexSharedPtr build_inverted_index =
+            std::make_shared<BuildInvertedIndex>(tablet, request.columns, request.indexes_desc,
+                                                 request.alter_inverted_indexes, request.is_drop_op);
+    RETURN_IF_ERROR(_handle_alter_inverted_index(build_inverted_index));
+    return Status::OK();
+}
+
+Status StorageEngine::_handle_alter_inverted_index(BuildInvertedIndexSharedPtr build_inverted_index) {
+    RETURN_IF_ERROR(build_inverted_index->init());
+    RETURN_IF_ERROR(build_inverted_index->do_build_inverted_index());
+    return Status::OK();
+}
+
+bool StorageEngine::_tablet_busy(TabletSharedPtr tablet) {
+    std::shared_lock meta_rlock(tablet->get_header_lock());
+    if (SchemaChangeHandler::base_tablet_ids_in_converting(tablet->tablet_id())
+            || (tablet->tablet_state() == TABLET_NOTREADY 
+            && SchemaChangeHandler::tablet_in_converting(tablet->tablet_id()))) {
+        return true;
+    }
+
+    if (_tablet_submitted_cumu_compaction[tablet->data_dir()].count(tablet->tablet_id())
+                || _tablet_submitted_base_compaction[tablet->data_dir()].count(tablet->tablet_id())) {
+        return true;
+    }
+    return false;
 }
 
 void StorageEngine::_cooldown_tasks_producer_callback() {

@@ -194,7 +194,7 @@ public class MasterImpl {
                     finishAlterTask(task);
                     break;
                 case ALTER_INVERTED_INDEX:
-                    finishAlterInvertedIndexTask(task);
+                    finishAlterInvertedIndexTask(task, request);
                     break;
                 case UPDATE_TABLET_META_INFO:
                     finishUpdateTabletMeta(task, request);
@@ -581,11 +581,19 @@ public class MasterImpl {
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
     }
 
-    private void finishAlterInvertedIndexTask(AgentTask task) {
+    private void finishAlterInvertedIndexTask(AgentTask task, TFinishTaskRequest request) {
+        TStatus taskStatus = request.getTaskStatus();
+        if (taskStatus.getStatusCode() != TStatusCode.OK) {
+            LOG.info("AlterInvertedIndexTask: {} failed, failed times: {}, remaining it in agent task queue",
+                     task.getSignature(), task.getFailedTimes());
+            return;
+        }
+
         AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
-        LOG.info("beigin finish AlterInvertedIndexTask: {}, JobId: {}, Jobtype: {}",
-                alterInvertedIndexTask.getSignature(), alterInvertedIndexTask.getJobId(),
-                alterInvertedIndexTask.getJobType());
+        LOG.info("beigin finish AlterInvertedIndexTask: {}, tablet: {}, toString: {}",
+                alterInvertedIndexTask.getSignature(),
+                alterInvertedIndexTask.getTabletId(),
+                alterInvertedIndexTask.toString());
         // TODO: more check
         alterInvertedIndexTask.setFinished(true);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER_INVERTED_INDEX, task.getSignature());

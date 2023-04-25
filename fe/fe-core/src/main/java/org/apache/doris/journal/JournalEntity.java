@@ -19,6 +19,7 @@ package org.apache.doris.journal;
 
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
+import org.apache.doris.alter.InvertedIndexJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -720,6 +721,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
                 data = TableAddOrDropInvertedIndicesInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INVERTED_INDEX_JOB: {
+                data = InvertedIndexJob.read(in);
                 isRead = true;
                 break;
             }

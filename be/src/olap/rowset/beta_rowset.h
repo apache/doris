@@ -73,6 +73,10 @@ public:
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                          size_t new_rowset_start_seg_id = 0) override;
 
+    Status link_files_without_index_to(const std::string& dir, RowsetId new_rowset_id,
+                                const std::set<int32_t>& without_index_column_uids,
+                                size_t new_rowset_start_seg_id = 0) override;
+
     Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
     Status upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_rowset_id) override;

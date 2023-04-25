@@ -193,9 +193,12 @@ public:
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, bool is_dropped_column = false);
+    void append_index(TabletIndex index);
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
+    void update_tablet_columns(const TabletSchema& tablet_schema, 
+                        const std::vector<TColumn>& t_columns);
     std::string to_key() const;
     int64_t mem_size() const { return _mem_size; }
 

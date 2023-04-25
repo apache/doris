@@ -204,6 +204,11 @@ public:
     virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id = 0) = 0;
 
+    // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
+    virtual Status link_files_without_index_to(const std::string& dir, RowsetId new_rowset_id,
+                                 const std::set<int32_t>& without_index_column_uids,
+                                 size_t new_rowset_start_seg_id = 0) = 0;
+
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
 

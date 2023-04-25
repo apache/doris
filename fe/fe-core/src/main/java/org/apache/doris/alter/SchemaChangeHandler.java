@@ -27,6 +27,7 @@ import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
@@ -71,6 +72,7 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
@@ -111,6 +113,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
@@ -131,6 +134,13 @@ public class SchemaChangeHandler extends AlterHandler {
     public final Map<Long, AlterJobV2> activeSchemaChangeJobsV2 = Maps.newConcurrentMap();
 
     public final Map<Long, AlterJobV2> runnableSchemaChangeJobV2 = Maps.newConcurrentMap();
+
+    // queue of inverted index job
+    public ConcurrentMap<Long, InvertedIndexJob> invertedIndexJobs = Maps.newConcurrentMap();
+
+    public final Map<Long, InvertedIndexJob> activeInvertedIndexJob = Maps.newConcurrentMap();
+
+    public final Map<Long, InvertedIndexJob> runnableInvertedIndexJob = Maps.newConcurrentMap();
 
     public int cycleCount = 0;
 
@@ -1576,10 +1586,12 @@ public class SchemaChangeHandler extends AlterHandler {
     protected void runAfterCatalogReady() {
         if (cycleCount >= CYCLE_COUNT_TO_CHECK_EXPIRE_SCHEMA_CHANGE_JOB) {
             clearFinishedOrCancelledSchemaChangeJobV2();
+            clearExpireFinishedOrCancelledInvertedIndexJobs();
             super.runAfterCatalogReady();
             cycleCount = 0;
         }
         runAlterJobV2();
+        runInvertedIndexJob();
         cycleCount++;
     }
 
@@ -1602,6 +1614,81 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         });
+    }
+
+    private void runInvertedIndexJob() {
+        runnableInvertedIndexJob.values().forEach(invertedIndexJobs -> {
+            if (!invertedIndexJobs.isDone() && !activeInvertedIndexJob.containsKey(invertedIndexJobs.getJobId())
+                    && activeInvertedIndexJob.size() < MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE) {
+                if (FeConstants.runningUnitTest) {
+                    invertedIndexJobs.run();
+                } else {
+                    schemaChangeThreadPool.submit(() -> {
+                        if (activeInvertedIndexJob.putIfAbsent(
+                                    invertedIndexJobs.getJobId(), invertedIndexJobs) == null) {
+                            try {
+                                invertedIndexJobs.run();
+                            } finally {
+                                activeInvertedIndexJob.remove(invertedIndexJobs.getJobId());
+                            }
+                        }
+                    });
+                }
+            }
+
+            if (invertedIndexJobs.isDone()) {
+                runnableInvertedIndexJob.remove(invertedIndexJobs.getJobId());
+            }
+        });
+    }
+
+    private void changeTableState(long dbId, long tableId, OlapTableState olapTableState) {
+        try {
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+            olapTable.writeLockOrMetaException();
+            try {
+                if (olapTable.getState() == olapTableState) {
+                    return;
+                } else if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE) {
+                    olapTable.setState(olapTableState);
+                }
+            } finally {
+                olapTable.writeUnlock();
+            }
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] changing table status failed after schema change job done", e);
+        }
+    }
+
+    public List<List<Comparable>> getAllInvertedIndexJobInfos() {
+        List<List<Comparable>> invertedIndexJobInfos = new LinkedList<>();
+        for (InvertedIndexJob invertedIndexJob : ImmutableList.copyOf(invertedIndexJobs.values())) {
+            // no need to check priv here. This method is only called in show proc stmt,
+            // which already check the ADMIN priv.
+            invertedIndexJob.getInfo(invertedIndexJobInfos);
+        }
+
+        // sort by "JobId", "TableName", "PartitionName", "CreateTime", "FinishTime"
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
+        invertedIndexJobInfos.sort(comparator);
+        return invertedIndexJobInfos;
+    }
+
+    public List<List<Comparable>> getAllInvertedIndexJobInfos(Database db) {
+        List<List<Comparable>> invertedIndexJobInfos = new LinkedList<>();
+        for (InvertedIndexJob invertedIndexJob : ImmutableList.copyOf(invertedIndexJobs.values())) {
+            if (invertedIndexJob.getDbId() != db.getId()) {
+                continue;
+            }
+            invertedIndexJob.getInfo(invertedIndexJobInfos);
+        }
+
+
+        // sort by "JobId", "TableName", "PartitionName", "CreateTime", "FinishTime"
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
+        invertedIndexJobInfos.sort(comparator);
+        return invertedIndexJobInfos;
     }
 
     public List<List<Comparable>> getAllAlterJobInfos() {
@@ -1687,9 +1774,10 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             LOG.debug("in process indexSchemaMap:{}", indexSchemaMap);
 
-            List<Index> oriIndexes = olapTable.getCopiedIndexes();
             List<Index> newIndexes = olapTable.getCopiedIndexes();
             List<Index> alterInvertedIndexes = new ArrayList<>();
+            Map<Long, Set<String>> invertedIndexOnPartitions = new HashMap<>();
+            boolean isBuildInvertedIndex = false;
             boolean isDropInvertedIndex = false;
             Map<String, String> propertyMap = new HashMap<>();
             for (AlterClause alterClause : alterClauses) {
@@ -1807,36 +1895,69 @@ public class SchemaChangeHandler extends AlterHandler {
                     // do nothing, properties are already in propertyMap
                     lightSchemaChange = false;
                 } else if (alterClause instanceof CreateIndexClause) {
-                    if (processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes)) {
+                    CreateIndexClause createIndexClause = (CreateIndexClause) alterClause;
+                    IndexDef indexDef = createIndexClause.getIndexDef();
+                    Index index = createIndexClause.getIndex();
+                    if (indexDef.isBuildDeferred()) {
+                        if (!olapTable.isPartitioned()) {
+                            List<String> specifiedPartitions = indexDef.getPartitionNames();
+                            if (!specifiedPartitions.isEmpty()) {
+                                throw new DdlException("table " + olapTable.getName()
+                                        + " is not partitioned, cannot build index with partitions.");
+                            }
+                        }
+                        List<Index> existedIndexes = olapTable.getIndexes();
+                        for (Index existedIdx : existedIndexes) {
+                            if (existedIdx.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
+                                isBuildInvertedIndex = true;
+                                index.setIndexId(existedIdx.getIndexId());
+                                index.setColumns(existedIdx.getColumns());
+                                index.setProperties(existedIdx.getProperties());
+                                if (indexDef.getPartitionNames().isEmpty()) {
+                                    invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
+                                } else {
+                                    invertedIndexOnPartitions.put(
+                                            index.getIndexId(), new HashSet<>(indexDef.getPartitionNames()));
+                                }
+                                break;
+                            }
+                        }
+
+                        if (!isBuildInvertedIndex) {
+                            throw new DdlException("index " + indexDef.getIndexName()
+                                    + " not exist, cannot build it with defferred.");
+                        }
+                    } else if (processAddIndex(createIndexClause, olapTable, newIndexes)) {
                         return;
                     }
                     lightSchemaChange = false;
-                    // CreateIndexClause createIndexClause = (CreateIndexClause) alterClause;
-                    // if (createIndexClause.getIndexDef().isInvertedIndex()) {
-                    //     alterInvertedIndexes.add(createIndexClause.getIndex());
-                    //     isDropInvertedIndex = false;
-                    //     lightSchemaChangeWithInvertedIndex = true;
-                    // }
+
+                    if (indexDef.isInvertedIndex()) {
+                        alterInvertedIndexes.add(index);
+                        isDropInvertedIndex = false;
+                        lightSchemaChangeWithInvertedIndex = true;
+                    }
                 } else if (alterClause instanceof DropIndexClause) {
                     if (processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes)) {
                         return;
                     }
                     lightSchemaChange = false;
-                    // DropIndexClause dropIndexClause = (DropIndexClause) alterClause;
-                    // List<Index> existedIndexes = olapTable.getIndexes();
-                    // Index found = null;
-                    // for (Index existedIdx : existedIndexes) {
-                    //     if (existedIdx.getIndexName().equalsIgnoreCase(dropIndexClause.getIndexName())) {
-                    //         found = existedIdx;
-                    //         break;
-                    //     }
-                    // }
-                    // IndexDef.IndexType indexType = found.getIndexType();
-                    // if (indexType == IndexType.INVERTED) {
-                    //     alterInvertedIndexes.add(found);
-                    //     isDropInvertedIndex = true;
-                    //     lightSchemaChangeWithInvertedIndex = true;
-                    // }
+
+                    DropIndexClause dropIndexClause = (DropIndexClause) alterClause;
+                    List<Index> existedIndexes = olapTable.getIndexes();
+                    Index found = null;
+                    for (Index existedIdx : existedIndexes) {
+                        if (existedIdx.getIndexName().equalsIgnoreCase(dropIndexClause.getIndexName())) {
+                            found = existedIdx;
+                            break;
+                        }
+                    }
+                    IndexDef.IndexType indexType = found.getIndexType();
+                    if (indexType == IndexType.INVERTED) {
+                        alterInvertedIndexes.add(found);
+                        isDropInvertedIndex = true;
+                        lightSchemaChangeWithInvertedIndex = true;
+                    }
                 } else {
                     Preconditions.checkState(false);
                 }
@@ -1853,9 +1974,15 @@ public class SchemaChangeHandler extends AlterHandler {
                 return;
             } else if (lightSchemaChangeWithInvertedIndex) {
                 long jobId = Env.getCurrentEnv().getNextId();
-                //for schema change add/drop inverted index optimize, direct modify table meta firstly.
-                modifyTableAddOrDropInvertedIndices(db, olapTable, indexSchemaMap, propertyMap, newIndexes,
-                        alterInvertedIndexes, isDropInvertedIndex, oriIndexes, jobId, false);
+                if (!isBuildInvertedIndex) {
+                    //for schema change add/drop inverted index optimize, direct modify table meta firstly.
+                    modifyTableAddOrDropInvertedIndices(db, olapTable, indexSchemaMap, propertyMap,
+                                                    newIndexes, alterInvertedIndexes,
+                                                    isDropInvertedIndex, jobId, false);
+                } else {
+                    buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap, propertyMap,
+                                              alterInvertedIndexes, invertedIndexOnPartitions, isDropInvertedIndex);
+                }
             } else {
                 createJob(db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
             }
@@ -2267,6 +2394,12 @@ public class SchemaChangeHandler extends AlterHandler {
         runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
     }
 
+    public void addInvertedIndexJob(InvertedIndexJob invertedIndexJob) {
+        invertedIndexJobs.put(invertedIndexJob.getJobId(), invertedIndexJob);
+        runnableInvertedIndexJob.put(invertedIndexJob.getJobId(), invertedIndexJob);
+        LOG.info("add inverted index job {}", invertedIndexJob.getJobId());
+    }
+
     private void clearFinishedOrCancelledSchemaChangeJobV2() {
         Iterator<Map.Entry<Long, AlterJobV2>> iterator = runnableSchemaChangeJobV2.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -2277,12 +2410,39 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    private void clearExpireFinishedOrCancelledInvertedIndexJobs() {
+        Iterator<Map.Entry<Long, InvertedIndexJob>> iterator = invertedIndexJobs.entrySet().iterator();
+        while (iterator.hasNext()) {
+            InvertedIndexJob invertedIndexJob = iterator.next().getValue();
+            if (invertedIndexJob.isExpire()) {
+                iterator.remove();
+                // RemoveAlterJobV2OperationLog log = new RemoveAlterJobV2OperationLog(
+                //         alterJobV2.getJobId(), alterJobV2.getType());
+                // Env.getCurrentEnv().getEditLog().logRemoveExpiredAlterJobV2(log);
+                LOG.info("remove expired inverted index job {}. finish at {}",
+                        invertedIndexJob.getJobId(), TimeUtils.longToTimeString(invertedIndexJob.getFinishedTimeMs()));
+            }
+        }
+
+        Iterator<Map.Entry<Long, InvertedIndexJob>> runnableIterator = runnableInvertedIndexJob.entrySet().iterator();
+        while (runnableIterator.hasNext()) {
+            InvertedIndexJob invertedIndexJob = runnableIterator.next().getValue();
+            if (invertedIndexJob.isDone()) {
+                runnableIterator.remove();
+            }
+        }
+    }
+
     @Override
     public void replayRemoveAlterJobV2(RemoveAlterJobV2OperationLog log) {
         if (runnableSchemaChangeJobV2.containsKey(log.getJobId())) {
             runnableSchemaChangeJobV2.remove(log.getJobId());
         }
         super.replayRemoveAlterJobV2(log);
+    }
+
+    public void replayRemoveInvertedIndexJob() {
+        // TODO
     }
 
     @Override
@@ -2496,13 +2656,13 @@ public class SchemaChangeHandler extends AlterHandler {
 
     // the invoker should keep table's write lock
     public void modifyTableAddOrDropInvertedIndices(Database db, OlapTable olapTable,
-            Map<Long, LinkedList<Column>> indexSchemaMap, Map<String, String> propertyMap, List<Index> indexes,
-            List<Index> alterInvertedIndexes, boolean isDropInvertedIndex, List<Index> oriIndexes, long jobId,
-            boolean isReplay) throws UserException {
-        LOG.info("begin to modify table's meta for add or drop inverted index. table: {}, job: {}", olapTable.getName(),
-                jobId);
-        LOG.info("indexSchemaMap:{}, indexes:{}, alterInvertedIndexes:{}, isDropInvertedIndex: {}", indexSchemaMap,
-                indexes, alterInvertedIndexes, isDropInvertedIndex);
+            Map<Long, LinkedList<Column>> indexSchemaMap, Map<String, String> propertyMap,
+            List<Index> indexes, List<Index> alterInvertedIndexes,
+            boolean isDropInvertedIndex, long jobId, boolean isReplay) throws UserException {
+        LOG.info("begin to modify table's meta for add or drop inverted index. table: {}, job: {}",
+                 olapTable.getName(), jobId);
+        LOG.debug("indexSchemaMap:{}, indexes:{}, alterInvertedIndexes:{}, isDropInvertedIndex: {}",
+                  indexSchemaMap, indexes, alterInvertedIndexes, isDropInvertedIndex);
         if (olapTable.getState() == OlapTableState.ROLLUP) {
             throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ROLLUP job");
         }
@@ -2526,6 +2686,24 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
+        //for compatibility, we need create a finished state schema change job v2
+        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(
+                    jobId, db.getId(), olapTable.getId(),
+                    olapTable.getName(), 1000);
+        for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
+            long originIndexId = entry.getKey();
+            String newIndexName = SHADOW_NAME_PREFIX + olapTable.getIndexNameById(originIndexId);
+            MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(originIndexId);
+            // 1. get new schema version/schema version hash, short key column count
+            int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
+            int newSchemaVersion = currentSchemaVersion + 1;
+            // generate schema hash for new index has to generate a new schema hash not equal to current schema hash
+            schemaChangeJob.addIndexSchema(originIndexId, originIndexId, newIndexName, newSchemaVersion,
+                    currentIndexMeta.getSchemaHash(),
+                    currentIndexMeta.getShortKeyColumnCount(), entry.getValue());
+        }
+        schemaChangeJob.setAlterInvertedIndexInfo(hasInvertedIndexChange, isDropInvertedIndex, alterInvertedIndexes);
+
         // update base index schema
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
@@ -2533,53 +2711,33 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new UserException(e.getMessage());
         }
 
+        // set Job state then add job
+        schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
+        schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
+        this.addAlterJobV2(schemaChangeJob);
+
         if (!isReplay) {
-            TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(db.getId(),
-                    olapTable.getId(), indexSchemaMap, propertyMap, indexes, alterInvertedIndexes, isDropInvertedIndex,
-                    oriIndexes, jobId);
+            TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(
+                    db.getId(), olapTable.getId(), indexSchemaMap, propertyMap, indexes,
+                    alterInvertedIndexes, isDropInvertedIndex, jobId);
             LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
             Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
 
-            // after modify tablet meta, we will create a WAITING_TXN state schema change job v2
-            // to handle alter inverted index task
-            long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
-            SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(jobId, db.getId(), olapTable.getId(),
-                    olapTable.getName(), timeoutSecond * 1000);
-            schemaChangeJob.setAlterInvertedIndexInfo(hasInvertedIndexChange, isDropInvertedIndex,
-                    alterInvertedIndexes);
-            schemaChangeJob.setOriIndexInfo(oriIndexes);
-            // only V2 support index, so if there is index changed, storage format must be V2
-            schemaChangeJob.setStorageFormat(TStorageFormat.V2);
-
-            for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
-                long originIndexId = entry.getKey();
-                for (Partition partition : olapTable.getPartitions()) {
-                    long partitionId = partition.getId();
-                    schemaChangeJob.addPartitionOriginIndexIdMap(partitionId, originIndexId);
-                } // end for partition
-                String newIndexName = SHADOW_NAME_PREFIX + olapTable.getIndexNameById(originIndexId);
-                MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(originIndexId);
-                // 1. get new schema version/schema version hash, short key column count
-                int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
-                int newSchemaVersion = currentSchemaVersion + 1;
-                schemaChangeJob.addIndexSchema(originIndexId, originIndexId, newIndexName, newSchemaVersion,
-                        currentIndexMeta.getSchemaHash(), currentIndexMeta.getShortKeyColumnCount(), entry.getValue());
-            } // end for index
-
-            // set table state
-            olapTable.setState(OlapTableState.SCHEMA_CHANGE);
-
-            // set Job state then add job
-            schemaChangeJob.setJobState(AlterJobV2.JobState.WAITING_TXN);
-            this.addAlterJobV2(schemaChangeJob);
-            LOG.debug("logAlterJob schemaChangeJob:{}", schemaChangeJob);
-            Env.getCurrentEnv().getEditLog().logAlterJob(schemaChangeJob);
+            if (isDropInvertedIndex) {
+                // send drop rpc to be
+                Map<Long, Set<String>> invertedIndexOnPartitions = new HashMap<>();
+                for (Index index : alterInvertedIndexes) {
+                    invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
+                }
+                buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap, propertyMap,
+                                          alterInvertedIndexes, invertedIndexOnPartitions, isDropInvertedIndex);
+            }
         }
         LOG.info("finished modify table's meta for add or drop inverted index. table: {}, job: {}, is replay: {}",
                 olapTable.getName(), jobId, isReplay);
     }
 
-    public void replaymodifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info)
+    public void replayModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info)
             throws MetaNotFoundException {
         LOG.debug("info:{}", info);
         long dbId = info.getDbId();
@@ -2589,15 +2747,15 @@ public class SchemaChangeHandler extends AlterHandler {
         List<Index> newIndexes = info.getIndexes();
         List<Index> alterInvertedIndexes = info.getAlterInvertedIndexes();
         boolean isDropInvertedIndex = info.getIsDropInvertedIndex();
-        List<Index> oriIndexes = info.getOriIndexes();
         long jobId = info.getJobId();
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
-            modifyTableAddOrDropInvertedIndices(db, olapTable, indexSchemaMap, propertyMap, newIndexes,
-                    alterInvertedIndexes, isDropInvertedIndex, oriIndexes, jobId, true);
+            modifyTableAddOrDropInvertedIndices(db, olapTable, indexSchemaMap, propertyMap,
+                                                newIndexes, alterInvertedIndexes, isDropInvertedIndex,
+                                                jobId, true);
         } catch (UserException e) {
             // should not happen
             LOG.warn("failed to replay modify table add or drop indexes", e);
@@ -2605,4 +2763,73 @@ public class SchemaChangeHandler extends AlterHandler {
             olapTable.writeUnlock();
         }
     }
+
+    public void buildOrDeleteTableInvertedIndices(Database db, OlapTable olapTable,
+            Map<Long, LinkedList<Column>> indexSchemaMap, Map<String, String> propertyMap,
+            List<Index> alterInvertedIndexes, Map<Long, Set<String>> invertedIndexOnPartitions,
+            boolean isDropOp) throws UserException {
+        LOG.info("begin to build table's inverted index. table: {}, job: {}, is replay: {}",
+                 olapTable.getName());
+
+        // for now table's state can only be NORMAL
+        Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
+
+        // begin checking each table
+        Map<Long, List<Column>> changedIndexIdToSchema = Maps.newHashMap();
+        try {
+            changedIndexIdToSchema = checkTable(db, olapTable, indexSchemaMap);
+        } catch (DdlException e) {
+            throw new DdlException("Table " + db.getFullName() + "." + olapTable.getName()
+                                   + " check failed");
+        }
+        if (changedIndexIdToSchema.isEmpty() && alterInvertedIndexes.isEmpty()) {
+            throw new DdlException("Nothing is changed. please check your alter stmt.");
+        }
+
+        for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
+            long originIndexId = entry.getKey();
+            for (Partition partition : olapTable.getPartitions()) {
+                // create job
+                long jobId = Env.getCurrentEnv().getNextId();
+                InvertedIndexJob invertedIndexJob = new InvertedIndexJob(
+                        jobId, db.getId(), olapTable.getId(), olapTable.getName());
+                invertedIndexJob.setOriginIndexId(originIndexId);
+                invertedIndexJob.setAlterInvertedIndexInfo(isDropOp, alterInvertedIndexes);
+                long partitionId = partition.getId();
+                String partitionName = partition.getName();
+                boolean found = false;
+                for (Set<String> partitions : invertedIndexOnPartitions.values()) {
+                    if (partitions.contains(partitionName)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    continue;
+                }
+
+                invertedIndexJob.setPartitionId(partitionId);
+                invertedIndexJob.setPartitionName(partitionName);
+
+                addInvertedIndexJob(invertedIndexJob);
+
+                // write edit log
+                Env.getCurrentEnv().getEditLog().logInvertedIndexJob(invertedIndexJob);
+                LOG.info("finish create table's inverted index job. table: {}, partition: {}, job: {}",
+                        olapTable.getName(), partitionName, jobId);
+            } // end for partition
+        } // end for index
+    }
+
+    public void replayInvertedIndexJob(InvertedIndexJob invertedIndexJob) throws MetaNotFoundException {
+        if (!invertedIndexJob.isDone() && !runnableSchemaChangeJobV2.containsKey(invertedIndexJob.getJobId())) {
+            runnableInvertedIndexJob.put(invertedIndexJob.getJobId(), invertedIndexJob);
+        }
+        invertedIndexJobs.put(invertedIndexJob.getJobId(), invertedIndexJob);
+        invertedIndexJob.replay(invertedIndexJob);
+        if (invertedIndexJob.isDone()) {
+            runnableInvertedIndexJob.remove(invertedIndexJob.getJobId());
+        }
+    }
+
 }

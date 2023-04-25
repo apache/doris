@@ -198,6 +198,8 @@ public:
 
     std::mutex& get_schema_change_lock() { return _schema_change_lock; }
 
+    std::mutex& get_build_inverted_index_lock() { return _build_inverted_index_lock; }
+
     // operation for compaction
     bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
     uint32_t calc_compaction_score(
@@ -247,6 +249,8 @@ public:
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
+            const std::vector<int32_t>& alter_column_uids, bool is_drop_op);
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -547,6 +551,7 @@ private:
     std::mutex _cumulative_compaction_lock;
     std::mutex _schema_change_lock;
     std::shared_mutex _migration_lock;
+    std::mutex _build_inverted_index_lock;
 
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
     // explain how these two locks work together.

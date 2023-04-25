@@ -115,6 +115,20 @@ suite("test_index_range_in_select", "inverted_index_select"){
                     add index ${text_colume1}_idx(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${text_colume1} index';
             """
             wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+            sql """ build index ${varchar_colume1}_idx on ${indexTbName1} """
+            sleep(3000)
+            sql """ build index ${varchar_colume2}_idx on ${indexTbName1} """
+            sleep(3000)
+            sql """ build index ${varchar_colume3}_idx on ${indexTbName1} """
+            sleep(3000)
+            sql """ build index ${int_colume1}_idx on ${indexTbName1} """
+            sleep(3000)
+            sql """ build index ${string_colume1}_idx on ${indexTbName1} """
+            sleep(3000)
+            sql """ build index ${char_colume1}_idx on ${indexTbName1} """
+            sleep(3000)
+            sql """ build index ${text_colume1}_idx on ${indexTbName1} """
+            sleep(3000)
         }
 
         // case1: select in
