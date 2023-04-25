@@ -39,6 +39,8 @@ inline std::string compound_operator_to_string(TExprOpcode::type op) {
 }
 
 class VcompoundPred : public VectorizedFnCall {
+    ENABLE_FACTORY_CREATOR(VcompoundPred);
+
 public:
     VcompoundPred(const TExprNode& node) : VectorizedFnCall(node) {
         _op = node.opcode;
@@ -46,7 +48,9 @@ public:
         _expr_name = "VCompoundPredicate (" + _fn.name.function_name + ")";
     }
 
-    VExpr* clone(ObjectPool* pool) const override { return pool->add(new VcompoundPred(*this)); }
+    VExpr* clone(ObjectPool* pool) const override {
+        return pool->add(VcompoundPred::create_unique(*this).release());
+    }
 
     const std::string& expr_name() const override { return _expr_name; }
 

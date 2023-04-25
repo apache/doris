@@ -18,25 +18,25 @@
             "type": "category",
             "label": "Install And Deploy",
             "items": [
-                "install/install-deploy",
+                "install/standard-deployment",
                 {
                     "type": "category",
-                    "label": "Compile",
+                    "label": "Docker Deployment",
                     "items": [
-                        "install/source-install/compilation",
+                        "install/construct-docker/construct-docker-image",
+                        "install/construct-docker/run-docker-cluster"
+                    ]
+                },
+                "install/k8s-deploy",
+                {
+                    "type": "category",
+                    "label": "Source Code Compilation",
+                    "items": [
+                        "install/source-install/compilation-general",
                         "install/source-install/compilation-with-ldb-toolchain",
                         "install/source-install/compilation-arm",
                         "install/source-install/compilation-win",
                         "install/source-install/compilation-mac"
-                    ]
-                },
-                {
-                    "type": "category",
-                    "label": "Construct Docker",
-                    "items": [
-                        "install/construct-docker/construct-docker-image",
-                        "install/construct-docker/run-docker-cluster",
-                        "install/construct-docker/k8s-deploy"
                     ]
                 }
             ]
@@ -598,6 +598,7 @@
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
                                 "sql-manual/sql-functions/json-functions/json_quote",
+                                "sql-manual/sql-functions/json-functions/json_unquote",
                                 "sql-manual/sql-functions/json-functions/json_valid",
                                 "sql-manual/sql-functions/json-functions/json_extract"
                             ]
@@ -1019,7 +1020,8 @@
                                 "sql-manual/sql-reference/Utility-Statements/USE",
                                 "sql-manual/sql-reference/Utility-Statements/DESCRIBE",
                                 "sql-manual/sql-reference/Utility-Statements/SWITCH",
-                                "sql-manual/sql-reference/Utility-Statements/REFRESH"
+                                "sql-manual/sql-reference/Utility-Statements/REFRESH",
+                                "sql-manual/sql-reference/Utility-Statements/SYNC"
                             ]
                         }
                     ]

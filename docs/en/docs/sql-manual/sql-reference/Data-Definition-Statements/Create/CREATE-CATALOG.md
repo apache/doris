@@ -302,6 +302,30 @@ CREATE CATALOG catalog_name PROPERTIES (
 	);
    ```
 
+   **OceanBase**
+   ```sql
+   -- The first way
+	CREATE EXTERNAL RESOURCE oceanbase_resource PROPERTIES (
+       "type"="jdbc",
+       "user"="root",
+       "password"="",
+       "jdbc_url" = "jdbc:oceanbase://localhost:2881/demo",
+       "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
+       "driver_class" = "com.oceanbase.jdbc.Driver"
+	);
+   CREATE CATALOG oceanbase_catlog WITH RESOURCE oceanbase_resource;
+
+   -- The second way
+	CREATE CATALOG oceanbase_catalog PROPERTIES (
+       "type"="jdbc",
+       "user"="root",
+       "password"="",
+       "jdbc_url" = "jdbc:oceanbase://localhost:2881/demo",
+       "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
+       "driver_class" = "com.oceanbase.jdbc.Driver"
+	);
+   ```
+
 ### Keywords
 
 CREATE, CATALOG

@@ -17,16 +17,23 @@
 
 #include "runtime/routine_load/routine_load_task_executor.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/Types_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 #include <librdkafka/rdkafkacpp.h>
+#include <unistd.h>
 
+#include <map>
+
+#include "common/config.h"
+#include "common/status.h"
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "gtest/gtest_pred_impl.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "util/cpu_info.h"
 
 namespace doris {
 

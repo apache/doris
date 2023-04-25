@@ -77,7 +77,7 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
 
 Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
                               AggFnEvaluator** result) {
-    *result = pool->add(new AggFnEvaluator(desc.nodes[0]));
+    *result = pool->add(AggFnEvaluator::create_unique(desc.nodes[0]).release());
     auto& agg_fn_evaluator = *result;
     int node_idx = 0;
     for (int i = 0; i < desc.nodes[0].num_children; ++i) {

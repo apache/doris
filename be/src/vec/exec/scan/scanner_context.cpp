@@ -30,7 +30,7 @@
 #include "common/config.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
@@ -112,7 +112,7 @@ Status ScannerContext::init() {
 
 #ifndef BE_TEST
     // 3. get thread token
-    thread_token = _state->get_query_fragments_ctx()->get_token();
+    thread_token = _state->get_query_ctx()->get_token();
 #endif
 
     // 4. This ctx will be submitted to the scanner scheduler right after init.
@@ -169,13 +169,13 @@ void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& 
 }
 
 bool ScannerContext::empty_in_queue(int id) {
-    std::unique_lock<std::mutex> l(_transfer_lock);
+    std::unique_lock l(_transfer_lock);
     return _blocks_queue.empty();
 }
 
 Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block,
                                             bool* eos, int id, bool wait) {
-    std::unique_lock<std::mutex> l(_transfer_lock);
+    std::unique_lock l(_transfer_lock);
     // Normally, the scanner scheduler will schedule ctx.
     // But when the amount of data in the blocks queue exceeds the upper limit,
     // the scheduler will stop scheduling.
@@ -228,7 +228,7 @@ bool ScannerContext::set_status_on_error(const Status& status) {
 }
 
 Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* state) {
-    std::unique_lock<std::mutex> l(_scanners_lock);
+    std::unique_lock l(_scanners_lock);
     if (state->enable_profile()) {
         std::stringstream scanner_statistics;
         std::stringstream scanner_rows_read;
@@ -267,7 +267,7 @@ Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* 
 }
 
 void ScannerContext::clear_and_join(VScanNode* node, RuntimeState* state) {
-    std::unique_lock<std::mutex> l(_transfer_lock);
+    std::unique_lock l(_transfer_lock);
     do {
         if (_num_running_scanners == 0 && _num_scheduling_ctx == 0) {
             break;

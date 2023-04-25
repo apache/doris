@@ -17,17 +17,20 @@
 
 #include "io/fs/local_file_system.h"
 
-#include <algorithm>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <filesystem>
-#include <fstream>
-#include <set>
 #include <vector>
 
 #include "common/status.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "util/slice.h"
 
 namespace doris {
 

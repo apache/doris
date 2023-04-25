@@ -41,6 +41,8 @@ class VExprContext;
 
 namespace doris::vectorized {
 class VRuntimeFilterWrapper final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VRuntimeFilterWrapper);
+
 public:
     VRuntimeFilterWrapper(const TExprNode& node, VExpr* impl);
     VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr);
@@ -56,7 +58,7 @@ public:
     void close(doris::RuntimeState* state, VExprContext* context,
                FunctionContext::FunctionStateScope scope) override;
     VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VRuntimeFilterWrapper(*this));
+        return pool->add(VRuntimeFilterWrapper::create_unique(*this).release());
     }
     const std::string& expr_name() const override;
     const std::vector<VExpr*>& children() const override { return _impl->children(); }

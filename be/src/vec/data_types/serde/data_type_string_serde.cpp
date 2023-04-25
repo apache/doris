@@ -17,15 +17,18 @@
 
 #include "data_type_string_serde.h"
 
+#include <assert.h>
 #include <gen_cpp/types.pb.h>
 #include <stddef.h>
 
+#include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
 namespace vectorized {
+class Arena;
 
 Status DataTypeStringSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {

@@ -46,6 +46,8 @@ namespace doris::vectorized {
 
 // TODO: now we only use merge sort
 class MergeSorterState {
+    ENABLE_FACTORY_CREATOR(MergeSorterState);
+
 public:
     MergeSorterState(const RowDescriptor& row_desc, int64_t offset, int64_t limit,
                      RuntimeState* state, RuntimeProfile* profile)
@@ -179,6 +181,8 @@ protected:
 };
 
 class FullSorter final : public Sorter {
+    ENABLE_FACTORY_CREATOR(FullSorter);
+
 public:
     FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,

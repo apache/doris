@@ -17,20 +17,26 @@
 
 #include "olap/tablet.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <unistd.h>
 
-#include <sstream>
-
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/strings/numbers.h"
 #include "http/action/pad_rowset_action.h"
 #include "io/fs/local_file_system.h"
-#include "olap/olap_define.h"
+#include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet_meta.h"
-#include "olap/tablet_schema_cache.h"
+#include "olap/utils.h"
 #include "testutil/mock_rowset.h"
 #include "util/time.h"
+#include "util/uid_util.h"
 
 using namespace std;
 

@@ -1,7 +1,7 @@
 ---
 {
-"title": "K8s部署doris",
-"language": "zh-CN"
+  "title": "Kubernetes 部署",
+  "language": "zh-CN"
 }
 ---
 
@@ -32,7 +32,7 @@ under the License.
 
 - 安装 k8s
 - 构建或下载doris镜像
-    - 构建镜像 [Doris Docker 快速搭建开发环境](./docker-dev) 
+    - 构建镜像 [构建 Docker Image](./construct-docker/construct-docker-image) 
     - 下载镜像 https://hub.docker.com/r/apache/doris/tags
 - 创建或下载doris on k8s的yml文件
     - https://github.com/apache/doris/blob/master/docker/runtime/k8s/doris_follower.yml

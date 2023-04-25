@@ -15,25 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.httpv2.util;
+package org.apache.doris.fs;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import javax.servlet.http.HttpServletRequest;
-
-public class HttpUtil {
-    public static String getBody(HttpServletRequest request) {
-        StringBuilder data = new StringBuilder();
-        String line = null;
-        BufferedReader reader = null;
-        try {
-            reader = request.getReader();
-            while (null != (line = reader.readLine())) {
-                data.append(new String(line.getBytes("utf-8")));
-            }
-        } catch (IOException e) {
-            // CHECKSTYLE IGNORE THIS LINE
-        }
-        return data.toString();
-    }
+public class LocalFileSystem {
 }
