@@ -36,7 +36,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private String host;
     private String version = "";
     private String nodeRole = Tag.VALUE_MIX;
-    private long core_size = 1;
+    private long coreSize = 1;
+
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
     }
@@ -56,7 +57,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     }
 
     public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort,
-            long hbTime, long beStartTime, String version, String nodeRole,long core_size) {
+            long hbTime, long beStartTime, String version, String nodeRole, long coreSize) {
         super(HeartbeatResponse.Type.BACKEND);
         this.beId = beId;
         this.status = HbStatus.OK;
@@ -67,7 +68,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.beStartTime = beStartTime;
         this.version = version;
         this.nodeRole = nodeRole;
-        this.core_size = core_size;
+        this.coreSize = coreSize;
     }
 
     public BackendHbResponse(long beId, String errMsg) {
@@ -113,9 +114,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         return nodeRole;
     }
 
-    public long getCoreSize(){
-        return core_size;
+    public long getCoreSize() {
+        return coreSize;
     }
+
     public static BackendHbResponse read(DataInput in) throws IOException {
         BackendHbResponse result = new BackendHbResponse();
         result.readFields(in);

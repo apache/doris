@@ -140,10 +140,12 @@ public class HeartbeatMgr extends MasterDaemon {
                     LOG.warn("get bad heartbeat response: {}", response);
                 }
                 isChanged = handleHbResponse(response, false);
-
+                if (response.isBackEnd()) {
+                    LOG.warn("yxc get CoreSize: {}", ((BackendHbResponse) response).getCoreSize());
+                }
                 if (isChanged) {
                     hbPackage.addHbResponse(response);
-                    if(response.isBackEnd()){
+                    if (response.isBackEnd()) {
                         LOG.warn("yxc get", ((BackendHbResponse) response).getCoreSize());
                     }
                 }
@@ -245,7 +247,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     int bePort = tBackendInfo.getBePort();
                     int httpPort = tBackendInfo.getHttpPort();
                     int brpcPort = -1;
-                    long core_size = tBackendInfo.getCoreSize();
+                    long coreSize = tBackendInfo.getCoreSize();
                     if (tBackendInfo.isSetBrpcPort()) {
                         brpcPort = tBackendInfo.getBrpcPort();
                     }
@@ -259,7 +261,7 @@ public class HeartbeatMgr extends MasterDaemon {
                         nodeRole = tBackendInfo.getBeNodeRole();
                     }
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
-                            System.currentTimeMillis(), beStartTime, version, nodeRole);
+                            System.currentTimeMillis(), beStartTime, version, nodeRole, coreSize);
                 } else {
                     return new BackendHbResponse(backendId, backend.getIp(),
                             result.getStatus().getErrorMsgs().isEmpty()
