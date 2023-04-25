@@ -206,13 +206,13 @@ Status CsvReader::init_reader(bool is_load) {
     case TFileFormatType::FORMAT_CSV_LZOP:
         [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
-                                                      _size, _line_delimiter,
-                                                      _line_delimiter_length, start_offset));
+        _line_reader = NewPlainTextLineReader::create_unique(
+                _profile, _file_reader, _decompressor.get(), _size, _line_delimiter,
+                _line_delimiter_length, start_offset);
 
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader));
+        _line_reader = NewPlainBinaryLineReader::create_unique(_file_reader);
         break;
     default:
         return Status::InternalError(
@@ -674,9 +674,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
 
-    _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
-                                                  _size, _line_delimiter, _line_delimiter_length,
-                                                  start_offset));
+    _line_reader = NewPlainTextLineReader::create_unique(
+            _profile, _file_reader, _decompressor.get(), _size, _line_delimiter,
+            _line_delimiter_length, start_offset);
 
     return Status::OK();
 }

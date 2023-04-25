@@ -87,6 +87,8 @@ public:
 class MessageBodySink;
 
 class StreamLoadContext {
+    ENABLE_FACTORY_CREATOR(StreamLoadContext);
+
 public:
     StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
