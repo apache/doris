@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -30,6 +31,12 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -42,15 +49,24 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * insert into select command
+ * insert into select command implementation
+ *
+ * insert into select command support the grammer: explain? insert into table columns? partitions? hints? query
+ * InsertIntoTableCommand is a command to represent insert the answer of a query into a table.
+ * class structure's:
+ *  InsertIntoTableCommand(Query())
+ *  InsertIntoTableCommand(ExplainCommand(Query()))
  */
 public class InsertIntoTableCommand extends Command implements ForwardWithSync {
+    public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
     private final String tableName;
     private final List<String> colNames;
     private final LogicalPlan logicalQuery;
@@ -63,6 +79,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     private List<String> hints;
     private List<Column> targetColumns;
     private List<Long> partitionIds = null;
+    private Boolean isRepartition;
 
     /**
      * constructor
@@ -104,6 +121,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
 
         getTupleDesc();
         addUnassignedColumns();
+
+        // check if it's explain
+        if (isExplain()) {
+            ((ExplainCommand) logicalQuery).run(ctx, executor);
+        }
 
         if (ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
@@ -187,6 +209,28 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         }
     }
 
+    /**
+     * calculate PhysicalProperties.
+     */
+    public PhysicalProperties calculatePhysicalProperties(List<Slot> outputs) {
+        // it will be used at set physical properties.
+        // PhysicalProperties.GATHER means collect all the data to a node.
+        // PhysicalProperties.HASH means repartition the data according to the HASH
+        // PhysicalProperties.ANY means any.
+        // in Nereids: default the data will be partition by keys.
+
+        hints = hints.stream().map(String::toUpperCase).collect(Collectors.toList());
+        if (hints.contains(InsertStmt.NOSHUFFLE_HINT)) {
+            return PhysicalProperties.GATHER;
+        } else if (hints.contains(InsertStmt.SHUFFLE_HINT)) {
+            return PhysicalProperties.ANY;
+        } else {
+            List<ExprId> exprIds = outputs.subList(0, ((OlapTable) table).getKeysNum()).stream()
+                    .map(NamedExpression::getExprId).collect(Collectors.toList());
+            return PhysicalProperties.createHash(new DistributionSpecHash(exprIds, ShuffleType.NATURAL));
+        }
+    }
+
     private void addUnassignedColumns() throws org.apache.doris.common.AnalysisException {
         PlanFragment root = planner.getFragments().get(0);
         List<Expr> outputs = root.getOutputExprs();
@@ -217,6 +261,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             }
             return p.getId();
         }).collect(Collectors.toList());
+    }
+
+    public boolean isExplain() {
+        return logicalQuery instanceof ExplainCommand;
     }
 
     @Override

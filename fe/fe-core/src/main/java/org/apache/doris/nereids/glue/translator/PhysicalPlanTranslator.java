@@ -272,7 +272,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.addPlanFragment(currentFragment);
             rootFragment = currentFragment;
         }
-        if (rootFragment.isPartitioned() && rootFragment.getPlanRoot().getNumInstances() > 1) {
+        if (isFragmentPartitioned(rootFragment)) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
         List<Expr> outputExprs = Lists.newArrayList();
@@ -2142,6 +2142,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PhysicalPlan child = (PhysicalPlan) project.child(0);
 
         return project.getProjects().size() != child.getOutput().size();
+    }
+
+    private boolean isFragmentPartitioned(PlanFragment fragment) {
+        return fragment.isPartitioned() && fragment.getPlanRoot().getNumInstances() > 1;
     }
 
     private boolean projectOnAgg(PhysicalProject project) {

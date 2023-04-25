@@ -302,16 +302,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
-        if (ctx.explain() != null) {
-            return withExplain(visitQuery(ctx.query()), ctx.explain());
-        }
         String tableName = ctx.tableName.getText();
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
         List<String> colNames = ctx.cols == null ? null : visitIdentifierList(ctx.cols);
         List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
         List<String> hints = ctx.hints == null ? null : visitIdentifierSeq(ctx.hints);
         return new InsertIntoTableCommand(tableName, labelName, colNames,
-                partitions, hints, visitQuery(ctx.query()));
+                partitions, hints, withExplain(visitQuery(ctx.query()), ctx.explain()));
     }
 
     /**
