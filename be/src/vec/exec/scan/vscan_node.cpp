@@ -464,7 +464,6 @@ void VScanNode::release_resource(RuntimeState* state) {
     if (_common_vexpr_ctxs_pushdown) {
         (*_common_vexpr_ctxs_pushdown)->close(state);
     }
-    _scanner_pool.clear();
 
     ExecNode::release_resource(state);
 }

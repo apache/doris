@@ -277,8 +277,6 @@ protected:
     // Each scan node will generates a ScannerContext to manage all Scanners.
     // See comments of ScannerContext for more details
     std::shared_ptr<ScannerContext> _scanner_ctx;
-    // Save all scanner objects.
-    ObjectPool _scanner_pool;
 
     // indicate this scan node has no more data to return
     bool _eos = false;
