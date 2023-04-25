@@ -677,7 +677,6 @@ private:
             case 1:
                 // Mask the first byte according to the standard.
                 *--out = (uc | firstByteMark[len - 1]);
-                [[fallthrough]];
             }
             return true;
             break;
