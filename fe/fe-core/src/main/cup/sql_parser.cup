@@ -271,6 +271,7 @@ terminal String
     KW_NGRAM_BF,
     KW_BLOB,
     KW_BOOLEAN,
+    KW_BRIEF,
     KW_BROKER,
     KW_BUCKETS,
     KW_BUILD,
@@ -861,7 +862,7 @@ nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
+nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local, opt_brief;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -3593,6 +3594,17 @@ opt_force ::=
     :}
     ;
 
+opt_brief ::=
+     /* empty */
+    {:
+        RESULT = false;
+    :}
+    | KW_BRIEF
+    {:
+        RESULT = true;
+    :}
+    ;
+
 // Show statement
 show_stmt ::=
     KW_SHOW show_param:stmt
@@ -3702,13 +3714,13 @@ show_param ::=
         RESULT = new ShowAuthorStmt();
     :}
     /* Create table */
-    | KW_CREATE KW_TABLE table_name:table
+    | KW_CREATE KW_TABLE table_name:table opt_brief:brief
     {:
-        RESULT = new ShowCreateTableStmt(table);
+        RESULT = new ShowCreateTableStmt(table, brief);
     :}
     | KW_CREATE KW_VIEW table_name:table
     {:
-        RESULT = new ShowCreateTableStmt(table, true);
+        RESULT = new ShowCreateTableStmt(table, true, false);
     :}
     /* Create database */
     | KW_CREATE KW_DATABASE ident:db
@@ -7072,6 +7084,8 @@ keyword ::=
     | KW_BLOB:id
     {: RESULT = id; :}
     | KW_BOOLEAN:id
+    {: RESULT = id; :}
+    | KW_BRIEF:id
     {: RESULT = id; :}
     | KW_BROKER:id
     {: RESULT = id; :}
