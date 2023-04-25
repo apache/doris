@@ -45,7 +45,9 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
@@ -238,6 +240,8 @@ public class NereidsPlanner extends Planner {
             deriveStats();
             serializeStatUsed(statementContext.getConnectContext());
 
+            adjustRequiredProperties(cascadesContext.getRewritePlan());
+
             optimize();
             NereidsTracer.logImportantTime("EndOptimizePlan");
 
@@ -329,6 +333,23 @@ public class NereidsPlanner extends Planner {
             dpHypOptimize();
         }
         new CascadesOptimizer(cascadesContext).execute();
+    }
+
+    private void adjustRequiredProperties(Plan plan) {
+        PhysicalProperties properties = null;
+        if (statementContext.getParsedStatement() != null) {
+            Plan parsedStmt = ((LogicalPlanAdapter) statementContext.getParsedStatement()).getLogicalPlan();
+            if (parsedStmt instanceof InsertIntoTableCommand) {
+                properties = ((InsertIntoTableCommand) parsedStmt)
+                        .calculatePhysicalProperties(plan.getOutput());
+            } else if (parsedStmt instanceof ExplainCommand) {
+                properties = PhysicalProperties.ANY;
+            }
+        }
+        if (properties == null) {
+            properties = PhysicalProperties.GATHER;
+        }
+        cascadesContext.setJobContext(properties);
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
