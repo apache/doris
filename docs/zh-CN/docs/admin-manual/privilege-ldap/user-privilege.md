@@ -228,7 +228,7 @@ ADMIN_PRIV 和 GRANT_PRIV 权限同时拥有**授予权限**的权限，较为�
 
 5. 忘记密码
 
-   如果忘记了密码无法登陆 Doris，可以在 Doris FE 节点所在机器，使用如下命令无密码登陆 Doris：
+   如果忘记了密码无法登陆 Doris，可以在 FE 的 config 文件中添加 `skip_localhost_auth_check` 参数，并且重启FE，从而无密码在本机通过localhost登陆 Doris：
 
    `mysql-client -h 127.0.0.1 -P query_port -uroot`
 
