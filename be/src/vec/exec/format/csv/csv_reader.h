@@ -124,6 +124,8 @@ private:
     // True if this is a load task
     bool _is_load = false;
 
+    RuntimeProfile::Counter* _csv_parse_timer;
+
     std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;

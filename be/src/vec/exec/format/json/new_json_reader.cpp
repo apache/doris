@@ -103,9 +103,12 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _current_offset(0),
           _io_ctx(io_ctx),
           _is_dynamic_schema(is_dynamic_schema) {
-    _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
-    _read_timer = ADD_TIMER(_profile, "ReadTime");
-    _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
+    const char* json_profile = "JsonReader";
+    ADD_TIMER(_profile, json_profile);
+    _bytes_read_counter =
+            ADD_CHILD_COUNTER(_profile, "FileBytesRead", TUnit::BYTES, json_profile);
+    _file_read_timer = ADD_CHILD_TIMER(_profile, "FileReadTime", json_profile);
+    _json_parse_timer = ADD_CHILD_TIMER(_profile, "JsonParseTime", json_profile);
     _init_system_properties();
     _init_file_description();
 }
@@ -438,12 +441,13 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
                                           const std::vector<SlotDescriptor*>& slot_descs) {
     size_t size = 0;
     // read a whole message
-    SCOPED_TIMER(_file_read_timer);
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;
     if (_line_reader != nullptr) {
+        SCOPED_TIMER(_file_read_timer);
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, eof, _io_ctx));
     } else {
+        SCOPED_TIMER(_file_read_timer);
         size_t length = 0;
         RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &length));
         json_str = json_str_ptr.get();
@@ -455,6 +459,7 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
         }
     }
 
+    SCOPED_TIMER(_json_parse_timer);
     _bytes_read_counter += size;
     auto& dynamic_column = block.get_columns().back()->assume_mutable_ref();
     auto& column_object = assert_cast<vectorized::ColumnObject&>(dynamic_column);
@@ -675,12 +680,13 @@ Status NewJsonReader::_parse_json(bool* is_empty_row, bool* eof) {
 // return Status::OK() if parse succeed or reach EOF.
 Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     // read a whole message
-    SCOPED_TIMER(_file_read_timer);
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;
     if (_line_reader != nullptr) {
+        SCOPED_TIMER(_file_read_timer);
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof, _io_ctx));
     } else {
+        SCOPED_TIMER(_file_read_timer);
         RETURN_IF_ERROR(_read_one_message(&json_str_ptr, size));
         json_str = json_str_ptr.get();
         if (*size == 0) {
@@ -694,6 +700,7 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         return Status::OK();
     }
 
+    SCOPED_TIMER(_json_parse_timer);
     // clear memory here.
     _value_allocator.Clear();
     _parse_allocator.Clear();
@@ -1555,12 +1562,13 @@ Status NewJsonReader::_simdjson_parse_json(bool* is_empty_row, bool* eof) {
 }
 Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
     // read a whole message
-    SCOPED_TIMER(_file_read_timer);
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;
     if (_line_reader != nullptr) {
+        SCOPED_TIMER(_file_read_timer);
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof, _io_ctx));
     } else {
+        SCOPED_TIMER(_file_read_timer);
         size_t length = 0;
         RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &length));
         json_str = json_str_ptr.get();
@@ -1570,6 +1578,7 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
         }
     }
 
+    SCOPED_TIMER(_json_parse_timer);
     _bytes_read_counter += *size;
     if (*eof) {
         return Status::OK();

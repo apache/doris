@@ -72,10 +72,13 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
           _read_timer(nullptr),
           _bytes_decompress_counter(nullptr),
           _decompress_timer(nullptr) {
-    _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
-    _read_timer = ADD_TIMER(_profile, "FileReadTime");
-    _bytes_decompress_counter = ADD_COUNTER(_profile, "BytesDecompressed", TUnit::BYTES);
-    _decompress_timer = ADD_TIMER(_profile, "DecompressTime");
+    const char* line_profile = "TextLineReader";
+    ADD_TIMER(_profile, line_profile);
+    _bytes_read_counter = ADD_CHILD_COUNTER(_profile, "FileBytesRead", TUnit::BYTES, line_profile);
+    _read_timer = ADD_CHILD_TIMER(_profile, "FileReadTime", line_profile);
+    _bytes_decompress_counter =
+            ADD_CHILD_COUNTER(_profile, "BytesDecompressed", TUnit::BYTES, line_profile);
+    _decompress_timer = ADD_CHILD_TIMER(_profile, "DecompressTime", line_profile);
 }
 
 NewPlainTextLineReader::~NewPlainTextLineReader() {

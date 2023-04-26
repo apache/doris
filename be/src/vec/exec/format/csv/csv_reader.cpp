@@ -92,6 +92,10 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _file_compress_type = _params.compress_type;
     _size = _range.size;
 
+    const char* csv_profile = "CsvReader";
+    ADD_TIMER(_profile, csv_profile);
+    _csv_parse_timer = ADD_CHILD_TIMER(_profile, "CsvParseTime", csv_profile);
+
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
     _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
     _init_system_properties();
@@ -376,6 +380,7 @@ Status CsvReader::_create_decompressor() {
 
 Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                                      std::vector<MutableColumnPtr>& columns, size_t* rows) {
+    SCOPED_TIMER(_csv_parse_timer);
     bool is_success = false;
 
     RETURN_IF_ERROR(_line_split_to_values(line, &is_success));

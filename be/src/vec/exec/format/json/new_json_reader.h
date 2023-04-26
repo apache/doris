@@ -227,8 +227,8 @@ private:
     io::IOContext* _io_ctx;
 
     RuntimeProfile::Counter* _bytes_read_counter;
-    RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _file_read_timer;
+    RuntimeProfile::Counter* _json_parse_timer;
 
     bool _is_dynamic_schema = false;
 
