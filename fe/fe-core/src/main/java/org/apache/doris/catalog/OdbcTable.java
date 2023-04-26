@@ -113,11 +113,8 @@ public class OdbcTable extends Table {
     }
 
     private static String oceanbaseOracleProperName(String name) {
-        String[] parts = name.split("\\.");
-        if (parts.length > 1) {
-            return "\"" + parts[1] + "\"";
-        }
-        return "\"" + name + "\"";
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
     }
 
     public static String databaseProperName(TOdbcTableType tableType, String name) {
