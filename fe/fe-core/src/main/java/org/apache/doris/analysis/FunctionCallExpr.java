@@ -1448,6 +1448,13 @@ public class FunctionCallExpr extends Expr {
             fn.getReturnType().getPrimitiveType().setTimeType();
         }
 
+        if (fnName.getFunction().equalsIgnoreCase("map")) {
+            if ((children.size() & 1) == 1) {
+                throw new AnalysisException("map can't be odd parameters, need even parameters: "
+                        + this.toSql());
+            }
+        }
+
         if (fnName.getFunction().equalsIgnoreCase("named_struct")) {
             if ((children.size() & 1) == 1) {
                 throw new AnalysisException("named_struct can't be odd parameters, need even parameters: "
