@@ -21,10 +21,12 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <shared_mutex>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/consts.h"
@@ -218,6 +220,9 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
         // for dup keys, already store row_in_block in vector and will sort it on flush stage.
         DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
         return;
+    } else if (_keys_type == KeysType::AGG_KEYS) {
+        // for agg keys, already store row_in_block in vector and will sort and aggregate it on flush stage.
+        return;
     }
 
     bool is_exist = _vec_skip_list->Find(row_in_block, &_vec_hint);
@@ -281,32 +286,93 @@ void MemTable::_collect_vskiplist_results() {
         VecTable::Iterator it(_vec_skip_list.get());
         vectorized::Block in_block = _input_mutable_block.to_block();
         size_t idx = 0;
-        for (it.SeekToFirst(); it.Valid(); it.Next()) {
-            auto& block_data = in_block.get_columns_with_type_and_name();
-            // move key columns
-            for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
-                _output_mutable_block.get_column_by_position(i)->insert_from(
-                        *block_data[i].column.get(), it.key()->_row_pos);
-            }
-            // get value columns from agg_places
-            for (size_t i = _schema->num_key_columns(); i < _num_columns; ++i) {
-                auto function = _agg_functions[i];
-                auto agg_place = it.key()->agg_places(i);
-                auto col_ptr = _output_mutable_block.get_column_by_position(i).get();
-                function->insert_result_into(agg_place, *col_ptr);
-                if constexpr (is_final) {
-                    function->destroy(agg_place);
-                } else {
-                    function->reset(agg_place);
-                    function->add(agg_place,
-                                  const_cast<const doris::vectorized::IColumn**>(&col_ptr), idx,
-                                  nullptr);
+        if (_keys_type == KeysType::AGG_KEYS) { // use if-else to seperate code for now
+            vectorized::MutableBlock mutable_block =
+                    vectorized::MutableBlock::build_mutable_block(&in_block);
+            _vec_row_comparator->set_block(&mutable_block);
+            std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
+                      [this](const RowInBlock* l, const RowInBlock* r) -> bool {
+                          auto value = (*(this->_vec_row_comparator))(l, r);
+                          if (value == 0) {
+                              return l->_row_pos > r->_row_pos;
+                          } else {
+                              return value < 0;
+                          }
+                      });
+            std::vector<RowInBlock *> temp_row_in_blocks;
+            for(int i = 0;i < _row_in_blocks.size();i++){
+                if(!temp_row_in_blocks.empty() && (*_vec_row_comparator)(temp_row_in_blocks.back(),_row_in_blocks[i])==0){
+                    _merged_rows++;
+                    _aggregate_two_row_in_block(_row_in_blocks[i], temp_row_in_blocks.back());
+                }else{
+                    _row_in_blocks[i]->init_agg_places(_arena->aligned_alloc(_total_size_of_aggregate_states, 16),
+                                      _offsets_of_aggregate_states.data());
+                    for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
+                        auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
+                        auto data = _row_in_blocks[i]->agg_places(cid);
+                        _agg_functions[cid]->create(data);
+                        _agg_functions[cid]->add(data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+                                                 _row_in_blocks[i]->_row_pos, nullptr);
+                    }
+                    temp_row_in_blocks.push_back(_row_in_blocks[i]);
                 }
             }
-            if constexpr (!is_final) {
-                // re-index the row_pos in VSkipList
-                it.key()->_row_pos = idx;
-                idx++;
+            for (auto& now_row : temp_row_in_blocks) {
+                auto& block_data = in_block.get_columns_with_type_and_name();
+                // move key columns
+                for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
+                    _output_mutable_block.get_column_by_position(i)->insert_from(
+                            *block_data[i].column.get(), now_row->_row_pos);
+                }
+                // get value columns from agg_places
+                for (size_t i = _schema->num_key_columns(); i < _num_columns; ++i) {
+                    auto function = _agg_functions[i];
+                    auto agg_place = now_row->agg_places(i);
+                    auto col_ptr = _output_mutable_block.get_column_by_position(i).get();
+                    function->insert_result_into(agg_place, *col_ptr);
+                    if constexpr (is_final) {
+                        function->destroy(agg_place);
+                    } else {
+                        function->reset(agg_place);
+                        function->add(agg_place,
+                                      const_cast<const doris::vectorized::IColumn**>(&col_ptr), idx,
+                                      nullptr);
+                    }
+                }
+                if constexpr (!is_final) {
+                    // re-index the row_pos in VSkipList
+                    now_row->_row_pos = idx;
+                    idx++;
+                }
+            }
+        } else {
+            for (it.SeekToFirst(); it.Valid(); it.Next()) {
+                auto& block_data = in_block.get_columns_with_type_and_name();
+                // move key columns
+                for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
+                    _output_mutable_block.get_column_by_position(i)->insert_from(
+                            *block_data[i].column.get(), it.key()->_row_pos);
+                }
+                // get value columns from agg_places
+                for (size_t i = _schema->num_key_columns(); i < _num_columns; ++i) {
+                    auto function = _agg_functions[i];
+                    auto agg_place = it.key()->agg_places(i);
+                    auto col_ptr = _output_mutable_block.get_column_by_position(i).get();
+                    function->insert_result_into(agg_place, *col_ptr);
+                    if constexpr (is_final) {
+                        function->destroy(agg_place);
+                    } else {
+                        function->reset(agg_place);
+                        function->add(agg_place,
+                                      const_cast<const doris::vectorized::IColumn**>(&col_ptr), idx,
+                                      nullptr);
+                    }
+                }
+                if constexpr (!is_final) {
+                    // re-index the row_pos in VSkipList
+                    it.key()->_row_pos = idx;
+                    idx++;
+                }
             }
         }
         if constexpr (!is_final) {
