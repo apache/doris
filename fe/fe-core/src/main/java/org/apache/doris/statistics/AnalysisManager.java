@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.DropStatsStmt;
+import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
@@ -30,6 +31,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -66,7 +68,8 @@ public class AnalysisManager {
 
     private static final String UPDATE_JOB_STATE_SQL_TEMPLATE = "UPDATE "
             + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_JOB_TABLE + " "
-            + "SET state = '${jobState}' ${message} ${updateExecTime} WHERE job_id = ${jobId} and task_id=${taskId}";
+            + "SET state = '${jobState}' ${message} ${updateExecTime} "
+            + "WHERE job_id = ${jobId} and (task_id=${taskId} || ${isAllTask})";
 
     private static final String SHOW_JOB_STATE_SQL_TEMPLATE = "SELECT "
             + "job_id, catalog_name, db_name, tbl_name, col_name, job_type, "
@@ -76,11 +79,13 @@ public class AnalysisManager {
     // The time field that needs to be displayed
     private static final String LAST_EXEC_TIME_IN_MS = "last_exec_time_in_ms";
 
-    private final ConcurrentMap<Long, Map<Long, AnalysisTaskInfo>> analysisJobIdToTaskMap;
+    private final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap;
 
     private StatisticsCache statisticsCache;
 
     private final AnalysisTaskExecutor taskExecutor;
+
+    private ConcurrentMap<ConnectContext, SyncTaskCollection> ctxToSyncTask = new ConcurrentHashMap<>();
 
     public AnalysisManager() {
         analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -96,10 +101,12 @@ public class AnalysisManager {
 
     // Each analyze stmt corresponding to an analysis job.
     public void createAnalysisJob(AnalyzeStmt stmt) throws DdlException {
+        if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
+            throw new DdlException("Stats table not available, please make sure your cluster status is normal");
+        }
         long jobId = Env.getCurrentEnv().getNextId();
         AnalysisTaskInfoBuilder taskInfoBuilder = buildCommonTaskInfo(stmt, jobId);
-        Map<Long, AnalysisTaskInfo> analysisTaskInfos = new HashMap<>();
-        // start build analysis tasks
+        Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(stmt.getColumnNames(), taskInfoBuilder, analysisTaskInfos, stmt.isSync());
         createTaskForMVIdx(stmt.getTable(), taskInfoBuilder, analysisTaskInfos, stmt.getAnalysisType(), stmt.isSync());
 
@@ -182,7 +189,7 @@ public class AnalysisManager {
     }
 
     private void createTaskForMVIdx(TableIf table, AnalysisTaskInfoBuilder taskInfoBuilder,
-            Map<Long, AnalysisTaskInfo> analysisTaskInfos, AnalysisType analysisType,
+            Map<Long, BaseAnalysisTask> analysisTasks, AnalysisType analysisType,
             boolean isSync) throws DdlException {
         TableType type = table.getType();
         if (analysisType != AnalysisType.INDEX || !type.equals(TableType.OLAP)) {
@@ -204,6 +211,7 @@ public class AnalysisManager {
                 long taskId = Env.getCurrentEnv().getNextId();
                 AnalysisTaskInfo analysisTaskInfo = indexTaskInfoBuilder.setIndexId(indexId)
                         .setTaskId(taskId).build();
+                analysisTasks.put(taskId, createTask(analysisTaskInfo));
                 if (isSync) {
                     return;
                 }
@@ -219,14 +227,14 @@ public class AnalysisManager {
     }
 
     private void createTaskForEachColumns(Set<String> colNames, AnalysisTaskInfoBuilder taskInfoBuilder,
-            Map<Long, AnalysisTaskInfo> analysisTaskInfos, boolean isSync) throws DdlException {
+            Map<Long, BaseAnalysisTask> analysisTasks, boolean isSync) throws DdlException {
         for (String colName : colNames) {
             AnalysisTaskInfoBuilder colTaskInfoBuilder = taskInfoBuilder.copy();
             long indexId = -1;
             long taskId = Env.getCurrentEnv().getNextId();
             AnalysisTaskInfo analysisTaskInfo = colTaskInfoBuilder.setColName(colName)
                     .setIndexId(indexId).setTaskId(taskId).build();
-            analysisTaskInfos.put(taskId, analysisTaskInfo);
+            analysisTasks.put(taskId, createTask(analysisTaskInfo));
             if (isSync) {
                 continue;
             }
@@ -249,6 +257,7 @@ public class AnalysisManager {
         params.put("updateExecTime", time == -1 ? "" : ", last_exec_time_in_ms=" + time);
         params.put("jobId", String.valueOf(info.jobId));
         params.put("taskId", String.valueOf(info.taskId));
+        params.put("isAllTask", "false");
         try {
             StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(UPDATE_JOB_STATE_SQL_TEMPLATE));
         } catch (Exception e) {
@@ -256,8 +265,8 @@ public class AnalysisManager {
         } finally {
             info.state = jobState;
             if (analysisJobIdToTaskMap.get(info.jobId).values()
-                    .stream().allMatch(i -> i.state != null
-                            && i.state != AnalysisState.PENDING && i.state != AnalysisState.RUNNING)) {
+                    .stream().allMatch(t -> t.info.state != null
+                            && t.info.state != AnalysisState.PENDING && t.info.state != AnalysisState.RUNNING)) {
                 analysisJobIdToTaskMap.remove(info.jobId);
                 params.put("taskId", String.valueOf(-1));
                 try {
@@ -298,21 +307,14 @@ public class AnalysisManager {
         return results;
     }
 
-    private void syncExecute(Collection<AnalysisTaskInfo> taskInfos) {
-        List<String> colNames = new ArrayList<>();
-        for (AnalysisTaskInfo info : taskInfos) {
-            try {
-                TableIf table = StatisticsUtil.findTable(info.catalogName,
-                        info.dbName, info.tblName);
-                BaseAnalysisTask analysisTask = table.createAnalysisTask(info);
-                analysisTask.execute();
-            } catch (Throwable t) {
-                colNames.add(info.colName);
-                LOG.info("Failed to analyze, info: {}", info);
-            }
-        }
-        if (!colNames.isEmpty()) {
-            throw new RuntimeException("Failed to analyze following columns: " + String.join(",", colNames));
+    private void syncExecute(Collection<BaseAnalysisTask> tasks) {
+        SyncTaskCollection syncTaskCollection = new SyncTaskCollection(tasks);
+        ConnectContext ctx = ConnectContext.get();
+        try {
+            ctxToSyncTask.put(ctx, syncTaskCollection);
+            syncTaskCollection.execute();
+        } finally {
+            ctxToSyncTask.remove(ctx);
         }
     }
 
@@ -329,4 +331,91 @@ public class AnalysisManager {
         }
     }
 
+    public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
+        Map<Long, BaseAnalysisTask> analysisTaskInfoMap = analysisJobIdToTaskMap.remove(killAnalysisJobStmt.jobId);
+        if (analysisTaskInfoMap == null) {
+            throw new DdlException("Job not exists or already finished");
+        }
+        BaseAnalysisTask anyTask = analysisTaskInfoMap.values().stream().findFirst().orElse(null);
+        if (anyTask == null) {
+            return;
+        }
+        checkPriv(anyTask);
+        for (BaseAnalysisTask taskInfo : analysisTaskInfoMap.values()) {
+            taskInfo.markAsKilled();
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("jobState", AnalysisState.FAILED.toString());
+        params.put("message", ", message = 'Killed by user : " + ConnectContext.get().getQualifiedUser() + "'");
+        params.put("updateExecTime", ", last_exec_time_in_ms=" + String.valueOf(System.currentTimeMillis()));
+        params.put("jobId", String.valueOf(killAnalysisJobStmt.jobId));
+        params.put("taskId", "'-1'");
+        params.put("isAllTask", "true");
+        try {
+            StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(UPDATE_JOB_STATE_SQL_TEMPLATE));
+        } catch (Exception e) {
+            LOG.warn("Failed to update status", e);
+        }
+    }
+
+    private void checkPriv(BaseAnalysisTask analysisTask) {
+        String dbName = analysisTask.db.getFullName();
+        String tblName = analysisTask.tbl.getName();
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SELECT)) {
+            throw new RuntimeException("You need at least SELECT PRIV to corresponding table to kill this analyze"
+                    + " job");
+        }
+    }
+
+    public void cancelSyncTask(ConnectContext connectContext) {
+        SyncTaskCollection syncTaskCollection = ctxToSyncTask.get(connectContext);
+        if (syncTaskCollection != null) {
+            syncTaskCollection.cancel();
+        }
+    }
+
+    private BaseAnalysisTask createTask(AnalysisTaskInfo analysisTaskInfo) throws DdlException {
+        try {
+            TableIf table = StatisticsUtil.findTable(analysisTaskInfo.catalogName,
+                    analysisTaskInfo.dbName, analysisTaskInfo.tblName);
+            return table.createAnalysisTask(analysisTaskInfo);
+        } catch (Throwable t) {
+            LOG.warn("Failed to find table", t);
+            throw new DdlException("Error when trying to find table", t);
+        }
+    }
+
+    private static class SyncTaskCollection {
+        public volatile boolean cancelled;
+
+        public final Collection<BaseAnalysisTask> tasks;
+
+        public SyncTaskCollection(Collection<BaseAnalysisTask> tasks) {
+            this.tasks = tasks;
+        }
+
+        public void cancel() {
+            cancelled = true;
+            tasks.forEach(BaseAnalysisTask::markAsKilled);
+        }
+
+        public void execute() {
+            List<String> colNames = new ArrayList<>();
+            for (BaseAnalysisTask task : tasks) {
+                if (cancelled) {
+                    continue;
+                }
+                try {
+                    task.execute();
+                } catch (Throwable t) {
+                    colNames.add(task.info.colName);
+                    LOG.info("Failed to analyze, info: {}", task);
+                }
+            }
+            if (!colNames.isEmpty()) {
+                throw new RuntimeException("Failed to analyze following columns: " + String.join(",", colNames));
+            }
+        }
+    }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.remote;
+package org.apache.doris.fs.operations;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
@@ -30,7 +30,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 
-public class HDFSFileOperations {
+public class HDFSFileOperations implements FileOperations {
     private static final Logger LOG = LogManager.getLogger(HDFSFileOperations.class);
     public static final int READ_BUFFER_SIZE = 128 << 10; // 128k
     public static final int WRITE_BUFFER_SIZE = 128 << 10; // 128k
@@ -45,33 +45,38 @@ public class HDFSFileOperations {
     /**
      * open remotePath for read.
      *
-     * @param remotePath  hdfs://namenode:port/path.
-     * @param startOffset the offset to read.
-     * @return FSDataInputStream if success.
-     * @throws UserException when get filesystem failed.
-     * @throws IOException   when open file error.
+     * @param opParams hdfsOpParams.remotePath:  hdfs://namenode:port/path.
+     *                 hdfsOpParams.startOffset: the offset to read.
+     * @return Status.OK and set fsDataInputStream if success
      */
-    public FSDataInputStream openReader(String remotePath, long startOffset) throws UserException, IOException {
-        URI pathUri = URI.create(remotePath);
-        Path inputFilePath = new Path(pathUri.getPath());
+    public Status openReader(OpParams opParams) {
+        HDFSOpParams hdfsOpParams = (HDFSOpParams) opParams;
         try {
+            URI pathUri = URI.create(hdfsOpParams.remotePath());
+            Path inputFilePath = new Path(pathUri.getPath());
             FSDataInputStream fsDataInputStream = hdfsClient.open(inputFilePath, READ_BUFFER_SIZE);
-            fsDataInputStream.seek(startOffset);
-            return fsDataInputStream;
+            fsDataInputStream.seek(hdfsOpParams.startOffset());
+            hdfsOpParams.withFsDataInputStream(fsDataInputStream);
+            return Status.OK;
         } catch (IOException e) {
             LOG.error("errors while open path", e);
-            throw new IOException(e.getMessage());
+            return new Status(Status.ErrCode.COMMON_ERROR, "failed to open reader, msg:" + e.getMessage());
+        } catch (UserException ex) {
+            LOG.error("errors while get filesystem", ex);
+            return new Status(Status.ErrCode.COMMON_ERROR, "failed to get filesystem, msg:" + ex.getMessage());
         }
     }
 
     /**
      * close for read.
      *
-     * @param fsDataInputStream the input stream.
+     * @param opParams hdfsOpParams.fsDataInputStream: the input stream.
      * @return Status.OK if success.
      */
-    public Status closeReader(FSDataInputStream fsDataInputStream) {
-        synchronized (fsDataInputStream) {
+    public Status closeReader(OpParams opParams) {
+        HDFSOpParams hdfsOpParams = (HDFSOpParams) opParams;
+        FSDataInputStream fsDataInputStream = hdfsOpParams.fsDataInputStream();
+        synchronized (this) {
             try {
                 fsDataInputStream.close();
             } catch (IOException e) {
@@ -87,31 +92,35 @@ public class HDFSFileOperations {
     /**
      * open remotePath for write.
      *
-     * @param remotePath hdfs://namenode:port/path.
-     * @return FSDataOutputStream
-     * @throws UserException when get filesystem failed.
-     * @throws IOException   when open path error.
+     * @param opParams hdfsOpParams.remotePath: hdfs://namenode:port/path.
+     * @return Status.OK and set FSDataOutputStream if success
      */
-    public FSDataOutputStream openWriter(String remotePath) throws UserException, IOException {
-        URI pathUri = URI.create(remotePath);
-        Path inputFilePath = new Path(pathUri.getPath());
+    public Status openWriter(OpParams opParams) {
+        HDFSOpParams hdfsOpParams = (HDFSOpParams) opParams;
         try {
-            return hdfsClient.create(inputFilePath, true, WRITE_BUFFER_SIZE);
+            URI pathUri = URI.create(hdfsOpParams.remotePath());
+            Path inputFilePath = new Path(pathUri.getPath());
+            hdfsOpParams.withFsDataOutputStream(hdfsClient.create(inputFilePath, true, WRITE_BUFFER_SIZE));
+            return Status.OK;
         } catch (IOException e) {
             LOG.error("errors while open path", e);
-            throw new IOException(e.getMessage());
+            return new Status(Status.ErrCode.COMMON_ERROR, "failed to open writer, msg:" + e.getMessage());
+        } catch (UserException ex) {
+            LOG.error("errors while get filesystem", ex);
+            return new Status(Status.ErrCode.COMMON_ERROR, "failed to get filesystem, msg:" + ex.getMessage());
         }
     }
 
     /**
      * close for write.
      *
-     * @param fsDataOutputStream output stream.
+     * @param opParams hdfsOpParams.fsDataOutputStream: output stream.
      * @return Status.OK if success.
      */
-
-    public Status closeWriter(FSDataOutputStream fsDataOutputStream) {
-        synchronized (fsDataOutputStream) {
+    public Status closeWriter(OpParams opParams) {
+        HDFSOpParams hdfsOpParams = (HDFSOpParams) opParams;
+        FSDataOutputStream fsDataOutputStream = hdfsOpParams.fsDataOutputStream();
+        synchronized (this) {
             try {
                 fsDataOutputStream.flush();
                 fsDataOutputStream.close();

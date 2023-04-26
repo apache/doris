@@ -109,7 +109,7 @@ public class Histogram {
      */
     public static Histogram deserializeFromJson(String json) {
         if (Strings.isNullOrEmpty(json)) {
-            return null;
+            return Histogram.UNKNOWN;
         }
 
         try {
@@ -140,7 +140,7 @@ public class Histogram {
             LOG.error("deserialize from json error.", e);
         }
 
-        return null;
+        return Histogram.UNKNOWN;
     }
 
     /**

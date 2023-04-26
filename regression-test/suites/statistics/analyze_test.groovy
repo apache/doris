@@ -263,8 +263,6 @@ suite("analyze_test") {
 //        throw e;
 //    }
 
-
-
     sql """CREATE TABLE ${tblName2} (analyze_test_col1 varchar(11451) not null, analyze_test_col2 int not null, analyze_test_col3 int not null)
     UNIQUE KEY(analyze_test_col1)
     DISTRIBUTED BY HASH(analyze_test_col1)

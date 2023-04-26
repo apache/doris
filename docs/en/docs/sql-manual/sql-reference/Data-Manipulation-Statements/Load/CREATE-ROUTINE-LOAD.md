@@ -282,7 +282,7 @@ FROM data_source [data_source_properties]
 
      When the value of the parameter is a file, you need to add the keyword: "FILE:" before the value.
 
-     For how to create a file, please refer to the [CREATE FILE](http://palo.baidu.com/docs/SQL Manual/Syntax Help/DML/ROUTINE-LOAD/#Syntax error or this link does not work-) command documentation.
+     For how to create a file, please refer to the [CREATE FILE](../../../Data-Definition-Statements/Create/CREATE-FILE) command documentation.
 
      For more supported custom parameters, please refer to the configuration items on the client side in the official CONFIGURATION document of librdkafka. Such as:
 

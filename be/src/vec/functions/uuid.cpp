@@ -18,8 +18,8 @@
 #include <glog/logging.h>
 #include <stddef.h>
 
-// IWYU pragma: no_include <boost/uuid/random_generator.hpp>
-// IWYU pragma: no_include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <memory>
 #include <string>
 #include <utility>
