@@ -257,7 +257,7 @@ CREATE EXTERNAL TABLE `ext_oceanbase_mysql` (
 ) ENGINE=JDBC
 PROPERTIES (
     "resource" = "jdbc_oceanbase",
-    "table" = "test",
+    "table" = "test.test",
     "table_type"="oceanbase"
 );
 
@@ -266,7 +266,7 @@ CREATE EXTERNAL TABLE `ext_oceanbase_oracle` (
 ) ENGINE=JDBC
 PROPERTIES (
     "resource" = "jdbc_oceanbase",
-    "table" = "test",
+    "table" = "test.test",
     "table_type"="oceanbase_oracle"
 );
 ```
