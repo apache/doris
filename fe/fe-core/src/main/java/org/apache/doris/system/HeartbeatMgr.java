@@ -26,7 +26,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.BackendInfo;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -129,28 +129,28 @@ public class HeartbeatMgr extends MasterDaemon {
         }
 
         // collect all heartbeat responses and handle them.
-        // and also we find which node's info is changed, if is changed, we need collect them and write
+        // and also we find which node's info is changed, if is changed, we need collect
+        // them and write
         // an edit log to synchronize the info to other Frontends
         HbPackage hbPackage = new HbPackage();
+        BackendInfo.clear();
         for (Future<HeartbeatResponse> future : hbResponses) {
             boolean isChanged = false;
             try {
-                // the heartbeat rpc's timeout is 5 seconds, so we will not be blocked here very long.
+                // the heartbeat rpc's timeout is 5 seconds, so we will not be blocked here very
+                // long.
                 HeartbeatResponse response = future.get();
                 if (response.getStatus() != HbStatus.OK) {
                     LOG.warn("get bad heartbeat response: {}", response);
                 }
                 isChanged = handleHbResponse(response, false);
                 if (response.isBackEnd()) {
-                    int coreSize = (int) ((BackendHbResponse) response).getCoreSize();
-                    ConnectContext.get().getSessionVariable().setParallelExecInstanceNum((coreSize + 1) / 2);
-                    LOG.warn("yxc get CoreSize: {}", ((BackendHbResponse) response).getCoreSize());
+                    long coreSize = ((BackendHbResponse) response).getCoreSize();
+                    long beId = ((BackendHbResponse) response).getBeId();
+                    BackendInfo.addBeInfo(beId, coreSize);
                 }
                 if (isChanged) {
                     hbPackage.addHbResponse(response);
-                    if (response.isBackEnd()) {
-                        LOG.warn("yxc get", ((BackendHbResponse) response).getCoreSize());
-                    }
                 }
             } catch (InterruptedException | ExecutionException e) {
                 LOG.warn("got exception when doing heartbeat", e);
@@ -268,7 +268,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 } else {
                     return new BackendHbResponse(backendId, backend.getIp(),
                             result.getStatus().getErrorMsgs().isEmpty()
-                                    ? "Unknown error" : result.getStatus().getErrorMsgs().get(0));
+                                    ? "Unknown error"
+                                    : result.getStatus().getErrorMsgs().get(0));
                 }
             } catch (Exception e) {
                 LOG.warn("backend heartbeat got exception", e);
