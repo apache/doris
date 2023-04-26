@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
+import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -119,7 +120,9 @@ public class MetadataGenerator {
                     }
                     trow.addToColumnValue(new TCell().setStringVal(snapshot.operation()));
                     trow.addToColumnValue(new TCell().setStringVal(snapshot.manifestListLocation()));
-                    dataBatch.add(trow);
+
+                    TRow filterRow = filterColumns(trow, params.getColumnsName(), TMetadataType.ICEBERG);
+                    dataBatch.add(filterRow);
                 }
                 break;
             default:
@@ -232,7 +235,9 @@ public class MetadataGenerator {
 
             // node role, show the value only when backend is alive.
             trow.addToColumnValue(new TCell().setStringVal(backend.isAlive() ? backend.getNodeRoleTag().value : ""));
-            dataBatch.add(trow);
+
+            TRow filterRow = filterColumns(trow, params.getColumnsName(), TMetadataType.BACKENDS);
+            dataBatch.add(filterRow);
         }
 
         // backends proc node get result too slow, add log to observer.
@@ -257,12 +262,35 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1)));
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(2)));
             trow.addToColumnValue(new TCell().setIntVal(value));
-            dataBatch.add(trow);
+            TRow filterRow = filterColumns(trow, params.getColumnsName(), TMetadataType.RESOURCE_GROUPS);
+            dataBatch.add(filterRow);
         }
 
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    private static TRow filterColumns(TRow fullColumn, List<String> columnNames, TMetadataType type) {
+        TRow filterRow = new TRow();
+        for (String columnName : columnNames) {
+            Integer index = 0;
+            switch (type) {
+                case ICEBERG:
+                    index = IcebergTableValuedFunction.getColumnIndexFromColumnName(columnName);
+                    break;
+                case BACKENDS:
+                    index = BackendsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+                    break;
+                case RESOURCE_GROUPS:
+                    index = ResourceGroupsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+                    break;
+                default:
+                    break;
+            }
+            filterRow.addToColumnValue(fullColumn.getColumnValue().get(index));
+        }
+        return filterRow;
     }
 
     private static org.apache.iceberg.Table getIcebergTable(HMSExternalCatalog catalog, String db, String tbl)
