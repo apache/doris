@@ -261,7 +261,7 @@ public class HiveMetaStoreCache {
                     sd.getInputFormat(), sd.getLocation(), key, catalog.getName());
         }
         // TODO: more info?
-        return new HivePartition(sd.getInputFormat(), sd.getLocation(), key.values);
+        return new HivePartition(key.dbName, key.tblName, sd.getInputFormat(), sd.getLocation(), key.values);
     }
 
     private FileCacheValue loadFiles(FileCacheKey key) {
@@ -360,7 +360,9 @@ public class HiveMetaStoreCache {
         long start = System.currentTimeMillis();
         List<FileCacheKey> keys = Lists.newArrayListWithExpectedSize(partitions.size());
         partitions.stream().forEach(p -> {
-            FileCacheKey fileCacheKey = new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues());
+            FileCacheKey fileCacheKey = p.isDummyPartition()
+                    ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(), p.getInputFormat(), useSelfSplitter)
+                    : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues());
             fileCacheKey.setUseSelfSplitter(useSelfSplitter);
             keys.add(fileCacheKey);
         });
@@ -438,12 +440,13 @@ public class HiveMetaStoreCache {
              * A file cache entry can be created reference to
              * {@link org.apache.doris.planner.external.HiveSplitter#getSplits},
              * so we need to invalidate it if this is a non-partitioned table.
-             *
+             * We use {@link org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheKey#createDummyCacheKey}
+             * to avoid invocation by Hms Client, because this method may be invoked when salve FE replay journal logs,
+             * and FE will exit if some network problems occur.
              * */
-            Table table = catalog.getClient().getTable(dbName, tblName);
-            // we just need to assign the `location` filed because the `equals` method of `FileCacheKey`
-            // just compares the value of `location`
-            fileCacheRef.get().invalidate(new FileCacheKey(table.getSd().getLocation(), null, null));
+            FileCacheKey fileCacheKey = FileCacheKey.createDummyCacheKey(
+                    dbName, tblName, null, false);
+            fileCacheRef.get().invalidate(fileCacheKey);
         }
     }
 
@@ -699,6 +702,7 @@ public class HiveMetaStoreCache {
 
     @Data
     public static class FileCacheKey {
+        private static final String DUMMY_FILE_CACHE_KEY_TEMPLATE = "DUMMY-KEY.%s.%s";
         private String location;
         // not in key
         private String inputFormat;
@@ -715,6 +719,18 @@ public class HiveMetaStoreCache {
             this.inputFormat = inputFormat;
             this.partitionValues = partitionValues == null ? Lists.newArrayList() : partitionValues;
             this.useSelfSplitter = true;
+        }
+
+        public static FileCacheKey createDummyCacheKey(String dbName, String tblName,
+                                                       String inputFormat, boolean useSelfSplitter) {
+            // we do not use non-partitioned table's real location
+            // because we need to use hms client to get the location info
+            // and this method may be invoked when slave FE replays journal logs,
+            // it is very dangerous to rely on external components
+            String location = String.format(DUMMY_FILE_CACHE_KEY_TEMPLATE, dbName, tblName);
+            FileCacheKey dummyKey = new FileCacheKey(location, inputFormat, null);
+            dummyKey.useSelfSplitter= useSelfSplitter;
+            return dummyKey;
         }
 
         @Override

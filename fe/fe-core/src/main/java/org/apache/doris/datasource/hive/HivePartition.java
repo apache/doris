@@ -23,11 +23,16 @@ import java.util.List;
 
 @Data
 public class HivePartition {
+    private String dbName;
+    private String tblName;
     private String inputFormat;
     private String path;
     private List<String> partitionValues;
+    private boolean isDummyPartition = false;
 
-    public HivePartition(String inputFormat, String path, List<String> partitionValues) {
+    public HivePartition(String dbName, String tblName, String inputFormat, String path, List<String> partitionValues) {
+        this.dbName = dbName;
+        this.tblName = tblName;
         // eg: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
         this.inputFormat = inputFormat;
         // eg: hdfs://hk-dev01:8121/user/doris/parquet/partition_table/nation=cn/city=beijing
@@ -36,10 +41,21 @@ public class HivePartition {
         this.partitionValues = partitionValues;
     }
 
+    public void setDummyPartition() {
+        this.isDummyPartition = true;
+    }
+
+    public boolean isDummyPartition() {
+        return this.isDummyPartition;
+    }
+
     @Override
     public String toString() {
         return "HivePartition{"
-                + "inputFormat='" + inputFormat + '\''
+                + "dbName='" + dbName + '\''
+                + ", tblName='" + tblName + '\''
+                + ", isDummyPartition='" + isDummyPartition + '\''
+                + ", inputFormat='" + inputFormat + '\''
                 + ", path='" + path + '\''
                 + ", partitionValues=" + partitionValues + '}';
     }
