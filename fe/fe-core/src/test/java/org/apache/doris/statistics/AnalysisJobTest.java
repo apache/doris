@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -52,13 +53,14 @@ public class AnalysisJobTest extends TestWithFeService {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+        FeConstants.runningUnitTest = true;
     }
 
     @Test
     public void testCreateAnalysisJob(@Mocked AnalysisTaskScheduler scheduler) throws Exception {
         new Expectations() {
             {
-                scheduler.schedule((AnalysisTaskInfo) any);
+                scheduler.schedule((BaseAnalysisTask) any);
                 times = 3;
             }
         };
