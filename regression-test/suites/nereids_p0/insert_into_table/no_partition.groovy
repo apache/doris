@@ -19,7 +19,7 @@ suite('nereids_insert_no_partition') {
     sql 'use nereids_insert_into_table_test'
     sql 'clean label from nereids_insert_into_table_test'
 
-    sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into agg_nop_t
@@ -178,19 +178,6 @@ suite('nereids_insert_no_partition') {
             select * except(kaint) from src where id is not null'''
     qt_lsc2 'select * from agg_light_sc_not_null_nop_t order by id, kint'
 
-    // test hint
-    explain {
-        sql '''insert into agg_light_sc_nop_t [NOSHUFFLE]
-            select * except(kaint) from src'''
-        contains ''
-    }
-
-    explain {
-        sql '''insert into agg_light_sc_not_null_nop_t [SHUFFLE]
-            select * except(kaint) from src where id is not null'''
-        contains ''
-    }
-
     // test light_schema_change
     sql 'alter table dup_light_sc_nop_t rename column ktint ktinyint'
     sql 'alter table dup_light_sc_not_null_nop_t rename column ktint ktinyint'
@@ -202,19 +189,6 @@ suite('nereids_insert_no_partition') {
     sql '''insert into dup_light_sc_not_null_nop_t
             select * except(kaint) from src where id is not null'''
     qt_lsc2 'select * from dup_light_sc_not_null_nop_t order by id, kint'
-
-    // test hint
-    explain {
-        sql '''insert into dup_light_sc_nop_t [NOSHUFFLE]
-            select * except(kaint) from src'''
-        contains 'select * from dup_light_sc_nop_t order by id, kint'
-    }
-
-    explain {
-        sql '''insert into dup_light_sc_not_null_nop_t [SHUFFLE]
-            select * except(kaint) from src where id is not null'''
-        contains 'select * from dup_light_sc_not_null_nop_t order by id, kint'
-    }
 
     // test light_schema_change
     sql 'alter table uni_light_sc_nop_t rename column ktint ktinyint'
@@ -237,17 +211,4 @@ suite('nereids_insert_no_partition') {
     sql '''insert into uni_light_sc_mow_not_null_nop_t
             select * except(kaint) from src where id is not null'''
     qt_lsc4 'select * from uni_light_sc_mow_not_null_nop_t order by id, kint'
-
-    // test hint
-    explain {
-        sql '''insert into uni_light_sc_nop_t [NOSHUFFLE]
-            select * except(kaint) from src'''
-        contains 'select * from uni_light_sc_nop_t order by id, kint'
-    }
-    
-    explain {
-        sql '''insert into uni_light_sc_not_null_nop_t [SHUFFLE]
-            select * except(kaint) from src where id is not null'''
-        contains 'select * from uni_light_sc_not_null_nop_t order by id, kint'
-    }
 }

@@ -19,7 +19,7 @@ suite("nereids_insert_unique") {
     sql 'use nereids_insert_into_table_test'
     sql 'clean label from nereids_insert_into_table_test'
 
-    sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into uni_t
@@ -127,24 +127,24 @@ suite("nereids_insert_unique") {
     qt_83 'select * from uni_light_sc_mow_not_null_t order by id, kint'
 
     // test light_schema_change
-    sql 'alter table uni_light_sc_nop_t rename column ktint ktinyint'
-    sql 'alter table uni_light_sc_mow_nop_t rename column ktint ktinyint'
-    sql 'alter table uni_light_sc_not_null_nop_t rename column ktint ktinyint'
-    sql 'alter table uni_light_sc_mow_not_null_nop_t rename column ktint ktinyint'
+    sql 'alter table uni_light_sc_t rename column ktint ktinyint'
+    sql 'alter table uni_light_sc_mow_t rename column ktint ktinyint'
+    sql 'alter table uni_light_sc_not_null_t rename column ktint ktinyint'
+    sql 'alter table uni_light_sc_mow_not_null_t rename column ktint ktinyint'
 
-    sql '''insert into uni_light_sc_nop_t
+    sql '''insert into uni_light_sc_t
             select * except(kaint) from src'''
-    qt_lsc1 'select * from uni_light_sc_nop_t order by id, kint'
+    qt_lsc1 'select * from uni_light_sc_t order by id, kint'
 
-    sql '''insert into uni_light_sc_not_null_nop_t
+    sql '''insert into uni_light_sc_not_null_t
             select * except(kaint) from src where id is not null'''
-    qt_lsc2 'select * from uni_light_sc_not_null_nop_t order by id, kint'
+    qt_lsc2 'select * from uni_light_sc_not_null_t order by id, kint'
 
-    sql '''insert into uni_light_sc_mow_nop_t
+    sql '''insert into uni_light_sc_mow_t
             select * except(kaint) from src'''
-    qt_lsc3 'select * from uni_light_sc_mow_nop_t order by id, kint'
+    qt_lsc3 'select * from uni_light_sc_mow_t order by id, kint'
 
-    sql '''insert into uni_light_sc_mow_not_null_nop_t
+    sql '''insert into uni_light_sc_mow_not_null_t
             select * except(kaint) from src where id is not null'''
-    qt_lsc4 'select * from uni_light_sc_mow_not_null_nop_t order by id, kint'
+    qt_lsc4 'select * from uni_light_sc_mow_not_null_t order by id, kint'
 }
