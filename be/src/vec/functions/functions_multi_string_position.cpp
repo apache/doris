@@ -74,13 +74,15 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>()));
+        return make_nullable(std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>())));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         ColumnPtr haystack_ptr = block.get_by_position(arguments[0]).column;
         ColumnPtr needles_ptr = block.get_by_position(arguments[1]).column;
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
         const ColumnString* col_haystack_vector =
                 check_and_get_column<ColumnString>(&*haystack_ptr);
@@ -125,7 +127,7 @@ public:
         auto nullable_col =
                 ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_res->size(), 0));
         block.get_by_position(result).column =
-                ColumnArray::create(std::move(nullable_col), std::move(col_offsets));
+                ColumnNullable::create(ColumnArray::create(std::move(nullable_col), std::move(col_offsets)), std::move(null_map));
         return status;
     }
 };

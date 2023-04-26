@@ -51,4 +51,42 @@ suite("test_multi_string_position") {
     qt_select3 "select multi_search_all_positions('mpswgtljbbrmivkcglamemayfn', ['', 'm', 'saejhpnfgfq', 'rzanrkdssmmkanqjpfi', 'oputeneprgoowg', 'mp', '', '', 'wgtljbbrmivkcglamemay', 'cbpthtrgrmgfypizi', 'tl', 'tlj', 'xuhs', 'brmivkcglamemayfn', '', 'gtljb'])"
     qt_select4 "select multi_search_all_positions('arbphzbbecypbzsqsljurtddve', ['arbphzb', 'mnrboimjfijnti', 'cikcrd', 'becypbz', 'z', 'uocmqgnczhdcrvtqrnaxdxjjlhakoszuwc', 'bbe', '', 'bp', 'yhltnexlpdijkdzt', 'jkwjmrckvgmccmmrolqvy', 'vdxmicjmfbtsbqqmqcgtnrvdgaucsgspwg', 'witlfqwvhmmyjrnrzttrikhhsrd', 'pbzsqsljurt'])"
     qt_select5 "select multi_search_all_positions('aizovxqpzcbbxuhwtiaaqhdqjdei', ['qpzcbbxuhw', 'jugrpglqbm', 'dspwhzpyjohhtizegrnswhjfpdz', 'pzcbbxuh', 'vayzeszlycke', 'i', 'gvrontcpqavsjxtjwzgwxugiyhkhmhq', 'gyzmeroxztgaurmrqwtmsxcqnxaezuoapatvu', 'xqpzc', 'mjiswsvlvlpqrhhptqq', 'iz', 'hmzjxxfjsvcvdpqwtrdrp', 'zovxqpzcbbxuhwtia', 'ai'])"
+
+    sql """ DROP TABLE IF EXISTS ${table_name} """
+    sql """ CREATE TABLE IF NOT EXISTS ${table_name}
+            (
+                `col1`      INT NOT NULL,
+                `content`   TEXT NULL,
+                `mode`      ARRAY<TEXT> NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`col1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`col1`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+        """
+
+    sql """ INSERT INTO ${table_name} (col1, content, mode) VALUES
+            (1, 'Hello, World!', ['hello', 'world'] ),
+            (2, 'Hello, World!', ['hello', 'world', 'Hello', '!'] ),
+            (3, 'hello, world!', ['Hello', 'world'] ),
+            (4, 'hello, world!', ['hello', 'world', 'Hello', '!'] ),
+            (5, 'HHHHW!', ['H', 'HHHH', 'HW', 'WH'] ),
+            (6, NULL, ['H', 'HHHH', 'HW', 'WH'] ),
+            (7, 'HHHHW!', NULL ),
+            (8, 'HHHHW!', [NULL, 'HHHH', 'HW', 'WH'] );
+        """
+
+    qt_table_select3 "select multi_search_all_positions(content, ['hello', '!', 'world', 'Hello', 'World']) from ${table_name} order by col1"
+    qt_table_select4 "select multi_search_all_positions(content, mode) from ${table_name} order by col1"
+
+    qt_select6 "select multi_search_all_positions('arbphzbbecypbzsqsljurtddve', NULL)"
+    qt_select7 "select multi_search_all_positions(NULL, ['qpzcbbxuhw', 'jugrpglqbm', 'dspwhzpyjohhtizegrnswhjfpdz', 'pzcbbxuh', 'vayzeszlycke', 'i', 'gvrontcpqavsjxtjwzgwxugiyhkhmhq', 'gyzmeroxztgaurmrqwtmsxcqnxaezuoapatvu', 'xqpzc', 'mjiswsvlvlpqrhhptqq', 'iz', 'hmzjxxfjsvcvdpqwtrdrp', 'zovxqpzcbbxuhwtia', 'ai'])"
+    qt_select8 "select multi_search_all_positions('aizovxqpzcbbxuhwtiaaqhdqjdei', [NULL, 'jugrpglqbm', 'dspwhzpyjohhtizegrnswhjfpdz', 'pzcbbxuh', 'vayzeszlycke', 'i', 'gvrontcpqavsjxtjwzgwxugiyhkhmhq', 'gyzmeroxztgaurmrqwtmsxcqnxaezuoapatvu', 'xqpzc', 'mjiswsvlvlpqrhhptqq', 'iz', 'hmzjxxfjsvcvdpqwtrdrp', 'zovxqpzcbbxuhwtia', 'ai'])"
+
+
+    sql """ DROP TABLE IF EXISTS ${table_name} """
 }
