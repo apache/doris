@@ -1613,6 +1613,11 @@ public class FunctionCallExpr extends Expr {
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
+        for (OrderByElement o : orderByElements) {
+            if (!o.getExpr().isAnalyzed) {
+                o.getExpr().analyzeImpl(analyzer);
+            }
+        }
     }
 
     // if return type is nested type, need to be determined the sub-element type
