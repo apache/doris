@@ -150,30 +150,30 @@ GeoShape* WkbParse::readGeometry(WkbParseContext* ctx) {
 
     uint32_t geometryType = (typeInt & 0xffff) % 1000;
 
-    GeoShape* shape;
+    std::unique_ptr<GeoShape> shape;
 
     switch (geometryType) {
     case wkbType::wkbPoint:
-        shape = readPoint(ctx);
+        shape.reset(readPoint(ctx));
         break;
     case wkbType::wkbLine:
-        shape = readLine(ctx);
+        shape.reset(readLine(ctx));
         break;
     case wkbType::wkbPolygon:
-        shape = readPolygon(ctx);
+        shape.reset(readPolygon(ctx));
         break;
     default:
         return nullptr;
     }
-    return shape;
+    return shape.release();
 }
 
 GeoPoint* WkbParse::readPoint(WkbParseContext* ctx) {
     GeoCoordinateList coords = WkbParse::readCoordinateList(1, ctx);
-    GeoPoint* point = new GeoPoint();
+    std::unique_ptr<GeoPoint> point = GeoPoint::create_unique();
 
     if (point->from_coord(coords.list[0]) == GEO_PARSE_OK) {
-        return point;
+        return point.release();
     } else {
         return nullptr;
     }
@@ -184,10 +184,10 @@ GeoLine* WkbParse::readLine(WkbParseContext* ctx) {
     minMemSize(wkbLine, size, ctx);
 
     GeoCoordinateList coords = WkbParse::readCoordinateList(size, ctx);
-    GeoLine* line = new GeoLine();
+    std::unique_ptr<GeoLine> line = GeoLine::create_unique();
 
     if (line->from_coords(coords) == GEO_PARSE_OK) {
-        return line;
+        return line.release();
     } else {
         return nullptr;
     }
@@ -204,10 +204,10 @@ GeoPolygon* WkbParse::readPolygon(WkbParseContext* ctx) {
         coordss.add(coords);
     }
 
-    GeoPolygon* polygon = new GeoPolygon();
+    std::unique_ptr<GeoPolygon> polygon = GeoPolygon::create_unique();
 
     if (polygon->from_coords(coordss) == GEO_PARSE_OK) {
-        return polygon;
+        return polygon.release();
     } else {
         return nullptr;
     }
