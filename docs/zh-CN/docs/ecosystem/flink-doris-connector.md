@@ -399,6 +399,9 @@ env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.
 
 ## 使用 Flink CDC 接入 Doris 示例（支持 Insert / Update / Delete 事件）
 ```sql
+-- enable checkpoint
+SET 'execution.checkpointing.interval' = '10s';
+
 CREATE TABLE cdc_mysql_source (
   id int
   ,name VARCHAR
@@ -432,6 +435,16 @@ WITH (
 
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
+
+## 使用FlinkCDC更新Key列
+一般在业务数据库中，会使用编号来作为表的主键，比如Student表，会使用编号(id)来作为主键，但是随着业务的发展，数据对应的编号有可能是会发生变化的。
+在这种场景下，使用FlinkCDC + Doris Connector同步数据，便可以自动更新Doris主键列的数据。
+### 原理
+Flink CDC底层的采集工具是Debezium，Debezium内部使用op字段来标识对应的操作：op字段的取值分别为c、u、d、r，分别对应create、update、delete和read。
+而对于主键列的更新，FlinkCDC会向下游发送DELETE和INSERT事件，同时数据同步到Doris中后，就会自动更新主键列的数据。
+
+### 使用
+Flink程序可参考上面CDC同步的示例，成功提交任务后，在MySQL侧执行Update主键列的语句(`update  student set id = '1002' where id = '1001'`)，即可修改Doris中的数据。
 
 ## Java示例
 

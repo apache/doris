@@ -35,15 +35,8 @@ public class TabletMeta {
 
     private TStorageMedium storageMedium;
 
-    private boolean isDropped;
-
     public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
             TStorageMedium storageMedium) {
-        this(dbId, tableId, partitionId, indexId, schemaHash, storageMedium, false);
-    }
-
-    public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
-            TStorageMedium storageMedium, boolean isDropped) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
@@ -53,7 +46,6 @@ public class TabletMeta {
         this.newSchemaHash = -1;
 
         this.storageMedium = storageMedium;
-        this.isDropped = isDropped;
     }
 
     public long getDbId() {
@@ -84,14 +76,6 @@ public class TabletMeta {
         return this.oldSchemaHash;
     }
 
-    public boolean getIsDropped() {
-        return isDropped;
-    }
-
-    public void setIsDropped(boolean isDropped) {
-        this.isDropped = isDropped;
-    }
-
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -104,5 +88,4 @@ public class TabletMeta {
 
         return sb.toString();
     }
-
 }

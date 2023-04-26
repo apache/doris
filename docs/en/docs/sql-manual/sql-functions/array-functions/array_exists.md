@@ -35,6 +35,12 @@ array_exists(array1)
 
 ### description
 
+#### Syntax
+```sql
+BOOLEAN array_exists(lambda, ARRAY<T> arr1, ARRAY<T> arr2, ... )
+BOOLEAN array_exists(ARRAY<T> arr)
+```
+
 Use an optional lambda expression as an input parameter to perform corresponding expression calculations on the internal data of other input ARRAY parameters. Returns 1 when the calculation returns something other than 0; otherwise returns 0.
 There are one or more parameters input in the lambda expression, which must be consistent with the number of input array columns later. Legal scalar functions can be executed in lambda, aggregate functions, etc. are not supported.
 When lambda expression is not used as a parameter, array1 is used as the calculation result.

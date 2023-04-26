@@ -37,13 +37,17 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * @see org.apache.doris.fs.PersistentFileSystem
+ * @see org.apache.doris.fs.FileSystemFactory
+ */
+@Deprecated
 public abstract class BlobStorage implements Writable {
 
     public static final String STORAGE_TYPE = "_DORIS_STORAGE_TYPE_";
     private Map<String, String> properties = Maps.newHashMap();
     private String name;
     private StorageBackend.StorageType type;
-    private String location;
 
     public static String clientId() {
         return FrontendOptions.getLocalHostAddress() + ":" + Config.edit_log_port;
@@ -86,14 +90,6 @@ public abstract class BlobStorage implements Writable {
             properties.remove(STORAGE_TYPE);
         }
         return BlobStorage.create(name, type, properties);
-    }
-
-    public String getLocation() {
-        return location;
-    }
-
-    public void setLocation(String location) {
-        this.location = location;
     }
 
     public String getName() {

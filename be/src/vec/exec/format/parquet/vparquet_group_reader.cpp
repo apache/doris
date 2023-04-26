@@ -436,9 +436,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 
         const uint8_t* __restrict filter_map = result_filter.data();
         select_vector_ptr.reset(new ColumnSelectVector(filter_map, pre_read_rows, can_filter_all));
-        if (select_vector_ptr->filter_all() && !pre_eof) {
-            // If continuous batches are skipped, we can cache them to skip a whole page
-            _cached_filtered_rows += pre_read_rows;
+        if (select_vector_ptr->filter_all()) {
             for (auto& col : _lazy_read_ctx.predicate_columns.first) {
                 // clean block to read predicate columns
                 block->get_by_name(col).column->assume_mutable()->clear();
@@ -450,6 +448,17 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                 block->get_by_name(col.first).column->assume_mutable()->clear();
             }
             Block::erase_useless_column(block, origin_column_num);
+
+            if (!pre_eof) {
+                // If continuous batches are skipped, we can cache them to skip a whole page
+                _cached_filtered_rows += pre_read_rows;
+            } else { // pre_eof
+                // If select_vector_ptr->filter_all() and pre_eof, we can skip whole row group.
+                *read_rows = 0;
+                *batch_eof = true;
+                _lazy_read_filtered_rows += pre_read_rows;
+                return Status::OK();
+            }
         } else {
             break;
         }

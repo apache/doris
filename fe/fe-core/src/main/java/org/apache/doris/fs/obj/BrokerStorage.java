@@ -74,6 +74,10 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * @see org.apache.doris.fs.remote.BrokerFileSystem
+ */
+@Deprecated
 public class BrokerStorage extends BlobStorage {
     private static final Logger LOG = LogManager.getLogger(BrokerStorage.class);
 

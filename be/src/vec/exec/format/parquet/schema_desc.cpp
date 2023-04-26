@@ -467,7 +467,8 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
 
     map_field->name = map_schema.name;
     map_field->type.type = TYPE_MAP;
-    map_field->type.add_sub_type(map_kv_field->type);
+    map_field->type.add_sub_type(map_kv_field->type.children[0]);
+    map_field->type.add_sub_type(map_kv_field->type.children[1]);
     map_field->is_nullable = is_optional;
 
     return Status::OK();
@@ -492,7 +493,8 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     struct_field->is_nullable = is_optional;
     struct_field->type.type = TYPE_STRUCT;
     for (int i = 0; i < num_children; ++i) {
-        struct_field->type.add_sub_type(struct_field->children[i].type);
+        struct_field->type.add_sub_type(struct_field->children[i].type,
+                                        struct_field->children[0].name);
     }
     return Status::OK();
 }

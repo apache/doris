@@ -82,6 +82,8 @@ namespace doris::vectorized {
 class ORCFileInputStream;
 
 class OrcReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(OrcReader);
+
 public:
     struct Statistics {
         int64_t fs_read_time = 0;

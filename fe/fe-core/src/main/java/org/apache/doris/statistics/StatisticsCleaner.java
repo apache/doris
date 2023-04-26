@@ -36,6 +36,7 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -54,6 +55,8 @@ public class StatisticsCleaner extends MasterDaemon {
 
     private OlapTable colStatsTbl;
     private OlapTable histStatsTbl;
+
+    private OlapTable jobTbl;
 
     private Map<Long, CatalogIf> idToCatalog;
 
@@ -82,30 +85,48 @@ public class StatisticsCleaner extends MasterDaemon {
         if (!init()) {
             return;
         }
-        clear(colStatsTbl);
-        clear(histStatsTbl);
+        clearStats(colStatsTbl);
+        clearStats(histStatsTbl);
+        clearJobTbl();
     }
 
-    private void clear(OlapTable statsTbl) {
+    private void clearStats(OlapTable statsTbl) {
         ExpiredStats expiredStats = null;
+        long offset = 0;
         do {
-            expiredStats = findExpiredStats(statsTbl);
-            deleteExpiredStats(expiredStats);
+            expiredStats = new ExpiredStats();
+            offset = findExpiredStats(statsTbl, expiredStats, offset);
+            deleteExpiredStats(expiredStats, statsTbl.getName());
         } while (!expiredStats.isEmpty());
+    }
+
+    private void clearJobTbl() {
+        List<String> jobIds = null;
+        long offset = 0;
+        do {
+            jobIds = new ArrayList<>();
+            offset = findExpiredJobs(jobIds, offset);
+            doDelete("job_id", jobIds, FeConstants.INTERNAL_DB_NAME + "."
+                    + StatisticConstants.ANALYSIS_JOB_TABLE);
+        } while (!jobIds.isEmpty());
     }
 
     private boolean init() {
         try {
+            String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
             colStatsTbl =
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME,
+                                    dbName,
                                     StatisticConstants.STATISTIC_TBL_NAME);
             histStatsTbl =
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME,
+                                    dbName,
                                     StatisticConstants.HISTOGRAM_TBL_NAME);
+            jobTbl = (OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    dbName,
+                    StatisticConstants.ANALYSIS_JOB_TABLE);
         } catch (Throwable t) {
             LOG.warn("Failed to init stats cleaner", t);
             return false;
@@ -141,22 +162,26 @@ public class StatisticsCleaner extends MasterDaemon {
         return idToMVIdx;
     }
 
-    private void deleteExpiredStats(ExpiredStats expiredStats) {
+    private void deleteExpiredStats(ExpiredStats expiredStats, String tblName) {
         doDelete("catalog_id", expiredStats.expiredCatalog.stream()
-                .map(String::valueOf).collect(Collectors.toList()));
+                        .map(String::valueOf).collect(Collectors.toList()),
+                FeConstants.INTERNAL_DB_NAME + "." + tblName);
         doDelete("db_id", expiredStats.expiredDatabase.stream()
-                .map(String::valueOf).collect(Collectors.toList()));
+                        .map(String::valueOf).collect(Collectors.toList()),
+                FeConstants.INTERNAL_DB_NAME + "." + tblName);
         doDelete("tbl_id", expiredStats.expiredTable.stream()
-                .map(String::valueOf).collect(Collectors.toList()));
+                        .map(String::valueOf).collect(Collectors.toList()),
+                FeConstants.INTERNAL_DB_NAME + "." + tblName);
         doDelete("idx_id", expiredStats.expiredIdxId.stream()
-                .map(String::valueOf).collect(Collectors.toList()));
+                        .map(String::valueOf).collect(Collectors.toList()),
+                FeConstants.INTERNAL_DB_NAME + "." + tblName);
         doDelete("id", expiredStats.ids.stream()
-                .map(String::valueOf).collect(Collectors.toList()));
+                        .map(String::valueOf).collect(Collectors.toList()),
+                FeConstants.INTERNAL_DB_NAME + "." + tblName);
     }
 
-    private void doDelete(String/*col name*/ colName, List<String> pred) {
-        String deleteTemplate = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
-                + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE ${left} IN (${right})";
+    private void doDelete(String/*col name*/ colName, List<String> pred, String tblName) {
+        String deleteTemplate = "DELETE FROM " + tblName + " WHERE ${left} IN (${right})";
         if (CollectionUtils.isEmpty(pred)) {
             return;
         }
@@ -172,9 +197,8 @@ public class StatisticsCleaner extends MasterDaemon {
         }
     }
 
-    public ExpiredStats findExpiredStats(OlapTable statsTbl) {
-        ExpiredStats expiredStats = new ExpiredStats();
-        long pos = 0;
+    private long findExpiredStats(OlapTable statsTbl, ExpiredStats expiredStats, long offset) {
+        long pos = offset;
         while (pos < statsTbl.getRowCount()
                 && !expiredStats.isFull()) {
             List<ResultRow> rows = StatisticsRepository.fetchStatsFullName(StatisticConstants.FETCH_LIMIT, pos);
@@ -226,13 +250,26 @@ public class StatisticsCleaner extends MasterDaemon {
                     LOG.warn("Error occurred when retrieving expired stats", e);
                 }
             }
-            try {
-                Thread.sleep(StatisticConstants.FETCH_INTERVAL_IN_MS);
-            } catch (InterruptedException t) {
-                // IGNORE
-            }
+            this.yieldForOtherTask();
         }
-        return expiredStats;
+        return pos;
+    }
+
+    private long findExpiredJobs(List<String> jobIds, long offset) {
+        long pos = offset;
+        while (pos < jobTbl.getRowCount() && jobIds.size() < Config.max_allowed_in_element_num_of_delete) {
+            List<ResultRow> rows = StatisticsRepository.fetchExpiredJobs(StatisticConstants.FETCH_LIMIT, pos);
+            for (ResultRow r : rows) {
+                try {
+                    jobIds.add(r.getColumnValue("job_id"));
+                } catch (Exception e) {
+                    LOG.warn("Error when get job_id from ResultRow", e);
+                }
+            }
+            pos += StatisticConstants.FETCH_LIMIT;
+            this.yieldForOtherTask();
+        }
+        return pos;
     }
 
     private static class ExpiredStats {
@@ -245,11 +282,11 @@ public class StatisticsCleaner extends MasterDaemon {
         Set<String> ids = new HashSet<>();
 
         public boolean isFull() {
-            return expiredCatalog.size() >= Config.expr_children_limit
-                    || expiredDatabase.size() >= Config.expr_children_limit
-                    || expiredTable.size() >= Config.expr_children_limit
-                    || expiredIdxId.size() >= Config.expr_children_limit
-                    || ids.size() >= Config.expr_children_limit;
+            return expiredCatalog.size() >= Config.max_allowed_in_element_num_of_delete
+                    || expiredDatabase.size() >= Config.max_allowed_in_element_num_of_delete
+                    || expiredTable.size() >= Config.max_allowed_in_element_num_of_delete
+                    || expiredIdxId.size() >= Config.max_allowed_in_element_num_of_delete
+                    || ids.size() >= Config.max_allowed_in_element_num_of_delete;
         }
 
         public boolean isEmpty() {
@@ -257,7 +294,16 @@ public class StatisticsCleaner extends MasterDaemon {
                     && expiredDatabase.isEmpty()
                     && expiredTable.isEmpty()
                     && expiredIdxId.isEmpty()
-                    && ids.size() < Config.expr_children_limit / 100;
+                    && ids.size() < Config.max_allowed_in_element_num_of_delete / 10;
+        }
+    }
+
+    // Avoid this task takes too much IO.
+    private void yieldForOtherTask() {
+        try {
+            Thread.sleep(StatisticConstants.FETCH_INTERVAL_IN_MS);
+        } catch (InterruptedException t) {
+            // IGNORE
         }
     }
 
