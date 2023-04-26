@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -220,20 +219,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
      */
     public PhysicalProperties calculatePhysicalProperties(List<Slot> outputs) {
         // it will be used at set physical properties.
-        // PhysicalProperties.GATHER means collect all the data to a node.
-        // PhysicalProperties.HASH means repartition the data according to the HASH
-        // PhysicalProperties.ANY means any.
-        // in Nereids: default the data will be partition by keys.
 
-        if (hints != null) {
-            hints = hints.stream().map(String::toUpperCase).collect(Collectors.toList());
-            LOG.warn("only {} and {} will be applied", InsertStmt.SHUFFLE_HINT, InsertStmt.NOSHUFFLE_HINT);
-            if (hints.contains(InsertStmt.NOSHUFFLE_HINT)) {
-                return PhysicalProperties.GATHER;
-            } else if (hints.contains(InsertStmt.SHUFFLE_HINT)) {
-                return PhysicalProperties.ANY;
-            }
-        }
         List<ExprId> exprIds = outputs.subList(0, ((OlapTable) table).getKeysNum()).stream()
                 .map(NamedExpression::getExprId).collect(Collectors.toList());
         return PhysicalProperties.createHash(new DistributionSpecHash(exprIds, ShuffleType.NATURAL));
