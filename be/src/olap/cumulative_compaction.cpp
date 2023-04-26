@@ -152,6 +152,10 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
             int64_t cumu_interval = now - last_cumu;
             int64_t base_interval = now - last_base;
             if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
+                if (candidate_rowsets.size() > 1) {
+                    _input_rowsets = candidate_rowsets;
+                    return Status::OK();
+                }
                 // before increasing cumulative point, we should make sure all rowsets are non-overlapping.
                 // if at least one rowset is overlapping, we should compact them first.
                 for (auto& rs : candidate_rowsets) {
