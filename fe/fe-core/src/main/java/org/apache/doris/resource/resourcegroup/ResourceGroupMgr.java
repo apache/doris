@@ -138,14 +138,14 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         checkResourceGroupEnabled();
 
         ResourceGroup resourceGroup = ResourceGroup.create(stmt.getResourceGroupName(), stmt.getProperties());
-        String resourceGroupNameName = resourceGroup.getName();
+        String resourceGroupName = resourceGroup.getName();
         writeLock();
         try {
-            if (nameToResourceGroup.putIfAbsent(resourceGroupNameName, resourceGroup) != null) {
+            if (nameToResourceGroup.putIfAbsent(resourceGroupName, resourceGroup) != null) {
                 if (stmt.isIfNotExists()) {
                     return;
                 }
-                throw new DdlException("Resource group " + resourceGroupNameName + " already exist");
+                throw new DdlException("Resource group " + resourceGroupName + " already exist");
             }
             idToResourceGroup.put(resourceGroup.getId(), resourceGroup);
             Env.getCurrentEnv().getEditLog().logCreateResourceGroup(resourceGroup);
