@@ -17,10 +17,18 @@
 
 #include "data_type_string_serde.h"
 
+#include <assert.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+
+#include "util/jsonb_document.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 namespace vectorized {
+class Arena;
 
 Status DataTypeStringSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {
@@ -38,6 +46,22 @@ Status DataTypeStringSerDe::read_column_from_pb(IColumn& column, const PValues& 
         column.insert_data(arg.string_value(i).c_str(), arg.string_value(i).size());
     }
     return Status::OK();
+}
+
+void DataTypeStringSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                  Arena* mem_pool, int32_t col_id,
+                                                  int row_num) const {
+    result.writeKey(col_id);
+    const auto& data_ref = column.get_data_at(row_num);
+    result.writeStartBinary();
+    result.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
+    result.writeEndBinary();
+}
+void DataTypeStringSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    assert(arg->isBinary());
+    auto& col = reinterpret_cast<ColumnString&>(column);
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    col.insert_data(blob->getBlob(), blob->getBlobLen());
 }
 } // namespace vectorized
 } // namespace doris

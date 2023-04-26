@@ -17,22 +17,73 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <list>
+#include <memory>
 #include <orc/OrcFile.hh>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "exec/olap_common.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
+#include "orc/Reader.hh"
+#include "orc/Type.hh"
+#include "orc/Vector.hh"
+#include "runtime/types.h"
+#include "util/runtime_profile.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_array.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
+
+namespace doris {
+class RuntimeState;
+class TFileRangeDesc;
+class TFileScanRangeParams;
+
+namespace io {
+class FileSystem;
+class IOContext;
+} // namespace io
+namespace vectorized {
+class Block;
+class VecDateTimeValue;
+struct DateTimeV2ValueType;
+template <typename T>
+class ColumnVector;
+template <typename T>
+class DataTypeDecimal;
+template <typename T>
+class DateV2Value;
+template <typename T>
+struct Decimal;
+} // namespace vectorized
+} // namespace doris
+namespace orc {
+template <class T>
+class DataBuffer;
+} // namespace orc
 
 namespace doris::vectorized {
 
 class ORCFileInputStream;
+
 class OrcReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(OrcReader);
+
 public:
     struct Statistics {
         int64_t fs_read_time = 0;

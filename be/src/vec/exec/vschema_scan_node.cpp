@@ -17,21 +17,37 @@
 
 #include "vec/exec/vschema_scan_node.h"
 
-#include <arrow/type.h>
-#include <arrow/type_fwd.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/span_metadata.h>
 
+#include <boost/algorithm/string/predicate.hpp>
+#include <ostream>
+#include <utility>
+
+#include "common/logging.h"
+#include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
-#include "gen_cpp/PlanNodes_types.h"
+#include "exec/exec_node.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/runtime_profile.h"
-#include "util/types.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
-#include "vec/common/string_ref.h"
-#include "vec/core/types.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class TScanRangeParams;
+} // namespace doris
+
 namespace doris::vectorized {
 
 VSchemaScanNode::VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode,
@@ -153,7 +169,7 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     _runtime_profile->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // new one scanner
-    _schema_scanner.reset(SchemaScanner::create(schema_table->schema_table_type()));
+    _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
     if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");

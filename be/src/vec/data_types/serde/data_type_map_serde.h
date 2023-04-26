@@ -15,10 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <ostream>
+
+#include "common/status.h"
 #include "data_type_serde.h"
+#include "util/jsonb_writer.h"
+
 namespace doris {
+class PValues;
+class JsonbValue;
 
 namespace vectorized {
+class IColumn;
+class Arena;
 
 class DataTypeMapSerDe : public DataTypeSerDe {
 public:
@@ -32,6 +46,10 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
         LOG(FATAL) << "Not support read from pb to map";
     }
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 int32_t col_id, int row_num) const override;
+
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
 private:
     DataTypeSerDeSPtr key_serde;

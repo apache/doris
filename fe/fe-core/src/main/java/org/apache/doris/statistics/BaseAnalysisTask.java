@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -98,9 +99,9 @@ public abstract class BaseAnalysisTask {
 
     protected StmtExecutor stmtExecutor;
 
-    protected AnalysisState analysisState;
-
     protected Set<PrimitiveType> unsupportedType = new HashSet<>();
+
+    protected volatile boolean killed;
 
     @VisibleForTesting
     public BaseAnalysisTask() {
@@ -161,6 +162,9 @@ public abstract class BaseAnalysisTask {
         if (stmtExecutor != null) {
             stmtExecutor.cancel();
         }
+        if (killed) {
+            return;
+        }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
                         String.format("Job has been cancelled: %s", info.toString()), -1);
@@ -174,10 +178,6 @@ public abstract class BaseAnalysisTask {
         return info.jobId;
     }
 
-    public AnalysisState getAnalysisState() {
-        return analysisState;
-    }
-
     protected String getDataSizeFunction(Column column) {
         if (column.getType().isStringType()) {
             return "SUM(LENGTH(`${colName}`))";
@@ -189,4 +189,20 @@ public abstract class BaseAnalysisTask {
         return unsupportedType.contains(type);
     }
 
+    protected String getSampleExpression() {
+        if (info.analysisMethod == AnalysisMethod.FULL) {
+            return "";
+        }
+        // TODO Add sampling methods for external tables
+        if (info.samplePercent > 0) {
+            return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
+        } else {
+            return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
+        }
+    }
+
+    public void markAsKilled() {
+        this.killed = true;
+        cancel();
+    }
 }

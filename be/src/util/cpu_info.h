@@ -21,6 +21,7 @@
 #pragma once
 
 #include <glog/logging.h>
+#include <stdint.h>
 
 #include <memory>
 #include <string>

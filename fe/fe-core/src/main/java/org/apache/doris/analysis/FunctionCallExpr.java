@@ -1444,6 +1444,19 @@ public class FunctionCallExpr extends Expr {
                                 .toSql());
             }
         }
+        if (fnName.getFunction().equalsIgnoreCase("char")) {
+            if (!getChild(0).isConstant()) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " charset name must be a constant: " + this
+                                .toSql());
+            }
+            LiteralExpr literal = (LiteralExpr) getChild(0);
+            if (!literal.getStringValue().equalsIgnoreCase("utf8")) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " function currently only support charset name 'utf8': " + this
+                                .toSql());
+            }
+        }
         if (fn.getFunctionName().getFunction().equals("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
         }
@@ -1500,6 +1513,10 @@ public class FunctionCallExpr extends Expr {
                     ix = i % 2 == 0 ? 0 : 1;
                 }
 
+                if (i == 0 && (fnName.getFunction().equalsIgnoreCase("char"))) {
+                    continue;
+                }
+
                 if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
                         .equalsIgnoreCase("histogram")
                         || fnName.getFunction().equalsIgnoreCase("hist"))
@@ -1542,10 +1559,9 @@ public class FunctionCallExpr extends Expr {
                         && (args[ix].isArrayType())
                         && ((ArrayType) args[ix]).getItemType().isDecimalV3()))) {
                     continue;
-                } else if (!argTypes[i].matchesType(args[ix]) && !(
-                        argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
+                } else if (!argTypes[i].matchesType(args[ix])
                         && (!fn.getReturnType().isDecimalV3()
-                        || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
+                                || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
                     uncheckedCastChild(args[ix], i);
                 }
             }
@@ -1614,6 +1630,11 @@ public class FunctionCallExpr extends Expr {
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
+        for (OrderByElement o : orderByElements) {
+            if (!o.getExpr().isAnalyzed) {
+                o.getExpr().analyzeImpl(analyzer);
+            }
+        }
     }
 
     // if return type is nested type, need to be determined the sub-element type

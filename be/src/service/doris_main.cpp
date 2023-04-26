@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <bthread/errno.h>
 #include <butil/macros.h>
-#include <errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
 #include <libgen.h>
@@ -282,6 +282,10 @@ int main(int argc, char** argv) {
         fprintf(stderr, "you need set DORIS_HOME environment variable.\n");
         exit(-1);
     }
+    if (getenv("PID_DIR") == nullptr) {
+        fprintf(stderr, "you need set PID_DIR environment variable.\n");
+        exit(-1);
+    }
 
     using doris::Status;
     using std::string;
@@ -391,6 +395,7 @@ int main(int argc, char** argv) {
     }
 
     if (doris::config::enable_file_cache) {
+        std::unordered_set<std::string> cache_path_set;
         std::vector<doris::CachePath> cache_paths;
         olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
         if (!olap_res) {
@@ -399,31 +404,16 @@ int main(int argc, char** argv) {
             exit(-1);
         }
         for (auto& cache_path : cache_paths) {
+            if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
+                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
+                continue;
+            }
+            cache_path_set.emplace(cache_path.path);
             Status st = doris::io::FileCacheFactory::instance().create_file_cache(
-                    cache_path.path, cache_path.init_settings(), doris::io::FileCacheType::NORMAL);
+                    cache_path.path, cache_path.init_settings());
             if (!st) {
                 LOG(FATAL) << st;
                 exit(-1);
-            }
-        }
-
-        if (!doris::config::disposable_file_cache_path.empty()) {
-            cache_paths.clear();
-            olap_res = doris::parse_conf_cache_paths(doris::config::disposable_file_cache_path,
-                                                     cache_paths);
-            if (!olap_res) {
-                LOG(FATAL) << "parse config disposable file cache path failed, path="
-                           << doris::config::disposable_file_cache_path;
-                exit(-1);
-            }
-            for (auto& cache_path : cache_paths) {
-                Status st = doris::io::FileCacheFactory::instance().create_file_cache(
-                        cache_path.path, cache_path.init_settings(),
-                        doris::io::FileCacheType::DISPOSABLE);
-                if (!st) {
-                    LOG(FATAL) << st;
-                    exit(-1);
-                }
             }
         }
     }

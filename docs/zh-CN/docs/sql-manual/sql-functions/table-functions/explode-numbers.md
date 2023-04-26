@@ -32,11 +32,8 @@ under the License.
 
 获得一个[0,n)的序列。
 
-语法：
-
-```
-explode_numbers(n)
-```
+#### syntax
+`explode_numbers(n)`
 
 ### example
 

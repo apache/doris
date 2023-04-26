@@ -19,16 +19,37 @@
 // and modified by Doris
 
 #pragma once
-#include <vec/columns/column.h>
-#include <vec/columns/subcolumn_tree.h>
-#include <vec/common/hash_table/hash_map.h>
-#include <vec/common/pod_array.h>
-#include <vec/core/field.h>
-#include <vec/core/names.h>
-#include <vec/data_types/data_type.h>
-#include <vec/json/json_parser.h>
+#include <glog/logging.h>
+#include <sys/types.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
+#include "vec/columns/column.h"
+#include "vec/columns/subcolumn_tree.h"
+#include "vec/common/cow.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/json/path_in_data.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 /// Info that represents a scalar or array field in a decomposed view.
@@ -120,6 +141,8 @@ public:
 
         const ColumnPtr& get_finalized_column_ptr() const;
 
+        void remove_nullable();
+
         friend class ColumnObject;
 
     private:
@@ -134,6 +157,8 @@ public:
             const DataTypePtr& getBase() const { return base_type; }
 
             size_t get_dimensions() const { return num_dimensions; }
+
+            void remove_nullable() { type = doris::vectorized::remove_nullable(type); }
 
         private:
             DataTypePtr type;
@@ -183,12 +208,20 @@ public:
     // return null if not found
     const Subcolumn* get_subcolumn(const PathInData& key) const;
 
+    /** More efficient methods of manipulation */
+    [[noreturn]] IColumn& get_data() { LOG(FATAL) << "Not implemented method get_data()"; }
+    [[noreturn]] const IColumn& get_data() const {
+        LOG(FATAL) << "Not implemented method get_data()";
+    }
+
     // return null if not found
     Subcolumn* get_subcolumn(const PathInData& key);
 
     void incr_num_rows() { ++num_rows; }
 
     void incr_num_rows(size_t n) { num_rows += n; }
+
+    void set_num_rows(size_t n) { num_rows = n; }
 
     size_t rows() const { return num_rows; }
 

@@ -16,29 +16,45 @@
 // under the License.
 
 #pragma once
-#include <queue>
+#include <gen_cpp/Metrics_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/consts.h"
+#include <deque>
+#include <memory>
+#include <queue>
+#include <vector>
+
 #include "common/status.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
 #include "vec/core/block.h"
 #include "vec/core/block_spill_reader.h"
-#include "vec/core/sort_block.h"
+#include "vec/core/field.h"
 #include "vec/core/sort_cursor.h"
+#include "vec/core/sort_description.h"
 #include "vec/runtime/vsorted_run_merger.h"
 #include "vec/utils/util.hpp"
+
+namespace doris {
+class ObjectPool;
+class RowDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 
 // TODO: now we only use merge sort
 class MergeSorterState {
+    ENABLE_FACTORY_CREATOR(MergeSorterState);
+
 public:
     MergeSorterState(const RowDescriptor& row_desc, int64_t offset, int64_t limit,
                      RuntimeState* state, RuntimeProfile* profile)
             // create_empty_block should ignore invalid slots, unsorted_block
             // should be same structure with arrival block from child node
             // since block from child node may ignored these slots
-            : unsorted_block_(new Block(
+            : unsorted_block_(Block::create_unique(
                       VectorizedUtils::create_empty_block(row_desc, true /*ignore invalid slot*/))),
               offset_(offset),
               limit_(limit),
@@ -165,6 +181,8 @@ protected:
 };
 
 class FullSorter final : public Sorter {
+    ENABLE_FACTORY_CREATOR(FullSorter);
+
 public:
     FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,

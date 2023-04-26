@@ -23,7 +23,7 @@ under the License.
     <parent>
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
-        <version>23</version>
+        <version>29</version>
     </parent>
     <groupId>org.apache.doris</groupId>
     <artifactId>fe-plugins</artifactId>

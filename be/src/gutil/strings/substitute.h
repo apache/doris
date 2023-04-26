@@ -3,13 +3,13 @@
 #pragma once
 
 #include <string.h>
-
 #include <string>
+
 using std::string;
 
-#include "gutil/basictypes.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/stringpiece.h"
+#include "gutil/stringprintf.h"
 
 namespace strings {
 

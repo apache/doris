@@ -173,13 +173,13 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 元数据会同步写入到多个 Follower FE，这个参数用于控制 Master FE 等待 Follower FE 发送 ack 的超时时间。当写入的数据较大时，可能 ack 时间较长，如果超时，会导致写元数据失败，FE 进程退出。此时可以适当调大这个参数。
 
-### grpc_threadmgr_threads_nums
+### `grpc_threadmgr_threads_nums`
 
 默认值: 4096
 
 在grpc_threadmgr中处理grpc events的线程数量。
 
-#### `bdbje_lock_timeout_second`>>>>>>> 1b46f49ad0 (use customed threadpool instead of the default threadpool of grpc java to get better metrics)
+#### `bdbje_lock_timeout_second`
 
 默认值：1
 
@@ -418,6 +418,12 @@ FE https 端口，当前所有 FE https 端口都必须相同
 
 FE https 使能标志位，false 表示支持 http，true 表示同时支持 http 与 https，并且会自动将 http 请求重定向到 https
 如果 enable_https 为 true，需要在 fe.conf 中配置 ssl 证书信息
+
+#### `enable_ssl`
+
+默认值: true
+
+如果设置为 ture，doris 将与 mysql服务 建立基于 SSL 协议的加密通道。
 
 #### `qe_max_connection`
 

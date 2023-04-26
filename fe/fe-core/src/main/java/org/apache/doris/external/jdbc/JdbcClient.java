@@ -23,7 +23,6 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 
@@ -880,11 +879,7 @@ public class JdbcClient {
 
     private Type createDecimalOrStringType(int precision, int scale) {
         if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-            if (!Config.enable_decimal_conversion && (precision > ScalarType.MAX_DECIMALV2_PRECISION
-                    || scale > ScalarType.MAX_DECIMALV2_SCALE)) {
-                return ScalarType.createStringType();
-            }
-            return ScalarType.createDecimalType(precision, scale);
+            return ScalarType.createDecimalV3Type(precision, scale);
         }
         return ScalarType.createStringType();
     }

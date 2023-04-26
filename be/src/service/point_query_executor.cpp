@@ -49,12 +49,12 @@ Reusable::~Reusable() {
 
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       size_t block_size) {
-    _runtime_state.reset(new RuntimeState());
+    _runtime_state = RuntimeState::create_unique();
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     _block_pool.resize(block_size);
     for (int i = 0; i < _block_pool.size(); ++i) {
-        _block_pool[i] = std::make_unique<vectorized::Block>(tuple_desc()->slots(), 10);
+        _block_pool[i] = vectorized::Block::create_unique(tuple_desc()->slots(), 10);
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_runtime_state->obj_pool(), output_exprs,
@@ -69,7 +69,7 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
 std::unique_ptr<vectorized::Block> Reusable::get_block() {
     std::lock_guard lock(_block_mutex);
     if (_block_pool.empty()) {
-        return std::make_unique<vectorized::Block>(tuple_desc()->slots(), 4);
+        return vectorized::Block::create_unique(tuple_desc()->slots(), 4);
     }
     auto block = std::move(_block_pool.back());
     CHECK(block != nullptr);

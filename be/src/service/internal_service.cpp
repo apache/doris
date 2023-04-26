@@ -526,23 +526,23 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             // file_slots is no use
             std::vector<SlotDescriptor*> file_slots;
-            reader.reset(
-                    new vectorized::CsvReader(profile.get(), params, range, file_slots, &io_ctx));
+            reader = vectorized::CsvReader::create_unique(profile.get(), params, range, file_slots,
+                                                          &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader.reset(new vectorized::ParquetReader(params, range, &io_ctx, nullptr));
+            reader = vectorized::ParquetReader::create_unique(params, range, &io_ctx, nullptr);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
             std::vector<std::string> column_names;
-            reader.reset(new vectorized::OrcReader(params, range, column_names, "", &io_ctx));
+            reader = vectorized::OrcReader::create_unique(params, range, column_names, "", &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
             std::vector<SlotDescriptor*> file_slots;
-            reader.reset(new vectorized::NewJsonReader(profile.get(), params, range, file_slots,
-                                                       &io_ctx));
+            reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
+                                                              file_slots, &io_ctx);
             break;
         }
         default:
@@ -816,6 +816,30 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
         UniqueId unique_id(request->query_id());
         VLOG_NOTICE << "rpc apply_filter recv";
         Status st = _exec_env->fragment_mgr()->apply_filter(request, &zero_copy_input_stream);
+        if (!st.ok()) {
+            LOG(WARNING) << "apply filter meet error: " << st.to_string();
+        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
+void PInternalServiceImpl::apply_filterv2(::google::protobuf::RpcController* controller,
+                                          const ::doris::PPublishFilterRequestV2* request,
+                                          ::doris::PPublishFilterResponse* response,
+                                          ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
+        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
+        UniqueId unique_id(request->query_id());
+        VLOG_NOTICE << "rpc apply_filterv2 recv";
+        Status st = _exec_env->fragment_mgr()->apply_filterv2(request, &zero_copy_input_stream);
         if (!st.ok()) {
             LOG(WARNING) << "apply filter meet error: " << st.to_string();
         }

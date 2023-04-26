@@ -17,8 +17,24 @@
 
 #include "vec/functions/like.h"
 
+#include <fmt/format.h>
+#include <hs/hs_compile.h>
+#include <re2/stringpiece.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <ostream>
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {

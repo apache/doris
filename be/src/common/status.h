@@ -15,10 +15,13 @@
 #include <string_view>
 #include <utility>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif
+
+#include "common/expected.h"
 
 namespace doris {
 
@@ -571,6 +574,9 @@ inline std::string Status::to_string() const {
             return _s;                                             \
         }                                                          \
     } while (false);
+
+template <typename T>
+using Result = expected<T, Status>;
 } // namespace doris
 #ifdef WARN_UNUSED_RESULT
 #undef WARN_UNUSED_RESULT

@@ -16,15 +16,22 @@
 // under the License.
 
 #pragma once
+
+#include <stdint.h>
+
 #include <memory>
-#include <string>
+#include <vector>
 
 #include "common/status.h"
-#include "vec/columns/column.h"
+#include "util/jsonb_writer.h"
 
 namespace doris {
+class PValues;
+class JsonbValue;
 
 namespace vectorized {
+class IColumn;
+class Arena;
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
 // Serialize means write the column cell or the total column into another
@@ -46,7 +53,11 @@ public:
 
     virtual Status read_column_from_pb(IColumn& column, const PValues& arg) const = 0;
 
-    // JSONB serializer and deserializer
+    // JSONB serializer and deserializer, should write col_id
+    virtual void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                         Arena* mem_pool, int32_t col_id, int row_num) const = 0;
+
+    virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
 
     // MySQL serializer and deserializer
 

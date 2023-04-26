@@ -17,7 +17,25 @@
 
 #include "vec/exec/scan/new_es_scanner.h"
 
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+#include "common/logging.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/new_es_scan_node.h"
+
+namespace doris {
+namespace vectorized {
+class VExprContext;
+class VScanNode;
+} // namespace vectorized
+} // namespace doris
 
 static const std::string NEW_SCANNER_TYPE = "NewEsScanner";
 

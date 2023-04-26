@@ -82,7 +82,7 @@ suite("test_index_range_in_select", "inverted_index_select"){
             useTime = t
             sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout)
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
     for (int i = 0; i < 2; i++) {
@@ -90,36 +90,30 @@ suite("test_index_range_in_select", "inverted_index_select"){
         // case 1
         if (i > 0) {
             logger.info("it's " + i + " times select, not first select, drop all index before select again")
-            sql """ drop index ${varchar_colume1}_idx on ${indexTbName1} """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ drop index ${varchar_colume2}_idx on ${indexTbName1} """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ drop index ${varchar_colume3}_idx on ${indexTbName1} """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ drop index ${int_colume1}_idx on ${indexTbName1} """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ drop index ${string_colume1}_idx on ${indexTbName1} """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ drop index ${char_colume1}_idx on ${indexTbName1} """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ drop index ${text_colume1}_idx on ${indexTbName1} """
+            sql """
+                ALTER TABLE ${indexTbName1}
+                    drop index ${varchar_colume1}_idx,
+                    drop index ${varchar_colume2}_idx,
+                    drop index ${varchar_colume3}_idx,
+                    drop index ${int_colume1}_idx,
+                    drop index ${string_colume1}_idx,
+                    drop index ${char_colume1}_idx,
+                    drop index ${text_colume1}_idx;
+            """
             wait_for_latest_op_on_table_finish(indexTbName1, timeout)
 
             // readd index
             logger.info("it's " + i + " times select, readd all index before select again")
-            sql """ create index ${varchar_colume1}_idx on ${indexTbName1}(`${varchar_colume1}`) USING INVERTED COMMENT '${varchar_colume1} index' """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ create index ${varchar_colume2}_idx on ${indexTbName1}(`${varchar_colume2}`) USING INVERTED PROPERTIES("parser"="none") COMMENT '${varchar_colume2} index' """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ create index ${varchar_colume3}_idx on ${indexTbName1}(`${varchar_colume3}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT ' ${varchar_colume3} index'"""
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ create index ${int_colume1}_idx on ${indexTbName1}(`${int_colume1}`) USING INVERTED COMMENT '${int_colume1} index' """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ create index ${string_colume1}_idx on ${indexTbName1}(`${string_colume1}`) USING INVERTED PROPERTIES("parser"="english") COMMENT '${string_colume1} index' """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ create index ${char_colume1}_idx on ${indexTbName1}(`${char_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${char_colume1} index' """
-            wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ create index ${text_colume1}_idx on ${indexTbName1}(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${text_colume1} index' """
+            sql """
+                ALTER TABLE ${indexTbName1}
+                    add index ${varchar_colume1}_idx(`${varchar_colume1}`) USING INVERTED COMMENT '${varchar_colume1} index',
+                    add index ${varchar_colume2}_idx(`${varchar_colume2}`) USING INVERTED PROPERTIES("parser"="none") COMMENT '${varchar_colume2} index',
+                    add index ${varchar_colume3}_idx(`${varchar_colume3}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT ' ${varchar_colume3} index',
+                    add index ${int_colume1}_idx(`${int_colume1}`) USING INVERTED COMMENT '${int_colume1} index',
+                    add index ${string_colume1}_idx(`${string_colume1}`) USING INVERTED PROPERTIES("parser"="english") COMMENT '${string_colume1} index',
+                    add index ${char_colume1}_idx(`${char_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${char_colume1} index',
+                    add index ${text_colume1}_idx(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${text_colume1} index';
+            """
             wait_for_latest_op_on_table_finish(indexTbName1, timeout)
         }
 

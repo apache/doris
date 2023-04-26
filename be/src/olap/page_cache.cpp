@@ -17,7 +17,9 @@
 
 #include "olap/page_cache.h"
 
-#include "runtime/thread_context.h"
+#include <glog/logging.h>
+
+#include <ostream>
 
 namespace doris {
 

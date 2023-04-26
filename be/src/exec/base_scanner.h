@@ -33,12 +33,9 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
-class TupleDescriptor;
-class RowDescriptor;
 class RuntimeState;
 class TBrokerRangeDesc;
 class TBrokerScanRangeParams;
@@ -46,7 +43,6 @@ class TNetworkAddress;
 
 namespace vectorized {
 class VExprContext;
-class IColumn;
 
 using MutableColumnPtr = IColumn::MutablePtr;
 } // namespace vectorized

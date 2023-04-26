@@ -17,8 +17,22 @@
 
 #include "vec/exprs/vslot_ref.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <glog/logging.h>
+
+#include <ostream>
+#include <vector>
+
 #include "common/status.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "vec/core/block.h"
+
+namespace doris {
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

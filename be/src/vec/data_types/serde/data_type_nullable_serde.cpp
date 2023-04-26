@@ -17,11 +17,24 @@
 
 #include "data_type_nullable_serde.h"
 
+#include <gen_cpp/types.pb.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+
+#include "util/jsonb_document.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 
 namespace vectorized {
+class Arena;
 
 Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                  int end) const {
@@ -58,6 +71,28 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
         }
     }
     return Status::OK();
+}
+void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                    Arena* mem_pool, int32_t col_id,
+                                                    int row_num) const {
+    auto& nullable_col = assert_cast<const ColumnNullable&>(column);
+    if (nullable_col.is_null_at(row_num)) {
+        // do not insert to jsonb
+        return;
+    }
+    result.writeKey(col_id);
+    nested_serde->write_one_cell_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
+                                          col_id, row_num);
+}
+void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnNullable&>(column);
+    if (!arg || arg->isNull()) {
+        col.insert_default();
+        return;
+    }
+    nested_serde->read_one_cell_from_jsonb(col.get_nested_column(), arg);
+    auto& null_map_data = col.get_null_map_data();
+    null_map_data.push_back(0);
 }
 } // namespace vectorized
 } // namespace doris

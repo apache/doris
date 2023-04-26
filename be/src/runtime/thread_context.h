@@ -18,16 +18,22 @@
 #pragma once
 
 #include <bthread/bthread.h>
+#include <bthread/types.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
 
+#include <memory>
+#include <ostream>
 #include <string>
 #include <thread>
 
 #include "common/logging.h"
-// #include "gen_cpp/PaloInternalService_types.h" // for TQueryType
 #include "gutil/macros.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
-#include "util/defer_op.h"
+#include "util/defer_op.h" // IWYU pragma: keep
 
 // Used to observe the memory usage of the specified code segment
 #ifdef USE_MEM_TRACKER
@@ -70,8 +76,9 @@
 
 namespace doris {
 
-class TUniqueId;
 class ThreadContext;
+class MemTracker;
+class RuntimeState;
 
 extern bthread_key_t btls_key;
 

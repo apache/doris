@@ -427,6 +427,17 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     continue;
                 }
 
+                // Unavailable be has been removed from backendWithReplicaNum,
+                // but the conditions for judging unavailable be by
+                // getUnavailableBeIdsInGroup may be too loose. Under the
+                // default configuration (colocate_group_relocate_delay_second =
+                // 1800), a be that has been out of contact for 20 minutes can
+                // still be selected as the dest be.
+                if (!destBe.isAlive()) {
+                    LOG.info("{} is not alive, not suitable as a dest be", destBe);
+                    continue;
+                }
+
                 for (int seqIndex : seqIndexes) {
                     // the bucket index.
                     // eg: 0 / 3 = 0, so that the bucket index of the 4th backend id in flatBackendsPerBucketSeq is 0.

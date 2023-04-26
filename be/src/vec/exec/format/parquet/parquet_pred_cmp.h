@@ -25,6 +25,7 @@
 #include "parquet_common.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/exec/format/format_common.h"
+#include "vec/exec/format/parquet/schema_desc.h"
 
 namespace doris::vectorized {
 

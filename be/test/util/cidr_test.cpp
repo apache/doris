@@ -17,14 +17,10 @@
 
 #include "util/cidr.h"
 
-#include <gtest/gtest.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <iostream>
-
-#include "common/configbase.h"
-#include "util/cpu_info.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 

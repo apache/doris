@@ -251,6 +251,33 @@ public class VariableMgr {
     //      setVar: variable information that needs to be set
     public static void setVar(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
+        VarContext varCtx = setVarPreCheck(setVar);
+        checkUpdate(setVar, varCtx.getFlag());
+        setVarInternal(sessionVariable, setVar, varCtx);
+    }
+
+    // The only difference between setVar and setVarForNonMasterFE
+    // is that setVarForNonMasterFE will just return if "checkUpdate" throw exception.
+    // This is because, when setting global variables from Non Master FE, Doris will do following step:
+    //      1. forward this SetStmt to Master FE to execute.
+    //      2. Change this SetStmt to "SESSION" level, and execute it again on this Non Master FE.
+    // But for "GLOBAL only" variable, such ash "password_history", it doesn't allow to set on SESSION level.
+    // So when doing step 2, "set password_history=xxx" without "GLOBAL" keywords will throw exception.
+    // So in this case, we should just ignore this exception and return.
+    public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar)
+            throws DdlException {
+        VarContext varCtx = setVarPreCheck(setVar);
+        try {
+            checkUpdate(setVar, varCtx.getFlag());
+        } catch (DdlException e) {
+            LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+            return;
+        }
+        setVarInternal(sessionVariable, setVar, varCtx);
+    }
+
+    @NotNull
+    private static VarContext setVarPreCheck(SetVar setVar) throws DdlException {
         String varName = setVar.getVariable();
         boolean hasExpPrefix = false;
         if (varName.startsWith(ExperimentalUtil.EXPERIMENTAL_PREFIX)) {
@@ -265,9 +292,11 @@ public class VariableMgr {
         if (hasExpPrefix && ctx.getField().getAnnotation(VarAttr.class).expType() == ExperimentalType.NONE) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
-        // Check variable attribute and setVar
-        checkUpdate(setVar, ctx.getFlag());
+        return ctx;
+    }
 
+    private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx)
+            throws DdlException {
         // To modify to default value.
         VarAttr attr = ctx.getField().getAnnotation(VarAttr.class);
         String value;

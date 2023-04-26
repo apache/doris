@@ -192,6 +192,7 @@ struct TQueryOptions {
 
   59: optional i64 external_sort_bytes_threshold = 0
 
+  // deprecated
   60: optional i32 partitioned_hash_agg_rows_threshold = 0
 
   61: optional bool enable_file_cache = true
@@ -207,6 +208,10 @@ struct TQueryOptions {
   66: optional i32 parallel_instance = 1
   // Indicate where useServerPrepStmts enabled
   67: optional bool mysql_row_binary_format = false;
+  68: optional i64 external_agg_bytes_threshold = 0
+
+  // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
+  69: optional i32 external_agg_partition_bits = 4
 }
     
 
@@ -232,6 +237,12 @@ struct TRuntimeFilterTargetParams {
   2: required Types.TNetworkAddress target_fragment_instance_addr
 }
 
+struct TRuntimeFilterTargetParamsV2 {
+  1: required list<Types.TUniqueId> target_fragment_instance_ids
+  // The address of the instance where the fragment is expected to run
+  2: required Types.TNetworkAddress target_fragment_instance_addr
+}
+
 struct TRuntimeFilterParams {
   // Runtime filter merge instance address
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
@@ -245,6 +256,8 @@ struct TRuntimeFilterParams {
 
   // Number of Runtime filter producers
   4: optional map<i32, i32> runtime_filter_builder_num
+
+  5: optional map<i32, list<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2
 }
 
 // Parameters for a single execution instance of a particular TPlanFragment

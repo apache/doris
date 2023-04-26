@@ -30,7 +30,6 @@ import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProj
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
-import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
@@ -73,6 +72,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTransposeProjec
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
+import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
 
 import com.google.common.collect.ImmutableList;
@@ -150,6 +150,9 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             topic("Window analysis",
+                topDown(
+                    new SimplifyAggGroupBy()
+                ),
                 topDown(
                     new ExtractAndNormalizeWindowExpression(),
                     // execute NormalizeAggregate() again to resolve nested AggregateFunctions in WindowExpression,
@@ -252,7 +255,8 @@ public class NereidsRewriter extends BatchRewriteJob {
 
             topic("MV optimization",
                 topDown(
-                    new SelectMaterializedIndexWithAggregate(),
+                    // TODO: enable this rule after https://github.com/apache/doris/issues/18263 is fixed
+                    // new SelectMaterializedIndexWithAggregate(),
                     new SelectMaterializedIndexWithoutAggregate(),
                     new PushdownFilterThroughProject(),
                     new MergeProjects(),

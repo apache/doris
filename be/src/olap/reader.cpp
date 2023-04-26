@@ -17,20 +17,42 @@
 
 #include "olap/reader.h"
 
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <thrift/protocol/TDebugProtocol.h>
+
+#include <algorithm>
+#include <functional>
+#include <iterator>
+#include <numeric>
+#include <ostream>
+#include <shared_mutex>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
+#include "exprs/bitmapfilter_predicate.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "olap/bloom_filter_predicate.h"
-#include "olap/comparison_predicate.h"
-#include "olap/in_list_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/itoken_extractor.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/predicate_creator.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/schema.h"
 #include "olap/tablet.h"
+#include "olap/tablet_meta.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_predicate.h"
+#include "runtime/runtime_state.h"
+#include "vec/common/arena.h"
+#include "vec/core/block.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -531,7 +553,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
 
     if (read_params.use_topn_opt) {
         auto& runtime_predicate =
-                read_params.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+                read_params.runtime_state->get_query_ctx()->get_runtime_predicate();
         runtime_predicate.set_tablet_schema(_tablet_schema);
     }
 }

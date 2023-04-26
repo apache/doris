@@ -17,8 +17,14 @@
 
 #include "vec/aggregate_functions/aggregate_function_window_funnel.h"
 
+#include <algorithm>
+#include <ostream>
+#include <string>
+
+#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {

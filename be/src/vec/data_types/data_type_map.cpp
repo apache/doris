@@ -17,7 +17,23 @@
 
 #include "data_type_map.h"
 
+#include <ctype.h>
+#include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
+#include <string.h>
+
 #include <string>
+#include <typeinfo>
+
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 

@@ -17,11 +17,23 @@
 
 #include "data_type_hll_serde.h"
 
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <string>
+
+#include "olap/hll.h"
+#include "util/jsonb_document.h"
+#include "util/slice.h"
 #include "vec/columns/column_complex.h"
+#include "vec/common/arena.h"
+#include "vec/common/assert_cast.h"
 
 namespace doris {
 
 namespace vectorized {
+class IColumn;
 
 Status DataTypeHLLSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                             int end) const {
@@ -46,6 +58,25 @@ Status DataTypeHLLSerDe::read_column_from_pb(IColumn& column, const PValues& arg
         col.insert_value(value);
     }
     return Status::OK();
+}
+
+void DataTypeHLLSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                               Arena* mem_pool, int32_t col_id, int row_num) const {
+    result.writeKey(col_id);
+    auto& data_column = assert_cast<const ColumnHLL&>(column);
+    auto& hll_value = const_cast<HyperLogLog&>(data_column.get_element(row_num));
+    auto size = hll_value.max_serialized_size();
+    auto ptr = reinterpret_cast<char*>(mem_pool->alloc(size));
+    size_t actual_size = hll_value.serialize((uint8_t*)ptr);
+    result.writeStartBinary();
+    result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
+    result.writeEndBinary();
+}
+void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnHLL&>(column);
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    HyperLogLog hyper_log_log(Slice(blob->getBlob()));
+    col.insert_value(hyper_log_log);
 }
 
 } // namespace vectorized

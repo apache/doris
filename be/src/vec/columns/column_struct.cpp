@@ -20,6 +20,18 @@
 
 #include "vec/columns/column_struct.h"
 
+#include <functional>
+
+#include "vec/common/assert_cast.h"
+#include "vec/common/typeid_cast.h"
+
+class SipHash;
+namespace doris {
+namespace vectorized {
+class Arena;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 std::string ColumnStruct::get_name() const {

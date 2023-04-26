@@ -17,9 +17,29 @@
 
 #pragma once
 
-#include "gen_cpp/function_service.pb.h"
-#include "util/brpc_client_cache.h"
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "udf/udf.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class PFunctionCallRequest;
+class PFunctionService_Stub;
+class PValues;
+} // namespace doris
 
 namespace doris::vectorized {
 

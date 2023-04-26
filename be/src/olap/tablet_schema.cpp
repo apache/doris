@@ -17,14 +17,26 @@
 
 #include "olap/tablet_schema.h"
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <cctype>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
+#include <ostream>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/consts.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gen_cpp/descriptors.pb.h"
+#include "olap/olap_define.h"
+#include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/thread_context.h"
 #include "tablet_meta.h"
-#include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"

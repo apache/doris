@@ -17,13 +17,17 @@
 
 #include "runtime/memory/system_allocator.h"
 
+#include <fmt/format.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 
-#include "common/config.h"
+#include <new>
+#include <string>
+
 #include "common/logging.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/sse_util.hpp"
 
 namespace doris {
 

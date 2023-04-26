@@ -15,7 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "common/status.h"
 #include "data_type_serde.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
+#include "util/quantile_state.h"
+#include "util/slice.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
+#include "vec/common/arena.h"
+#include "vec/common/string_ref.h"
+
 namespace doris {
 
 namespace vectorized {
@@ -26,6 +42,11 @@ public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 int32_t col_id, int row_num) const override;
+
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 };
 
 template <typename T>
@@ -48,5 +69,30 @@ Status DataTypeQuantileStateSerDe<T>::read_column_from_pb(IColumn& column,
     }
     return Status::OK();
 }
+
+template <typename T>
+void DataTypeQuantileStateSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
+                                                            JsonbWriter& result, Arena* mem_pool,
+                                                            int32_t col_id, int row_num) const {
+    auto& col = reinterpret_cast<const ColumnQuantileState<T>&>(column);
+    auto& val = const_cast<QuantileState<T>&>(col.get_element(row_num));
+    size_t actual_size = val.get_serialized_size();
+    auto ptr = mem_pool->alloc(actual_size);
+    result.writeKey(col_id);
+    result.writeStartBinary();
+    result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
+    result.writeEndBinary();
+}
+
+template <typename T>
+void DataTypeQuantileStateSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
+                                                             const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnQuantileState<T>&>(column);
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    QuantileState<T> val;
+    val.deserialize(Slice(blob->getBlob()));
+    col.insert_value(val);
+}
+
 } // namespace vectorized
 } // namespace doris

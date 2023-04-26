@@ -17,20 +17,8 @@
 
 #pragma once
 
-#include <arrow/api.h>
-#include <arrow/buffer.h>
-#include <arrow/io/api.h>
-#include <arrow/io/file.h>
 #include <arrow/io/interfaces.h>
 #include <arrow/result.h>
-#include <gen_cpp/PaloBrokerService_types.h>
-#include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Types_types.h>
-#include <parquet/api/reader.h>
-#include <parquet/api/writer.h>
-#include <parquet/arrow/reader.h>
-#include <parquet/arrow/writer.h>
-#include <parquet/exception.h>
 #include <parquet/platform.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -47,7 +35,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "vec/exec/format/generic_reader.h"
 
@@ -58,12 +45,8 @@ class RecordBatchReader;
 
 namespace doris {
 
-class ExecEnv;
-class TBrokerRangeDesc;
-class TNetworkAddress;
 class RuntimeState;
 class SlotDescriptor;
-class FileReader;
 class TupleDescriptor;
 
 namespace vectorized {

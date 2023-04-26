@@ -17,13 +17,22 @@
 
 #include "vec/sink/vtable_sink.h"
 
+#include <gen_cpp/Types_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+
 #include <sstream>
 
+#include "common/object_pool.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
+class TDataSink;
+
 namespace vectorized {
+class Block;
 
 VTableSink::VTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                        const std::vector<TExpr>& t_exprs)

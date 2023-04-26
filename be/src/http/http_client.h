@@ -26,10 +26,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "http/http_headers.h"
 #include "http/http_method.h"
-#include "http/http_response.h"
-#include "http/utils.h"
 
 namespace doris {
 

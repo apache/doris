@@ -43,7 +43,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "gutil/stringprintf.h"
+#include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"

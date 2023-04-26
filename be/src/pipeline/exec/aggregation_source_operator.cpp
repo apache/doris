@@ -17,7 +17,9 @@
 
 #include "aggregation_source_operator.h"
 
-#include "vec/exec/vaggregation_node.h"
+#include <string>
+
+#include "pipeline/exec/operator.h"
 
 namespace doris {
 namespace pipeline {

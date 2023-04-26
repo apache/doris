@@ -17,7 +17,18 @@
 
 #include "vmeta_scan_node.h"
 
+#include <memory>
+
+#include "common/object_pool.h"
 #include "vmeta_scanner.h"
+
+namespace doris {
+class DescriptorTbl;
+class RuntimeState;
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

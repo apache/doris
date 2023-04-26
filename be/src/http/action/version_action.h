@@ -22,7 +22,6 @@
 
 namespace doris {
 
-class ExecEnv;
 class HttpRequest;
 
 // Get BE version info from http API.

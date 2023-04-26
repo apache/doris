@@ -192,9 +192,9 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                             DataType t1 = DataType.convertFromString(staleExpr.getType().getPrimitiveType().toString());
                             ret = Literal.of(staleExpr.getStringValue()).castTo(t1);
                         } else {
-                            ret = constMap.get(e.getKey());
+                            ret = constMap.get(e1.getKey());
                         }
-                        resultMap.put(e.getKey(), ret);
+                        resultMap.put(e1.getKey(), ret);
                     }
                 }
 

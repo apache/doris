@@ -328,6 +328,7 @@ suite("test_date_function") {
     qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""
 
     // TIME_ROUND
+    qt_sql_year_floor """ select year_floor(cast('2023-04-28' as date)); """
     qt_sql """ SELECT YEAR_FLOOR('20200202000000') """
     qt_sql """ SELECT MONTH_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), 3) """
     qt_sql """ SELECT WEEK_CEIL('2020-02-02 13:09:20', '2020-01-06') """

@@ -15,28 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Must come before gtest.h.
+#include "util/rle_encoding.h"
+
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <time.h>
+
 #include <algorithm>
+#include <boost/utility/binary.hpp>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <limits>
 #include <ostream>
 #include <string>
 #include <vector>
 
-// Must come before gtest.h.
-#include <glog/logging.h>
-#include <gtest/gtest.h>
-
-#include <boost/utility/binary.hpp>
-
+#include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
-#include "util/bit_stream_utils.h"
-#include "util/bit_stream_utils.inline.h"
 #include "util/bit_util.h"
 #include "util/debug_util.h"
 #include "util/faststring.h"
-#include "util/rle_encoding.h"
 
 using std::string;
 using std::vector;

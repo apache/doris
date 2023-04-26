@@ -47,7 +47,7 @@ Doris支持FQDN之后，添加各类节点时可以直接指定域名，例如�
 
 pod意外重启后，k8s不能保证pod的ip不发生变化，但是能保证域名不变，基于这一特性，doris开启fqdn时，能保证pod意外重启后，还能正常提供服务。
 
-k8s部署doris的方法请参考[K8s部署doris](../../install/construct-docker/k8s-deploy.md)
+k8s部署doris的方法请参考[K8s部署doris](../../install/k8s-deploy.md)
 
 ### 服务器切换网卡
 

@@ -431,6 +431,8 @@ struct TReportExecStatusParams {
   19: optional i32 fragment_id
 
   20: optional PaloInternalService.TQueryType query_type
+
+  21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 }
 
 struct TFeResult {

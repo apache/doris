@@ -22,6 +22,7 @@
 
 #include "vec/columns/column_complex.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/field.h"

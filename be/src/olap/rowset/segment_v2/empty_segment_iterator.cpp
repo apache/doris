@@ -18,6 +18,10 @@
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace segment_v2 {
 
 EmptySegmentIterator::EmptySegmentIterator(const doris::Schema& schema) : _schema(schema) {}

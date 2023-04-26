@@ -119,12 +119,16 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             params.setProperties(locationProperties);
         }
 
+        List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
             TScanRangeLocations curLocations = newLocations(params, backendPolicy);
             FileSplit fileSplit = (FileSplit) split;
-            List<String> pathPartitionKeys = getPathPartitionKeys();
-            List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
-                    pathPartitionKeys, false);
+
+            // If fileSplit has partition values, use the values collected from hive partitions.
+            // Otherwise, use the values in file path.
+            List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
+                    ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys, false)
+                    : fileSplit.getPartitionValues();
 
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
             // external data lake table
