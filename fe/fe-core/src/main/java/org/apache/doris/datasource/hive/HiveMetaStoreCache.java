@@ -59,7 +59,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
@@ -361,7 +360,8 @@ public class HiveMetaStoreCache {
         List<FileCacheKey> keys = Lists.newArrayListWithExpectedSize(partitions.size());
         partitions.stream().forEach(p -> {
             FileCacheKey fileCacheKey = p.isDummyPartition()
-                    ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(), p.getInputFormat(), useSelfSplitter)
+                    ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(),
+                    p.getInputFormat(), useSelfSplitter)
                     : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues());
             fileCacheKey.setUseSelfSplitter(useSelfSplitter);
             keys.add(fileCacheKey);
@@ -725,11 +725,11 @@ public class HiveMetaStoreCache {
                                                        String inputFormat, boolean useSelfSplitter) {
             // we do not use non-partitioned table's real location
             // because we need to use hms client to get the location info
-            // and this method may be invoked when slave FE replays journal logs,
+            // but this method may be invoked when slave FE replays journal logs,
             // it is very dangerous to rely on external components
             String location = String.format(DUMMY_FILE_CACHE_KEY_TEMPLATE, dbName, tblName);
             FileCacheKey dummyKey = new FileCacheKey(location, inputFormat, null);
-            dummyKey.useSelfSplitter= useSelfSplitter;
+            dummyKey.useSelfSplitter = useSelfSplitter;
             return dummyKey;
         }
 
