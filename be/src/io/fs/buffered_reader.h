@@ -314,13 +314,15 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     enum class BufferStatus { RESET, PENDING, PREFETCHED, CLOSED };
 
     PrefetchBuffer(const PrefetchRange file_range, size_t buffer_size, size_t whole_buffer_size,
-                   io::FileReader* reader, const IOContext* io_ctx)
+                   io::FileReader* reader, const IOContext* io_ctx,
+                   std::function<void(PrefetchBuffer&)> sync_profile)
             : _file_range(file_range),
               _size(buffer_size),
               _whole_buffer_size(whole_buffer_size),
               _reader(reader),
               _io_ctx(io_ctx),
-              _buf(new char[buffer_size]) {}
+              _buf(new char[buffer_size]),
+              _sync_profile(sync_profile) {}
 
     PrefetchBuffer(PrefetchBuffer&& other)
             : _offset(other._offset),
@@ -330,7 +332,8 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
               _whole_buffer_size(other._whole_buffer_size),
               _reader(other._reader),
               _io_ctx(other._io_ctx),
-              _buf(std::move(other._buf)) {}
+              _buf(std::move(other._buf)),
+              _sync_profile(std::move(other._sync_profile)) {}
 
     ~PrefetchBuffer() = default;
 
@@ -351,6 +354,16 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     std::condition_variable _prefetched;
     Status _prefetch_status {Status::OK()};
     std::atomic_bool _exceed = false;
+    std::function<void(PrefetchBuffer&)> _sync_profile;
+    struct Statistics {
+        int64_t copy_time;
+        int64_t read_time;
+        int64_t prefetch_request_io;
+        int64_t prefetch_request_bytes;
+        int64_t request_io;
+        int64_t request_bytes;
+    };
+    Statistics _statis;
 
     // @brief: reset the start offset of this buffer to offset
     // @param: the new start offset for this buffer
@@ -396,8 +409,9 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
  */
 class PrefetchBufferedReader : public io::FileReader {
 public:
-    PrefetchBufferedReader(io::FileReaderSPtr reader, PrefetchRange file_range,
-                           const IOContext* io_ctx = nullptr, int64_t buffer_size = -1L);
+    PrefetchBufferedReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
+                           PrefetchRange file_range, const IOContext* io_ctx = nullptr,
+                           int64_t buffer_size = -1L);
     ~PrefetchBufferedReader() override;
 
     Status close() override;
