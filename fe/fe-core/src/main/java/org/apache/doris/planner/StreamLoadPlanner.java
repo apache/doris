@@ -46,7 +46,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
@@ -134,11 +133,9 @@ public class StreamLoadPlanner {
         // construct tuple descriptor, used for dataSink
         tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         TupleDescriptor scanTupleDesc = tupleDesc;
-        if (Config.enable_vectorized_load) {
-            // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
-            // construct tuple descriptor, used for scanNode
-            scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
-        }
+        // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
+        // construct tuple descriptor, used for scanNode
+        scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
@@ -146,23 +143,20 @@ public class StreamLoadPlanner {
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
-
-            if (Config.enable_vectorized_load) {
-                SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
-                scanSlotDesc.setIsMaterialized(true);
-                scanSlotDesc.setColumn(col);
-                scanSlotDesc.setIsNullable(col.isAllowNull());
-                for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
-                    try {
-                        if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
-                                && importColumnDesc.getColumnName().equals(col.getName())) {
-                            scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
-                            break;
-                        }
-                    } catch (Exception e) {
-                        // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
-                        // We just skip this case here.
+            SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            scanSlotDesc.setIsMaterialized(true);
+            scanSlotDesc.setColumn(col);
+            scanSlotDesc.setIsNullable(col.isAllowNull());
+            for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
+                try {
+                    if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                            && importColumnDesc.getColumnName().equals(col.getName())) {
+                        scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                        break;
                     }
+                } catch (Exception e) {
+                    // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
+                    // We just skip this case here.
                 }
             }
             if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
@@ -172,9 +166,6 @@ public class StreamLoadPlanner {
 
         // Plan scan tuple of dynamic table
         if (destTable.isDynamicSchema()) {
-            if (!Config.enable_vectorized_load) {
-                throw new UserException("Only support vectorized load for dyanmic table: " + destTable.getName());
-            }
             descTable.addReferencedTable(destTable);
             scanTupleDesc.setTable(destTable);
             // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
@@ -191,7 +182,7 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc, false);
+        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
         DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());
@@ -215,9 +206,7 @@ public class StreamLoadPlanner {
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
-        if (Config.enable_vectorized_load) {
-            scanNode.convertToVectorized();
-        }
+        scanNode.convertToVectorized();
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
@@ -269,11 +258,11 @@ public class StreamLoadPlanner {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);
+        queryOptions.setExecutionTimeout(timeout);
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         //load
-        queryOptions.setEnableVectorizedEngine(Config.enable_vectorized_load);
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());

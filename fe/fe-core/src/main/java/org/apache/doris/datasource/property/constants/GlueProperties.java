@@ -39,4 +39,14 @@ public class GlueProperties extends BaseProperties {
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
     }
+
+    public static CloudCredential getCompatibleCredential(Map<String, String> props) {
+        // Compatible with older versions.
+        CloudCredential credential = getCloudCredential(props, AWSGlueConfig.AWS_GLUE_ACCESS_KEY,
+                    AWSGlueConfig.AWS_GLUE_SECRET_KEY, AWSGlueConfig.AWS_GLUE_SESSION_TOKEN);
+        if (!credential.isWhole()) {
+            credential = BaseProperties.getCompatibleCredential(props);
+        }
+        return credential;
+    }
 }

@@ -17,20 +17,22 @@
 
 #include "util/jni-util.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
 #include <jni.h>
 #include <jni_md.h>
-#include <stdlib.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include "common/config.h"
 #include "gutil/strings/substitute.h"
-#include "util/defer_op.h"
 #include "util/jni_native_method.h"
 #include "util/libjvm_loader.h"
 
@@ -42,31 +44,51 @@ namespace {
 JavaVM* g_vm;
 [[maybe_unused]] std::once_flag g_vm_once;
 
-const std::string GetDorisJNIClasspath() {
+const std::string GetDorisJNIDefaultClasspath() {
+    const auto* doris_home = getenv("DORIS_HOME");
+    DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
+
+    std::ostringstream out;
+    std::string path(doris_home);
+    path += "/lib";
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(path)) {
+        if (entry.path().extension() != ".jar") {
+            continue;
+        }
+        if (out.str().empty()) {
+            out << entry.path().string();
+        } else {
+            out << ":" << entry.path().string();
+        }
+    }
+
+    DCHECK(!out.str().empty()) << "Empty classpath is invalid.";
+    return out.str();
+}
+
+const std::string GetDorisJNIClasspathOption() {
     const auto* classpath = getenv("DORIS_CLASSPATH");
     if (classpath) {
         return classpath;
     } else {
-        const auto* doris_home = getenv("DORIS_HOME");
-        DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
-
-        std::ostringstream out;
-        std::string path(doris_home);
-        path += "/lib";
-        for (const auto& entry : std::filesystem::directory_iterator(path)) {
-            if (entry.path().extension() != ".jar") {
-                continue;
-            }
-            if (out.str().empty()) {
-                out << "-Djava.class.path=" << entry.path().string();
-            } else {
-                out << ":" << entry.path().string();
-            }
-        }
-
-        DCHECK(!out.str().empty()) << "Empty classpath is invalid.";
-        return out.str();
+        return "-Djava.class.path=" + GetDorisJNIDefaultClasspath();
     }
+}
+
+[[maybe_unused]] void SetEnvIfNecessary() {
+    const auto* doris_home = getenv("DORIS_HOME");
+    DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
+
+    // CLASSPATH
+    static const std::string classpath =
+            fmt::format("{}/conf:{}", doris_home, GetDorisJNIDefaultClasspath());
+    setenv("CLASSPATH", classpath.c_str(), 0);
+
+    // LIBHDFS_OPTS
+    setenv("LIBHDFS_OPTS",
+           fmt::format("-Djava.library.path={}/lib/hadoop_hdfs/native", getenv("DORIS_HOME"))
+                   .c_str(),
+           0);
 }
 
 // Only used on non-x86 platform
@@ -79,7 +101,7 @@ const std::string GetDorisJNIClasspath() {
         char* java_opts = getenv("JAVA_OPTS");
         if (java_opts == nullptr) {
             options = {
-                    GetDorisJNIClasspath(), fmt::format("-Xmx{}", "1g"),
+                    GetDorisJNIClasspathOption(), fmt::format("-Xmx{}", "1g"),
                     fmt::format("-DlogPath={}/log/jni.log", getenv("DORIS_HOME")),
                     fmt::format("-Dsun.java.command={}", "DorisBE"), "-XX:-CriticalJNINatives",
 #ifdef __APPLE__
@@ -94,7 +116,7 @@ const std::string GetDorisJNIClasspath() {
             std::istringstream stream(java_opts);
             options = std::vector<std::string>(std::istream_iterator<std::string> {stream},
                                                std::istream_iterator<std::string>());
-            options.push_back(GetDorisJNIClasspath());
+            options.push_back(GetDorisJNIClasspathOption());
         }
         std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
         for (int i = 0; i < options.size(); ++i) {
@@ -176,6 +198,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     }
 #else
     // the hadoop libhdfs will do all the stuff
+    SetEnvIfNecessary();
     tls_env_ = getJNIEnv();
 #endif
     *env = tls_env_;

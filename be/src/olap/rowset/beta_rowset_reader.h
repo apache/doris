@@ -17,13 +17,27 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+#include <stdint.h>
+
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "olap/iterators.h"
-#include "olap/row_cursor.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/segment_loader.h"
+#include "vec/core/block.h"
 
 namespace doris {
+class RuntimeProfile;
+class Schema;
+struct RowLocation;
+struct RowsetReaderContext;
 
 class BetaRowsetReader : public RowsetReader {
 public:

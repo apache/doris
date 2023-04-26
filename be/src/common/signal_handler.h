@@ -33,14 +33,13 @@
 
 #pragma once
 
+#include <gen_cpp/version.h>
 #include <glog/logging.h>
 #include <gutil/macros.h>
 
 #include <boost/stacktrace.hpp>
 #include <csignal>
 #include <ctime>
-
-#include "gen_cpp/version.h"
 #ifdef HAVE_UCONTEXT_H
 #include <ucontext.h>
 #endif

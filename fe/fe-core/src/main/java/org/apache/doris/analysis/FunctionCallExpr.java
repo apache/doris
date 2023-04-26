@@ -125,7 +125,7 @@ public class FunctionCallExpr extends Expr {
                 }
                 int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
                 return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                        Math.max(scaleArg, 0));
+                        Math.min(Math.max(scaleArg, 0), ((ScalarType) children.get(0).getType()).decimalScale()));
             } else {
                 return returnType;
             }
@@ -1444,8 +1444,36 @@ public class FunctionCallExpr extends Expr {
                                 .toSql());
             }
         }
+        if (fnName.getFunction().equalsIgnoreCase("char")) {
+            if (!getChild(0).isConstant()) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " charset name must be a constant: " + this
+                                .toSql());
+            }
+            LiteralExpr literal = (LiteralExpr) getChild(0);
+            if (!literal.getStringValue().equalsIgnoreCase("utf8")) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " function currently only support charset name 'utf8': " + this
+                                .toSql());
+            }
+        }
         if (fn.getFunctionName().getFunction().equals("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("named_struct")) {
+            if ((children.size() & 1) == 1) {
+                throw new AnalysisException("named_struct can't be odd parameters, need even parameters: "
+                        + this.toSql());
+            }
+            for (int i = 0; i < children.size(); i++) {
+                if ((i & 1) == 0) {
+                    if (!(getChild(i) instanceof StringLiteral)) {
+                        throw new AnalysisException(
+                                "named_struct only allows constant string parameter in odd position: " + this.toSql());
+                    }
+                }
+            }
         }
 
         if (isAggregateFunction()) {
@@ -1483,6 +1511,10 @@ public class FunctionCallExpr extends Expr {
                 if (i >= args.length && i >= 2 && args.length >= 2
                         && fnName.getFunction().equalsIgnoreCase("map")) {
                     ix = i % 2 == 0 ? 0 : 1;
+                }
+
+                if (i == 0 && (fnName.getFunction().equalsIgnoreCase("char"))) {
+                    continue;
                 }
 
                 if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
@@ -1527,10 +1559,9 @@ public class FunctionCallExpr extends Expr {
                         && (args[ix].isArrayType())
                         && ((ArrayType) args[ix]).getItemType().isDecimalV3()))) {
                     continue;
-                } else if (!argTypes[i].matchesType(args[ix]) && !(
-                        argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
+                } else if (!argTypes[i].matchesType(args[ix])
                         && (!fn.getReturnType().isDecimalV3()
-                        || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
+                                || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
                     uncheckedCastChild(args[ix], i);
                 }
             }
@@ -1599,6 +1630,11 @@ public class FunctionCallExpr extends Expr {
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
+        for (OrderByElement o : orderByElements) {
+            if (!o.getExpr().isAnalyzed) {
+                o.getExpr().analyzeImpl(analyzer);
+            }
+        }
     }
 
     // if return type is nested type, need to be determined the sub-element type
@@ -1620,6 +1656,15 @@ public class FunctionCallExpr extends Expr {
                             .getType()).getItemType().isDatetimeV2())) {
                 this.type = children.get(1).getType();
             }
+        } else if (fnName.getFunction().equalsIgnoreCase("named_struct")) {
+            List<String> fieldNames = Lists.newArrayList();
+            for (int i = 0; i < children.size(); i++) {
+                if ((i & 1) == 0) {
+                    StringLiteral nameLiteral = (StringLiteral) children.get(i);
+                    fieldNames.add(nameLiteral.getStringValue());
+                }
+            }
+            this.type = ((StructType) type).replaceFieldsWithNames(fieldNames);
         } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                 .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
                 || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")

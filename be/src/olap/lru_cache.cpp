@@ -4,17 +4,14 @@
 
 #include "olap/lru_cache.h"
 
-#include <rapidjson/document.h>
-#include <stdio.h>
 #include <stdlib.h>
 
+#include <mutex>
+#include <new>
 #include <sstream>
 #include <string>
 
 #include "gutil/bits.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/utils.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 

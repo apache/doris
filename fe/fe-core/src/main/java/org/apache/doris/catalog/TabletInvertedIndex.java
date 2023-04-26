@@ -128,6 +128,7 @@ public class TabletInvertedIndex {
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<Triple<Long, Integer, Boolean>> tabletToInMemory,
+                             List<Triple<Long, Integer, Boolean>> tabletToIsDropped,
                              List<CooldownConf> cooldownConfToPush,
                              List<CooldownConf> cooldownConfToUpdate) {
         long stamp = readLock();
@@ -155,6 +156,15 @@ public class TabletInvertedIndex {
                                             backendTabletInfo.getSchemaHash(), !backendTabletInfo.isIsInMemory()));
                                 }
                             }
+
+                            if (tabletMeta.getIsDropped() != backendTabletInfo.isIsDropped()) {
+                                synchronized (tabletToIsDropped) {
+                                    tabletToIsDropped.add(
+                                            new ImmutableTriple<>(tabletId, backendTabletInfo.getSchemaHash(),
+                                                    tabletMeta.getIsDropped()));
+                                }
+                            }
+
                             // 1. (intersection)
                             if (needSync(replica, backendTabletInfo)) {
                                 // need sync
@@ -319,10 +329,10 @@ public class TabletInvertedIndex {
         LOG.info("finished to do tablet diff with backend[{}]. sync: {}."
                         + " metaDel: {}. foundInMeta: {}. migration: {}. "
                         + "found invalid transactions {}. found republish transactions {}. tabletInMemorySync: {}."
-                        + " need recovery: {}. cost: {} ms", backendId, tabletSyncMap.size(),
+                        + " need recovery: {}. tabletToIsDropped: {}. cost: {} ms", backendId, tabletSyncMap.size(),
                 tabletDeleteFromMeta.size(), tabletFoundInMeta.size(), tabletMigrationMap.size(),
                 transactionsToClear.size(), transactionsToPublish.size(), tabletToInMemory.size(),
-                tabletRecoveryMap.size(), (end - start));
+                tabletRecoveryMap.size(), tabletToIsDropped.size(), (end - start));
     }
 
     public Long getTabletIdByReplica(long replicaId) {

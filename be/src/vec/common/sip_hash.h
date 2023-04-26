@@ -36,7 +36,8 @@
 #include <string>
 #include <type_traits>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
 

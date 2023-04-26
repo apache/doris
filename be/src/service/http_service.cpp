@@ -17,6 +17,10 @@
 
 #include "service/http_service.h"
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
@@ -43,6 +47,7 @@
 #include "http/ev_http_server.h"
 #include "http/http_method.h"
 #include "http/web_page_handler.h"
+#include "olap/options.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 #include "util/doris_metrics.h"

@@ -17,25 +17,47 @@
 
 #pragma once
 
-#include "olap/types.h"
-#include "vec/columns/column_map.h"
+#include <assert.h>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "gutil/integral_types.h"
+#include "olap/decimal12.h"
+#include "olap/uint24.h"
+#include "runtime/collection_value.h"
+#include "util/slice.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class TabletSchema;
 class TabletColumn;
-class MemTracker;
-class Status;
 
 namespace vectorized {
 
 class Block;
 class ColumnArray;
 class DataTypeArray;
+class ColumnMap;
+class DataTypeMap;
+template <typename T>
+class ColumnDecimal;
 
 class IOlapColumnDataAccessor {
 public:
@@ -61,6 +83,7 @@ public:
 
 private:
     class OlapColumnDataConvertorBase;
+
     using OlapColumnDataConvertorBaseUPtr = std::unique_ptr<OlapColumnDataConvertorBase>;
     using OlapColumnDataConvertorBaseSPtr = std::shared_ptr<OlapColumnDataConvertorBase>;
 
@@ -412,7 +435,7 @@ private:
                                    OlapColumnDataConvertorBaseUPtr value_convertor)
                 : _key_convertor(std::move(key_convertor)),
                   _value_convertor(std::move(value_convertor)) {
-            _base_row = 0;
+            _base_offset = 0;
             _results.resize(6); // size + offset + k_data + v_data +  k_nullmap + v_nullmap
         }
 
@@ -427,8 +450,8 @@ private:
         OlapColumnDataConvertorBaseUPtr _key_convertor;
         OlapColumnDataConvertorBaseUPtr _value_convertor;
         std::vector<const void*> _results;
-        PaddedPODArray<UInt64> _offsets;
-        UInt64 _base_row;
+        PaddedPODArray<UInt64> _offsets; // map offsets in disk layout
+        UInt64 _base_offset;
     }; //OlapColumnDataConvertorMap
 
 private:

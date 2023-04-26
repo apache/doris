@@ -17,6 +17,17 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Status_types.h>
+#include <stdint.h>
+
+#include <exception>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <utility>
+
 #include "common/status.h"
 
 namespace doris {
@@ -34,16 +45,9 @@ public:
     Exception(int code, const std::string_view fmt, Args&&... args)
             : Exception(code, fmt::format(fmt, std::forward<Args>(args)...)) {}
 
-    std::string code_as_string() const {
-        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
-                               : fmt::format("E{}", (int16_t)_code);
-    }
-
     int code() const { return _code; }
 
     std::string to_string() const;
-
-    friend std::ostream& operator<<(std::ostream& ostr, const Exception& exp);
 
 private:
     int _code;
@@ -55,22 +59,17 @@ private:
     std::unique_ptr<Exception> _nested_excption;
 };
 
-inline std::ostream& operator<<(std::ostream& ostr, const Exception& exp) {
-    ostr << '[' << exp.code_as_string() << "] ";
-    ostr << (exp._err_msg ? exp._err_msg->_msg : "");
-    if (exp._err_msg && !exp._err_msg->_stack.empty()) {
-        ostr << '\n' << exp._err_msg->_stack;
-    }
-    if (exp._nested_excption != nullptr) {
-        ostr << '\n' << "Caused by:" << *exp._nested_excption;
-    }
-    return ostr;
-}
-
 inline std::string Exception::to_string() const {
-    std::stringstream ss;
-    ss << *this;
-    return ss.str();
+    std::stringstream ostr;
+    ostr << "[E" << _code << "] ";
+    ostr << (_err_msg ? _err_msg->_msg : "");
+    if (_err_msg && !_err_msg->_stack.empty()) {
+        ostr << '\n' << _err_msg->_stack;
+    }
+    if (_nested_excption != nullptr) {
+        ostr << '\n' << "Caused by:" << _nested_excption->to_string();
+    }
+    return ostr.str();
 }
 
 } // namespace doris

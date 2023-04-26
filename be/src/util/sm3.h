@@ -19,7 +19,8 @@
 
 #define SM3_DIGEST_LENGTH 32
 
-#include <openssl/evp.h>
+#include <openssl/ossl_typ.h>
+#include <stddef.h>
 
 #include <string>
 

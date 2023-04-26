@@ -45,8 +45,8 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
     private long dataSize = 0;
     private long numNulls = 0;
 
-    public IcebergAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public IcebergAnalysisTask(AnalysisTaskInfo info) {
+        super(info);
     }
 
     private static final String INSERT_TABLE_SQL_TEMPLATE = "INSERT INTO "
@@ -114,6 +114,7 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(INSERT_TABLE_SQL_TEMPLATE);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
             this.stmtExecutor.execute();
         }

@@ -87,10 +87,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. 修改表的 in_memory 属性
+5. 修改表的 in_memory 属性，只支持修改为'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. 启用 批量删除功能
@@ -162,6 +162,14 @@ ALTER TABLE example_db.mysql_table SET ("default.replication_allocation" = "tag.
 2. 对于非分区表，修改不带 default 前缀的副本分布属性，会同时修改表的默认副本分布和实际副本分布。即修改后，通过 `show create table` 和 `show partitions from tbl` 语句可以看到副本分布数据都被修改了。
 3. 对于分区表，表的实际副本分布是分区级别的，即每个分区有自己的副本分布，可以通过 `show partitions from tbl` 语句查看。如果想修改实际副本分布，请参阅 `ALTER TABLE PARTITION`。
 
+13\. **[Experimental]** 打开`light_schema_change`
+
+  对于建表时未开启light_schema_change的表，可以通过如下方式打开。
+
+```sql
+ALTER TABLE example_db.mysql_table SET ("light_schema_change" = "true");
+```
+
 ### Example
 
 1. 修改表的 bloom filter 列
@@ -217,10 +225,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. 修改表的 in_memory 属性
+5. 修改表的 in_memory 属性，只支持修改为'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. 启用 批量删除功能

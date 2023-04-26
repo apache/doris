@@ -17,27 +17,46 @@
 
 #include "runtime/tablets_channel.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <time.h>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <initializer_list>
+#include <set>
+#include <thread>
+#include <utility>
+
+#include "common/logging.h"
 #include "exec/tablet_info.h"
 #include "olap/delta_writer.h"
-#include "olap/memtable.h"
 #include "olap/storage_engine.h"
+#include "olap/txn_manager.h"
 #include "runtime/load_channel.h"
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
+#include "vec/core/block.h"
 
 namespace doris {
+class SlotDescriptor;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id,
-                               bool is_high_priority)
+                               bool is_high_priority, RuntimeProfile* profile)
         : _key(key),
           _state(kInitialized),
           _load_id(load_id),
           _closed_senders(64),
           _is_high_priority(is_high_priority) {
     static std::once_flag once_flag;
+    _init_profile(profile);
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
     });
@@ -49,6 +68,25 @@ TabletsChannel::~TabletsChannel() {
         delete it.second;
     }
     delete _schema;
+}
+
+void TabletsChannel::_init_profile(RuntimeProfile* profile) {
+    _profile =
+            profile->create_child(fmt::format("TabletsChannel {}", _key.to_string()), true, true);
+    profile->add_child(_profile, false, nullptr);
+    _add_batch_number_counter = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
+
+    auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
+    _profile->add_child(memory_usage, false, nullptr);
+    _memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Total", TUnit::BYTES);
+    _write_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Write", TUnit::BYTES);
+    _flush_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Flush", TUnit::BYTES);
+    _max_tablet_memory_usage_counter =
+            memory_usage->AddHighWaterMarkCounter("MaxTablet", TUnit::BYTES);
+    _max_tablet_write_memory_usage_counter =
+            memory_usage->AddHighWaterMarkCounter("MaxTabletWrite", TUnit::BYTES);
+    _max_tablet_flush_memory_usage_counter =
+            memory_usage->AddHighWaterMarkCounter("MaxTabletFlush", TUnit::BYTES);
 }
 
 Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
@@ -203,17 +241,33 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
 }
 
 int64_t TabletsChannel::mem_consumption() {
-    int64_t mem_usage = 0;
+    int64_t write_mem_usage = 0;
+    int64_t flush_mem_usage = 0;
+    int64_t max_tablet_mem_usage = 0;
+    int64_t max_tablet_write_mem_usage = 0;
+    int64_t max_tablet_flush_mem_usage = 0;
     {
         std::lock_guard<SpinLock> l(_tablet_writers_lock);
         _mem_consumptions.clear();
         for (auto& it : _tablet_writers) {
-            int64_t writer_mem = it.second->mem_consumption();
-            mem_usage += writer_mem;
-            _mem_consumptions.emplace(writer_mem, it.first);
+            int64_t write_mem = it.second->mem_consumption(MemType::WRITE);
+            write_mem_usage += write_mem;
+            int64_t flush_mem = it.second->mem_consumption(MemType::FLUSH);
+            flush_mem_usage += flush_mem;
+            if (write_mem > max_tablet_write_mem_usage) max_tablet_write_mem_usage = write_mem;
+            if (flush_mem > max_tablet_flush_mem_usage) max_tablet_flush_mem_usage = flush_mem;
+            if (write_mem + flush_mem > max_tablet_mem_usage)
+                max_tablet_mem_usage = write_mem + flush_mem;
+            _mem_consumptions.emplace(write_mem + flush_mem, it.first);
         }
     }
-    return mem_usage;
+    COUNTER_SET(_memory_usage_counter, write_mem_usage + flush_mem_usage);
+    COUNTER_SET(_write_memory_usage_counter, write_mem_usage);
+    COUNTER_SET(_flush_memory_usage_counter, flush_mem_usage);
+    COUNTER_SET(_max_tablet_memory_usage_counter, max_tablet_mem_usage);
+    COUNTER_SET(_max_tablet_write_memory_usage_counter, max_tablet_write_mem_usage);
+    COUNTER_SET(_max_tablet_flush_memory_usage_counter, max_tablet_flush_mem_usage);
+    return write_mem_usage + flush_mem_usage;
 }
 
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
@@ -287,14 +341,14 @@ std::string TabletsChannelKey::to_string() const {
 }
 
 std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key) {
-    os << "(id=" << key.id << ",index_id=" << key.index_id << ")";
+    os << "(load_id=" << key.id << ", index_id=" << key.index_id << ")";
     return os;
 }
 
-template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
-                                 TabletWriterAddResult* response) {
+Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
+                                 PTabletWriterAddBlockResult* response) {
     int64_t cur_seq = 0;
+    _add_batch_number_counter->update(1);
 
     auto status = _get_current_seq(cur_seq, request);
     if (UNLIKELY(!status.ok())) {
@@ -446,8 +500,4 @@ bool TabletsChannel::_is_broken_tablet(int64_t tablet_id) {
     std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
     return _broken_tablets.find(tablet_id) != _broken_tablets.end();
 }
-
-template Status
-TabletsChannel::add_batch<PTabletWriterAddBlockRequest, PTabletWriterAddBlockResult>(
-        PTabletWriterAddBlockRequest const&, PTabletWriterAddBlockResult*);
 } // namespace doris

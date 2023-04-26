@@ -17,14 +17,20 @@
 
 #pragma once
 
-#include <gen_cpp/FrontendService.h>
-#include <gen_cpp/HeartbeatService_types.h>
-#include <gen_cpp/MasterService_types.h>
+#include <butil/macros.h>
+
+#include <map>
+#include <string>
 
 #include "common/status.h"
-#include "gutil/macros.h"
 
 namespace doris {
+class TConfirmUnusedRemoteFilesRequest;
+class TConfirmUnusedRemoteFilesResult;
+class TFinishTaskRequest;
+class TMasterInfo;
+class TMasterResult;
+class TReportRequest;
 
 class MasterServerClient {
 public:

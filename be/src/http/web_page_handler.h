@@ -22,14 +22,15 @@
 #include <mutex>
 #include <sstream>
 #include <string>
-#include <vector>
+#include <utility>
 
 #include "http/http_handler.h"
-#include "util/easy_json.h"
 
 namespace doris {
 
 class EvHttpServer;
+class EasyJson;
+class HttpRequest;
 
 // This a handler for webpage request
 // and this handler manage all the page handler

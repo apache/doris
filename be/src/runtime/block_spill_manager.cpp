@@ -17,10 +17,16 @@
 
 #include "runtime/block_spill_manager.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <algorithm>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include <numeric>
 #include <random>
 
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "util/time.h"
 #include "vec/core/block_spill_reader.h"
@@ -122,7 +128,7 @@ Status BlockSpillManager::get_reader(int64_t stream_id, vectorized::BlockSpillRe
     std::string path;
     {
         std::lock_guard<std::mutex> l(lock_);
-        DCHECK(id_to_file_paths_.end() != id_to_file_paths_.find(stream_id));
+        CHECK(id_to_file_paths_.end() != id_to_file_paths_.find(stream_id));
         path = id_to_file_paths_[stream_id];
     }
     reader.reset(new vectorized::BlockSpillReader(stream_id, path, profile, delete_after_read));

@@ -20,7 +20,11 @@
 
 #include <re2/re2.h>
 
-#include "cctz/time_zone.h"
+#include <string>
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
 
 namespace doris {
 

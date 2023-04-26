@@ -31,8 +31,6 @@ public class NullLiteral extends Literal {
 
     public static final NullLiteral INSTANCE = new NullLiteral();
 
-    private DataType dataType;
-
     public NullLiteral() {
         super(NullType.INSTANCE);
     }

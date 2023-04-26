@@ -17,11 +17,14 @@
 
 #pragma once
 
-#include "operator.h"
+#include <stdint.h>
 
-namespace doris::vectorized {
-class VExchangeNode;
-}
+#include "operator.h"
+#include "vec/exec/vexchange_node.h"
+
+namespace doris {
+class ExecNode;
+} // namespace doris
 
 namespace doris::pipeline {
 

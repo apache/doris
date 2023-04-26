@@ -59,8 +59,8 @@ suite ("multi_slot_k123p") {
 
     explain {
         sql("select lhs.k1,rhs.k2 from d_table as lhs right join d_table as rhs on lhs.k1=rhs.k1;")
-        notContains "(k123p)"
-        notContains "`mv_"
+        contains "(k123p)"
+        contains "(d_table)"
     }
     qt_select_mv "select lhs.k1,rhs.k2 from d_table as lhs right join d_table as rhs on lhs.k1=rhs.k1 order by lhs.k1;"
 

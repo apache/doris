@@ -20,9 +20,9 @@
 #include <string>
 
 #include "http/http_handler.h"
-#include "util/easy_json.h"
 
 namespace doris {
+class HttpRequest;
 
 class CheckTabletSegmentAction : public HttpHandler {
 public:

@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "configbase.h"
+#include "configbase.h" // IWYU pragma: export
 
 namespace doris {
 namespace config {
@@ -369,6 +369,12 @@ CONF_mInt32(migration_task_timeout_secs, "20480");
 
 // Port to start debug webserver on
 CONF_Int32(webserver_port, "8040");
+// Https enable flag
+CONF_Bool(enable_https, "false");
+// Path of certificate
+CONF_String(ssl_certificate_path, "");
+// Path of private key
+CONF_String(ssl_private_key_path, "");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
@@ -869,7 +875,7 @@ CONF_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
 
-CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized storage
+CONF_Bool(enable_segcompaction, "true");
 
 // Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
 CONF_Int32(segcompaction_threshold_segment_num, "10");
@@ -892,9 +898,9 @@ CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 // block file cache
 CONF_Bool(enable_file_cache, "false");
-// format: [{"path":"/path/to/file_cache","normal":21474836480,"persistent":10737418240,"query_limit":10737418240}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 CONF_String(file_cache_path, "");
-CONF_String(disposable_file_cache_path, "");
 CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 CONF_Validator(file_cache_max_file_segment_size,
                [](const int64_t config) -> bool { return config >= 4096; }); // 4KB
@@ -935,6 +941,12 @@ CONF_mInt64(max_tablet_io_errors, "-1");
 
 // Page size of row column, default 4KB
 CONF_mInt64(row_column_page_size, "4096");
+// it must be larger than or equal to 5MB
+CONF_mInt32(s3_write_buffer_size, "5242880");
+// the size of the whole s3 buffer pool, which indicates the s3 file writer
+// can at most buffer 50MB data. And the num of multi part upload task is
+// s3_write_buffer_whole_size / s3_write_buffer_size
+CONF_mInt32(s3_write_buffer_whole_size, "524288000");
 
 #ifdef BE_TEST
 // test s3

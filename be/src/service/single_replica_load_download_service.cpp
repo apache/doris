@@ -17,9 +17,15 @@
 
 #include "service/single_replica_load_download_service.h"
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 #include "http/action/download_action.h"
 #include "http/ev_http_server.h"
+#include "http/http_method.h"
 #include "io/fs/fs_utils.h"
+#include "olap/options.h"
 #include "runtime/exec_env.h"
 
 namespace doris {

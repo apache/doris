@@ -26,7 +26,7 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR sub_replace(VARCHAR str, VARCHAR new_str, INT start [, INT len])`
+`VARCHAR sub_replace(VARCHAR str, VARCHAR new_str, INT start[, INT len])`
 
 Return with new_str replaces the str with length and starting position from start.
 When start and len are negative integers, return NULL.

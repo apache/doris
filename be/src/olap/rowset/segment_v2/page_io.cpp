@@ -17,13 +17,24 @@
 
 #include "olap/rowset/segment_v2/page_io.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <stdint.h>
+
+#include <algorithm>
 #include <cstring>
+#include <memory>
+#include <ostream>
 #include <string>
+#include <utility>
 
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "olap/olap_common.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
+#include "olap/rowset/segment_v2/page_handle.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
 #include "util/crc32c.h"

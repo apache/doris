@@ -19,10 +19,11 @@
 
 #include "common/status.h"
 #include "http/http_handler.h"
-#include "http/http_request.h"
 #include "olap/tablet.h"
 
 namespace doris {
+class HttpRequest;
+struct Version;
 
 class PadRowsetAction : public HttpHandler {
 public:

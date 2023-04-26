@@ -56,15 +56,17 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnExploration()
                 .matchesExploration(
+                    logicalProject(
                         logicalJoin(
-                                logicalJoin(
-                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
-                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                                ),
-                                logicalProject(
-                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
-                                ).when(project -> project.getProjects().size() == 1)
+                            logicalJoin(
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                            ),
+                            logicalProject(
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
+                            ).when(project -> project.getProjects().size() == 1)
                         )
+                    )
                 );
     }
 
@@ -82,16 +84,18 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnExploration()
                 .matchesExploration(
-                    logicalJoin(
-                        logicalProject(
-                            logicalJoin(
-                                logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1"))),
-                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                            )
-                        ).when(project -> project.getProjects().size() == 3), // t1.id Add t3.id, t3.name
-                        logicalProject(
-                            logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
-                        ).when(project -> project.getProjects().size() == 1)
+                    logicalProject(
+                        logicalJoin(
+                            logicalProject(
+                                logicalJoin(
+                                    logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1"))),
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                )
+                            ).when(project -> project.getProjects().size() == 3), // t1.id Add t3.id, t3.name
+                            logicalProject(
+                                logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
+                            ).when(project -> project.getProjects().size() == 1)
+                        )
                     )
                 );
     }

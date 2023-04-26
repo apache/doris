@@ -18,9 +18,34 @@
 #pragma once
 #include <common/status.h>
 #include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "schema_desc.h"
+#include <list>
+#include <memory>
+#include <ostream>
+#include <vector>
+
+#include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_column_chunk_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace io {
+class IOContext;
+} // namespace io
+namespace vectorized {
+class ColumnString;
+struct FieldSchema;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

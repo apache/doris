@@ -17,7 +17,15 @@
 
 #include "datagen_operator.h"
 
+#include <memory>
+
+#include "pipeline/exec/operator.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/vdata_gen_scan_node.h"
+
+namespace doris {
+class RuntimeState;
+} // namespace doris
 
 namespace doris::pipeline {
 

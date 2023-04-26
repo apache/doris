@@ -17,27 +17,44 @@
 
 #include "olap/snapshot_manager.h"
 
-#include <ctype.h>
-#include <errno.h>
-#include <stdio.h>
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Types_constants.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <ctime>
 #include <filesystem>
-#include <iterator>
+#include <list>
 #include <map>
+#include <new>
+#include <ostream>
 #include <set>
+#include <shared_mutex>
+#include <unordered_map>
+#include <utility>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/Types_constants.h"
 #include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "olap/tablet_schema_cache.h"
+#include "olap/utils.h"
 #include "runtime/thread_context.h"
+#include "util/uid_util.h"
 
 using std::filesystem::path;
 using std::map;

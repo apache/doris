@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -28,7 +29,6 @@ import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -53,13 +53,14 @@ public class AnalysisJobTest extends TestWithFeService {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+        FeConstants.runningUnitTest = true;
     }
 
     @Test
     public void testCreateAnalysisJob(@Mocked AnalysisTaskScheduler scheduler) throws Exception {
         new Expectations() {
             {
-                scheduler.schedule((AnalysisTaskInfo) any);
+                scheduler.schedule((BaseAnalysisTask) any);
                 times = 3;
             }
         };
@@ -111,9 +112,8 @@ public class AnalysisJobTest extends TestWithFeService {
                 .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
                 .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(
                         AnalysisType.COLUMN)
-                .setPartitionNames(Sets.newHashSet("t1"))
                 .build();
-        new OlapAnalysisTask(scheduler, analysisJobInfo).execute();
+        new OlapAnalysisTask(analysisJobInfo).execute();
     }
 
 }

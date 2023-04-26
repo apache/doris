@@ -17,17 +17,20 @@
 
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <string.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
-#include "common/config.h"
-#include "io/fs/file_system.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/page_cache.h"
+#include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {

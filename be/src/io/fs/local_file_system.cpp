@@ -17,18 +17,33 @@
 
 #include "io/fs/local_file_system.h"
 
+#include <fcntl.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
 #include <openssl/md5.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
+#include <filesystem>
+#include <iomanip>
+#include <istream>
+#include <system_error>
+#include <utility>
+
+#include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
 #include "runtime/thread_context.h"
-#include "util/async_io.h"
+#include "util/async_io.h" // IWYU pragma: keep
+#include "util/defer_op.h"
 
 namespace doris {
 namespace io {
+class FileReaderOptions;
 
 std::shared_ptr<LocalFileSystem> LocalFileSystem::create(Path path, std::string id) {
     return std::shared_ptr<LocalFileSystem>(new LocalFileSystem(std::move(path), std::move(id)));
@@ -113,6 +128,21 @@ Status LocalFileSystem::delete_directory_impl(const Path& dir) {
         return Status::IOError("failed to delete {}: {}", dir.native(), errcode_to_str(ec));
     }
     return Status::OK();
+}
+
+Status LocalFileSystem::delete_directory_or_file(const Path& path) {
+    auto the_path = absolute_path(path);
+    FILESYSTEM_M(delete_directory_or_file_impl(the_path));
+}
+
+Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
+    bool is_dir;
+    RETURN_IF_ERROR(is_directory(path, &is_dir));
+    if (is_dir) {
+        return delete_directory_impl(path);
+    } else {
+        return delete_file_impl(path);
+    }
 }
 
 Status LocalFileSystem::batch_delete_impl(const std::vector<Path>& files) {

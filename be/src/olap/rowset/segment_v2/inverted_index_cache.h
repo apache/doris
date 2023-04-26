@@ -17,21 +17,36 @@
 
 #pragma once
 
-#include <CLucene.h>
+#include <CLucene.h> // IWYU pragma: keep
+#include <CLucene/util/Misc.h>
+#include <butil/macros.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <iostream>
-#include <map>
+#include <atomic>
 #include <memory>
-#include <mutex>
 #include <roaring/roaring.hh>
-#include <vector>
+#include <string>
+#include <utility>
 
+#include "common/config.h"
+#include "common/status.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 #include "olap/lru_cache.h"
 #include "runtime/memory/mem_tracker.h"
+#include "util/slice.h"
 #include "util/time.h"
 
+namespace lucene {
+namespace search {
+class IndexSearcher;
+} // namespace search
+} // namespace lucene
+
 namespace doris {
+struct OlapReaderStatistics;
 
 namespace segment_v2 {
 using IndexSearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
@@ -165,7 +180,6 @@ private:
 };
 
 enum class InvertedIndexQueryType;
-
 class InvertedIndexQueryCacheHandle;
 
 class InvertedIndexQueryCache {
@@ -249,7 +263,10 @@ public:
     Cache* cache() const { return _cache; }
     Slice data() const { return _cache->value_slice(_handle); }
 
-    InvertedIndexQueryCache::CacheValue* match_bitmap() const {
+    InvertedIndexQueryCache::CacheValue* get_bitmap() const {
+        if (!_cache) {
+            return nullptr;
+        }
         return ((InvertedIndexQueryCache::CacheValue*)_cache->value(_handle));
     }
 

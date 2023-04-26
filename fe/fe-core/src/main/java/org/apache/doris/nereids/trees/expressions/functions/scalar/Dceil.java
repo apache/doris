@@ -24,7 +24,9 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,7 +40,9 @@ public class Dceil extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable, ComputePrecisionForRound {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD),
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD, IntegerType.INSTANCE)
     );
 
     /**
@@ -49,12 +53,23 @@ public class Dceil extends ScalarFunction
     }
 
     /**
+     * constructor with 2 arguments.
+     */
+    public Dceil(Expression arg0, Expression arg1) {
+        super("dceil", arg0, arg1);
+    }
+
+    /**
      * withChildren.
      */
     @Override
     public Dceil withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Dceil(children.get(0));
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        if (children.size() == 1) {
+            return new Dceil(children.get(0));
+        } else {
+            return new Dceil(children.get(0), children.get(1));
+        }
     }
 
     @Override

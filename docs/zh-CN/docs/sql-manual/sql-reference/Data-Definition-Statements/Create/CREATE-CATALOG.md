@@ -260,7 +260,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	);	
 	```
 
-   **SAP_HANA**
+   **SAP HANA**
    ```sql
    -- 方式一
    CREATE RESOURCE saphana_resource PROPERTIES (
@@ -281,6 +281,54 @@ CREATE CATALOG catalog_name PROPERTIES (
        "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
        "driver_url" = "file:///path/to/ngdbc.jar",
        "driver_class" = "com.sap.db.jdbc.Driver"
+	);
+   ```
+
+   **Trino**
+   ```sql
+   -- 方式一
+	CREATE EXTERNAL RESOURCE trino_resource PROPERTIES (
+       "type"="jdbc",
+       "user"="hadoop",
+       "password"="",
+       "jdbc_url" = "jdbc:trino://localhost:8080/hive",
+       "driver_url" = "file:///path/to/trino-jdbc-389.jar",
+       "driver_class" = "io.trino.jdbc.TrinoDriver"
+	);
+   CREATE CATALOG trino_catlog WITH RESOURCE trino_resource;
+
+   -- 方式二
+	CREATE CATALOG trino_catalog PROPERTIES (
+       "type"="jdbc",
+       "user"="hadoop",
+       "password"="",
+       "jdbc_url" = "jdbc:trino://localhost:8080/hive",
+       "driver_url" = "file:///path/to/trino-jdbc-389.jar",
+       "driver_class" = "io.trino.jdbc.TrinoDriver"
+	);
+   ```
+
+   **OceanBase**
+   ```sql
+   -- 方式一
+	CREATE EXTERNAL RESOURCE oceanbase_resource PROPERTIES (
+       "type"="jdbc",
+       "user"="root",
+       "password"="",
+       "jdbc_url" = "jdbc:oceanbase://localhost:2881/demo",
+       "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
+       "driver_class" = "com.oceanbase.jdbc.Driver"
+	);
+   CREATE CATALOG oceanbase_catlog WITH RESOURCE oceanbase_resource;
+
+   -- 方式二
+	CREATE CATALOG oceanbase_catalog PROPERTIES (
+       "type"="jdbc",
+       "user"="root",
+       "password"="",
+       "jdbc_url" = "jdbc:oceanbase://localhost:2881/demo",
+       "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
+       "driver_class" = "com.oceanbase.jdbc.Driver"
 	);
    ```
 

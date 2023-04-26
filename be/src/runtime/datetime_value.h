@@ -20,6 +20,7 @@
 #include <re2/re2.h>
 #include <stdint.h>
 
+// IWYU pragma: no_include <bits/chrono.h>
 #include <chrono>
 #include <cstddef>
 #include <iostream>
