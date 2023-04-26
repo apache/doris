@@ -650,7 +650,7 @@ public class Env {
         this.mtmvJobManager = new MTMVJobManager();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.fqdnManager = new FQDNManager(systemInfo);
-        if (!isCheckpointCatalog) {
+        if (Config.enable_stats && !isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
             this.statisticsCleaner = new StatisticsCleaner();
         }
