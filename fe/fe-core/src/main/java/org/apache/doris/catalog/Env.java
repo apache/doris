@@ -260,8 +260,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -270,6 +268,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -974,10 +973,14 @@ public class Env {
                 isFirstTimeStartUp = true;
                 Frontend self = new Frontend(role, nodeName, selfNode.getHost(),
                         selfNode.getPort());
+                // Set self alive to true, the BDBEnvironment.getReplicationGroupAdmin() will rely on this to get
+                // helper node, before the heartbeat thread is started.
+                self.setIsAlive(true);
                 // We don't need to check if frontends already contains self.
                 // frontends must be empty cause no image is loaded and no journal is replayed yet.
                 // And this frontend will be persisted later after opening bdbje environment.
                 frontends.put(nodeName, self);
+                LOG.info("add self frontend: {}", self);
             } else {
                 clusterId = storage.getClusterID();
                 if (storage.getToken() == null) {
@@ -1099,11 +1102,10 @@ public class Env {
     }
 
     public static String genFeNodeName(String host, int port, boolean isOldStyle) {
-        String name = host + "_" + port;
         if (isOldStyle) {
-            return name;
+            return host + "_" + port;
         } else {
-            return name + "_" + System.currentTimeMillis();
+            return "fe_" + UUID.randomUUID().toString().replace("-", "_");
         }
     }
 
@@ -1171,7 +1173,7 @@ public class Env {
     private void getSelfHostPort() {
         String hostName = Strings.nullToEmpty(FrontendOptions.getHostName());
         selfNode = new HostInfo(hostName, Config.edit_log_port);
-        LOG.debug("get self node: {}", selfNode);
+        LOG.info("get self node: {}", selfNode);
     }
 
     private void getHelperNodes(String[] args) throws Exception {
@@ -1203,7 +1205,7 @@ public class Env {
             if (helpers != null) {
                 String[] splittedHelpers = helpers.split(",");
                 for (String helper : splittedHelpers) {
-                    HostInfo helperHostPort = SystemInfoService.getIpHostAndPort(helper, true);
+                    HostInfo helperHostPort = SystemInfoService.getHostAndPort(helper, true);
                     if (helperHostPort.isSame(selfNode)) {
                         /**
                          * If user specified the helper node to this FE itself,
@@ -2516,8 +2518,8 @@ public class Env {
         }
     }
 
-    public void modifyFrontendHostName(String srcHost, String destHostName) throws DdlException {
-        Frontend fe = getFeByIp(srcHost);
+    public void modifyFrontendHostName(String srcHost, int srcPort, String destHostName) throws DdlException {
+        Frontend fe = checkFeExist(srcHost, srcPort);
         if (fe == null) {
             throw new DdlException("frontend does not exist, host:" + srcHost);
         }
@@ -2592,24 +2594,6 @@ public class Env {
                 continue;
             }
             if (fe.getHost().equals(host)) {
-                return fe;
-            }
-        }
-        return null;
-    }
-
-    public Frontend getFeByIp(String ip) {
-        for (Frontend fe : frontends.values()) {
-            InetAddress hostAddr = null;
-            InetAddress feAddr = null;
-            try {
-                hostAddr = InetAddress.getByName(ip);
-                feAddr = InetAddress.getByName(fe.getHost());
-            } catch (UnknownHostException e) {
-                LOG.warn("get address failed: {}", e.getMessage());
-                return null;
-            }
-            if (feAddr.equals(hostAddr)) {
                 return fe;
             }
         }

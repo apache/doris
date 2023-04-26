@@ -73,7 +73,7 @@ public class CheckDecommissionAction extends RestBaseController {
         List<HostInfo> hostInfos = Lists.newArrayList();
         for (String hostPort : hostPortArr) {
             try {
-                HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort, true);
+                HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort, true);
                 hostInfos.add(hostInfo);
             } catch (AnalysisException e) {
                 return ResponseEntityBuilder.badRequest(e.getMessage());

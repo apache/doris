@@ -251,7 +251,7 @@ public class DeployManager extends MasterDaemon {
             String[] splittedHosts = existFeHosts.split(",");
             for (String host : splittedHosts) {
                 try {
-                    helperNodes.add(SystemInfoService.getIpHostAndPort(host, true));
+                    helperNodes.add(SystemInfoService.getHostAndPort(host, true));
                 } catch (AnalysisException e) {
                     LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
                     System.exit(-1);
@@ -297,9 +297,6 @@ public class DeployManager extends MasterDaemon {
                     LOG.error("num of fe get from remote [{}] does not equal to the expected num: {}",
                             feHostInfos, numOfFe);
                     ok = false;
-                } else if (!checkIpIfNotNull(feHostInfos)) {
-                    LOG.error("some fe not ready,need wait.");
-                    ok = false;
                 } else {
                     ok = true;
                 }
@@ -332,15 +329,6 @@ public class DeployManager extends MasterDaemon {
                 feHostInfos.get(0).getPort()));
     }
 
-    private boolean checkIpIfNotNull(List<HostInfo> hostInfos) {
-        for (HostInfo hostInfo : hostInfos) {
-            if (hostInfo.getHost() == null) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     @Override
     protected void runAfterCatalogReady() {
         if (Config.enable_deploy_manager.equals("disable")) {
@@ -354,7 +342,7 @@ public class DeployManager extends MasterDaemon {
         }
 
         if (isRunning) {
-            LOG.warn("Last task not finished,ignore current task.");
+            LOG.warn("Last task not finished, ignore current task.");
             return;
         }
         isRunning = true;
@@ -363,8 +351,13 @@ public class DeployManager extends MasterDaemon {
             isRunning = false;
             return;
         }
-        processPolling();
-        isRunning = false;
+        try {
+            processPolling();
+        } catch (Exception e) {
+            LOG.warn("failed to process polling", e);
+        } finally {
+            isRunning = false;
+        }
     }
 
     private void processPolling() {
@@ -404,12 +397,10 @@ public class DeployManager extends MasterDaemon {
         switch (nodeType) {
             case ELECTABLE:
                 List<Frontend> localElectableFeAddrs = env.getFrontends(FrontendNodeType.FOLLOWER);
-                return this
-                        .convertFesToHostInfos(localElectableFeAddrs);
+                return this.convertFesToHostInfos(localElectableFeAddrs);
             case OBSERVER:
                 List<Frontend> localObserverFeAddrs = env.getFrontends(FrontendNodeType.OBSERVER);
-                return this
-                        .convertFesToHostInfos(localObserverFeAddrs);
+                return this.convertFesToHostInfos(localObserverFeAddrs);
             case BACKEND:
                 List<Backend> localBackends = Env.getCurrentSystemInfo()
                         .getClusterMixBackends(SystemInfoService.DEFAULT_CLUSTER);
@@ -476,6 +467,16 @@ public class DeployManager extends MasterDaemon {
             List<HostInfo> localHostInfos,
             NodeType nodeType) {
 
+        if (LOG.isDebugEnabled()) {
+            for (HostInfo hostInfo : remoteHostInfos) {
+                LOG.debug("inspectNodeChange: remote host info: {}", hostInfo);
+            }
+
+            for (HostInfo hostInfo : localHostInfos) {
+                LOG.debug("inspectNodeChange: local host info: {}", hostInfo);
+            }
+        }
+
         // 2.1 Find local node which need to be dropped.
         for (HostInfo localHostInfo : localHostInfos) {
             HostInfo foundHostInfo = getFromHostInfos(remoteHostInfos, localHostInfo);
@@ -497,10 +498,11 @@ public class DeployManager extends MasterDaemon {
     private void dealDropLocal(HostInfo localHostInfo, NodeType nodeType) {
         Integer localPort = localHostInfo.getPort();
         String localHost = localHostInfo.getHost();
-        // Double check if is it self
+        // Double check if is itself
         if (isSelf(localHostInfo)) {
-            // This is it self. Shut down now.
-            LOG.error("self host {}:{} does not exist in remote hosts. Showdown.");
+            // This is itself. Shut down now.
+            LOG.error("self host {} does not exist in remote hosts. master is: {}:{}. Showdown.",
+                    localHostInfo, env.getMasterHost(), Config.edit_log_port);
             System.exit(-1);
         }
 
@@ -564,8 +566,7 @@ public class DeployManager extends MasterDaemon {
 
     // Get host port pair from pair list. Return null if not found
     // when hostName,compare hostname,otherwise compare ip
-    private HostInfo getFromHostInfos(List<HostInfo> hostInfos,
-            HostInfo hostInfo) {
+    private HostInfo getFromHostInfos(List<HostInfo> hostInfos, HostInfo hostInfo) {
         for (HostInfo h : hostInfos) {
             if (hostInfo.getHost().equals(h.getHost()) && hostInfo.getPort() == (h.getPort())) {
                 return hostInfo;
@@ -646,7 +647,7 @@ public class DeployManager extends MasterDaemon {
     protected class NodeTypeAttr {
         private boolean hasService;
         private String serviceName;
-        private String subAttr1;
+        private String subAttr;
 
         public NodeTypeAttr(boolean hasService) {
             this.hasService = hasService;
@@ -668,12 +669,12 @@ public class DeployManager extends MasterDaemon {
             this.serviceName = serviceName;
         }
 
-        public String getSubAttr1() {
-            return subAttr1;
+        public String getSubAttr() {
+            return subAttr;
         }
 
-        public void setSubAttr1(String subAttr1) {
-            this.subAttr1 = subAttr1;
+        public void setSubAttr(String subAttr) {
+            this.subAttr = subAttr;
         }
     }
 }

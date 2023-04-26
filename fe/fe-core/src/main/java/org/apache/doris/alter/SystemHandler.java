@@ -176,7 +176,7 @@ public class SystemHandler extends AlterHandler {
             Env.getCurrentSystemInfo().modifyBackends(((ModifyBackendClause) alterClause));
         } else if (alterClause instanceof ModifyFrontendHostNameClause) {
             ModifyFrontendHostNameClause clause = (ModifyFrontendHostNameClause) alterClause;
-            Env.getCurrentEnv().modifyFrontendHostName(clause.getHost(), clause.getNewHost());
+            Env.getCurrentEnv().modifyFrontendHostName(clause.getHost(), clause.getPort(), clause.getNewHost());
         } else if (alterClause instanceof ModifyBackendHostNameClause) {
             Env.getCurrentSystemInfo().modifyBackendHost((ModifyBackendHostNameClause) alterClause);
         } else {

@@ -44,7 +44,7 @@ public class CancelAlterSystemStmt extends CancelStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         for (String hostPort : hostPorts) {
-            HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort,
+            HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort,
                     !Config.enable_fqdn_mode);
             this.hostInfos.add(hostInfo);
         }

@@ -97,6 +97,10 @@ public class Frontend implements Writable {
         return isAlive;
     }
 
+    public void setIsAlive(boolean isAlive) {
+        this.isAlive = isAlive;
+    }
+
     public int getEditLogPort() {
         return this.editLogPort;
     }
@@ -178,6 +182,7 @@ public class Frontend implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("name: ").append(nodeName).append(", role: ").append(role.name());
         sb.append(", ").append(host).append(":").append(editLogPort);
+        sb.append(", is alive: ").append(isAlive);
         return sb.toString();
     }
 
