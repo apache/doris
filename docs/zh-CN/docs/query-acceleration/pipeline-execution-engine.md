@@ -24,15 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# [Experimental] Pipeline执行引擎
+# Pipeline执行引擎
 
-<version since="2.0.0">
-</version>
+<version since="2.0.0"></version>
 
 Pipeline执行引擎 是 Doris 在2.0版本加入的实验性功能。目标是为了替换当前Doris的火山模型的执行引擎，充分释放多核CPU的计算能力，并对Doris的查询线程的数目进行限制，解决Doris的执行线程膨胀的问题。
 
 它的具体设计、实现和效果可以参阅 [DSIP-027]([DSIP-027: Support Pipeline Exec Engine - DORIS - Apache Software Foundation](https://cwiki.apache.org/confluence/display/DORIS/DSIP-027%3A+Support+Pipeline+Exec+Engine))。
-
 
 ## 原理
 
