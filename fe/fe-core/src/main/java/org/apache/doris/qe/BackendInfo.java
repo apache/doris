@@ -17,51 +17,56 @@
 
 package org.apache.doris.qe;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class BackendInfo {
+    private long numCores = 1;
+    private static volatile BackendInfo instance = null;
+    private static final Map<Long, BackendInfo> Info = new ConcurrentHashMap<>();
+    private static volatile long minNumCores = Long.MAX_VALUE;
 
-    // BackendInfo . Afterwards, memory infor may be added.
-    private long coreSize = 1;
-
-    private static Map<Long, BackendInfo> Info;
-    private static long mincorSize = 9999;
-
-    static {
-        Info = new HashMap<>();
+    private BackendInfo(long numCores) {
+        this.numCores = numCores;
     }
 
-    public BackendInfo(long coreSize) {
-        this.coreSize = coreSize;
+    public static BackendInfo get() {
+        if (instance == null) {
+            synchronized (BackendInfo.class) {
+                if (instance == null) {
+                    instance = new BackendInfo(minNumCores);
+                }
+            }
+        }
+        return instance;
     }
 
-    public long getcoreSize() {
-        return coreSize;
+    public long getNumCores() {
+        return numCores;
     }
 
-    public static void clear() {
+    public void clear() {
         Info.clear();
-        mincorSize = 9999;
+        numCores = Long.MAX_VALUE;
     }
 
-    public static void addBeInfo(long beId, long coreSize) {
-        Info.put(beId, new BackendInfo(coreSize));
-        mincorSize = Math.min(mincorSize, coreSize);
+    public void addBeInfo(long beId, long numCores) {
+        Info.put(beId, new BackendInfo(numCores));
+        minNumCores = Math.min(minNumCores, numCores);
     }
 
-    public static long getMincorSize() {
-        return mincorSize;
+    public static long getMinNumCores() {
+        return minNumCores;
     }
 
-    public static long getparallelExecInstanceNum() {
-        if (getMincorSize() == 9999) {
+    public long getParallelExecInstanceNum() {
+        if (getMinNumCores() == Long.MAX_VALUE) {
             return 1;
         }
-        return (getMincorSize() + 1) / 2;
+        return (getMinNumCores() + 1) / 2;
     }
 
-    public static BackendInfo getBeInfoById(long beId) {
+    public BackendInfo getBeInfoById(long beId) {
         return Info.get(beId);
     }
 }

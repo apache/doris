@@ -133,7 +133,8 @@ public class HeartbeatMgr extends MasterDaemon {
         // them and write
         // an edit log to synchronize the info to other Frontends
         HbPackage hbPackage = new HbPackage();
-        BackendInfo.clear();
+        BackendInfo beinfo = BackendInfo.get();
+        beinfo.clear();
         for (Future<HeartbeatResponse> future : hbResponses) {
             boolean isChanged = false;
             try {
@@ -145,9 +146,9 @@ public class HeartbeatMgr extends MasterDaemon {
                 }
                 isChanged = handleHbResponse(response, false);
                 if (response.isBackEnd()) {
-                    long coreSize = ((BackendHbResponse) response).getCoreSize();
+                    long numCores = ((BackendHbResponse) response).getNumCores();
                     long beId = ((BackendHbResponse) response).getBeId();
-                    BackendInfo.addBeInfo(beId, coreSize);
+                    beinfo.addBeInfo(beId, numCores);
                 }
                 if (isChanged) {
                     hbPackage.addHbResponse(response);
@@ -250,7 +251,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     int bePort = tBackendInfo.getBePort();
                     int httpPort = tBackendInfo.getHttpPort();
                     int brpcPort = -1;
-                    long coreSize = tBackendInfo.getCoreSize();
+                    long numCores = tBackendInfo.getNumCores();
                     if (tBackendInfo.isSetBrpcPort()) {
                         brpcPort = tBackendInfo.getBrpcPort();
                     }
@@ -264,7 +265,7 @@ public class HeartbeatMgr extends MasterDaemon {
                         nodeRole = tBackendInfo.getBeNodeRole();
                     }
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
-                            System.currentTimeMillis(), beStartTime, version, nodeRole, coreSize);
+                            System.currentTimeMillis(), beStartTime, version, nodeRole, numCores);
                 } else {
                     return new BackendHbResponse(backendId, backend.getIp(),
                             result.getStatus().getErrorMsgs().isEmpty()
