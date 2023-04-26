@@ -72,6 +72,15 @@ public class PartitionDesc {
         return this.singlePartitionDescs;
     }
 
+    public SinglePartitionDesc getSinglePartitionDescByName(String partitionName) {
+        for (SinglePartitionDesc singlePartitionDesc : this.singlePartitionDescs) {
+            if (singlePartitionDesc.getPartitionName().equals(partitionName)) {
+                return singlePartitionDesc;
+            }
+        }
+        return null;
+    }
+
     public List<String> getPartitionColNames() {
         return partitionColNames;
     }

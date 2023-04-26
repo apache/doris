@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
@@ -26,6 +27,7 @@ import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EnterStmt;
 import org.apache.doris.analysis.ExecuteStmt;
@@ -41,10 +43,12 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
@@ -882,7 +886,8 @@ public class StmtExecutor implements ProfileWriter {
 
         if (parsedStmt instanceof QueryStmt
                 || parsedStmt instanceof InsertStmt
-                || parsedStmt instanceof CreateTableAsSelectStmt) {
+                || parsedStmt instanceof CreateTableAsSelectStmt
+                || parsedStmt instanceof InsertOverwriteTableStmt) {
             if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
                 analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
                         .getResourceGroup(context.sessionVariable.resourceGroup));
@@ -990,15 +995,6 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private void analyzeAndGenerateQueryPlan(TQueryOptions tQueryOptions) throws UserException {
-        if (parsedStmt instanceof InsertOverwriteTableStmt) {
-            parsedStmt.analyze(analyzer);
-            plannerProfile.setQueryAnalysisFinishTime();
-            planner = new OriginalPlanner(analyzer);
-            plannerProfile.setQueryPlanFinishTime();
-            return;
-        }
-
-
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             QueryStmt queryStmt = null;
             if (parsedStmt instanceof QueryStmt) {
@@ -2155,16 +2151,25 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handleIotStmt() {
         InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
+        if (iotStmt.getPartitionNames().size() == 0) {
+            // insert overwrite table
+            handleOverwriteTable(iotStmt);
+        } else {
+            // insert overwrite table with partition
+            handleOverwritePartition(iotStmt);
+        }
+    }
+
+    private void handleOverwriteTable(InsertOverwriteTableStmt iotStmt) {
         UUID uuid = UUID.randomUUID();
-        TableName tmpTableName = new TableName(null, iotStmt.getDb(), "tmp_" + uuid);
-        TableName targetTableName = new TableName(null, iotStmt.getDb(),
-                iotStmt.getTbl());
+        // to comply with naming rules
+        TableName tmpTableName = new TableName(null, iotStmt.getDb(), "tmp_table_" + uuid.toString().replace('-', '_'));
+        TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
         try {
             // create a tmp table with uuid
-            CreateTableLikeStmt createTableLikeStmt = new CreateTableLikeStmt(false, tmpTableName, targetTableName,
-                    null, false);
-            DdlExecutor.execute(context.getEnv(), createTableLikeStmt);
-            context.getState().setOk();
+            parsedStmt = new CreateTableLikeStmt(false, tmpTableName, targetTableName, null, false);
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
         } catch (Exception e) {
             // Maybe our bug
             LOG.warn("IOT create a tmp table error, stmt={}", originStmt.originStmt, e);
@@ -2173,18 +2178,16 @@ public class StmtExecutor implements ProfileWriter {
         }
         // after success create table insert data
         try {
-            // clone query to avoid duplicate registrations of table/colRefs,
-            parsedStmt = new InsertStmt(tmpTableName, iotStmt.getOriginQueryStmt());
+            parsedStmt = new InsertStmt(tmpTableName, iotStmt.getQueryStmt());
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
-                LOG.warn("IOT insert data error, stmt={}", iotStmt.toSql());
+                LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql());
                 handleIotRollback(tmpTableName);
                 return;
             }
-            context.getState().setOk();
         } catch (Exception e) {
-            LOG.warn("IOT insert data error, stmt={}", iotStmt.toSql(), e);
+            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
             handleIotRollback(tmpTableName);
             return;
@@ -2196,21 +2199,86 @@ public class StmtExecutor implements ProfileWriter {
             Map<String, String> properties = new HashMap<>();
             properties.put("swap", "false");
             ops.add(new ReplaceTableClause(tmpTableName.getTbl(), properties));
-            AlterTableStmt alterTableStmt = new AlterTableStmt(targetTableName, ops);
-            DdlExecutor.execute(context.getEnv(), alterTableStmt);
+            parsedStmt = new AlterTableStmt(targetTableName, ops);
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            context.getState().setOk();
         } catch (Exception e) {
             // Maybe our bug
-            LOG.warn("IOT overwrite table error, stmt={}", originStmt.originStmt, e);
+            LOG.warn("IOT overwrite table error, stmt={}", parsedStmt.toSql(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
             handleIotRollback(tmpTableName);
         }
 
     }
 
+    private void handleOverwritePartition(InsertOverwriteTableStmt iotStmt) {
+        TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
+        List<String> partitionNames = iotStmt.getPartitionNames();
+        List<String> tempPartitionName = new ArrayList<>();
+        try {
+            // create tmp partitions with uuid
+            for (String partitionName : partitionNames) {
+                UUID uuid = UUID.randomUUID();
+                // to comply with naming rules
+                String tempPartName = "tmp_partition_" + uuid.toString().replace('-', '_');
+                tempPartitionName.add(tempPartName);
+                List<AlterClause> ops = new ArrayList<>();
+                ops.add(new AddPartitionLikeClause(tempPartName, partitionName, true));
+                parsedStmt = new AlterTableStmt(targetTableName, ops);
+                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+                execute();
+            }
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("IOT create tmp table partitions error, stmt={}", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            return;
+        }
+
+        // after success add tmp partitions
+        try {
+            parsedStmt = new InsertStmt(targetTableName, new PartitionNames(true, tempPartitionName),
+                    iotStmt.getQueryStmt());
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql());
+                handleIotPartitionRollback(targetTableName, tempPartitionName);
+                return;
+            }
+        } catch (Exception e) {
+            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotPartitionRollback(targetTableName, tempPartitionName);
+            return;
+        }
+
+        // overwrite old table with tmp table
+        try {
+            List<AlterClause> ops = new ArrayList<>();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("use_temp_partition_name", "false");
+            ops.add(new ReplacePartitionClause(new PartitionNames(false, partitionNames),
+                    new PartitionNames(true, tempPartitionName), properties));
+            parsedStmt = new AlterTableStmt(targetTableName, ops);
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            context.getState().setOk();
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("IOT overwrite table partition error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotPartitionRollback(targetTableName, tempPartitionName);
+        }
+    }
+
     private void handleIotRollback(TableName table) {
         // insert error drop the tmp table
         DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
         try {
+            Analyzer tempAnalyzer = new Analyzer(Env.getCurrentEnv(), context);
+            dropTableStmt.analyze(tempAnalyzer);
             DdlExecutor.execute(context.getEnv(), dropTableStmt);
         } catch (Exception ex) {
             LOG.warn("IOT drop table error, stmt={}", parsedStmt.toSql(), ex);
@@ -2218,6 +2286,22 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
+    private void handleIotPartitionRollback(TableName targetTableName, List<String> tempPartitionNames) {
+        // insert error drop the tmp partitions
+        try {
+            for (String partitionName : tempPartitionNames) {
+                List<AlterClause> ops = new ArrayList<>();
+                ops.add(new DropPartitionClause(true, partitionName, true, true));
+                AlterTableStmt dropTablePartitionStmt = new AlterTableStmt(targetTableName, ops);
+                Analyzer tempAnalyzer = new Analyzer(Env.getCurrentEnv(), context);
+                dropTablePartitionStmt.analyze(tempAnalyzer);
+                DdlExecutor.execute(context.getEnv(), dropTablePartitionStmt);
+            }
+        } catch (Exception ex) {
+            LOG.warn("IOT drop partitions error, stmt={}", parsedStmt.toSql(), ex);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
+        }
+    }
 
     public Data.PQueryStatistics getQueryStatisticsForAuditLog() {
         if (statisticsForAuditLog == null) {

@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterClusterStmt;
@@ -213,7 +214,6 @@ public class InternalCatalog implements CatalogIf<Database> {
     public static final long INTERNAL_CATALOG_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
-
     private QueryableReentrantLock lock = new QueryableReentrantLock(true);
     private ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
@@ -1327,6 +1327,50 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } // end for partitions
                 DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(dbId, olapTable, true);
             }
+        }
+    }
+
+    public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
+            throws DdlException {
+        try {
+            Table table = db.getTableOrDdlException(tableName);
+
+            if (table.getType() == TableType.VIEW) {
+                throw new DdlException("Not support create partition from a View");
+            }
+
+            table.readLock();
+            try {
+                if (table.getType().equals(TableType.OLAP)) {
+                    String partitionName = addPartitionLikeClause.getPartitionName();
+                    String existedName = addPartitionLikeClause.getExistedPartitionName();
+                    OlapTable olapTable = (OlapTable) table;
+                    Partition part = olapTable.getPartition(existedName);
+                    PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                    PartitionDesc partitionDesc = partitionInfo.toPartitionDesc((OlapTable) table);
+                    SinglePartitionDesc oldPartitionDesc = partitionDesc.getSinglePartitionDescByName(existedName);
+                    if (oldPartitionDesc == null) {
+                        throw new DdlException("Failed to ADD PARTITION" + partitionName + " LIKE "
+                                + existedName + ". Reason: " + "partition " + existedName + "not exist");
+                    }
+                    DistributionDesc distributionDesc = part.getDistributionInfo().toDistributionDesc();
+                    SinglePartitionDesc newPartitionDesc = new SinglePartitionDesc(false, partitionName,
+                            oldPartitionDesc.getPartitionKeyDesc(), oldPartitionDesc.getProperties());
+                    Map<String, String> properties = newPartitionDesc.getProperties();
+                    AddPartitionClause clause = new AddPartitionClause(newPartitionDesc, distributionDesc,
+                            properties, addPartitionLikeClause.getIsTempPartition());
+                    table.readUnlock();
+                    addPartition(db, tableName, clause);
+                }
+            } catch (UserException e) {
+                table.readUnlock();
+                throw new DdlException("Failed to ADD PARTITION " + addPartitionLikeClause.getPartitionName()
+                        + " LIKE " + addPartitionLikeClause.getExistedPartitionName() + ". Reason: " + e.getMessage());
+            }
+
+        } catch (UserException e) {
+            throw new DdlException("Failed to ADD PARTITION " + addPartitionLikeClause.getPartitionName()
+                    + " LIKE " + addPartitionLikeClause.getExistedPartitionName() + ". Reason: " + e.getMessage());
         }
     }
 

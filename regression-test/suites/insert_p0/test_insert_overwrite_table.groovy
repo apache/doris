@@ -24,14 +24,18 @@ suite("test_iot") {
 
     try {
         sql """
-    CREATE TABLE IF NOT EXISTS `test_iot` (
-      `test_varchar` varchar(150) NULL,
-      `test_text` text NULL,
+    CREATE TABLE IF NOT EXISTS test_iot (
       `test_datetime` datetime NULL,
-      `test_default_timestamp` datetime DEFAULT CURRENT_TIMESTAMP
+      `test_varchar` varchar(150) NULL,
+      `test_text` text NULL
     ) ENGINE=OLAP
-    UNIQUE KEY(`test_varchar`)
-    DISTRIBUTED BY HASH(`test_varchar`) BUCKETS 3
+    UNIQUE KEY(`test_datetime`)
+    PARTITION BY RANGE (`test_datetime`)
+   (
+    PARTITION p1 VALUES [('2023-04-20 00:00:00'),('2023-04-21 00:00:00')),
+    PARTITION p2 VALUES [('2023-04-24 00:00:00'),('2023-04-25 00:00:00'))
+   )
+    DISTRIBUTED BY HASH(`test_datetime`) BUCKETS 3
       PROPERTIES (
       "replication_allocation" = "tag.location.default: 1",
       "in_memory" = "false",
@@ -40,14 +44,13 @@ suite("test_iot") {
     """
 
        sql """ 
-    CREATE TABLE IF NOT EXISTS `test_iot1` (
-      `test_varchar` varchar(150) NULL,
-      `test_text` text NULL,
+    CREATE TABLE IF NOT EXISTS test_iot1 (
       `test_datetime` datetime NULL,
-      `test_default_timestamp` datetime DEFAULT CURRENT_TIMESTAMP
+      `test_varchar` varchar(150) NULL,
+      `test_text` text NULL
     ) ENGINE=OLAP
-    UNIQUE KEY(`test_varchar`)
-    DISTRIBUTED BY HASH(`test_varchar`) BUCKETS 3
+    UNIQUE KEY(`test_datetime`)
+    DISTRIBUTED BY HASH(`test_datetime`) BUCKETS 3
       PROPERTIES (
       "replication_allocation" = "tag.location.default: 1",
       "in_memory" = "false",
@@ -55,10 +58,20 @@ suite("test_iot") {
     )
     """
 
-        sql """ INSERT INTO test_iot1(test_varchar, test_text, test_datetime) VALUES ('test1','test11','2023-04-20 16:00:33'),('test2','test22','2023-04-20 16:00:54') """
-        sql """INSERT OVERWRITE test_iot select * from test_iot1"""
+        sql """ INSERT INTO test_iot1(test_datetime, test_varchar, test_text) VALUES ('2023-04-20 16:00:00','aaa','aaa'),('2023-04-24 16:00:00','ccc','ccc') """
+        sql """INSERT OVERWRITE TABLE test_iot select * from test_iot1"""
 	
         qt_select """select count(*) from test_iot"""
+
+	sql """INSERT OVERWRITE TABLE test_iot PARTITION(p1) select * from test_iot1 where test_varchar = 'aaa' """
+	
+	qt_select """ select * from test_iot partition p1 """	
+
+	sql """INSERT OVERWRITE TABLE test_iot PARTITION(p1,p2) select * from test_iot1"""
+
+	qt_select """ select * from test_iot partition p1 """
+
+	qt_select """ select * from test_iot partition p2 """		
 	
     } finally {
         sql """ DROP TABLE IF EXISTS test_iot """

@@ -24,6 +24,7 @@ import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
@@ -2741,6 +2742,11 @@ public class Env {
 
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
         getInternalCatalog().addPartition(db, tableName, addPartitionClause);
+    }
+
+    public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
+            throws DdlException {
+        getInternalCatalog().addPartitionLike(db, tableName, addPartitionLikeClause);
     }
 
     public void replayAddPartition(PartitionPersistInfo info) throws MetaNotFoundException {
