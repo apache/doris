@@ -56,8 +56,9 @@ import java.util.Map;
 
 /**
  * HdfsStorage encapsulate interfaces accessing HDFS directly.
- *
+ * @see org.apache.doris.fs.remote.dfs.DFSFileSystem
  */
+@Deprecated
 public class HdfsStorage extends BlobStorage {
     private static final Logger LOG = LogManager.getLogger(HdfsStorage.class);
     private final Map<String, String> hdfsProperties;
