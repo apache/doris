@@ -262,6 +262,7 @@ bool Compaction::handle_ordered_data_compaction() {
             if (i <= input_size / 2) {
                 return false;
             } else {
+                // TODO(ccl): other thread will read _input_rowsets, maybe add a lock
                 _input_rowsets.resize(i);
                 break;
             }

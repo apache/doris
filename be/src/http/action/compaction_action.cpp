@@ -208,7 +208,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                 res = Status::Error<TRY_LOCK_FAILED>();
             } else {
                 StorageEngine::instance()->create_base_compaction(tablet, base_compaction);
-                Status res = base_compaction->prepare_compact();
+                res = base_compaction->prepare_compact();
                 if (res.ok()) {
                     tablet->set_base_compaction(base_compaction);
                     need_reset = true;
@@ -240,7 +240,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         bool need_reset = false;
         {
             std::unique_lock compaction_meta_lock(tablet->get_compaction_meta_lock());
-            Status res = cumu_compaction->prepare_compact();
+            res = cumu_compaction->prepare_compact();
             if (res.ok()) {
                 tablet->add_cumulative_compaction_unlocked(cumu_compaction);
                 need_reset = true;
@@ -255,7 +255,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         }
 
         if (!res) {
-            if (res.is<BE_NO_SUITABLE_VERSION>()) {
+            if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
                             << "tablet=" << tablet->full_name();
