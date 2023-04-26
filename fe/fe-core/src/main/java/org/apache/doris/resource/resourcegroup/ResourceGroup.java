@@ -72,7 +72,7 @@ public class ResourceGroup implements Writable {
         return new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
     }
 
-    public static void checkProperties(Map<String, String> properties) throws DdlException {
+    private static void checkProperties(Map<String, String> properties) throws DdlException {
         for (String propertyName : properties.keySet()) {
             if (!ALL_PROPERTIES_NAME.contains(propertyName)) {
                 throw new DdlException("Property " + propertyName + " is not supported.");
