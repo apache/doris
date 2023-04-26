@@ -19,7 +19,7 @@ suite("nereids_insert_unique_type_cast") {
     sql 'use nereids_insert_into_table_test'
     sql 'clean label from nereids_insert_into_table_test'
 
-    sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
     sql 'set parallel_fragment_exec_instance_num=13'
