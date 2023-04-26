@@ -115,10 +115,9 @@ public class HiveSplitter implements Splitter {
             } else {
                 // unpartitioned table, create a dummy partition to save location and inputformat,
                 // so that we can unify the interface.
-                HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(),
+                HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
                         hmsTable.getRemoteTable().getSd().getInputFormat(),
                         hmsTable.getRemoteTable().getSd().getLocation(), null);
-                dummyPartition.setDummyPartition();
                 getFileSplitByPartitions(cache, Lists.newArrayList(dummyPartition), allFiles, useSelfSplitter);
                 this.totalPartitionNum = 1;
                 this.readPartitionNum = 1;

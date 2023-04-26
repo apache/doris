@@ -260,7 +260,7 @@ public class HiveMetaStoreCache {
                     sd.getInputFormat(), sd.getLocation(), key, catalog.getName());
         }
         // TODO: more info?
-        return new HivePartition(key.dbName, key.tblName, sd.getInputFormat(), sd.getLocation(), key.values);
+        return new HivePartition(key.dbName, key.tblName, false, sd.getInputFormat(), sd.getLocation(), key.values);
     }
 
     private FileCacheValue loadFiles(FileCacheKey key) {
@@ -360,7 +360,7 @@ public class HiveMetaStoreCache {
         List<FileCacheKey> keys = Lists.newArrayListWithExpectedSize(partitions.size());
         partitions.stream().forEach(p -> {
             FileCacheKey fileCacheKey = p.isDummyPartition()
-                    ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(),
+                    ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(), p.getPath(),
                     p.getInputFormat(), useSelfSplitter)
                     : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues());
             fileCacheKey.setUseSelfSplitter(useSelfSplitter);
@@ -445,7 +445,7 @@ public class HiveMetaStoreCache {
              * and FE will exit if some network problems occur.
              * */
             FileCacheKey fileCacheKey = FileCacheKey.createDummyCacheKey(
-                    dbName, tblName, null, false);
+                    dbName, tblName, null, null, false);
             fileCacheRef.get().invalidate(fileCacheKey);
         }
     }
@@ -702,7 +702,7 @@ public class HiveMetaStoreCache {
 
     @Data
     public static class FileCacheKey {
-        private static final String DUMMY_FILE_CACHE_KEY_TEMPLATE = "DUMMY-KEY.%s.%s";
+        private String dummyKey;
         private String location;
         // not in key
         private String inputFormat;
@@ -721,16 +721,12 @@ public class HiveMetaStoreCache {
             this.useSelfSplitter = true;
         }
 
-        public static FileCacheKey createDummyCacheKey(String dbName, String tblName,
+        public static FileCacheKey createDummyCacheKey(String dbName, String tblName, String location,
                                                        String inputFormat, boolean useSelfSplitter) {
-            // we do not use non-partitioned table's real location
-            // because we need to use hms client to get the location info
-            // but this method may be invoked when slave FE replays journal logs,
-            // it is very dangerous to rely on external components
-            String location = String.format(DUMMY_FILE_CACHE_KEY_TEMPLATE, dbName, tblName);
-            FileCacheKey dummyKey = new FileCacheKey(location, inputFormat, null);
-            dummyKey.useSelfSplitter = useSelfSplitter;
-            return dummyKey;
+            FileCacheKey fileCacheKey = new FileCacheKey(location, inputFormat, null);
+            fileCacheKey.dummyKey = dbName + "." + tblName;
+            fileCacheKey.useSelfSplitter = useSelfSplitter;
+            return fileCacheKey;
         }
 
         @Override
@@ -740,6 +736,9 @@ public class HiveMetaStoreCache {
             }
             if (!(obj instanceof FileCacheKey)) {
                 return false;
+            }
+            if (dummyKey != null) {
+                return dummyKey.equals(((FileCacheKey) obj).dummyKey);
             }
             return location.equals(((FileCacheKey) obj).location)
                 && partitionValues.equals(((FileCacheKey) obj).partitionValues);

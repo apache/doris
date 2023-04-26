@@ -28,21 +28,19 @@ public class HivePartition {
     private String inputFormat;
     private String path;
     private List<String> partitionValues;
-    private boolean isDummyPartition = false;
+    private boolean isDummyPartition;
 
-    public HivePartition(String dbName, String tblName, String inputFormat, String path, List<String> partitionValues) {
+    public HivePartition(String dbName, String tblName, boolean isDummyPartition,
+                         String inputFormat, String path, List<String> partitionValues) {
         this.dbName = dbName;
         this.tblName = tblName;
+        this.isDummyPartition = isDummyPartition;
         // eg: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
         this.inputFormat = inputFormat;
         // eg: hdfs://hk-dev01:8121/user/doris/parquet/partition_table/nation=cn/city=beijing
         this.path = path;
         // eg: cn, beijing
         this.partitionValues = partitionValues;
-    }
-
-    public void setDummyPartition() {
-        this.isDummyPartition = true;
     }
 
     public boolean isDummyPartition() {
