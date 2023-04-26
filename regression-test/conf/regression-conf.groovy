@@ -52,7 +52,7 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_broker_load"
 // this directories will not be executed
-excludeDirectories = "segcompaction_p1"
+excludeDirectories = "segcompaction_p2"
 
 customConf1 = "test_custom_conf_value"
 
