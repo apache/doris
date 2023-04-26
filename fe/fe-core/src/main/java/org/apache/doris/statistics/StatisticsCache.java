@@ -93,7 +93,7 @@ public class StatisticsCache {
         StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
         try {
             CompletableFuture<Optional<ColumnStatistic>> f = columnStatisticsCache.get(k);
-            if (f.isDone() && f.get() != null) {
+            if (f.isDone()) {
                 return f.get();
             }
         } catch (Exception e) {
@@ -114,7 +114,7 @@ public class StatisticsCache {
         StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
         try {
             CompletableFuture<Optional<Histogram>> f = histogramCache.get(k);
-            if (f.isDone() && f.get() != null) {
+            if (f.isDone()) {
                 return f.get();
             }
         } catch (Exception e) {
