@@ -113,17 +113,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
 
         ctx.getStatementContext().getInsertIntoContext().setTargetSchema(targetColumns);
 
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(extractPlan(logicalQuery),
+                ctx.getStatementContext());
         planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
 
         getTupleDesc();
         addUnassignedColumns();
-
-        // check if it's explain
-        if (isExplain()) {
-            ((ExplainCommand) logicalQuery).run(ctx, executor);
-        }
 
         if (ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
@@ -146,6 +142,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         olapTableSink.complete();
         root.resetSink(olapTableSink);
 
+        if (isExplain()) {
+            executor.handleExplainStmt(((ExplainCommand) logicalQuery).getExplainString(planner));
+            return;
+        }
+
         txn.executeInsertIntoSelectCommand();
     }
 
@@ -164,6 +165,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("Only support OlapTable");
         }
         this.table = table.get();
+    }
+
+    private LogicalPlan extractPlan(LogicalPlan plan) {
+        if (plan instanceof ExplainCommand) {
+            return ((ExplainCommand) plan).getLogicalPlan();
+        }
+        return plan;
     }
 
     private DataSink createDataSink(ConnectContext ctx, PlanFragment root)
