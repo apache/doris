@@ -123,6 +123,16 @@ static IAggregateFunction* create_aggregate_function_min_max_by(const String& na
                                                          SingleValueDataDecimal<Decimal128I>>(
                 argument_types);
     }
+    if (which.idx == TypeIndex::DateV2) {
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<UInt32>>(
+                argument_types);
+    }
+    if (which.idx == TypeIndex::DateTimeV2) {
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<UInt64>>(
+                argument_types);
+    }
     return nullptr;
 }
 
