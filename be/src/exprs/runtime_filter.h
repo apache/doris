@@ -403,7 +403,8 @@ protected:
     const bool _enable_pipeline_exec;
 
     bool _profile_init = false;
-    std::mutex profile_mutex;
+
+    bool _opt_remote_rf;
 };
 
 // avoid expose RuntimePredicateWrapper

@@ -1214,7 +1214,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     UniqueId queryid = request->query_id();
     bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
-    bool use_new_merge_logic = request->has_version() && request->version() == 1;
+    bool opt_remote_rf = request->has_opt_remote_rf() && request->opt_remote_rf();
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
@@ -1245,7 +1245,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         // when filter_controller->merge is still in progress
         fragment_state = iter->second;
     }
-    RETURN_IF_ERROR(filter_controller->merge(request, attach_data, use_new_merge_logic));
+    RETURN_IF_ERROR(filter_controller->merge(request, attach_data, opt_remote_rf));
     return Status::OK();
 }
 

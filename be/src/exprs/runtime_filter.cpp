@@ -1143,9 +1143,7 @@ Status IRuntimeFilter::publish() {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
         RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_merge_addr(&addr));
-        // TODO: now only support slot ref
-        return push_to_remote(_state, &addr,
-                              _vprobe_ctx != nullptr && _vprobe_ctx->root()->is_slot_ref());
+        return push_to_remote(_state, &addr, _opt_remote_rf);
     }
 }
 
@@ -1337,6 +1335,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _has_remote_target = desc->has_remote_targets;
     _expr_order = desc->expr_order;
     _filter_id = desc->filter_id;
+    _opt_remote_rf = desc->__isset.opt_remote_rf && desc->opt_remote_rf;
     vectorized::VExprContext* build_ctx = nullptr;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, desc->src_expr, &build_ctx));
 

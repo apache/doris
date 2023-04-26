@@ -194,7 +194,8 @@ public final class RuntimeFilter {
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
             // TODO: now only support SlotRef
-            optRemoteRf = optRemoteRf && target.expr instanceof SlotRef;
+            optRemoteRf = optRemoteRf && hasRemoteTargets && runtimeFilterType == TRuntimeFilterType.BLOOM
+                    && target.expr instanceof SlotRef;
         }
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);

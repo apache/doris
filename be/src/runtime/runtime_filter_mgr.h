@@ -131,7 +131,7 @@ public:
 
     // handle merge rpc
     Status merge(const PMergeFilterRequest* request, butil::IOBufAsZeroCopyInputStream* attach_data,
-                 bool use_new_merge_logic);
+                 bool opt_remote_rf);
 
     UniqueId query_id() const { return _query_id; }
 
@@ -171,7 +171,7 @@ private:
     // filter-id -> val
     std::map<std::string, std::shared_ptr<RuntimeFilterCntlVal>> _filter_map;
     RuntimeState* _state;
-    bool _use_new_merge_logic = true;
+    bool _opt_remote_rf = true;
     int64_t _merge_timer = 0;
 };
 

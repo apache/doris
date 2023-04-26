@@ -272,8 +272,8 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
 // merge data
 Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* request,
                                                  butil::IOBufAsZeroCopyInputStream* attach_data,
-                                                 bool use_new_merge_logic) {
-    _use_new_merge_logic = _use_new_merge_logic && use_new_merge_logic;
+                                                 bool opt_remote_rf) {
+    _opt_remote_rf = _opt_remote_rf && opt_remote_rf;
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::shared_ptr<RuntimeFilterCntlVal> cntVal;
     int merged_size = 0;
@@ -307,10 +307,11 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     }
 
     if (merged_size == cntVal->producer_size) {
-        if (_use_new_merge_logic && cntVal->targetv2_info.size() > 0 &&
-            cntVal->filter->is_bloomfilter()) {
+        if (opt_remote_rf) {
+            DCHECK_GT(cntVal->targetv2_info.size(), 0);
+            DCHECK(cntVal->filter->is_bloomfilter());
             // Optimize merging phase iff:
-            // 1. All BE has been upgraded (e.g. _use_new_merge_logic)
+            // 1. All BE has been upgraded (e.g. _opt_remote_rf)
             // 2. FE has been upgraded (e.g. cntVal->targetv2_info.size() > 0)
             // 3. This filter is bloom filter (only bloom filter should be used for merging)
             using PPublishFilterRpcContext =
