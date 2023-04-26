@@ -17,13 +17,11 @@
 
 package org.apache.doris.qe;
 
-<<<<<<< HEAD
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
-=======
 import org.apache.doris.analysis.AnalyzeStmt;
->>>>>>> 375789d345633c49e0e4aa770c28851799fba016
+import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
