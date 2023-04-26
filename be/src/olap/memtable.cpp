@@ -236,7 +236,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
                                          row_in_block->_row_pos, nullptr);
             } catch (...) {
                 for (size_t i = _schema->num_key_columns(); i < cid; ++i) {
-                    _agg_functions[cid]->destroy(row_in_block->agg_places(cid));
+                    _agg_functions[i]->destroy(row_in_block->agg_places(i));
                 }
                 throw;
             }

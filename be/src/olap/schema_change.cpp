@@ -165,7 +165,7 @@ public:
                         agg_functions[j - key_number]->insert_result_into(
                                 agg_places[j - key_number],
                                 finalized_block.get_by_position(j).column->assume_mutable_ref());
-                        agg_functions[j - key_number]->reset(agg_places[j - key_number]);
+                        agg_functions[j - key_number]->create(agg_places[j - key_number]);
                     }
 
                     if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
