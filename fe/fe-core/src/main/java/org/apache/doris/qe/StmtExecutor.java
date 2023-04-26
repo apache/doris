@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
@@ -794,8 +795,9 @@ public class StmtExecutor implements ProfileWriter {
         if (parsedStmt instanceof SetStmt) {
             SetStmt setStmt = (SetStmt) parsedStmt;
             setStmt.modifySetVarsForExecute();
-            SetExecutor executor = new SetExecutor(context, setStmt);
-            executor.execute();
+            for (SetVar var : setStmt.getSetVars()) {
+                VariableMgr.setVarForNonMasterFE(context.getSessionVariable(), var);
+            }
         }
     }
 
@@ -2066,7 +2068,9 @@ public class StmtExecutor implements ProfileWriter {
     private void handleDdlStmt() {
         try {
             DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
-            context.getState().setOk();
+            if (!(parsedStmt instanceof AnalyzeStmt)) {
+                context.getState().setOk();
+            }
         } catch (QueryStateException e) {
             LOG.warn("", e);
             context.setState(e.getQueryState());

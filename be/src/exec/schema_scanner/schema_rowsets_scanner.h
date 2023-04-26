@@ -33,6 +33,8 @@ class Block;
 } // namespace vectorized
 
 class SchemaRowsetsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaRowsetsScanner);
+
 public:
     SchemaRowsetsScanner();
     ~SchemaRowsetsScanner() override = default;
