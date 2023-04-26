@@ -2518,12 +2518,12 @@ public class Env {
         }
     }
 
-    public void modifyFrontendHostName(String srcHost, int srcPort, String destHostName) throws DdlException {
+    public void modifyFrontendHostName(String srcHost, int srcPort, String destHost) throws DdlException {
         Frontend fe = checkFeExist(srcHost, srcPort);
         if (fe == null) {
             throw new DdlException("frontend does not exist, host:" + srcHost);
         }
-        modifyFrontendHost(fe.getNodeName(), destHostName);
+        modifyFrontendHost(fe.getNodeName(), destHost);
     }
 
     public void modifyFrontendHost(String nodeName, String destHost) throws DdlException {

@@ -145,8 +145,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 continue;
             }
             if (!Strings.isNullOrEmpty(addr.getHostName())) {
-                if (addr.getHostName().equals(fe.getHost())
-                        || addr.getHostName().equals(fe.getHost())) {
+                if (addr.getHostName().equals(fe.getHost())) {
                     return true;
                 }
             }
