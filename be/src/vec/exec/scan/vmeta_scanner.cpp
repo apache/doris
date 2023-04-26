@@ -212,6 +212,13 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         return Status::OK();
     }
 
+    // set filter columns
+    std::vector<std::string> filter_columns;
+    for (const auto& slot : _tuple_desc->slots()) {
+        filter_columns.emplace_back(slot->col_name_lower_case());
+    }
+    request.metada_table_params.__set_columns_name(filter_columns);
+
     // _state->execution_timeout() is seconds, change to milliseconds
     int time_out = _state->execution_timeout() * 1000;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
