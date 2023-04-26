@@ -82,6 +82,7 @@ public class PlanTranslatorContext {
 
     private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
     private TupleDescriptor bufferedTupleForWindow = null;
+    private boolean isInsertIntoCommand;
 
     private final Map<CTEId, PlanFragment> cteProduceFragments = Maps.newHashMap();
 
@@ -89,6 +90,7 @@ public class PlanTranslatorContext {
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+        this.isInsertIntoCommand = ctx.getStatementContext().getInsertIntoContext() != null;
     }
 
     @VisibleForTesting
@@ -155,6 +157,10 @@ public class PlanTranslatorContext {
 
     public List<ScanNode> getScanNodes() {
         return scanNodes;
+    }
+
+    public boolean isInsertIntoCommand() {
+        return isInsertIntoCommand;
     }
 
     public PhysicalHashAggregate getFirstAggregateInFragment(PlanFragment planFragment) {
