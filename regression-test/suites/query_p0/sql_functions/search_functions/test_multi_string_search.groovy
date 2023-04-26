@@ -38,4 +38,41 @@ suite("test_multi_string_search") {
     qt_select "select multi_match_any('ldrzgttlqaphekkkdukgngl', ['gttlqaphekkkdukgn', 'ekkkd', 'gttlqaphe', 'qaphek', 'h', 'kdu', 'he', 'phek', '', 'drzgttlqaphekkkd'])"
     qt_select "select multi_match_any('ololo', ['ololo', 'ololo', 'ololo'])"
     qt_select "select multi_match_any('khljxzxlpcrxpkrfybbfk', ['k'])"
+    qt_select "select multi_match_any(NULL, ['A', 'bcd']);"
+    qt_select "select multi_match_any('abc', NULL);"
+    qt_select "select multi_match_any(NULL, NULL);"
+
+    sql """drop table if exists test_multi_string_search_test;"""
+
+    sql """CREATE TABLE `test_multi_string_search_test` (
+                `id` int(11) NULL COMMENT "",
+                `c_array` string NULL COMMENT "",
+                `c_array1` array<string> NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+        """
+
+    sql """INSERT INTO `test_multi_string_search_test` VALUES (1, "['1','2','3','4','5']", ['1','2','3','4','5']);"""
+    sql """INSERT INTO `test_multi_string_search_test` VALUES (2, NULL, ['1','2','3','4']);"""
+    sql """INSERT INTO `test_multi_string_search_test` VALUES (3, "['1','2','3', 5']", NULL);"""
+    sql """INSERT INTO `test_multi_string_search_test` VALUES (4,'{"question12":{"answer":["1","2","4"],"content":"自己输入的内容"}}', NULL);"""
+
+    qt_select "select *,multi_match_any(c_array,c_array1) from test_multi_string_search_test order by id;"
+
+    qt_select "select *,multi_match_any(c_array,['2']) from test_multi_string_search_test order by id;"
+
+    qt_select "select *,multi_match_any(c_array,['10']) from test_multi_string_search_test order by id;"
+
+    qt_select "select * from test_multi_string_search_test where 1 = multi_match_any(jsonb_extract_string(c_array, '\$.question12.answer'),['3']) order by id;"
+
+    qt_select "select * from test_multi_string_search_test where 1 = multi_match_any(jsonb_extract_string(c_array, '\$.question12.answer'),['2']) order by id;"
+
+    sql """drop table if exists test_multi_string_search_test;"""
 }

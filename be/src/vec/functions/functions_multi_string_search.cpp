@@ -72,7 +72,7 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return Impl::get_return_type();
+        return make_nullable(Impl::get_return_type());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -103,25 +103,28 @@ public:
         auto& vec_res = col_res->get_data();
         auto& offsets_res = col_offsets->get_data();
 
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+
         Status status;
         if (col_needles_const)
             status = Impl::vector_constant(
                     col_haystack_vector->get_chars(), col_haystack_vector->get_offsets(),
-                    col_needles_const->get_value<Array>(), vec_res, offsets_res, allow_hyperscan_,
+                    col_needles_const->get_value<Array>(), vec_res, offsets_res, null_map->get_data(), allow_hyperscan_,
                     max_hyperscan_regexp_length_, max_hyperscan_regexp_total_length_);
         else
             status = Impl::vector_vector(
                     col_haystack_vector->get_chars(), col_haystack_vector->get_offsets(),
                     col_needles_vector->get_data(), col_needles_vector->get_offsets(), vec_res,
-                    offsets_res, allow_hyperscan_, max_hyperscan_regexp_length_,
+                    offsets_res, null_map->get_data(), allow_hyperscan_, max_hyperscan_regexp_length_,
                     max_hyperscan_regexp_total_length_);
         if (!status.ok()) return status;
 
         if constexpr (Impl::is_column_array)
-            block.get_by_position(result).column =
-                    ColumnArray::create(std::move(col_res), std::move(col_offsets));
+            block.get_by_position(result).column = ColumnArray::create(
+                    ColumnNullable::create(std::move(col_res), std::move(null_map)), std::move(col_offsets));
         else
-            block.replace_by_position(result, std::move(col_res));
+            block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(col_res), std::move(null_map)));
 
         return status;
     }
@@ -152,7 +155,7 @@ struct FunctionMultiMatchAnyImpl {
     static Status vector_constant(const ColumnString::Chars& haystack_data,
                                   const ColumnString::Offsets& haystack_offsets,
                                   const Array& needles_arr, PaddedPODArray<ResultType>& res,
-                                  PaddedPODArray<UInt64>& offsets, bool allow_hyperscan,
+                                  PaddedPODArray<UInt64>& offsets, NullMap& null_map, bool allow_hyperscan,
                                   size_t max_hyperscan_regexp_length,
                                   size_t max_hyperscan_regexp_total_length) {
         if (!allow_hyperscan) return Status::InvalidArgument("Hyperscan functions are disabled");
@@ -201,11 +204,15 @@ struct FunctionMultiMatchAnyImpl {
                 return Status::InternalError("too long string to search");
             /// zero the result, scan, check, update the offset.
             res[i] = 0;
-            err = hs_scan(regexps->getDB(),
-                          reinterpret_cast<const char*>(haystack_data.data()) + offset,
-                          static_cast<unsigned>(length), 0, smart_scratch.get(), on_match, &res[i]);
-            if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED)
-                return Status::InternalError("failed to scan with vectorscan");
+            if (length == 0) {
+                null_map[i] = 1;
+            } else {
+                err = hs_scan(regexps->getDB(),
+                              reinterpret_cast<const char *>(haystack_data.data()) + offset,
+                              static_cast<unsigned>(length), 0, smart_scratch.get(), on_match, &res[i]);
+                if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED)
+                    return Status::InternalError("failed to scan with vectorscan");
+            }
             offset = haystack_offsets[i];
         }
 
@@ -216,7 +223,7 @@ struct FunctionMultiMatchAnyImpl {
                                 const ColumnString::Offsets& haystack_offsets,
                                 const IColumn& needles_data,
                                 const ColumnArray::Offsets64& needles_offsets,
-                                PaddedPODArray<ResultType>& res, PaddedPODArray<UInt64>& offsets,
+                                PaddedPODArray<ResultType>& res, PaddedPODArray<UInt64>& offsets, NullMap& null_map,
                                 bool allow_hyperscan, size_t max_hyperscan_regexp_length,
                                 size_t max_hyperscan_regexp_total_length) {
         if (!allow_hyperscan) return Status::InvalidArgument("Hyperscan functions are disabled");
@@ -278,13 +285,17 @@ struct FunctionMultiMatchAnyImpl {
 
             /// zero the result, scan, check, update the offset.
             res[i] = 0;
-            err = hs_scan(
-                    regexps->getDB(),
-                    reinterpret_cast<const char*>(haystack_data.data()) + prev_haystack_offset,
-                    static_cast<unsigned>(cur_haystack_length), 0, smart_scratch.get(), on_match,
-                    &res[i]);
-            if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED)
-                return Status::InternalError("failed to scan with vectorscan");
+            if (cur_haystack_length == 0) {
+                null_map[i] = 1;
+            } else {
+                err = hs_scan(
+                        regexps->getDB(),
+                        reinterpret_cast<const char *>(haystack_data.data()) + prev_haystack_offset,
+                        static_cast<unsigned>(cur_haystack_length), 0, smart_scratch.get(), on_match,
+                        &res[i]);
+                if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED)
+                    return Status::InternalError("failed to scan with vectorscan");
+            }
 
             prev_haystack_offset = haystack_offsets[i];
             prev_needles_offset = needles_offsets[i];
