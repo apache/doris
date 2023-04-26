@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <iosfwd>
+#include <memory>
 
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
