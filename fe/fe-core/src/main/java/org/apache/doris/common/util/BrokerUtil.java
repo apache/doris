@@ -29,7 +29,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.fs.obj.BlobStorage;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
 import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
@@ -85,9 +86,9 @@ public class BrokerUtil {
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
         try {
-            BlobStorage storage = BlobStorage.create(
+            RemoteFileSystem fileSystem = FileSystemFactory.get(
                     brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
-            Status st = storage.list(path, rfiles, false);
+            Status st = fileSystem.list(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(brokerDesc.getName() + " list path failed. path=" + path
                         + ",msg=" + st.getErrMsg());

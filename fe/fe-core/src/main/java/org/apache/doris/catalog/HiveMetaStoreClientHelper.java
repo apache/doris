@@ -36,7 +36,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.fs.obj.BlobStorage;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
@@ -177,7 +178,7 @@ public class HiveMetaStoreClientHelper {
     public static String getHiveDataFiles(HiveTable hiveTable, ExprNodeGenericFuncDesc hivePartitionPredicate,
             List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl, StorageBackend.StorageType type)
             throws DdlException {
-        BlobStorage storage = BlobStorage.create("HiveMetaStore", type, hiveTable.getHiveProperties());
+        RemoteFileSystem fs = FileSystemFactory.get("HiveMetaStore", type, hiveTable.getHiveProperties());
         List<RemoteIterator<LocatedFileStatus>> remoteIterators = new ArrayList<>();
         try {
             if (remoteHiveTbl.getPartitionKeys().size() > 0) {
@@ -187,14 +188,14 @@ public class HiveMetaStoreClientHelper {
                         hivePartitionPredicate);
                 for (Partition p : hivePartitions) {
                     String location = normalizeS3LikeSchema(p.getSd().getLocation());
-                    remoteIterators.add(storage.listLocatedStatus(location));
+                    remoteIterators.add(fs.listLocatedStatus(location));
                 }
             } else {
                 // hive non-partitioned table, get file iterator from table sd info
                 String location = normalizeS3LikeSchema(remoteHiveTbl.getSd().getLocation());
-                remoteIterators.add(storage.listLocatedStatus(location));
+                remoteIterators.add(fs.listLocatedStatus(location));
             }
-            return getAllFileStatus(fileStatuses, remoteIterators, storage);
+            return getAllFileStatus(fileStatuses, remoteIterators, fs);
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e);
         }
@@ -212,10 +213,10 @@ public class HiveMetaStoreClientHelper {
     }
 
     private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
-            List<RemoteIterator<LocatedFileStatus>> remoteIterators, BlobStorage storage) throws UserException {
-        boolean needFullPath = storage.getStorageType() == StorageBackend.StorageType.S3
-                || storage.getStorageType() == StorageBackend.StorageType.OFS
-                || storage.getStorageType() == StorageBackend.StorageType.JFS;
+            List<RemoteIterator<LocatedFileStatus>> remoteIterators, RemoteFileSystem fs) throws UserException {
+        boolean needFullPath = fs.getStorageType() == StorageBackend.StorageType.S3
+                || fs.getStorageType() == StorageBackend.StorageType.OFS
+                || fs.getStorageType() == StorageBackend.StorageType.JFS;
         String hdfsUrl = "";
         Queue<RemoteIterator<LocatedFileStatus>> queue = Queues.newArrayDeque(remoteIterators);
         while (queue.peek() != null) {
@@ -225,7 +226,7 @@ public class HiveMetaStoreClientHelper {
                     LocatedFileStatus fileStatus = iterator.next();
                     if (fileStatus.isDirectory()) {
                         // recursive visit the directory to get the file path.
-                        queue.add(storage.listLocatedStatus(fileStatus.getPath().toString()));
+                        queue.add(fs.listLocatedStatus(fileStatus.getPath().toString()));
                         continue;
                     }
                     TBrokerFileStatus brokerFileStatus = new TBrokerFileStatus();

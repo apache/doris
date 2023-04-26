@@ -35,7 +35,6 @@ import java.io.FileNotFoundException;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 
 public class S3FileSystem extends ObjFileSystem {
 
@@ -43,7 +42,7 @@ public class S3FileSystem extends ObjFileSystem {
 
     public S3FileSystem(Map<String, String> properties) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, new S3ObjStorage(properties));
-        this.properties = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        this.properties.putAll(properties);
     }
 
     @Override

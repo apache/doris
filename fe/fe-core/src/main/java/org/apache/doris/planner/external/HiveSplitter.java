@@ -29,6 +29,7 @@ import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.external.hive.util.HiveUtil;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.Split;
@@ -192,8 +193,8 @@ public class HiveSplitter implements Splitter {
 
     // Get File Status by using FileSystem API.
     public static HiveMetaStoreCache.FileCacheValue getFileCache(Path path, InputFormat<?, ?> inputFormat,
-                                                                  JobConf jobConf) throws IOException {
-        FileSystem fs = path.getFileSystem(jobConf);
+                                                                 JobConf jobConf) throws IOException {
+        FileSystem fs = FileSystemFactory.getHadoopFileSystem(path, jobConf);
         boolean splittable = HiveUtil.isSplittable(inputFormat, fs, path);
         RemoteIterator<LocatedFileStatus> locatedFileStatusRemoteIterator = fs.listFiles(path, true);
         HiveMetaStoreCache.FileCacheValue result = new HiveMetaStoreCache.FileCacheValue();

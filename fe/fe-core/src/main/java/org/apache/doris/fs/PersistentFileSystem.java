@@ -20,6 +20,7 @@ package org.apache.doris.fs;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.google.common.collect.Maps;
 
@@ -42,6 +43,10 @@ public abstract class PersistentFileSystem implements FileSystem, Writable {
         this.type = type;
     }
 
+    public String getName() {
+        return name;
+    }
+
     public Map<String, String> getProperties() {
         return properties;
     }
@@ -55,7 +60,7 @@ public abstract class PersistentFileSystem implements FileSystem, Writable {
      * @param in persisted data
      * @return file systerm
      */
-    public static FileSystem read(DataInput in) throws IOException {
+    public static RemoteFileSystem read(DataInput in) throws IOException {
         String name = Text.readString(in);
         Map<String, String> properties = Maps.newHashMap();
         StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;

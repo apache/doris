@@ -25,6 +25,7 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * File system interface.
@@ -36,6 +37,8 @@ import java.util.List;
  * @see org.apache.doris.fs.operations.FileOperations
  */
 public interface FileSystem {
+    Map<String, String> getProperties();
+
     Status exists(String remotePath);
 
     Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize);

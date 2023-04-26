@@ -19,11 +19,16 @@ package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.fs.remote.dfs.JFSFileSystem;
 import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+
+import java.io.IOException;
 import java.util.Map;
 
 public class FileSystemFactory {
@@ -33,7 +38,7 @@ public class FileSystemFactory {
         return get(type.name(), type, properties);
     }
 
-    public static FileSystem get(String name, StorageBackend.StorageType type, Map<String, String> properties) {
+    public static RemoteFileSystem get(String name, StorageBackend.StorageType type, Map<String, String> properties) {
         // TODO: rename StorageBackend.StorageType
         if (type == StorageBackend.StorageType.S3) {
             return new S3FileSystem(properties);
@@ -48,5 +53,10 @@ public class FileSystemFactory {
         } else {
             throw new UnsupportedOperationException(type.toString() + "backend is not implemented");
         }
+    }
+
+    public static org.apache.hadoop.fs.FileSystem getHadoopFileSystem(Path path, Configuration conf)
+                throws IOException {
+        return path.getFileSystem(conf);
     }
 }
