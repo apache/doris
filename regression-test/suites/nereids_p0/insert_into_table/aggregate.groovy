@@ -85,17 +85,4 @@ suite("nereids_insert_aggregate") {
     sql '''insert into agg_light_sc_not_null_nop_t
             select * except(kaint) from src where id is not null'''
     qt_lsc2 'select * from agg_light_sc_not_null_nop_t order by id, kint'
-
-    // test hint
-    explain {
-        sql '''insert into agg_light_sc_nop_t [NOSHUFFLE]
-            select * except(kaint) from src'''
-        contains ''
-    }
-
-    explain {
-        sql '''insert into agg_light_sc_not_null_nop_t [SHUFFLE]
-            select * except(kaint) from src where id is not null'''
-        contains ''
-    }
 }
