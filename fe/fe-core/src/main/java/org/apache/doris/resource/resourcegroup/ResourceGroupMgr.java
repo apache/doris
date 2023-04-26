@@ -160,20 +160,21 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
         String resourceGroupName = stmt.getResourceGroupName();
         Map<String, String> properties = stmt.getProperties();
+        ResourceGroup newResourceGroup;
         writeLock();
         try {
             if (!nameToResourceGroup.containsKey(resourceGroupName)) {
                 throw new DdlException("Resource Group(" + resourceGroupName + ") does not exist.");
             }
             ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
-            ResourceGroup newResourceGroup = ResourceGroup.create(resourceGroup, properties);
+            newResourceGroup = ResourceGroup.create(resourceGroup, properties);
             nameToResourceGroup.put(resourceGroupName, newResourceGroup);
             idToResourceGroup.put(newResourceGroup.getId(), newResourceGroup);
             Env.getCurrentEnv().getEditLog().logAlterResourceGroup(newResourceGroup);
         } finally {
             writeUnlock();
         }
-        LOG.info("Alter resource success: {}", resourceGroupName);
+        LOG.info("Alter resource success: {}", newResourceGroup);
     }
 
     public void dropResourceGroup(DropResourceGroupStmt stmt) throws DdlException {
