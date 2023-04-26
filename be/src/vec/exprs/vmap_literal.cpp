@@ -54,7 +54,7 @@ Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
         Field kf, vf;
         auto key_literal = dynamic_cast<const VLiteral*>(VExpr::expr_without_cast(_children[idx]));
         key_literal->get_column_ptr()->get(0, kf);
-        auto val_literal = 
+        auto val_literal =
                 dynamic_cast<const VLiteral*>(VExpr::expr_without_cast(_children[idx + 1]));
         val_literal->get_column_ptr()->get(0, vf);
 
