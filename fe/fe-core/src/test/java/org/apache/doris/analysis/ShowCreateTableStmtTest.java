@@ -54,7 +54,7 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
 
     @Test
     public void testBrief() throws Exception {
-        String sql = "show create table table1 brief";
+        String sql = "show brief create table table1";
         ShowResultSet showResultSet = showCreateTable(sql);
         String showSql = showResultSet.getResultRows().get(0).get(1);
         Assertions.assertTrue(!showSql.contains("PARTITION BY"));
