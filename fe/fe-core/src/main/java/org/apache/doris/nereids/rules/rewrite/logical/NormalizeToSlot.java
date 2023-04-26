@@ -150,9 +150,7 @@ public interface NormalizeToSlot {
 
             if (expression instanceof NamedExpression) {
                 NamedExpression namedExpression = (NamedExpression) expression;
-                NormalizeToSlotTriplet normalizeToSlotTriplet =
-                        new NormalizeToSlotTriplet(expression, namedExpression.toSlot(), namedExpression);
-                return normalizeToSlotTriplet;
+                return new NormalizeToSlotTriplet(expression, namedExpression.toSlot(), namedExpression);
             }
 
             Alias alias = new Alias(expression, expression.toSql());

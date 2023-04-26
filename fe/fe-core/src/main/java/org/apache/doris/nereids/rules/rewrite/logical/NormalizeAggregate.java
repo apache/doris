@@ -56,35 +56,38 @@ import java.util.stream.Stream;
  *            Alias(SUM(v1#3 + 1))#7, Alias(SUM(v1#3) + 1)#8])
  * </pre>
  * After rule:
+ * <pre>
  * Project(k1#1, Alias(SR#9)#4, Alias(k1#1 + 1)#5, Alias(SR#10))#6, Alias(SR#11))#7, Alias(SR#10 + 1)#8)
  * +-- Aggregate(keys:[k1#1, SR#9], outputs:[k1#1, SR#9, Alias(SUM(v1#3))#10, Alias(SUM(v1#3 + 1))#11])
  *   +-- Project(k1#1, Alias(K2#2 + 1)#9, v1#3)
- * <p>
- *
+ * </pre>
  * Note: window function will be moved to upper project
  * all agg functions except the top agg should be pushed to Aggregate node.
  * example 1:
+ * <pre>
  *    select min(x), sum(x) over () ...
  * the 'sum(x)' is top agg of window function, it should be moved to upper project
  * plan:
  *    project(sum(x) over())
  *        Aggregate(min(x), x)
- *
+ * </pre>
  * example 2:
+ * <pre>
  *    select min(x), avg(sum(x)) over() ...
  * the 'sum(x)' should be moved to Aggregate
  * plan:
  *    project(avg(y) over())
  *         Aggregate(min(x), sum(x) as y)
+ * </pre>
  * example 3:
+ * <pre>
  *    select sum(x+1), x+1, sum(x+1) over() ...
  * window function should use x instead of x+1
  * plan:
  *    project(sum(x+1) over())
  *        Agg(sum(y), x)
  *            project(x+1 as y)
- *
- *
+ * </pre>
  * More example could get from UT {NormalizeAggregateTest}
  */
 public class NormalizeAggregate extends OneRewriteRuleFactory implements NormalizeToSlot {
@@ -92,10 +95,10 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
     public Rule build() {
         return logicalAggregate().whenNot(LogicalAggregate::isNormalized).then(aggregate -> {
             // push expression to bottom project
-            Set<Alias> existsAliases = ExpressionUtils.mutableCollect(
-                    aggregate.getOutputExpressions(), Alias.class::isInstance);
-            Set<AggregateFunction> aggregateFunctionsInWindow = collectAggregateFunctionsInWindow(
-                    aggregate.getOutputExpressions());
+            Set<Alias> existsAliases = aggregate.getOutputExpressions().stream()
+                    .flatMap(expr -> expr.<Set<Alias>>collect(Alias.class::isInstance).stream())
+                    .collect(Collectors.toSet());
+            Set<AggregateFunction> aggregateFunctionsInWindow = aggregate.getAggregateFunctions();
             Set<Expression> existsAggAlias = existsAliases.stream().map(alias -> alias.child())
                     .filter(AggregateFunction.class::isInstance)
                     .collect(Collectors.toSet());
@@ -193,8 +196,6 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
         // 2 parts need push down:
         // groupingByExpr, argumentsOfAggregateFunction
 
-        Set<Expression> groupingByExpr = ImmutableSet.copyOf(aggregate.getGroupByExpressions());
-
         Set<AggregateFunction> aggregateFunctions = collectNonWindowedAggregateFunctions(
                 aggregate.getOutputExpressions());
 
@@ -213,7 +214,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
         ImmutableSet<Expression> needPushDown = ImmutableSet.<Expression>builder()
                 // group by should be pushed down, e.g. group by (k + 1),
                 // we should push down the `k + 1` to the bottom plan
-                .addAll(groupingByExpr)
+                .addAll(aggregate.getGroupByExpressions())
                 // e.g. sum(k + 1), we should push down the `k + 1` to the bottom plan
                 .addAll(argumentsOfAggregateFunction)
                 .addAll(windowFunctionKeys)
@@ -241,18 +242,6 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
      */
     private Set<AggregateFunction> collectNonWindowedAggregateFunctions(List<NamedExpression> aggOutput) {
         return ExpressionUtils.collect(aggOutput, expr -> {
-            if (expr instanceof AggregateFunction) {
-                return !((AggregateFunction) expr).isWindowFunction();
-            }
-            return false;
-        });
-    }
-
-    private Set<AggregateFunction> collectAggregateFunctionsInWindow(List<NamedExpression> aggOutput) {
-
-        List<WindowExpression> windows = Lists.newArrayList(
-                ExpressionUtils.collect(aggOutput, WindowExpression.class::isInstance));
-        return ExpressionUtils.collect(windows, expr -> {
             if (expr instanceof AggregateFunction) {
                 return !((AggregateFunction) expr).isWindowFunction();
             }
