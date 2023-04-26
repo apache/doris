@@ -1020,14 +1020,6 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                                 tablet_meta_info.is_in_memory);
                     }
                     break;
-                case TTabletMetaType::MARKDROP:
-                    if (tablet_meta_info.__isset.is_dropped) {
-                        tablet->tablet_meta()->set_is_dropped(tablet_meta_info.is_dropped);
-                        LOG_INFO("successfully set tablet is_dropped")
-                                .tag("tablet_id", tablet_meta_info.tablet_id)
-                                .tag("is_dropped", tablet_meta_info.is_dropped);
-                    }
-                    break;
                 }
             }
             tablet->save_meta();

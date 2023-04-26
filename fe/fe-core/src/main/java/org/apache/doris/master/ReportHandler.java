@@ -422,9 +422,6 @@ public class ReportHandler extends Daemon {
 
         List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
 
-        // <tablet id, tablet schema hash, tablet is dropped>
-        List<Triple<Long, Integer, Boolean>> tabletToIsDropped = Lists.newArrayList();
-
         List<CooldownConf> cooldownConfToPush = new LinkedList<>();
         List<CooldownConf> cooldownConfToUpdate = new LinkedList<>();
 
@@ -438,7 +435,6 @@ public class ReportHandler extends Daemon {
                 transactionsToClear,
                 tabletRecoveryMap,
                 tabletToInMemory,
-                tabletToIsDropped,
                 cooldownConfToPush,
                 cooldownConfToUpdate);
 
@@ -481,11 +477,6 @@ public class ReportHandler extends Daemon {
         // 9. send set tablet in memory to be
         if (!tabletToInMemory.isEmpty()) {
             handleSetTabletInMemory(backendId, tabletToInMemory);
-        }
-
-        // 10. send mark tablet isDropped to be
-        if (!tabletToIsDropped.isEmpty()) {
-            handleMarkTabletIsDropped(backendId, tabletToIsDropped);
         }
 
         // handle cooldown conf
@@ -1044,14 +1035,6 @@ public class ReportHandler extends Daemon {
     private static void handleSetTabletInMemory(long backendId, List<Triple<Long, Integer, Boolean>> tabletToInMemory) {
         AgentBatchTask batchTask = new AgentBatchTask();
         UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId, tabletToInMemory);
-        batchTask.addTask(task);
-        AgentTaskExecutor.submit(batchTask);
-    }
-
-    private static void handleMarkTabletIsDropped(long backendId,
-            List<Triple<Long, Integer, Boolean>> tabletToIsDropped) {
-        AgentBatchTask batchTask = new AgentBatchTask();
-        UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(tabletToIsDropped, backendId);
         batchTask.addTask(task);
         AgentTaskExecutor.submit(batchTask);
     }
