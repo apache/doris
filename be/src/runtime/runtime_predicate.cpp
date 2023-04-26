@@ -18,6 +18,7 @@
 #include "runtime/runtime_predicate.h"
 
 #include <stdint.h>
+
 #include <memory>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
@@ -167,12 +168,12 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
         // For DESC sort, create runtime predicate col_name >= min_top_value
         // since values that < min_top_value are less than any value in current topn values
         pred.reset(create_comparison_predicate<PredicateType::GE>(column, index, val, false,
-                                                              _predicate_arena.get()));
+                                                                  _predicate_arena.get()));
     } else {
         // For ASC  sort, create runtime predicate col_name <= max_top_value
         // since values that > min_top_value are large than any value in current topn values
         pred.reset(create_comparison_predicate<PredicateType::LE>(column, index, val, false,
-                                                              _predicate_arena.get()));
+                                                                  _predicate_arena.get()));
     }
 
     // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
