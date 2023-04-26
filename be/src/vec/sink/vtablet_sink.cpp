@@ -476,7 +476,8 @@ Status VNodeChannel::open_wait() {
 void VNodeChannel::open_partition(int64_t partition_id) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     PartitionOpenRequest request;
-    request.set_allocated_id(&_parent->_load_id);
+    auto load_id = std::make_shared<PUniqueId>(_parent->_load_id);
+    request.set_allocated_id(load_id.get());
     request.set_index_id(_index_channel->_index_id);
     for (auto& tablet : _all_tablets) {
         if (partition_id == tablet.partition_id) {
@@ -498,6 +499,7 @@ void VNodeChannel::open_partition(int64_t partition_id) {
     }
     _stub->partition_open(&partition_open_closure->cntl, &request, &partition_open_closure->result,
                           partition_open_closure);
+    request.release_id();
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
