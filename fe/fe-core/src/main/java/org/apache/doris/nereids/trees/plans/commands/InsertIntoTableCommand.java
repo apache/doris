@@ -79,7 +79,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     private List<String> hints;
     private List<Column> targetColumns;
     private List<Long> partitionIds = null;
-    private Boolean isRepartition;
 
     /**
      * constructor
