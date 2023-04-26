@@ -15,10 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.backup;
+package org.apache.doris.fs.obj;
 
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.backup.RemoteFile;
+import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.fs.obj.S3Storage;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.S3FileSystem;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.junit.Assert;
@@ -40,11 +44,11 @@ import java.util.Random;
 import java.util.UUID;
 
 @Ignore
-public class S3StorageTest {
+public class S3FileSystemTest {
     private static String basePath;
     private final String bucket = "s3://doris-test/";
     private Map<String, String> properties;
-    private S3Storage storage;
+    private S3FileSystem fileSystem;
     private String testFile;
     private String content;
 
@@ -62,7 +66,7 @@ public class S3StorageTest {
         properties.put(PropertyConverter.USE_PATH_STYLE, "false");
 
         properties.put("AWS_REGION", "bj");
-        storage = new S3Storage(properties);
+        fileSystem = (S3FileSystem) FileSystemFactory.get(StorageBackend.StorageType.S3, properties);
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
 
         content =
@@ -80,17 +84,17 @@ public class S3StorageTest {
                         + "With living hues and odors plain and hill:\n"
                         + "Wild Spirit, which art moving everywhere;\n"
                         + "Destroyer and preserver; hear, oh, hear!";
-        Assert.assertEquals(Status.OK, storage.directUpload(content, testFile));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, testFile));
     }
 
     @Test
     public void downloadWithFileSize() throws IOException {
         File localFile = File.createTempFile("s3unittest", ".dat");
         localFile.deleteOnExit();
-        Status status = storage.downloadWithFileSize(testFile, localFile.getAbsolutePath(), content.getBytes().length);
+        Status status = fileSystem.downloadWithFileSize(testFile, localFile.getAbsolutePath(), content.getBytes().length);
         Assert.assertEquals(Status.OK, status);
         Assert.assertEquals(DigestUtils.md5Hex(content.getBytes()), DigestUtils.md5Hex(new FileInputStream(localFile)));
-        status = storage.downloadWithFileSize(bucket + basePath + "/Ode_to_the_West_Wind", localFile.getAbsolutePath(), content.getBytes().length + 1);
+        status = fileSystem.downloadWithFileSize(bucket + basePath + "/Ode_to_the_West_Wind", localFile.getAbsolutePath(), content.getBytes().length + 1);
         Assert.assertNotEquals(Status.OK, status);
     }
 
@@ -105,11 +109,11 @@ public class S3StorageTest {
         os.write(buf);
         os.close();
         String remote = bucket + basePath + "/" + localFile.getName();
-        Status status = storage.upload(localFile.getAbsolutePath(), remote);
+        Status status = fileSystem.upload(localFile.getAbsolutePath(), remote);
         Assert.assertEquals(Status.OK, status);
         File localFile2 = File.createTempFile("s3unittest", ".dat");
         localFile2.deleteOnExit();
-        status = storage.downloadWithFileSize(remote, localFile2.getAbsolutePath(), 1024 * 1024);
+        status = fileSystem.downloadWithFileSize(remote, localFile2.getAbsolutePath(), 1024 * 1024);
         Assert.assertEquals(Status.OK, status);
         Assert.assertEquals(DigestUtils.md5Hex(new FileInputStream(localFile)),
                 DigestUtils.md5Hex(new FileInputStream(localFile2)));
@@ -117,54 +121,54 @@ public class S3StorageTest {
 
     @Test
     public void copy() {
-        Assert.assertEquals(Status.OK, storage.copy(testFile, testFile + ".bak"));
-        Assert.assertEquals(Status.OK, storage.checkPathExist(testFile + ".bak"));
-        Assert.assertNotEquals(Status.OK, storage.copy(testFile + ".bakxxx", testFile + ".bak"));
+        Assert.assertEquals(Status.OK, fileSystem.copy(testFile, testFile + ".bak"));
+        Assert.assertEquals(Status.OK, fileSystem.exists(testFile + ".bak"));
+        Assert.assertNotEquals(Status.OK, fileSystem.copy(testFile + ".bakxxx", testFile + ".bak"));
     }
 
     @Test
     public void rename() {
-        Assert.assertEquals(Status.OK, storage.directUpload(content, testFile + ".bak"));
-        storage.rename(testFile + ".bak", testFile + ".bak1");
-        Assert.assertEquals(Status.ErrCode.NOT_FOUND, storage.checkPathExist(testFile + ".bak").getErrCode());
-        Assert.assertEquals(Status.OK, storage.checkPathExist(testFile + ".bak1"));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, testFile + ".bak"));
+        fileSystem.rename(testFile + ".bak", testFile + ".bak1");
+        Assert.assertEquals(Status.ErrCode.NOT_FOUND, fileSystem.exists(testFile + ".bak").getErrCode());
+        Assert.assertEquals(Status.OK, fileSystem.exists(testFile + ".bak1"));
     }
 
     @Test
     public void delete() {
         String deleteFile = testFile + ".to_be_delete";
-        Assert.assertEquals(Status.OK, storage.directUpload(content, deleteFile));
-        Assert.assertEquals(Status.OK, storage.delete(deleteFile));
-        Assert.assertEquals(Status.ErrCode.NOT_FOUND, storage.checkPathExist(deleteFile).getErrCode());
-        Assert.assertEquals(Status.OK, storage.delete(deleteFile + "xxxx"));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, deleteFile));
+        Assert.assertEquals(Status.OK, fileSystem.delete(deleteFile));
+        Assert.assertEquals(Status.ErrCode.NOT_FOUND, fileSystem.exists(deleteFile).getErrCode());
+        Assert.assertEquals(Status.OK, fileSystem.delete(deleteFile + "xxxx"));
     }
 
     @Test
     public void list() {
         List<RemoteFile> result = new ArrayList<>();
         String listPath = bucket + basePath + "_list" + "/Ode_to_the_West_Wind";
-        Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".1"));
-        Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".2"));
-        Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".3"));
-        Assert.assertEquals(Status.OK, storage.list(bucket + basePath + "_list/*", result));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".1"));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".2"));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".3"));
+        Assert.assertEquals(Status.OK, fileSystem.list(bucket + basePath + "_list/*", result));
         Assert.assertEquals(3, result.size());
     }
 
     @Test
     public void makeDir() {
         String path = bucket + basePath + "/test_path";
-        Assert.assertEquals(Status.OK, storage.makeDir(path));
-        Assert.assertNotEquals(Status.OK, storage.checkPathExist(path));
+        Assert.assertEquals(Status.OK, fileSystem.makeDir(path));
+        Assert.assertNotEquals(Status.OK, fileSystem.exists(path));
         String path1 = bucket + basePath + "/test_path1/";
-        Assert.assertEquals(Status.OK, storage.makeDir(path1));
-        Assert.assertEquals(Status.OK, storage.checkPathExist(path1));
+        Assert.assertEquals(Status.OK, fileSystem.makeDir(path1));
+        Assert.assertEquals(Status.OK, fileSystem.exists(path1));
     }
 
     @Test
     public void checkPathExist() {
-        Status status = storage.checkPathExist(testFile);
+        Status status = fileSystem.exists(testFile);
         Assert.assertEquals(Status.OK, status);
-        status = storage.checkPathExist(testFile + ".NOT_EXIST");
+        status = fileSystem.exists(testFile + ".NOT_EXIST");
         Assert.assertEquals(Status.ErrCode.NOT_FOUND, status.getErrCode());
     }
 }

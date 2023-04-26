@@ -15,24 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.remote;
+package org.apache.doris.fs.remote.dfs;
 
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
-import org.apache.doris.fs.obj.HdfsStorage;
+import org.apache.doris.fs.operations.HDFSFileOperations;
+import org.apache.doris.fs.operations.HDFSOpParams;
+import org.apache.doris.fs.operations.OpParams;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
@@ -43,29 +45,32 @@ import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
-    private static final Logger LOG = LogManager.getLogger(HdfsStorage.class);
+    private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
 
     private HDFSFileOperations operations = null;
 
     public DFSFileSystem(Map<String, String> properties) {
-        this.properties = new HashMap<>(properties);
+        this(StorageBackend.StorageType.HDFS, properties);
     }
 
-    private FileSystem getHdfsClient(String remotePath)
-            throws UserException {
+    public DFSFileSystem(StorageBackend.StorageType type, Map<String, String> properties) {
+        super(type.name(), type);
+        this.properties.putAll(properties);
+    }
+
+    @Override
+    protected FileSystem getFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem != null) {
             return dfsFileSystem;
         }
@@ -103,12 +108,12 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
         LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
         final long start = System.currentTimeMillis();
-        FSDataInputStream fsDataInputStream;
-        try {
-            fsDataInputStream = operations.openReader(remoteFilePath, 0);
-        } catch (Exception e) {
-            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        HDFSOpParams hdfsOpParams = OpParams.of(remoteFilePath);
+        Status st = operations.openReader(hdfsOpParams);
+        if (st != Status.OK) {
+            return st;
         }
+        FSDataInputStream fsDataInputStream = hdfsOpParams.fsDataInputStream();
         LOG.info("finished to open reader. download {} to {}.", remoteFilePath, localFilePath);
 
         // delete local file if exist
@@ -132,9 +137,9 @@ public class DFSFileSystem extends RemoteFileSystem {
                     "failed to create local file: " + localFilePath + ", msg: " + e.getMessage());
         }
 
-        String lastErrMsg = null;
+        String lastErrMsg;
         Status status = Status.OK;
-        try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(localFile))) {
+        try (BufferedOutputStream out = new BufferedOutputStream(Files.newOutputStream(localFile.toPath()))) {
             final long bufSize = 1024 * 1024; // 1MB
             long leftSize = fileSize;
             long readOffset = 0;
@@ -165,7 +170,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         } catch (IOException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, "Got exception: " + e.getMessage());
         } finally {
-            Status closeStatus = operations.closeReader(fsDataInputStream);
+            Status closeStatus = operations.closeReader(OpParams.of(fsDataInputStream));
             if (!closeStatus.ok()) {
                 LOG.warn(closeStatus.getErrMsg());
                 if (status.ok()) {
@@ -256,7 +261,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getPath());
-            FileSystem fileSystem = getHdfsClient(remotePath);
+            FileSystem fileSystem = getFileSystem(remotePath);
             boolean isPathExist = fileSystem.exists(inputFilePath);
             if (!isPathExist) {
                 return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
@@ -271,12 +276,12 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     @Override
     public Status directUpload(String content, String remoteFile) {
-        FSDataOutputStream fsDataOutputStream = null;
-        try {
-            fsDataOutputStream = operations.openWriter(remoteFile);
-        } catch (Exception e) {
-            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        HDFSOpParams hdfsOpParams = OpParams.of(remoteFile);
+        Status wst = operations.openWriter(hdfsOpParams);
+        if (wst != Status.OK) {
+            return wst;
         }
+        FSDataOutputStream fsDataOutputStream = hdfsOpParams.fsDataOutputStream();
         LOG.info("finished to open writer. directly upload to remote path {}.", remoteFile);
 
         Status status = Status.OK;
@@ -286,7 +291,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             LOG.error("errors while write data to output stream", e);
             status = new Status(Status.ErrCode.COMMON_ERROR, "write exception: " + e.getMessage());
         } finally {
-            Status closeStatus = operations.closeWriter(fsDataOutputStream);
+            Status closeStatus = operations.closeWriter(OpParams.of(fsDataOutputStream));
             if (!closeStatus.ok()) {
                 LOG.warn(closeStatus.getErrMsg());
                 if (status.ok()) {
@@ -301,13 +306,12 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status upload(String localPath, String remotePath) {
         long start = System.currentTimeMillis();
         LOG.debug("local path {}, remote path {}", localPath, remotePath);
-        FSDataOutputStream fsDataOutputStream = null;
-        try {
-            fsDataOutputStream = operations.openWriter(remotePath);
-        } catch (Exception e) {
-            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        HDFSOpParams hdfsOpParams = OpParams.of(remotePath);
+        Status wst = operations.openWriter(hdfsOpParams);
+        if (wst != Status.OK) {
+            return wst;
         }
-
+        FSDataOutputStream fsDataOutputStream = hdfsOpParams.fsDataOutputStream();
         LOG.info("finished to open writer. directly upload to remote path {}.", remotePath);
         // read local file and write remote
         File localFile = new File(localPath);
@@ -342,7 +346,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         } catch (IOException e1) {
             return new Status(Status.ErrCode.COMMON_ERROR, "encounter io exception: " + e1.getMessage());
         } finally {
-            Status closeStatus = operations.closeWriter(fsDataOutputStream);
+            Status closeStatus = operations.closeWriter(OpParams.of(fsDataOutputStream));
             if (!closeStatus.ok()) {
                 LOG.warn(closeStatus.getErrMsg());
                 if (status.ok()) {
@@ -368,7 +372,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             if (!srcPathUri.getAuthority().trim().equals(destPathUri.getAuthority().trim())) {
                 return new Status(Status.ErrCode.COMMON_ERROR, "only allow rename in same file system");
             }
-            FileSystem fileSystem = getHdfsClient(destPath);
+            FileSystem fileSystem = getFileSystem(destPath);
             Path srcfilePath = new Path(srcPathUri.getPath());
             Path destfilePath = new Path(destPathUri.getPath());
             boolean isRenameSuccess = fileSystem.rename(srcfilePath, destfilePath);
@@ -391,7 +395,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getPath());
-            FileSystem fileSystem = getHdfsClient(remotePath);
+            FileSystem fileSystem = getFileSystem(remotePath);
             fileSystem.delete(inputFilePath, true);
         } catch (UserException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
@@ -402,21 +406,6 @@ public class DFSFileSystem extends RemoteFileSystem {
         }
         LOG.info("finished to delete remote path {}.", remotePath);
         return Status.OK;
-    }
-
-    @Override
-    public RemoteIterator<LocatedFileStatus> listLocatedStatus(String remotePath) throws UserException {
-        FileSystem fileSystem = getHdfsClient(remotePath);
-        try {
-            return fileSystem.listLocatedStatus(new Path(remotePath));
-        } catch (IOException e) {
-            throw new UserException("Failed to list located status for path: " + remotePath, e);
-        }
-    }
-
-    @Override
-    public Status list(String remotePath, List<RemoteFile> result) {
-        return list(remotePath, result, true);
     }
 
     /**
@@ -431,7 +420,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             URI pathUri = URI.create(remotePath);
-            FileSystem fileSystem = getHdfsClient(remotePath);
+            FileSystem fileSystem = getFileSystem(remotePath);
             Path pathPattern = new Path(pathUri.getPath());
             FileStatus[] files = fileSystem.globStatus(pathPattern);
             if (files == null) {

@@ -17,11 +17,34 @@
 
 package org.apache.doris.fs.remote;
 
-import org.apache.doris.fs.FileSystem;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.common.UserException;
+import org.apache.doris.fs.PersistentFileSystem;
 
-import java.util.Map;
+import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
 
-public abstract class RemoteFileSystem implements FileSystem {
+import java.io.IOException;
+
+public abstract class RemoteFileSystem extends PersistentFileSystem {
     protected org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
-    protected Map<String, String> properties;
+
+    public RemoteFileSystem(String name, StorageBackend.StorageType type) {
+        super(name, type);
+    }
+
+    protected org.apache.hadoop.fs.FileSystem getFileSystem(String remotePath) throws UserException {
+        throw new UserException("Not support to getFileSystem.");
+    }
+
+    @Override
+    public RemoteIterator<LocatedFileStatus> listLocatedStatus(String remotePath) throws UserException {
+        org.apache.hadoop.fs.FileSystem fileSystem = getFileSystem(remotePath);
+        try {
+            return fileSystem.listLocatedStatus(new Path(remotePath));
+        } catch (IOException e) {
+            throw new UserException("Failed to list located status for path: " + remotePath, e);
+        }
+    }
 }
