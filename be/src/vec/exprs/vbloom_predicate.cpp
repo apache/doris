@@ -99,26 +99,26 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
                                      ->get_nested_column_ptr();
         auto column_nullmap = reinterpret_cast<const ColumnNullable*>(argument_column.get())
                                       ->get_null_map_column_ptr();
+        auto column_str = assert_cast<const ColumnString*>(column_nested.get());
+        auto& column_uint8 = assert_cast<const ColumnUInt8&>(*column_nullmap);
         if (_be_exec_version >= 2) {
             for (size_t i = 0; i < sz; i++) {
-                if (assert_cast<const ColumnUInt8&>(*column_nullmap).get_data()[i] != 0) {
+                if (column_uint8.get_data()[i] != 0) {
                     StringRef v((const char*)nullptr, 0);
                     ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));
                 } else {
-                    auto ele =
-                            assert_cast<const ColumnString*>(column_nested.get())->get_data_at(i);
+                    auto ele = column_str->get_data_at(i);
                     const StringRef v(ele.data, ele.size);
                     ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));
                 }
             }
         } else {
             for (size_t i = 0; i < sz; i++) {
-                if (assert_cast<const ColumnUInt8&>(*column_nullmap).get_data()[i] != 0) {
+                if (column_uint8.get_data()[i] != 0) {
                     StringRef v((const char*)nullptr, 0);
                     ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
                 } else {
-                    auto ele =
-                            assert_cast<const ColumnString*>(column_nested.get())->get_data_at(i);
+                    auto ele = column_str->get_data_at(i);
                     const StringRef v(ele.data, ele.size);
                     ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
                 }
