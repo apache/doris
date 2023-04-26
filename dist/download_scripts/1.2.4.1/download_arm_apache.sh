@@ -18,11 +18,11 @@
 
 set -eo pipefail
 
-FE="apache-doris-fe-1.2.4-bin-x86_64"
-BE="apache-doris-be-1.2.4-bin-x86_64-noavx2"
-DEPS="apache-doris-dependencies-1.2.4-bin-x86_64"
-DOWNLOAD_LINK_PREFIX="https://dlcdn.apache.org/doris/1.2/1.2.4-rc01/"
-DOWNLOAD_DIR="apache-doris-1.2.4-bin"
+FE="apache-doris-fe-1.2.4.1-bin-arm"
+BE="apache-doris-be-1.2.4.1-bin-arm"
+DEPS="apache-doris-dependencies-1.2.4.1-bin-arm"
+DOWNLOAD_LINK_PREFIX="https://dlcdn.apache.org/doris/1.2/1.2.4.1-rc01/"
+DOWNLOAD_DIR="apache-doris-1.2.4.1-bin"
 
 # Check and download download_base.sh
 DOWNLOAD_BASE_SCRIPTS="download_base.sh"
