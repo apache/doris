@@ -227,11 +227,19 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
         row_in_block->init_agg_places(_arena->aligned_alloc(_total_size_of_aggregate_states, 16),
                                       _offsets_of_aggregate_states.data());
         for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
-            auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-            auto data = row_in_block->agg_places(cid);
-            _agg_functions[cid]->create(data);
-            _agg_functions[cid]->add(data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                     row_in_block->_row_pos, nullptr);
+            try {
+                auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
+                auto data = row_in_block->agg_places(cid);
+                _agg_functions[cid]->create(data);
+                _agg_functions[cid]->add(data,
+                                         const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+                                         row_in_block->_row_pos, nullptr);
+            } catch (...) {
+                for (size_t i = _schema->num_key_columns(); i < cid; ++i) {
+                    _agg_functions[cid]->destroy(row_in_block->agg_places(cid));
+                }
+                throw;
+            }
         }
 
         _vec_skip_list->InsertWithHint(row_in_block, is_exist, &_vec_hint);
