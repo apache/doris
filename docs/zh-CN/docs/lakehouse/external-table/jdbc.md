@@ -243,10 +243,10 @@ properties (
     "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
     "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
     "driver_class" = "com.oceanbase.jdbc.Driver",
-    "oceanbase_mode" = "oceanbase" or "oceanbase_oracle"
+    "oceanbase_mode" = "mysql" or "oracle"
 );
 
-CREATE EXTERNAL TABLE `ext_oceanbase_mysql` (
+CREATE EXTERNAL TABLE `ext_oceanbase` (
   `k1` int
 ) ENGINE=JDBC
 PROPERTIES (
@@ -254,16 +254,10 @@ PROPERTIES (
     "table" = "test.test",
     "table_type"="oceanbase"
 );
-
-CREATE EXTERNAL TABLE `ext_oceanbase_oracle` (
-  `k1` int
-) ENGINE=JDBC
-PROPERTIES (
-    "resource" = "jdbc_oceanbase",
-    "table" = "test.test",
-    "table_type"="oceanbase_oracle"
-);
 ```
+> **注意：**
+>
+> 在创建OceanBase外表时，只需在创建Resource时指定`oceanbase_mode`参数，创建外表的table_type为oceanbase。
 
 ## 类型匹配
 

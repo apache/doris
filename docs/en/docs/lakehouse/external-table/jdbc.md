@@ -249,10 +249,10 @@ properties (
     "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
     "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
     "driver_class" = "com.oceanbase.jdbc.Driver",
-    "oceanbase_mode" = "oceanbase" or "oceanbase_oracle"
+    "oceanbase_mode" = "mysql" or "oracle"
 );
 
-CREATE EXTERNAL TABLE `ext_oceanbase_mysql` (
+CREATE EXTERNAL TABLE `ext_oceanbase` (
   `k1` int
 ) ENGINE=JDBC
 PROPERTIES (
@@ -260,16 +260,11 @@ PROPERTIES (
     "table" = "test.test",
     "table_type"="oceanbase"
 );
-
-CREATE EXTERNAL TABLE `ext_oceanbase_oracle` (
-  `k1` int
-) ENGINE=JDBC
-PROPERTIES (
-    "resource" = "jdbc_oceanbase",
-    "table" = "test.test",
-    "table_type"="oceanbase_oracle"
-);
 ```
+
+> **Note:**
+>
+> When creating an OceanBase external table, you only need to specify the `oceanbase mode` parameter when creating a resource, and the table type of the table to be created is oceanbase
 
 ## Type Mapping
 

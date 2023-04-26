@@ -312,7 +312,7 @@ CREATE CATALOG catalog_name PROPERTIES (
        "jdbc_url" = "jdbc:oceanbase://localhost:2881/demo",
        "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
        "driver_class" = "com.oceanbase.jdbc.Driver",
-	   "oceanbase_mode" = "oceanbase" or "oceanbase_oracle"
+	   "oceanbase_mode" = "mysql" or "oracle"
 	);
    CREATE CATALOG oceanbase_catalog WITH RESOURCE oceanbase_resource;
 
@@ -324,7 +324,7 @@ CREATE CATALOG catalog_name PROPERTIES (
        "jdbc_url" = "jdbc:oceanbase://localhost:2881/demo",
        "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
        "driver_class" = "com.oceanbase.jdbc.Driver",
-   	   "oceanbase_mode" = "oceanbase" or "oceanbase_oracle"
+   	   "oceanbase_mode" = "mysql" or "oracle"
 	);
    ```
 
