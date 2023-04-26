@@ -15,12 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <boost/token_functions.hpp>
-#include <vector>
+#include <glog/logging.h>
+#include <simdjson/simdjson.h> // IWYU pragma: keep
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/compiler_util.h"
-#include "util/string_parser.hpp"
-#include "util/string_util.h"
+#include <memory>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "udf/udf.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_error.h"
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
+#include "util/jsonb_stream.h"
+#include "util/jsonb_utils.h"
+#include "util/jsonb_writer.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -48,7 +69,7 @@ enum class JsonbParseErrorMode { FAIL = 0, RETURN_NULL, RETURN_VALUE, RETURN_INV
 template <NullalbeMode nullable_mode, JsonbParseErrorMode parse_error_handle_mode>
 class FunctionJsonbParseBase : public IFunction {
 private:
-    JsonbParserSIMD default_value_parser;
+    JsonbParser default_value_parser;
     bool has_const_default_value = false;
 
 public:
@@ -195,7 +216,7 @@ public:
         col_to->reserve(size);
 
         // parser can be reused for performance
-        JsonbParserSIMD parser;
+        JsonbParser parser;
         JsonbErrType error = JsonbErrType::E_NONE;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
