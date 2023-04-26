@@ -33,7 +33,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -85,7 +84,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
             Set<NamedExpression> normalizedWindowWithAlias = ctxForWindows.pushDownToNamedExpression(normalizedWindows);
             // only need normalized windowExpressions
             LogicalWindow normalizedLogicalWindow =
-                    new LogicalWindow(Lists.newArrayList(normalizedWindowWithAlias), normalizedChild);
+                    new LogicalWindow<>(ImmutableList.copyOf(normalizedWindowWithAlias), normalizedChild);
 
             // 3. handle top projects
             List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs1);
