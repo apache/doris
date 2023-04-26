@@ -474,7 +474,10 @@ public class DateTimeExtractAndTransform {
         if (dateTime.isBefore(specialLowerBound) || dateTime.isAfter(specialUpperBound)) {
             return 0;
         }
-        return ((int) Duration.between(specialLowerBound, dateTime).getSeconds());
+        return ((int) Duration.between(specialLowerBound, dateTime
+                .atZone(ZoneId.systemDefault())
+                .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
+                .toLocalDateTime()).getSeconds());
     }
 
     /**
