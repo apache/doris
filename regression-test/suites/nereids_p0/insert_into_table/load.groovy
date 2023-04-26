@@ -69,7 +69,11 @@ suite("load") {
             'arr_t'
     ]
 
-    for (String table in files) {
-        sql new File("""${context.file.parent}/ddl/${table}.sql""").text
+    for (String file in files) {
+        def str = new File("""${context.file.parent}/ddl/${file}.sql""").text
+        for (String table in str.split(';')) {
+            sql table
+        }
+        sleep(100)
     }
 }

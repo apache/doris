@@ -73,4 +73,29 @@ suite("nereids_insert_aggregate") {
     sql '''insert into agg_light_sc_not_null_t partition (p1, p2) with label label_agg_light_sc_not_null
             select * except(kaint) from src where id < 4 and id is not null'''
     qt_43 'select * from agg_light_sc_not_null_t order by id, kint'
+
+    // test light_schema_change
+    sql 'alter table agg_light_sc_nop_t rename column ktint ktinyint'
+    sql 'alter table agg_light_sc_not_null_nop_t rename column ktint ktinyint'
+
+    sql '''insert into agg_light_sc_nop_t
+            select * except(kaint) from src'''
+    qt_lsc1 'select * from agg_light_sc_nop_t order by id, kint'
+
+    sql '''insert into agg_light_sc_not_null_nop_t
+            select * except(kaint) from src where id is not null'''
+    qt_lsc2 'select * from agg_light_sc_not_null_nop_t order by id, kint'
+
+    // test hint
+    explain {
+        sql '''insert into agg_light_sc_nop_t [NOSHUFFLE]
+            select * except(kaint) from src'''
+        contains ''
+    }
+
+    explain {
+        sql '''insert into agg_light_sc_not_null_nop_t [SHUFFLE]
+            select * except(kaint) from src where id is not null'''
+        contains ''
+    }
 }
