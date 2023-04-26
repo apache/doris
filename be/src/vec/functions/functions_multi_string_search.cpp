@@ -294,8 +294,9 @@ struct FunctionMultiMatchAnyImpl {
                         reinterpret_cast<const char *>(haystack_data.data()) + prev_haystack_offset,
                         static_cast<unsigned>(cur_haystack_length), 0, smart_scratch.get(), on_match,
                         &res[i]);
-                if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED)
+                if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED) {
                     return Status::InternalError("failed to scan with vectorscan");
+}
             }
 
             prev_haystack_offset = haystack_offsets[i];
