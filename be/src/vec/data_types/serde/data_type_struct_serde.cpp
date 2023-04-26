@@ -42,5 +42,18 @@ void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
+
+void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column,
+                                                const PaddedPODArray<UInt8>* null_bytemap,
+                                                arrow::ArrayBuilder* array_builder, int start,
+                                                int end) const {
+    LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";
+}
+
+void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                 int start, int end,
+                                                 const cctz::time_zone& ctz) const {
+    LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
+}
 } // namespace vectorized
 } // namespace doris
