@@ -19,8 +19,7 @@ suite("test_export_max_file_size", "p2") {
     String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
     String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
     String fs = "hdfs://${nameNodeHost}:${hdfsPort}"
-    // !!!!TODO(ftw): modify
-    String user_name = "hadoop"
+    String user_name = context.config.otherConfigs.get("extHiveHmsUser")
 
 
     def table_export_name = "test_export_max_file_size"
