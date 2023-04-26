@@ -272,7 +272,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.addPlanFragment(currentFragment);
             rootFragment = currentFragment;
         }
-        if (isFragmentPartitioned(rootFragment)) {
+        if (isFragmentPartitioned(rootFragment) && !context.isInsertIntoCommand()) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
         List<Expr> outputExprs = Lists.newArrayList();
