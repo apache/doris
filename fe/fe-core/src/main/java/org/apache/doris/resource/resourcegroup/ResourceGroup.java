@@ -34,6 +34,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 public class ResourceGroup implements Writable {
@@ -90,10 +91,14 @@ public class ResourceGroup implements Writable {
     }
 
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        checkProperties(properties);
+        Map<String, String> newProperties = new HashMap<String, String>();
+        newProperties.putAll(properties);
         for (Map.Entry<String, String> kv : properties.entrySet()) {
-            replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
+            replaceIfEffectiveValue(newProperties, kv.getKey(), kv.getValue());
         }
+        checkProperties(newProperties);
+        this.properties = newProperties;
+        version++;
     }
 
     public long getId() {

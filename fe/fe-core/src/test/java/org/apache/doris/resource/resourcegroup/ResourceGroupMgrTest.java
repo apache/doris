@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.thrift.TPipelineResourceGroup;
 
 import com.google.common.collect.Maps;
 import mockit.Delegate;
@@ -35,6 +36,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -130,9 +132,11 @@ public class ResourceGroupMgrTest {
         String name1 = "g1";
         CreateResourceGroupStmt stmt1 = new CreateResourceGroupStmt(false, name1, properties1);
         resourceGroupMgr.createResourceGroup(stmt1);
-        ResourceGroup resourceGroup = resourceGroupMgr.getResourceGroup(name1);
-        Assert.assertEquals(name1, resourceGroup.getName());
-        Assert.assertTrue(resourceGroup.getProperties().containsKey(ResourceGroup.CPU_SHARE));
+        List<TPipelineResourceGroup> tResourceGroups1 = resourceGroupMgr.getResourceGroup(name1);
+        Assert.assertEquals(1, tResourceGroups1.size());
+        TPipelineResourceGroup tResourceGroup1 = tResourceGroups1.get(0);
+        Assert.assertEquals(name1, tResourceGroup1.getName());
+        Assert.assertTrue(tResourceGroup1.getProperties().containsKey(ResourceGroup.CPU_SHARE));
 
         try {
             resourceGroupMgr.getResourceGroup("g2");
@@ -151,6 +155,7 @@ public class ResourceGroupMgrTest {
         String name = "g1";
         CreateResourceGroupStmt createStmt = new CreateResourceGroupStmt(false, name, properties);
         resourceGroupMgr.createResourceGroup(createStmt);
+        Assert.assertEquals(1, resourceGroupMgr.getResourceGroup(name).size());
 
         DropResourceGroupStmt dropStmt = new DropResourceGroupStmt(false, name);
         resourceGroupMgr.dropResourceGroup(dropStmt);
@@ -190,7 +195,10 @@ public class ResourceGroupMgrTest {
         newProperties.put(ResourceGroup.CPU_SHARE, "5");
         AlterResourceGroupStmt stmt2 = new AlterResourceGroupStmt(name, newProperties);
         resourceGroupMgr.alterResourceGroup(stmt2);
-        ResourceGroup resourceGroup = resourceGroupMgr.getResourceGroup(name);
-        Assert.assertEquals(resourceGroup.getProperties().get(ResourceGroup.CPU_SHARE), "5");
+
+        List<TPipelineResourceGroup> tResourceGroups = resourceGroupMgr.getResourceGroup(name);
+        Assert.assertEquals(1, tResourceGroups.size());
+        TPipelineResourceGroup tResourceGroup1 = tResourceGroups.get(0);
+        Assert.assertEquals(tResourceGroup1.getProperties().get(ResourceGroup.CPU_SHARE), "5");
     }
 }

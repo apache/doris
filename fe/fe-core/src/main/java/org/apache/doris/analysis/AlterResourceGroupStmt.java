@@ -25,7 +25,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.resourcegroup.ResourceGroup;
 
 import java.util.Map;
 
@@ -58,9 +57,6 @@ public class AlterResourceGroupStmt extends DdlStmt {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Resource group properties can't be null");
         }
-
-        ResourceGroup resourceGroup = Env.getCurrentEnv().getResourceGroupMgr().getResourceGroup(resourceGroupName);
-        resourceGroup.checkProperties(properties);
     }
 
     @Override

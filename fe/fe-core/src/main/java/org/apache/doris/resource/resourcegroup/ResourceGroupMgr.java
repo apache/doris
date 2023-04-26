@@ -32,8 +32,10 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.persist.DropResourceGroupOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TPipelineResourceGroup;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -84,23 +86,31 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         lock.writeLock().unlock();
     }
 
+    private void checkResourceGroupEnabled() throws DdlException {
+        if (!Config.enable_resource_group) {
+            throw new DdlException("unsupported feature now, coming soon.");
+        }
+    }
+
     public void init() {
         if (Config.enable_resource_group || Config.use_fuzzy_session_variable /* for github workflow */) {
             checkAndCreateDefaultGroup();
         }
     }
 
-    public ResourceGroup getResourceGroup(String groupName) throws UserException {
+    public List<TPipelineResourceGroup> getResourceGroup(String groupName) throws UserException {
+        List<TPipelineResourceGroup> resourceGroups = Lists.newArrayList();
         readLock();
         try {
             ResourceGroup resourceGroup = nameToResourceGroup.get(groupName);
             if (resourceGroup == null) {
                 throw new UserException("Resource group " + groupName + " does not exist");
             }
-            return resourceGroup;
+            resourceGroups.add(resourceGroup.toThrift());
         } finally {
             readUnlock();
         }
+        return resourceGroups;
     }
 
     private void checkAndCreateDefaultGroup() {
@@ -125,9 +135,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void createResourceGroup(CreateResourceGroupStmt stmt) throws DdlException {
-        if (!Config.enable_resource_group) {
-            throw new DdlException("unsupported feature now, coming soon.");
-        }
+        checkResourceGroupEnabled();
 
         ResourceGroup resourceGroup = ResourceGroup.create(stmt.getResourceGroupName(), stmt.getProperties());
         String resourceGroupNameName = resourceGroup.getName();
@@ -148,9 +156,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void alterResourceGroup(AlterResourceGroupStmt stmt) throws DdlException {
-        if (!Config.enable_resource_group) {
-            throw new DdlException("unsupported feature now, coming soon.");
-        }
+        checkResourceGroupEnabled();
 
         String resourceGroupName = stmt.getResourceGroupName();
         Map<String, String> properties = stmt.getProperties();
@@ -162,16 +168,14 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
             ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
             resourceGroup.modifyProperties(properties);
             Env.getCurrentEnv().getEditLog().logAlterResourceGroup(resourceGroup);
-            LOG.info("Alter resource success. Resource Group: {}", resourceGroup);
         } finally {
             writeUnlock();
         }
+        LOG.info("Alter resource success: {}", resourceGroupName);
     }
 
     public void dropResourceGroup(DropResourceGroupStmt stmt) throws DdlException {
-        if (!Config.enable_resource_group) {
-            throw new DdlException("unsupported feature now, coming soon.");
-        }
+        checkResourceGroupEnabled();
 
         String resourceGroupName = stmt.getResourceGroupName();
         if (resourceGroupName == DEFAULT_GROUP_NAME) {
