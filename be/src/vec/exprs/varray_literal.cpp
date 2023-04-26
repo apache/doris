@@ -50,7 +50,6 @@ Status VArrayLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc
     for (const auto child : _children) {
         Field item;
         auto child_literal = dynamic_cast<const VLiteral*>(VExpr::expr_without_cast(child));
-        DCHECK(child_literal->get_column_ptr() != nullptr);
         child_literal->get_column_ptr()->get(0, item);
         array.get<Array>().push_back(item);
     }
