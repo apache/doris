@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.exploration.join.JoinExchangeBothProject;
 import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssoc;
+import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssocProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughInnerJoin;
@@ -164,6 +165,7 @@ public class RuleSet {
             .add(JoinExchange.INSTANCE)
             .add(JoinExchangeBothProject.INSTANCE)
             .add(OuterJoinAssoc.INSTANCE)
+            .add(OuterJoinAssocProject.INSTANCE)
             .build();
 
     public List<Rule> getOtherReorderRules() {
