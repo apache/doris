@@ -206,28 +206,41 @@ CREATE CATALOG trino_catalog PROPERTIES (
 <version since="dev"></version>
 
 ```sql
-CREATE CATALOG jdbc_oceanbase PROPERTIES (
+CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive"
+    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "oceanbase_mode" = "mysql"
+)
+
+CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "oceanbase_mode" = "oracle"
 )
 ```
 
 ### 参数说明
 
-参数 | 是否必须 | 默认值 | 说明 
---- | --- | --- | --- 
-`user` | 是 | | 对应数据库的用户名 |
-`password` | 是 |   | 对应数据库的密码 |
-`jdbc_url` | 是 |  | JDBC 连接串 |
-`driver_url` | 是 |  | JDBC Driver Jar 包名称* |
-`driver_class` | 是 |  | JDBC Driver Class 名称 |
-`only_specified_database` | 否 | "false" | 指定是否只同步指定的 database  |
-`lower_case_table_names` | 否 | "false" | 是否以小写的形式同步jdbc外部数据源的表名 |
-`specified_database_list` | 否 | "" | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
+| 参数                       | 是否必须  | 默认值       | 说明                                                               | 
+|---------------------------|----------|-----------|------------------------------------------------------------------- |
+| `user`                    | 是        |           | 对应数据库的用户名                                                         |
+| `password`                | 是        |           | 对应数据库的密码                                                          |
+| `jdbc_url`                | 是        |           | JDBC 连接串                                                          |
+| `driver_url`              | 是        |           | JDBC Driver Jar 包名称*                                              |
+| `driver_class`            | 是        |           | JDBC Driver Class 名称                                              |
+| `only_specified_database` | 否        | "false"   | 指定是否只同步指定的 database                                               |
+| `lower_case_table_names`  | 否        | "false"   | 是否以小写的形式同步jdbc外部数据源的表名                                            |
+| `specified_database_list` | 否        | ""        | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
+| `oceanbase_mode`          | 否        | ""        | 当连接的外部数据源为OceanBase时，必须为其指定模式为mysql或oracle                        |
+
 
 > `driver_url` 可以通过以下三种方式指定：
 > 
@@ -457,32 +470,8 @@ set enable_odbc_transcation = true;
 
 ### OceanBase
 
-| OceanBase Type                                                                                                                                      | Doris Type  | Comment                       |
-|-----------------------------------------------------------------------------------------------------------------------------------------------------|-------------|-------------------------------|
-| TINYINT                                                                                                                                             | TINYINT     |                               |
-| SMALLINT                                                                                                                                            | SMALLINT    |                               |
-| MEDIUMINT                                                                                                                                           | INT         |                               |
-| INT                                                                                                                                                 | INT         |                               |
-| BIGINT                                                                                                                                              | BIGINT      |                               |
-| UNSIGNED TINYINT                                                                                                                                    | SMALLINT    | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
-| UNSIGNED MEDIUMINT                                                                                                                                  | INT         | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
-| UNSIGNED INT                                                                                                                                        | BIGINT      | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
-| UNSIGNED BIGINT                                                                                                                                     | LARGEINT    | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
-| FLOAT                                                                                                                                               | FLOAT       |                               |
-| DOUBLE                                                                                                                                              | DOUBLE      |                               |
-| DECIMAL                                                                                                                                             | DECIMALV3   |                               |
-| DATE                                                                                                                                                | DATEV2      |                               |
-| TIMESTAMP                                                                                                                                           | DATETIMEV2  |                               |
-| DATETIME                                                                                                                                            | DATETIMEV2  |                               |
-| YEAR                                                                                                                                                | DATETIMEV2  |                               |
-| TIME                                                                                                                                                | STRING      |                               |
-| CHAR                                                                                                                                                | CHAR        |                               |
-| VARCHAR                                                                                                                                             | VARCHAR     |                               |
-| BOOLEAN、TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING      |                               |
-| Other                                                                                                                                               | UNSUPPORTED |                               |
-
-**Note:**
-目前仅针对OceanBase的MySQL模式做了适配，Oracle模式并未完整测试
+MySQL 模式请参考 [MySQL类型映射](#MySQL)
+Oracle 模式请参考 [Oracle类型映射](#Oracle)
 
 ## 常见问题
 

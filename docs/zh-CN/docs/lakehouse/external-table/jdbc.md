@@ -232,7 +232,7 @@ PROPERTIES (
 
 | OceanBase 版本 | OceanBase JDBC驱动版本 |
 |--------------|--------------------|
-| 4.1.0        | oceanbase-client-2.4.2.jar |
+| 3.2.3        | oceanbase-client-2.4.2.jar |
 
 ```sql
 CREATE EXTERNAL RESOURCE jdbc_oceanbase
@@ -242,16 +242,26 @@ properties (
     "password"="",
     "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
     "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Driverr"
+    "driver_class" = "com.oceanbase.jdbc.Driver",
+    "oceanbase_mode" = "oceanbase" or "oceanbase_oracle"
 );
 
-CREATE EXTERNAL TABLE `ext_oceanbase` (
+CREATE EXTERNAL TABLE `ext_oceanbase_mysql` (
   `k1` int
 ) ENGINE=JDBC
 PROPERTIES (
     "resource" = "jdbc_oceanbase",
-    "table" = "test.test",
+    "table" = "test",
     "table_type"="oceanbase"
+);
+
+CREATE EXTERNAL TABLE `ext_oceanbase_oracle` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_oceanbase",
+    "table" = "test",
+    "table_type"="oceanbase_oracle"
 );
 ```
 
@@ -393,21 +403,8 @@ PROPERTIES (
 
 ### OceanBase
 
-|    OceanBase    |  Doris   |
-|:---------------:|:--------:|
-|     BOOLEAN     |  STRING  |
-|       BIT       |  STRING  |
-|     TINYINT     | TINYINT  |
-|    SMALLINT     | SMALLINT |
-|       INT       |   INT    |
-|     BIGINT      |  BIGINT  |
-|     VARCHAR     | VARCHAR  |
-|      DATE       |   DATE   |
-|      FLOAT      |  FLOAT   |
-|    DATETIME     | DATETIME |
-|     DOUBLE      |  DOUBLE  |
-|     DECIMAL     | DECIMAL  |
-
+MySQL 模式请参考 [MySQL类型映射](#MySQL)
+Oracle 模式请参考 [Oracle类型映射](#Oracle)
 
 ## Q&A
 
