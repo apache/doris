@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -41,6 +42,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -229,6 +231,7 @@ public class StatisticsUtil {
                     return dateTimeLiteral.getDouble();
                 case CHAR:
                 case VARCHAR:
+                case STRING:
                     VarcharLiteral varchar = new VarcharLiteral(columnValue);
                     return varchar.getDouble();
                 case HLL:
@@ -310,5 +313,36 @@ public class StatisticsUtil {
                 .map(String::toLowerCase)
                 .map(s -> "null".equalsIgnoreCase(s) || s.isEmpty())
                 .orElse(true);
+    }
+
+    public static boolean statsTblAvailable() {
+        String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+        List<OlapTable> statsTbls = new ArrayList<>();
+        try {
+            statsTbls.add(
+                    (OlapTable) StatisticsUtil
+                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    dbName,
+                                    StatisticConstants.STATISTIC_TBL_NAME));
+            statsTbls.add(
+                    (OlapTable) StatisticsUtil
+                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    dbName,
+                                    StatisticConstants.HISTOGRAM_TBL_NAME));
+            statsTbls.add((OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    dbName,
+                    StatisticConstants.ANALYSIS_JOB_TABLE));
+        } catch (Throwable t) {
+            return false;
+        }
+        for (OlapTable table : statsTbls) {
+            for (Partition partition : table.getPartitions()) {
+                if (partition.getBaseIndex().getTablets().stream()
+                        .anyMatch(t -> t.getNormalReplicaBackendIds().isEmpty())) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }
