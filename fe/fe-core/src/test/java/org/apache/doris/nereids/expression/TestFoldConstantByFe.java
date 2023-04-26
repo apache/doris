@@ -283,8 +283,8 @@ public class TestFoldConstantByFe {
     @Test
     public void testDateConstructFunction() {
         String[] answer = {
-                "2001-07-19", "6411-08-17", "2044-03-17 11:32:24",
-                "2044-03-17", "1008864000", "1008864000"
+                "2001-07-19", "6411-08-17", "'2044-03-17 11:32:24'",
+                "'2044-03-17'", "1008909293", "1008864000"
         };
         int answerIdx = 0;
 
@@ -301,10 +301,10 @@ public class TestFoldConstantByFe {
         Assertions.assertEquals(DateTimeExtractAndTransform.fromUnixTime(
                 new BigIntLiteral(2341798344L),
                 new VarcharLiteral("%Y-%m-%d")
-        ).toSql(), answer[answerIdx]);
+        ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.unixTimestamp(
-                new VarcharLiteral("2001-12-21")
-        ).toSql(), answer[answerIdx]);
+                new VarcharLiteral("2001-12-21 12:34:53")
+        ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.unixTimestamp(
                 new VarcharLiteral("2001-12-21"),
                 new VarcharLiteral("%Y-%m-%d")

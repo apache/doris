@@ -30,7 +30,7 @@ import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
 /**
@@ -433,7 +433,10 @@ public class DateTimeExtractAndTransform {
             return null;
         }
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
-                .atZone(ZoneOffset.UTC).plusSeconds(second.getValue());
+                .plusSeconds(second.getValue())
+                .atZone(ZoneId.of("UTC+0"))
+                .toOffsetDateTime()
+                .atZoneSameInstant(ZoneId.systemDefault());
         return dateFormat(new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(),
                         dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond()),
                 format);
@@ -471,7 +474,7 @@ public class DateTimeExtractAndTransform {
         if (dateTime.isBefore(specialLowerBound) || dateTime.isAfter(specialUpperBound)) {
             return 0;
         }
-        return ((int) Duration.between(dateTime, specialLowerBound).getSeconds());
+        return ((int) Duration.between(specialLowerBound, dateTime).getSeconds());
     }
 
     /**
