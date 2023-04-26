@@ -207,7 +207,7 @@ public class Coordinator {
 
     // backend execute state
     private final List<BackendExecState> backendExecStates = Lists.newArrayList();
-    private final Map<Integer, PipelineExecContext> pipelineExecContexts = new HashMap<>();
+    private final Map<Pair<Integer, Long>, PipelineExecContext> pipelineExecContexts = new HashMap<>();
     // backend which state need to be checked when joining this coordinator.
     // It is supposed to be the subset of backendExecStates.
     private final List<BackendExecState> needCheckBackendExecStates = Lists.newArrayList();
@@ -851,9 +851,9 @@ public class Coordinator {
 
                 // 3. group BackendExecState by BE. So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
+                    Long backendId = this.addressToBackendID.get(entry.getKey());
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
-                            profileFragmentId, entry.getValue(), this.addressToBackendID, entry.getKey(),
-                            fragmentInstancesMap);
+                            profileFragmentId, entry.getValue(), backendId, fragmentInstancesMap);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -862,7 +862,7 @@ public class Coordinator {
                     entry.getValue().setNeedWaitExecutionTrigger(twoPhaseExecution);
                     entry.getValue().setFragmentId(fragment.getFragmentId().asInt());
 
-                    pipelineExecContexts.put(fragment.getFragmentId().asInt(), pipelineExecContext);
+                    pipelineExecContexts.put(Pair.of(fragment.getFragmentId().asInt(), backendId), pipelineExecContext);
                     if (needCheckBackendState) {
                         needCheckPipelineExecContexts.add(pipelineExecContext);
                         if (LOG.isDebugEnabled()) {
@@ -2120,7 +2120,7 @@ public class Coordinator {
 
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
         if (enablePipelineEngine) {
-            PipelineExecContext ctx = pipelineExecContexts.get(params.getFragmentId());
+            PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
             if (!ctx.updateProfile(params)) {
                 return;
             }
@@ -2735,8 +2735,8 @@ public class Coordinator {
         private final int numInstances;
 
         public PipelineExecContext(PlanFragmentId fragmentId, int profileFragmentId,
-                TPipelineFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID,
-                TNetworkAddress addr, Map<TUniqueId, RuntimeProfile> fragmentInstancesMap) {
+                TPipelineFragmentParams rpcParams, Long backendId,
+                Map<TUniqueId, RuntimeProfile> fragmentInstancesMap) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
@@ -2746,8 +2746,8 @@ public class Coordinator {
             this.initiated = false;
             this.done = false;
 
-            this.address = addr;
-            this.backend = idToBackend.get(addressToBackendID.get(address));
+            this.backend = idToBackend.get(backendId);
+            this.address = new TNetworkAddress(backend.getIp(), backend.getBePort());
             this.brpcAddress = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
 
             this.hasCanceled = false;
