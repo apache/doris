@@ -134,7 +134,7 @@ public class DistributedPlannerTest {
         String sql = "explain select * from db1.tbl1 join [BROADCAST] db1.tbl2 on tbl1.k1 = tbl2.k3";
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.planner();
+        QueryPlanner planner = stmtExecutor.planner();
         String plan = planner.getExplainString(new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN(BROADCAST)"));
 
@@ -151,7 +151,7 @@ public class DistributedPlannerTest {
         String sql = "explain select * from db1.tbl1 join db1.tbl2 on tbl1.k1 = tbl2.k3";
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.planner();
+        QueryPlanner planner = stmtExecutor.planner();
         String plan = planner.getExplainString(new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN(BROADCAST)"));
 

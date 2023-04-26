@@ -17,52 +17,17 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ImportColumnDesc;
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
-import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.thrift.PaloInternalServiceVersion;
-import org.apache.doris.thrift.TBrokerFileStatus;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPlanFragmentExecParams;
-import org.apache.doris.thrift.TQueryGlobals;
-import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TQueryType;
-import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.doris.thrift.TScanRangeParams;
-import org.apache.doris.thrift.TUniqueId;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.doris.analysis.*;
+import org.apache.doris.catalog.*;
+import org.apache.doris.common.*;
+import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.planner.external.LoadPlanner;
+import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.thrift.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -76,25 +41,21 @@ import java.util.Map;
 // Used to generate a plan fragment for a streaming load.
 // we only support OlapTable now.
 // TODO(zc): support other type table
-public class StreamLoadPlanner {
+public class StreamLoadPlanner extends LoadPlanner {
     private static final Logger LOG = LogManager.getLogger(StreamLoadPlanner.class);
     private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     // destination Db and table get from request
     // Data will load to this table
     private Database db;
-    private OlapTable destTable;
-    private LoadTaskInfo taskInfo;
-
-    private Analyzer analyzer;
-    private DescriptorTable descTable;
 
     private ScanNode scanNode;
+
     private TupleDescriptor tupleDesc;
 
     public StreamLoadPlanner(Database db, OlapTable destTable, LoadTaskInfo taskInfo) {
         this.db = db;
-        this.destTable = destTable;
+        this.table = destTable;
         this.taskInfo = taskInfo;
     }
 
@@ -108,45 +69,37 @@ public class StreamLoadPlanner {
 
     // can only be called after "plan()", or it will return null
     public OlapTable getDestTable() {
-        return destTable;
+        return table;
     }
 
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
-        if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
+        if (table.getKeysType() != KeysType.UNIQUE_KEYS
                 && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
         }
         if (taskInfo.getMergeType() != LoadTask.MergeType.APPEND
-                && !destTable.hasDeleteSign()) {
+                && !table.hasDeleteSign()) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
 
-        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
-            throw new UserException("Table " + destTable.getName()
+        if (table.hasSequenceCol() && !taskInfo.hasSequenceCol() && table.getSequenceMapCol() == null) {
+            throw new UserException("Table " + table.getName()
                     + " has sequence column, need to specify the sequence column");
         }
-        if (!destTable.hasSequenceCol() && taskInfo.hasSequenceCol()) {
-            throw new UserException("There is no sequence column in the table " + destTable.getName());
+        if (!table.hasSequenceCol() && taskInfo.hasSequenceCol()) {
+            throw new UserException("There is no sequence column in the table " + table.getName());
         }
         resetAnalyzer();
         // construct tuple descriptor, used for dataSink
         tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
-        TupleDescriptor scanTupleDesc = tupleDesc;
         // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
         // construct tuple descriptor, used for scanNode
-        scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
+        TupleDescriptor scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
-        for (Column col : destTable.getFullSchema()) {
-            SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
-            slotDesc.setIsMaterialized(true);
-            slotDesc.setColumn(col);
-            slotDesc.setIsNullable(col.isAllowNull());
-            SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
-            scanSlotDesc.setIsMaterialized(true);
-            scanSlotDesc.setColumn(col);
-            scanSlotDesc.setIsNullable(col.isAllowNull());
+        for (Column col : table.getFullSchema()) {
+            SlotDescriptor scanSlotDesc = slotDescriptorBuilder(descTable, tupleDesc, scanTupleDesc, col);
             for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                 try {
                     if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
@@ -165,48 +118,14 @@ public class StreamLoadPlanner {
         }
 
         // Plan scan tuple of dynamic table
-        if (destTable.isDynamicSchema()) {
-            descTable.addReferencedTable(destTable);
-            scanTupleDesc.setTable(destTable);
-            // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
-            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
-            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
-                                    "stream load auto dynamic column");
-            slotDesc.setIsMaterialized(true);
-            slotDesc.setColumn(col);
-            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-            slotDesc.setNullIndicatorBit(-1);
-            slotDesc.setNullIndicatorByte(0);
-            slotDesc.setIsNullable(false);
-            LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
+        if (table.isDynamicSchema()) {
+            descTable.addReferencedTable(table);
+            scanTupleDesc.setTable(table);
+            addAndSetSlotDescriptor(descTable,scanTupleDesc);
         }
 
         // create scan node
-        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
-        // 1. create file group
-        DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
-        dataDescription.analyzeWithoutCheckPriv(db.getFullName());
-        BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
-        fileGroup.parse(db, dataDescription);
-        // 2. create dummy file status
-        TBrokerFileStatus fileStatus = new TBrokerFileStatus();
-        if (taskInfo.getFileType() == TFileType.FILE_LOCAL) {
-            fileStatus.setPath(taskInfo.getPath());
-            fileStatus.setIsDir(false);
-            fileStatus.setSize(taskInfo.getFileSize()); // must set to -1, means stream.
-        } else {
-            fileStatus.setPath("");
-            fileStatus.setIsDir(false);
-            fileStatus.setSize(-1); // must set to -1, means stream.
-        }
-        // The load id will pass to csv reader to find the stream load context from new load stream manager
-        fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
-                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns());
-        scanNode = fileScanNode;
-
-        scanNode.init(analyzer);
-        scanNode.finalize(analyzer);
-        scanNode.convertToVectorized();
+        scanNode = scanNodeBuilder(scanTupleDesc,db);
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
@@ -217,19 +136,11 @@ public class StreamLoadPlanner {
         }
 
         // create dest sink
-        List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
-                Config.enable_single_replica_load);
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
-        olapTableSink.complete();
+        OlapTableSink olapTableSink = olapTableSinkBuilder(tupleDesc,loadId,db,timeout);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
         // OlapTableSink can dispatch data to corresponding node.
-        PlanFragment fragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.UNPARTITIONED);
-        fragment.setSink(olapTableSink);
-
-        fragment.finalize(null);
+        PlanFragment fragment = planFragmentBuilder(scanNode,olapTableSink);
 
         TExecPlanFragmentParams params = new TExecPlanFragmentParams();
         params.setProtocolVersion(PaloInternalServiceVersion.V1);
@@ -283,23 +194,23 @@ public class StreamLoadPlanner {
 
     // get all specified partition ids.
     // if no partition specified, return null
-    private List<Long> getAllPartitionIds() throws DdlException, AnalysisException {
+    protected List<Long> getAllPartitionIds() throws DdlException, AnalysisException {
         List<Long> partitionIds = Lists.newArrayList();
 
         PartitionNames partitionNames = taskInfo.getPartitions();
         if (partitionNames != null) {
             for (String partName : partitionNames.getPartitionNames()) {
-                Partition part = destTable.getPartition(partName, partitionNames.isTemp());
+                Partition part = table.getPartition(partName, partitionNames.isTemp());
                 if (part == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, table.getName());
                 }
                 partitionIds.add(part.getId());
             }
             return partitionIds;
         }
         List<Expr> conjuncts = scanNode.getConjuncts();
-        if (destTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED && !conjuncts.isEmpty()) {
-            PartitionInfo partitionInfo = destTable.getPartitionInfo();
+        if (table.getPartitionInfo().getType() != PartitionType.UNPARTITIONED && !conjuncts.isEmpty()) {
+            PartitionInfo partitionInfo = table.getPartitionInfo();
             Map<Long, PartitionItem> itemById = partitionInfo.getIdToItem(false);
             Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
             for (Column column : partitionInfo.getPartitionColumns()) {
@@ -317,10 +228,10 @@ public class StreamLoadPlanner {
             }
 
             PartitionPruner partitionPruner = null;
-            if (destTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+            if (table.getPartitionInfo().getType() == PartitionType.RANGE) {
                 partitionPruner = new RangePartitionPrunerV2(itemById,
                         partitionInfo.getPartitionColumns(), columnNameToRange);
-            } else if (destTable.getPartitionInfo().getType() == PartitionType.LIST) {
+            } else if (table.getPartitionInfo().getType() == PartitionType.LIST) {
                 partitionPruner = new ListPartitionPrunerV2(itemById,
                         partitionInfo.getPartitionColumns(), columnNameToRange);
             }

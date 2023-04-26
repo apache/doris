@@ -27,7 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
@@ -119,7 +119,7 @@ public class AnotherDemoTest {
         String queryStr = "explain select * from db1.tbl1";
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.planner();
+        QueryPlanner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
         Assert.assertEquals(1, fragments.size());
         PlanFragment fragment = fragments.get(0);

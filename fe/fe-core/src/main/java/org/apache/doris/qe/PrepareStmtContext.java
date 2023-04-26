@@ -20,18 +20,18 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.planner.OriginalPlanner;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 
 import com.google.common.base.Preconditions;
 
 public class PrepareStmtContext {
     public PrepareStmt stmt;
     public ConnectContext ctx;
-    public Planner planner;
+    public QueryPlanner planner;
     public Analyzer analyzer;
     public String stmtString;
 
-    public PrepareStmtContext(PrepareStmt stmt, ConnectContext ctx, Planner planner,
+    public PrepareStmtContext(PrepareStmt stmt, ConnectContext ctx, QueryPlanner planner,
                                     Analyzer analyzer, String stmtString) {
         this.stmt = stmt;
         this.ctx = ctx;

@@ -31,7 +31,7 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -197,7 +197,7 @@ public class TableQueryPlanAction extends RestBaseController {
         }
 
         // acquired Planner to get PlanNode and fragment templates
-        Planner planner = stmtExecutor.planner();
+        QueryPlanner planner = stmtExecutor.planner();
         // acquire ScanNode to obtain pruned tablet
         // in this way, just retrieve only one scannode
         List<ScanNode> scanNodes = planner.getScanNodes();

@@ -71,7 +71,7 @@ import java.util.Set;
  * The planner is responsible for turning parse trees into plan fragments that can be shipped off to backends for
  * execution.
  */
-public class OriginalPlanner extends Planner {
+public class OriginalPlanner extends QueryPlanner {
     private static final Logger LOG = LogManager.getLogger(OriginalPlanner.class);
 
     private PlannerContext plannerContext;

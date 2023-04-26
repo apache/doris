@@ -48,7 +48,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -74,7 +74,7 @@ import java.util.stream.Collectors;
 /**
  * Planner to do query plan in Nereids.
  */
-public class NereidsPlanner extends Planner {
+public class NereidsPlanner extends QueryPlanner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;

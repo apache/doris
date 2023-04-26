@@ -53,7 +53,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ResultSink;
 import org.apache.doris.planner.RuntimeFilter;
@@ -289,14 +289,14 @@ public class Coordinator {
         }
     }
 
-    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner,
+    public Coordinator(ConnectContext context, Analyzer analyzer, QueryPlanner planner,
             StatsErrorEstimator statsErrorEstimator) {
         this(context, analyzer, planner);
         this.statsErrorEstimator = statsErrorEstimator;
     }
 
     // Used for query/insert
-    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
+    public Coordinator(ConnectContext context, Analyzer analyzer, QueryPlanner planner) {
         this.isBlockQuery = planner.isBlockQuery();
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();

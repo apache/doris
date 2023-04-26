@@ -33,9 +33,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 
-public abstract class Planner {
-
-    private static final Logger LOG = LogManager.getLogger(Planner.class);
+public abstract class QueryPlanner {
+    private static final Logger LOG = LogManager.getLogger(QueryPlanner.class);
 
     protected ArrayList<PlanFragment> fragments = Lists.newArrayList();
 

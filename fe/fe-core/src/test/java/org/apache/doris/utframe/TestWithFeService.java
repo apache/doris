@@ -61,7 +61,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
@@ -456,14 +456,14 @@ public abstract class TestWithFeService {
         ConnectContext.get().setExecutor(stmtExecutor);
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
-            Planner planner = stmtExecutor.planner();
+            QueryPlanner planner = stmtExecutor.planner();
             return planner.getExplainString(new ExplainOptions(isVerbose, false));
         } else {
             return ctx.getState().getErrorMessage();
         }
     }
 
-    public Planner getSQLPlanner(String queryStr) throws Exception {
+    public QueryPlanner getSQLPlanner(String queryStr) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();

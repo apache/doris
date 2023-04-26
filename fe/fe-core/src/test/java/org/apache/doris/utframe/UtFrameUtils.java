@@ -37,7 +37,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
@@ -334,14 +334,14 @@ public class UtFrameUtils {
         ConnectContext.get().setExecutor(stmtExecutor);
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
-            Planner planner = stmtExecutor.planner();
+            QueryPlanner planner = stmtExecutor.planner();
             return planner.getExplainString(new ExplainOptions(isVerbose, false));
         } else {
             return ctx.getState().getErrorMessage();
         }
     }
 
-    public static Planner getSQLPlanner(ConnectContext ctx, String queryStr) throws Exception {
+    public static QueryPlanner getSQLPlanner(ConnectContext ctx, String queryStr) throws Exception {
         ctx.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();

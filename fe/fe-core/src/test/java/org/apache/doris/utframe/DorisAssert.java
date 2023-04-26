@@ -33,7 +33,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
@@ -204,13 +204,13 @@ public class DorisAssert {
                         throw new Exception(queryState.getErrorMessage());
                 }
             }
-            Planner planner = stmtExecutor.planner();
+            QueryPlanner planner = stmtExecutor.planner();
             String explainString = planner.getExplainString(new ExplainOptions(false, false));
             System.out.println(explainString);
             return explainString;
         }
 
-        public Planner internalExecuteOneAndGetPlan() throws Exception {
+        public QueryPlanner internalExecuteOneAndGetPlan() throws Exception {
             SqlScanner input = new SqlScanner(new StringReader(sql), ctx.getSessionVariable().getSqlMode());
             SqlParser parser = new SqlParser(input);
             List<StatementBase> stmts =  SqlParserUtils.getMultiStmts(parser);

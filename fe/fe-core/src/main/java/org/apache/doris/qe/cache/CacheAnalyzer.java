@@ -40,7 +40,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
@@ -98,7 +98,7 @@ public class CacheAnalyzer {
         return cache;
     }
 
-    public CacheAnalyzer(ConnectContext context, StatementBase parsedStmt, Planner planner) {
+    public CacheAnalyzer(ConnectContext context, StatementBase parsedStmt, QueryPlanner planner) {
         this.context = context;
         this.queryId = context.queryId();
         this.parsedStmt = parsedStmt;

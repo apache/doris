@@ -24,7 +24,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -82,7 +82,7 @@ public class CreateEncryptKeyTest {
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
         Assert.assertNotEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
-        Planner planner = stmtExecutor.planner();
+        QueryPlanner planner = stmtExecutor.planner();
         Assert.assertEquals(1, planner.getFragments().size());
         PlanFragment fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);

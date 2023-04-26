@@ -35,7 +35,7 @@ import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
@@ -188,7 +188,7 @@ public class DemoMultiBackendsTest {
         System.out.println(a);
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.planner();
+        QueryPlanner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
         Assert.assertEquals(2, fragments.size());
         PlanFragment fragment = fragments.get(1);

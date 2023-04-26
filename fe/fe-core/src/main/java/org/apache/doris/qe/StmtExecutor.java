@@ -111,7 +111,7 @@ import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.QueryPlanner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
@@ -197,7 +197,7 @@ public class StmtExecutor implements ProfileWriter {
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
-    private Planner planner;
+    private QueryPlanner planner;
     private boolean isProxy;
     private ShowResultSet proxyResultSet = null;
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
@@ -349,7 +349,7 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
-    public Planner planner() {
+    public QueryPlanner planner() {
         return planner;
     }
 
