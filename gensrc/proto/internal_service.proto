@@ -481,6 +481,7 @@ message PMergeFilterRequest {
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
+    optional bool opt_remote_rf = 9;
 };
 
 message PMergeFilterResponse {
@@ -496,6 +497,18 @@ message PPublishFilterRequest {
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
+};
+
+message PPublishFilterRequestV2 {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    repeated PUniqueId fragment_instance_ids = 3;
+    required PFilterType filter_type = 4;
+    optional PMinMaxFilter minmax_filter = 5;
+    optional PBloomFilter bloom_filter = 6;
+    optional PInFilter in_filter = 7;
+    optional bool is_pipeline = 8;
+    optional int64 merge_time = 9;
 };
 
 message PPublishFilterResponse {
@@ -639,6 +652,7 @@ service PBackendService {
     rpc rollback(PRollbackRequest) returns (PRollbackResult);
     rpc merge_filter(PMergeFilterRequest) returns (PMergeFilterResponse);
     rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
+    rpc apply_filterv2(PPublishFilterRequestV2) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
     rpc transmit_block(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_block_by_http(PEmptyRequest) returns (PTransmitDataResult);

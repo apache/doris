@@ -89,8 +89,7 @@ private:
                     }
                 }
             }
-
-        } else if (IRuntimeFilter::enable_use_batch(_be_exec_version, T)) {
+        } else if (IRuntimeFilter::enable_use_batch(_be_exec_version > 0, T)) {
             const auto& data =
                     reinterpret_cast<
                             const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
