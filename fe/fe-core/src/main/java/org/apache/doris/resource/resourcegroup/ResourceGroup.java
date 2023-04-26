@@ -67,9 +67,31 @@ public class ResourceGroup implements Writable {
         this.version = 0;
     }
 
+    private ResourceGroup(long id, String name, Map<String, String> properties, long version) {
+        this.id = id;
+        this.name = name;
+        this.properties = properties;
+        this.version = version;
+    }
+
     public static ResourceGroup create(String name, Map<String, String> properties) throws DdlException {
         checkProperties(properties);
         return new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
+    }
+
+    public static ResourceGroup create(ResourceGroup resourceGroup, Map<String, String> updateProperties)
+            throws DdlException {
+        Map<String, String> newProperties = new HashMap<>();
+        newProperties.putAll(resourceGroup.getProperties());
+        for (Map.Entry<String, String> kv : updateProperties.entrySet()) {
+            if (!Strings.isNullOrEmpty(kv.getValue())) {
+                newProperties.put(kv.getKey(), kv.getValue());
+            }
+        }
+
+        checkProperties(newProperties);
+        return new ResourceGroup(
+           resourceGroup.getId(), resourceGroup.getName(), newProperties, resourceGroup.getVersion() + 1);
     }
 
     private static void checkProperties(Map<String, String> properties) throws DdlException {
@@ -90,17 +112,6 @@ public class ResourceGroup implements Writable {
         }
     }
 
-    public void modifyProperties(Map<String, String> properties) throws DdlException {
-        Map<String, String> newProperties = new HashMap<>();
-        newProperties.putAll(properties);
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
-            replaceIfEffectiveValue(newProperties, kv.getKey(), kv.getValue());
-        }
-        checkProperties(newProperties);
-        this.properties = newProperties;
-        version++;
-    }
-
     public long getId() {
         return id;
     }
@@ -111,6 +122,10 @@ public class ResourceGroup implements Writable {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    private long getVersion() {
+        return version;
     }
 
     public void getProcNodeData(BaseProcResult result) {
@@ -138,11 +153,4 @@ public class ResourceGroup implements Writable {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ResourceGroup.class);
     }
-
-    private void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {
-        if (!Strings.isNullOrEmpty(value)) {
-            properties.put(key, value);
-        }
-    }
-
 }
