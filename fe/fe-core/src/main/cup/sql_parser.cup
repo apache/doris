@@ -206,7 +206,7 @@ parser code {:
         String lastToken = SqlScanner.tokenIdMap.get(Integer.valueOf(errorToken.sym));
         if (lastToken != null) {
             result.append(lastToken);
-        } else if (errorToken.value != null && SqlScanner.isKeyword((String) errorToken.value)) {
+        } else if (SqlScanner.isKeyword((String) errorToken.value)) {
             result.append("A reserved word cannot be used as an identifier: ").append((String) errorToken.value);
         } else {
             result.append("Unknown last token with id: " + errorToken.sym);
