@@ -40,11 +40,9 @@ Table-Value-Function, generate a temporary table named `resource_groups`. This t
 
 This function is used in `FROM` clauses.
 
-grammar:
+#### syntax
 
-```
-resource_groups();
-```
+`resource_groups()`
 
 The table schema of `resource_groups()` tvf:
 ```

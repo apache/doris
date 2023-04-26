@@ -104,6 +104,60 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channe
     return Status::OK();
 }
 
+Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
+                              PTabletWriterAddBlockResult* response) {
+    int64_t index_id = request.index_id();
+    // 1. get tablets channel
+    std::shared_ptr<TabletsChannel> channel;
+    bool is_finished;
+    Status st = _get_tablets_channel(channel, is_finished, index_id);
+    if (!st.ok() || is_finished) {
+        return st;
+    }
+
+    // 2. add block to tablets channel
+    if (request.has_block()) {
+        RETURN_IF_ERROR(channel->add_batch(request, response));
+        _add_batch_number_counter->update(1);
+    }
+
+    // 3. handle eos
+    if (request.has_eos() && request.eos()) {
+        st = _handle_eos(channel, request, response);
+        _report_profile(response);
+        if (!st.ok()) {
+            return st;
+        }
+    } else if (_add_batch_number_counter->value() % 10 == 1) {
+        _report_profile(response);
+    }
+    _last_updated_time.store(time(nullptr));
+    return st;
+}
+
+void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
+    COUNTER_SET(_peak_memory_usage_counter, _mem_tracker->peak_consumption());
+    // TabletSink and LoadChannel in BE are M: N relationship,
+    // Every once in a while LoadChannel will randomly return its own runtime profile to a TabletSink,
+    // so usually all LoadChannel runtime profiles are saved on each TabletSink,
+    // and the timeliness of the same LoadChannel profile saved on different TabletSinks is different,
+    // and each TabletSink will periodically send fe reports all the LoadChannel profiles saved by itself,
+    // and ensures to update the latest LoadChannel profile according to the timestamp.
+    _self_profile->set_timestamp(_last_updated_time);
+
+    TRuntimeProfileTree tprofile;
+    _profile->to_thrift(&tprofile);
+    ThriftSerializer ser(false, 4096);
+    uint8_t* buf = nullptr;
+    uint32_t len = 0;
+    auto st = ser.serialize(&tprofile, &len, &buf);
+    if (st.ok()) {
+        response->set_load_channel_profile(std::string((const char*)buf, len));
+    } else {
+        LOG(WARNING) << "load channel TRuntimeProfileTree serialize failed, errmsg=" << st;
+    }
+}
+
 bool LoadChannel::is_finished() {
     if (!_opened) {
         return false;

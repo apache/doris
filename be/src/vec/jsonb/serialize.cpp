@@ -79,6 +79,10 @@ void JsonbSerializeUtil::jsonb_to_block(const TupleDescriptor& desc, const char*
         SlotDescriptor* slot = desc.slots()[j];
         JsonbValue* slot_value = doc->find(slot->col_unique_id());
         MutableColumnPtr dst_column = dst.get_by_position(j).column->assume_mutable();
+        if (!slot_value || slot_value->isNull()) {
+            dst_column->insert_default();
+            continue;
+        }
         dst.get_data_type(j)->get_serde()->read_one_cell_from_jsonb(*dst_column, slot_value);
     }
 }

@@ -48,7 +48,6 @@ public class StatisticConstants {
      */
     public static final int STATISTIC_CLEAN_INTERVAL_IN_HOURS = 24 * 2;
 
-
     /**
      * The max cached item in `StatisticsCache`.
      */

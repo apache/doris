@@ -56,18 +56,14 @@ public:
         k_stream_load_put_result = TStreamLoadPutResult();
 
         _env.set_master_info(new TMasterInfo());
-        _env.set_new_load_stream_mgr(new NewLoadStreamMgr());
-        _env.set_stream_load_executor(new StreamLoadExecutor(&_env));
+        _env.set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
+        _env.set_stream_load_executor(StreamLoadExecutor::create_unique(&_env));
 
         config::routine_load_thread_pool_size = 5;
         config::max_consumer_num_per_group = 3;
     }
 
-    void TearDown() override {
-        delete _env.master_info();
-        delete _env.new_load_stream_mgr();
-        delete _env.stream_load_executor();
-    }
+    void TearDown() override { delete _env.master_info(); }
 
     ExecEnv _env;
 };

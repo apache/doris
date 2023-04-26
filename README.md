@@ -168,11 +168,11 @@ All release and binary version 🔗[Download](https://doris.apache.org/download)
 
 ### 🗄️ Compile
 
-See how to compile  🔗[Compilation](https://doris.apache.org/docs/dev/install/source-install/compilation/)
+See how to compile  🔗[Compilation](https://doris.apache.org/docs/dev/install/source-install/compilation-general)
 
 ### 📮 Install
 
-See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/dev/install/install-deploy) 
+See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/dev/install/standard-deployment) 
 
 ## 🧩 Components
 

@@ -32,9 +32,9 @@ array_first_index
 
 ### description
 
-```sql
-array_first_index(lambda, array1, ...)
-```
+#### Syntax
+
+`ARRAY<T> array_first_index(lambda, ARRAY<T> array1, ...)`
 
 使用lambda表达式作为输入参数，对其他输入ARRAY参数的内部数据进行相应的表达式计算。 返回第一个使得 `lambda(array1[i], ...)` 返回值不为 0 的索引。如果没找到满足此条件的索引，则返回 0。
 
