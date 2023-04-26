@@ -402,8 +402,9 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.__isset.profile = false;
         } else {
             req.profile->to_thrift(&params.profile);
-            if (req.load_channel_profile)
+            if (req.load_channel_profile) {
                 req.load_channel_profile->to_thrift(&params.loadChannelProfile);
+            }
             params.__isset.profile = true;
             params.__isset.loadChannelProfile = true;
         }
