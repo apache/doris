@@ -17,13 +17,6 @@
 
 suite("nereids_insert_aggregate") {
     sql 'use nereids_insert_into_table_test'
-
-    def tables = ['agg_t', 'agg_light_sc_t', 'agg_not_null_t', 'agg_light_sc_not_null_t']
-
-    for (t in tables) {
-        sql "drop table if exists ${t}"
-    }
-    
     sql 'clean label from nereids_insert_into_table_test'
 
     sql 'set enable_nereids_planner=true'
@@ -80,25 +73,4 @@ suite("nereids_insert_aggregate") {
     sql '''insert into agg_light_sc_not_null_t partition (p1, p2) with label label_agg_light_sc_not_null
             select * except(kaint) from src where id < 4 and id is not null'''
     qt_43 'select * from agg_light_sc_not_null_t order by id, kint'
-
-    // test light_schema_change
-    sql 'alter table agg_light_sc_t rename column ktint, ktinyint'
-    sql 'alter table agg_light_sc_not_null_t rename column ktint, ktinyint'
-
-    sql '''insert into agg_light_sc_t
-            select * except(kaint) from src'''
-    qt_lsc1 'select * from agg_light_sc_t order by id, kint'
-
-    sql '''insert into agg_light_sc_not_null_t
-            select * except(kaint) from src where id is not null'''
-    qt_lsc2 'select * from agg_light_sc_not_null_t order by id, kint'
-
-    // test hint
-    sql '''insert into agg_light_sc_t [NOSHUFFLE]
-            select * except(kaint) from src'''
-    qt_hint1 'select * from agg_light_sc_t order by id, kint'
-
-    sql '''insert into agg_light_sc_not_null_t [NOSHUFFLE]
-            select * except(kaint) from src where id is not null'''
-    qt_hint2 'select * from agg_light_sc_not_null_t order by id, kint'
 }

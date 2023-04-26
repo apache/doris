@@ -1,4 +1,4 @@
-create table agg_t (
+create table agg_nop_t (
     `id` int null,
     `kbool` boolean replace null,
     `ktint` tinyint(4) max null,
@@ -27,7 +27,7 @@ properties (
 );
 
 
-create table agg_light_sc_t (
+create table agg_light_sc_nop_t (
     `id` int null,
     `kbool` boolean replace null,
     `ktint` tinyint(4) max null,
@@ -57,7 +57,7 @@ properties (
 );
 
 
-create table agg_not_null_t (
+create table agg_not_null_nop_t (
     `id` int not null,
     `kbool` boolean replace not null,
     `ktint` tinyint(4) max not null,
@@ -86,7 +86,7 @@ properties (
 );
 
 
-create table agg_light_sc_not_null_t (
+create table agg_light_sc_not_null_nop_t (
     `id` int not null,
     `kbool` boolean replace not null,
     `ktint` tinyint(4) max not null,

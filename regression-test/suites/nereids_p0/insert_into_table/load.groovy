@@ -16,10 +16,9 @@
 // under the License.
 
 suite("load") {
-    sql 'create database if not exists nereids_insert_into_table_test'
+    sql 'drop database if exists nereids_insert_into_table_test'
+    sql 'create database nereids_insert_into_table_test'
     sql 'use nereids_insert_into_table_test'
-
-    sql 'drop table if exists src'
 
     sql '''
         create table src (
@@ -61,5 +60,16 @@ suite("load") {
             kdt, kdtv2, kdtm, kdtmv2, kdcml32v3, kdcml64v3, kdcml128v3, kaint
             '''
         file "src.dat"
+    }
+
+    def files = [
+            'agg_nop_t', 'agg_t', 'agg_type_cast',
+            'dup_nop_t', 'dup_t', 'dup_type_cast',
+            'uni_nop_t', 'uni_t', 'uni_type_cast',
+            'arr_t'
+    ]
+
+    for (String table in files) {
+        sql new File("""${context.file.parent}/ddl/${table}.sql""").text
     }
 }

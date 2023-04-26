@@ -17,16 +17,7 @@
 
 suite("nereids_insert_duplicate") {
     sql 'use nereids_insert_into_table_test'
-
-    def tables = ['dup_t_type_cast', 'dup_light_sc_t_type_cast', 'dup_not_null_t_type_cast', 'dup_light_sc_not_null_t_type_cast']
-
-    for (t in tables) {
-        sql "drop table if exists ${t}"
-    }
-
     sql 'clean label from nereids_insert_into_table_test'
-
-
 
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'

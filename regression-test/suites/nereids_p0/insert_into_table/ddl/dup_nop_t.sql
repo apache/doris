@@ -1,4 +1,4 @@
-create table dup_t (
+create table dup_nop_t (
     `id` int null,
     `kbool` boolean null,
     `ktint` tinyint(4) null,
@@ -27,7 +27,7 @@ properties (
 );
 
 
-create table dup_light_sc_t (
+create table dup_light_sc_nop_t (
     `id` int null,
     `kbool` boolean null,
     `ktint` tinyint(4) null,
@@ -57,7 +57,7 @@ properties (
 );
 
 
-create table dup_not_null_t (
+create table dup_not_null_nop_t (
     `id` int not null,
     `kbool` boolean not null,
     `ktint` tinyint(4) not null,
@@ -86,7 +86,7 @@ properties (
 );
 
 
-create table dup_light_sc_not_null_t (
+create table dup_light_sc_not_null_nop_t (
     `id` int not null,
     `kbool` boolean not null,
     `ktint` tinyint(4) not null,
