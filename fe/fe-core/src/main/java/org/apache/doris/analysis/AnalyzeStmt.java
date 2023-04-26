@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -112,6 +113,10 @@ public class AnalyzeStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (!Config.enable_stats) {
+            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
+                    + "in your FE conf file");
+        }
         super.analyze(analyzer);
 
         tableName.analyze(analyzer);
