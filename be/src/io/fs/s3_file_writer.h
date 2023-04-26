@@ -48,8 +48,6 @@ public:
                  FileSystemSPtr fs);
     ~S3FileWriter() override;
 
-    Status open();
-
     Status close() override;
 
     Status abort() override;
@@ -102,7 +100,11 @@ private:
         std::condition_variable _cv;
         std::atomic_int64_t _count {0};
     };
+    void _wait_until_finish(std::string task_name);
     Status _complete();
+    Status _open();
+    Status _create_multi_upload_request();
+    void _put_object(S3FileBuffer& buf);
     void _upload_one_part(int64_t part_num, S3FileBuffer& buf);
 
     std::string _bucket;

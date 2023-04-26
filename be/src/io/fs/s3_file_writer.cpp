@@ -32,8 +32,10 @@
 #include <aws/s3/model/CompletedPart.h>
 #include <aws/s3/model/CreateMultipartUploadRequest.h>
 #include <aws/s3/model/CreateMultipartUploadResult.h>
+#include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/UploadPartRequest.h>
 #include <aws/s3/model/UploadPartResult.h>
+#include <fmt/core.h>
 #include <glog/logging.h>
 
 #include <sstream>
@@ -83,22 +85,35 @@ S3FileWriter::~S3FileWriter() {
     CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
 }
 
-Status S3FileWriter::open() {
+Status S3FileWriter::_open() {
     VLOG_DEBUG << "S3FileWriter::open, path: " << _path.native();
+    _closed = false;
+    _opened = true;
+    return Status::OK();
+}
+
+Status S3FileWriter::_create_multi_upload_request() {
     CreateMultipartUploadRequest create_request;
     create_request.WithBucket(_bucket).WithKey(_key);
-    create_request.SetContentType("text/plain");
+    create_request.SetContentType("application/octet-stream");
 
     auto outcome = _client->CreateMultipartUpload(create_request);
 
     if (outcome.IsSuccess()) {
         _upload_id = outcome.GetResult().GetUploadId();
-        _closed = false;
-        _opened = true;
         return Status::OK();
     }
     return Status::IOError("failed to create multipart upload(bucket={}, key={}, upload_id={}): {}",
                            _bucket, _path.native(), _upload_id, outcome.GetError().GetMessage());
+}
+
+void S3FileWriter::_wait_until_finish(std::string task_name) {
+    auto msg =
+            fmt::format("{} multipart upload already takes 5 min, bucket={}, key={}, upload_id={}",
+                        std::move(task_name), _bucket, _path.native(), _upload_id);
+    while (!_wait.wait()) {
+        LOG(WARNING) << msg;
+    }
 }
 
 Status S3FileWriter::abort() {
@@ -106,13 +121,18 @@ Status S3FileWriter::abort() {
     if (_closed || !_opened) {
         return Status::OK();
     }
+    // we need to reclaim the memory
+    if (_pending_buf) {
+        _pending_buf->on_finished();
+        _pending_buf = nullptr;
+    }
+    // upload id is empty means there was no create multi upload
+    if (_upload_id.empty()) {
+        return Status::OK();
+    }
     VLOG_DEBUG << "S3FileWriter::abort, path: " << _path.native();
     _closed = true;
-    while (!_wait.wait()) {
-        LOG(WARNING) << "Abort multipart upload already takes 5 min"
-                     << "bucket=" << _bucket << ", key=" << _path.native()
-                     << ", upload_id=" << _upload_id;
-    }
+    _wait_until_finish("Abort");
     AbortMultipartUploadRequest request;
     request.WithBucket(_bucket).WithKey(_key).WithUploadId(_upload_id);
     auto outcome = _client->AbortMultipartUpload(request);
@@ -147,7 +167,7 @@ Status S3FileWriter::close() {
 Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     // lazy open
     if (!_opened) {
-        RETURN_IF_ERROR(open());
+        RETURN_IF_ERROR(_open());
     }
     DCHECK(!_closed);
     size_t buffer_size = config::s3_write_buffer_size;
@@ -187,6 +207,11 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
             // satisfy that the size is larger than or euqal to 5MB
             // _complete() would handle the first situation
             if (_pending_buf->get_size() == buffer_size) {
+                // only create multiple upload request when the data is more
+                // than one memory buffer
+                if (_cur_part_num == 1) {
+                    RETURN_IF_ERROR(_create_multi_upload_request());
+                }
                 _cur_part_num++;
                 _wait.add();
                 _pending_buf->submit();
@@ -214,6 +239,7 @@ void S3FileWriter::_upload_one_part(int64_t part_num, S3FileBuffer& buf) {
     upload_request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
 
     upload_request.SetContentLength(buf.get_size());
+    upload_request.SetContentType("application/octet-stream");
 
     auto upload_part_callable = _client->UploadPartCallable(upload_request);
 
@@ -246,14 +272,15 @@ Status S3FileWriter::_complete() {
     if (_failed) {
         return _st;
     }
+    // upload id is empty means there was no multipart upload
+    if (_upload_id.empty()) {
+        _wait_until_finish("PutObject");
+        return _st;
+    }
     CompleteMultipartUploadRequest complete_request;
     complete_request.WithBucket(_bucket).WithKey(_key).WithUploadId(_upload_id);
 
-    while (!_wait.wait()) {
-        LOG(WARNING) << "Complete multipart upload already takes 5 min"
-                     << "bucket=" << _bucket << ", key=" << _path.native()
-                     << ", upload_id=" << _upload_id;
-    }
+    _wait_until_finish("Complete");
     // make sure _completed_parts are ascending order
     std::sort(_completed_parts.begin(), _completed_parts.end(),
               [](auto& p1, auto& p2) { return p1->GetPartNumber() < p2->GetPartNumber(); });
@@ -281,11 +308,31 @@ Status S3FileWriter::finalize() {
     // submit pending buf if it's not nullptr
     // it's the last buf, we can submit it right now
     if (_pending_buf != nullptr) {
+        if (_upload_id.empty()) {
+            _pending_buf->set_upload_remote_callback(
+                    [this, buf = _pending_buf]() { _put_object(*buf); });
+        }
         _wait.add();
         _pending_buf->submit();
         _pending_buf = nullptr;
     }
     return Status::OK();
+}
+
+void S3FileWriter::_put_object(S3FileBuffer& buf) {
+    DCHECK(!_closed && _opened);
+    Aws::S3::Model::PutObjectRequest request;
+    request.WithBucket(_bucket).WithKey(_key);
+    request.SetBody(buf.get_stream());
+    request.SetContentLength(buf.get_size());
+    request.SetContentType("application/octet-stream");
+    auto response = _client->PutObject(request);
+    if (!response.IsSuccess()) {
+        _st = Status::InternalError("Error: [{}:{}, responseCode:{}]",
+                                    response.GetError().GetExceptionName(),
+                                    response.GetError().GetMessage(),
+                                    static_cast<int>(response.GetError().GetResponseCode()));
+    }
 }
 
 } // namespace io
