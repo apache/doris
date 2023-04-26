@@ -22,9 +22,10 @@ import java.util.Map;
 
 public class BackendInfo {
 
-    // Afterwards, memory infor may be added.
+    // BackendInfo . Afterwards, memory infor may be added.
     private long coreSize = 1;
-    public static Map<Long, BackendInfo> Info;
+
+    private static Map<Long, BackendInfo> Info;
     private static long mincorSize = 9999;
 
     static {
@@ -54,6 +55,9 @@ public class BackendInfo {
     }
 
     public static long getparallelExecInstanceNum() {
+        if (getMincorSize() == 9999) {
+            return 1;
+        }
         return (getMincorSize() + 1) / 2;
     }
 
