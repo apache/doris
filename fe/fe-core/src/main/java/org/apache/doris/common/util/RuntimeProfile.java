@@ -66,6 +66,9 @@ public class RuntimeProfile {
 
     private Long timestamp = -1L;
 
+    private Boolean isDone = false;
+    private Boolean isCancel = false;
+
     public RuntimeProfile(String name) {
         this();
         this.name = name;
@@ -75,6 +78,22 @@ public class RuntimeProfile {
         this.counterTotalTime = new Counter(TUnit.TIME_NS, 0);
         this.localTimePercent = 0;
         this.counterMap.put("TotalTime", counterTotalTime);
+    }
+
+    public void setIsCancel(Boolean isCancel) {
+        this.isCancel = isCancel;
+    }
+
+    public Boolean getIsCancel() {
+        return isCancel;
+    }
+
+    public void setIsDone(Boolean isDone) {
+        this.isDone = isDone;
+    }
+
+    public Boolean getIsDone() {
+        return isDone;
     }
 
     public String getName() {
