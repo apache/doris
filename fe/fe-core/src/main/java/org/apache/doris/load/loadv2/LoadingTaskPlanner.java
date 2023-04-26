@@ -17,9 +17,13 @@
 
 package org.apache.doris.load.loadv2;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import org.apache.doris.analysis.*;
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -36,6 +40,9 @@ import org.apache.doris.planner.external.LoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -65,9 +72,9 @@ public class LoadingTaskPlanner extends LoadPlanner {
     private int nextNodeId = 0;
 
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
-                              BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
-                              boolean strictMode, String timezone, long timeoutS, int loadParallelism,
-                              int sendBatchParallelism, boolean useNewLoadScanNode, UserIdentity userInfo) {
+            BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
+            boolean strictMode, String timezone, long timeoutS, int loadParallelism,
+            int sendBatchParallelism, boolean useNewLoadScanNode, UserIdentity userInfo) {
         this.analyzer = new Analyzer(Env.getCurrentEnv(), new ConnectContext());
         this.descTable = analyzer.getDescTbl();
         this.loadJobId = loadJobId;
@@ -84,8 +91,8 @@ public class LoadingTaskPlanner extends LoadPlanner {
         this.useNewLoadScanNode = useNewLoadScanNode;
         this.userInfo = userInfo;
         if (Env.getCurrentEnv().getAccessManager()
-            .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
-                PrivPredicate.SELECT)) {
+                .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
         } else {
             this.analyzer.setUDFAllowed(false);
@@ -103,7 +110,7 @@ public class LoadingTaskPlanner extends LoadPlanner {
                 for (ImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
                     try {
                         if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
-                            && importColumnDesc.getColumnName().equals(col.getName())) {
+                                && importColumnDesc.getColumnName().equals(col.getName())) {
                             scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
                             break;
                         }
@@ -126,11 +133,13 @@ public class LoadingTaskPlanner extends LoadPlanner {
         // Generate plan trees
         // 1. Broker scan node
         nextNodeId++;
-        ScanNode scanNode = scanNodeBuilder(nextNodeId, scanTupleDesc, loadJobId, txnId, brokerDesc, fileGroups, strictMode, loadParallelism, userInfo);
+        ScanNode scanNode = scanNodeBuilder(nextNodeId, scanTupleDesc, loadJobId, txnId, brokerDesc, fileGroups,
+                strictMode, loadParallelism, userInfo);
         descTable.computeStatAndMemLayout();
 
         // 2. Olap table sink
-        OlapTableSink olapTableSink = olapTableSinkBuilder(destTupleDesc,loadId,txnId,dbId,timeoutS,sendBatchParallelism);
+        OlapTableSink olapTableSink = olapTableSinkBuilder(destTupleDesc, loadId, txnId, dbId, timeoutS,
+                sendBatchParallelism);
 
         // 3. Plan fragment
         fragments.add(planFragmentBuilder(scanNode, loadParallelism, olapTableSink));
@@ -166,7 +175,7 @@ public class LoadingTaskPlanner extends LoadPlanner {
                 for (long partitionId : brokerFileGroup.getPartitionIds()) {
                     if (!table.getPartitionInfo().getIsMutable(partitionId)) {
                         throw new LoadException("Can't load data to immutable partition, table: "
-                            + table.getName() + ", partition: " + table.getPartition(partitionId));
+                                + table.getName() + ", partition: " + table.getPartition(partitionId));
                     }
                 }
                 specifiedPartitionIds.addAll(brokerFileGroup.getPartitionIds());

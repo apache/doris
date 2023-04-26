@@ -17,17 +17,46 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import org.apache.doris.analysis.*;
-import org.apache.doris.catalog.*;
-import org.apache.doris.common.*;
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.planner.external.LoadPlanner;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.thrift.*;
+import org.apache.doris.thrift.PaloInternalServiceVersion;
+import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPlanFragmentExecParams;
+import org.apache.doris.thrift.TQueryGlobals;
+import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TQueryType;
+import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TScanRangeParams;
+import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -121,11 +150,11 @@ public class StreamLoadPlanner extends LoadPlanner {
         if (table.isDynamicSchema()) {
             descTable.addReferencedTable(table);
             scanTupleDesc.setTable(table);
-            addAndSetSlotDescriptor(descTable,scanTupleDesc);
+            addAndSetSlotDescriptor(descTable, scanTupleDesc);
         }
 
         // create scan node
-        scanNode = scanNodeBuilder(scanTupleDesc,db);
+        scanNode = scanNodeBuilder(scanTupleDesc, db);
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
@@ -136,11 +165,11 @@ public class StreamLoadPlanner extends LoadPlanner {
         }
 
         // create dest sink
-        OlapTableSink olapTableSink = olapTableSinkBuilder(tupleDesc,loadId,db,timeout);
+        OlapTableSink olapTableSink = olapTableSinkBuilder(tupleDesc, loadId, db, timeout);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
         // OlapTableSink can dispatch data to corresponding node.
-        PlanFragment fragment = planFragmentBuilder(scanNode,olapTableSink);
+        PlanFragment fragment = planFragmentBuilder(scanNode, olapTableSink);
 
         TExecPlanFragmentParams params = new TExecPlanFragmentParams();
         params.setProtocolVersion(PaloInternalServiceVersion.V1);
@@ -173,7 +202,7 @@ public class StreamLoadPlanner extends LoadPlanner {
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
-        //load
+        // load
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
