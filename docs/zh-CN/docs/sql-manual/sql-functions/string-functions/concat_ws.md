@@ -28,8 +28,10 @@ under the License.
 ### description
 #### Syntax
 
-`VARCHAR concat_ws(VARCHAR sep, VARCHAR str,...)`
-`VARCHAR concat_ws(VARCHAR sep, ARRAY array)`
+```sql
+VARCHAR concat_ws(VARCHAR sep, VARCHAR str,...)
+VARCHAR concat_ws(VARCHAR sep, ARRAY array)
+```
 
 
 使用第一个参数 sep 作为连接符，将第二个参数以及后续所有参数(或ARRAY中的所有字符串)拼接成一个字符串。

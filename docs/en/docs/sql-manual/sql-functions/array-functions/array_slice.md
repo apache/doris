@@ -34,9 +34,7 @@ array_slice
 
 #### Syntax
 
-```
-ARRAY<T> array_slice(ARRAY<T> arr, BIGINT off, BIGINT len)
-```
+`ARRAY<T> array_slice(ARRAY<T> arr, BIGINT off, BIGINT len)`
 
 Returns a slice of the array.
 

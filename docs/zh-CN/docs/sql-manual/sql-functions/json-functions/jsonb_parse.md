@@ -28,9 +28,11 @@ under the License.
 ### description
 #### Syntax
 
-`JSONB jsonb_parse(VARCHAR json_str)`
-`JSONB jsonb_parse_error_to_null(VARCHAR json_str)`
-`JSONB jsonb_parse_error_to_value(VARCHAR json_str, VARCHAR default_json_str)`
+```sql
+JSONB jsonb_parse(VARCHAR json_str)
+JSONB jsonb_parse_error_to_null(VARCHAR json_str)
+JSONB jsonb_parse_error_to_value(VARCHAR json_str, VARCHAR default_json_str)
+```
 
 将原始JSON字符串解析成JSONB二进制格式。为了满足不同的异常数据处理需求，提供不同的jsonb_parse系列函数，具体行为如下：
 - json_str为NULL时，都返回NULL

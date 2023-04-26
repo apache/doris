@@ -73,6 +73,8 @@ class Block;
 class IColumn;
 
 class NewJsonReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(NewJsonReader);
+
 public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,

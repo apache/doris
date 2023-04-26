@@ -102,6 +102,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     if (type == TRuntimeFilterType.BITMAP) {
                         continue;
                     }
+                    // in-filter is not friendly to pipeline
+                    if (type == TRuntimeFilterType.IN_OR_BLOOM && ctx.getSessionVariable().enablePipelineEngine()) {
+                        type = TRuntimeFilterType.BLOOM;
+                    }
                     // currently, we can ensure children in the two side are corresponding to the equal_to's.
                     // so right maybe an expression and left is a slot
                     Slot unwrappedSlot = checkTargetChild(equalTo.left());

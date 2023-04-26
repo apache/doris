@@ -38,7 +38,7 @@ iceberg_meta
 
 iceberg_meta table-valued-function(tvf), Use for read iceberg metadata，operation history, snapshots of table, file metadata etc.
 
-**grammer**
+#### syntax
 
 ```sql
 iceberg_meta(
