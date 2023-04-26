@@ -96,3 +96,7 @@ under the License.
     ```
 
     Try adding `"metastore.filter.hook" = "org.apache.hadoop.hive.metastore.DefaultMetaStoreFilterHookImpl"` in `create catalog` statement.
+
+10. An error is reported when connecting to the Hive database through the Hive Catalog: `RemoteException: SIMPLE authentication is not enabled. Available: [TOKEN, KERBEROS]`
+
+    If there is no problem with `show databases` and `show tables`, and the above error occurs when querying, we need to execute Kerberos kinit on the BE node, then restart BE, and then execute the query.
