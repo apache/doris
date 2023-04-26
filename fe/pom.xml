@@ -207,8 +207,8 @@ under the License.
         <snappy-java.version>1.1.7.2</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
-        <kubernetes-client.version>6.5.1</kubernetes-client.version>
-        <kubernetes-model.version>6.5.1</kubernetes-model.version>
+        <kubernetes-client.version>5.12.2</kubernetes-client.version>
+        <kubernetes-model.version>5.12.2</kubernetes-model.version>
         <logging-interceptor.version>4.7.2</logging-interceptor.version>
         <okhttp.version>4.7.2</okhttp.version>
         <okio.version>2.6.0</okio.version>
