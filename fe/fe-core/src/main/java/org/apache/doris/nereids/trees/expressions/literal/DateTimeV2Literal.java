@@ -38,6 +38,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         super(dateType, s);
     }
 
+    public DateTimeV2Literal(long year, long month, long day, long hour, long minute, long second) {
+        super(DateTimeV2Type.SYSTEM_DEFAULT, year, month, day, hour, minute, second, 0);
+    }
+
     public DateTimeV2Literal(long year, long month, long day, long hour, long minute, long second, long microSecond) {
         super(DateTimeV2Type.SYSTEM_DEFAULT, year, month, day, hour, minute, second, microSecond);
     }
