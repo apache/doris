@@ -51,9 +51,6 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     // <tablet id, tablet schema hash, tablet in memory>
     private List<Triple<Long, Integer, Boolean>> tabletToInMemory;
 
-    // <tablet id, tablet schema hash, tablet is dropped>
-    private List<Triple<Long, Integer, Boolean>> tabletToIsDropped;
-
     public UpdateTabletMetaInfoTask(long backendId, Set<Pair<Long, Integer>> tableIdWithSchemaHash,
                                     TTabletMetaType metaType) {
         super(null, backendId, TTaskType.UPDATE_TABLET_META_INFO,
@@ -78,13 +75,6 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                 -1L, -1L, -1L, -1L, -1L, tabletToInMemory.hashCode());
         this.metaType = TTabletMetaType.INMEMORY;
         this.tabletToInMemory = tabletToInMemory;
-    }
-
-    public UpdateTabletMetaInfoTask(List<Triple<Long, Integer, Boolean>> tabletToIsDropped, long backendId) {
-        super(null, backendId, TTaskType.UPDATE_TABLET_META_INFO,
-                -1L, -1L, -1L, -1L, -1L, tabletToIsDropped.hashCode());
-        this.metaType = TTabletMetaType.MARKDROP;
-        this.tabletToIsDropped = tabletToIsDropped;
     }
 
     public void countDownLatch(long backendId, Set<Pair<Long, Integer>> tablets) {
@@ -161,17 +151,6 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                         metaInfo.setMetaType(metaType);
                         metaInfos.add(metaInfo);
                     }
-                }
-                break;
-            }
-            case MARKDROP: {
-                for (Triple<Long, Integer, Boolean> triple : tabletToIsDropped) {
-                    TTabletMetaInfo metaInfo = new TTabletMetaInfo();
-                    metaInfo.setTabletId(triple.getLeft());
-                    metaInfo.setSchemaHash(triple.getMiddle());
-                    metaInfo.setIsDropped(triple.getRight());
-                    metaInfo.setMetaType(metaType);
-                    metaInfos.add(metaInfo);
                 }
                 break;
             }
