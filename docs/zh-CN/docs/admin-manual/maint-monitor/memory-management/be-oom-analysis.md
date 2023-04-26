@@ -76,7 +76,7 @@ Memory Tracker Summary:
 6. `type=load`导入内存使用多时。
 
 7. `type=global`内存使用多时，继续查看`Memory Tracker Summary`日志后半部分已经打出得`type=global`详细统计。当 DataPageCache、IndexPageCache、SegmentCache、ChunkAllocator、LastestSuccessChannelCache 等内存使用多时，参考 [BE 配置项](../../../admin-manual/config/be-config.md) 考虑修改cache的大小；当 Orphan 内存使用过多时，如下继续分析。
-  - 若`Parent Label=Orphan`的tracker统计值相加只占 Orphan 内存的小部分，则说明当前有大量内存没有准确统计，比如 brpc 过程的内存，此时可以考虑借助 heap profile [Memory Tracker](../../../../community/developer-guide/debug-tool.md) 中的方法进一步分析内存位置。
+  - 若`Parent Label=Orphan`的tracker统计值相加只占 Orphan 内存的小部分，则说明当前有大量内存没有准确统计，比如 brpc 过程的内存，此时可以考虑借助 heap profile [Memory Tracker](https://doris.apache.org/zh-CN/community/developer-guide/debug-tool) 中的方法进一步分析内存位置。
   - 若`Parent Label=Orphan`的tracker统计值相加占 Orphan 内存的大部分，当`Label=TabletManager`内存使用多时，进一步查看集群 Tablet 数量，若 Tablet 数量过多则考虑删除过时不会被使用的表或数据；当`Label=StorageEngine`内存使用过多时，进一步查看集群 Segment 文件个数，若 Segment 文件个数过多则考虑手动触发compaction；
 
 8. 若`be/log/be.INFO`没有在 OOM 前打印出`Memory Tracker Summary`日志，说明 BE 没有及时检测出内存超限，观察 Grafana 内存监控确认BE在 OOM 前的内存增长趋势，若 OOM 可复现，考虑在`be.conf`中增加`memory_debug=true`，重启集群后会每秒打印集群内存统计，观察 OOM 前的最后一次`Memory Tracker Summary`日志，继续步骤3分析；

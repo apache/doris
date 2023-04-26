@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * RightSemiJoin -> LeftSemiJoin
@@ -30,6 +31,7 @@ public class SemiJoinCommute extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> join.getJoinType().isRightSemiOrAntiJoin())
+                .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
                 .whenNot(LogicalJoin::hasJoinHint)
                 .whenNot(LogicalJoin::isMarkJoin)
                 .then(join -> join.withTypeChildren(join.getJoinType().swap(), join.right(), join.left()))

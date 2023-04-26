@@ -17,13 +17,15 @@
 
 #include "olap/file_header.h"
 
-#include <algorithm>
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
 #include <filesystem>
-#include <fstream>
 
 #include "common/status.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
 
 using ::testing::_;

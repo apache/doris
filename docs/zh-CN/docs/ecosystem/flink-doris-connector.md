@@ -399,6 +399,9 @@ env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.
 
 ## 使用 Flink CDC 接入 Doris 示例（支持 Insert / Update / Delete 事件）
 ```sql
+-- enable checkpoint
+SET 'execution.checkpointing.interval' = '10s';
+
 CREATE TABLE cdc_mysql_source (
   id int
   ,name VARCHAR
@@ -432,6 +435,16 @@ WITH (
 
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
+
+## 使用FlinkCDC更新Key列
+一般在业务数据库中，会使用编号来作为表的主键，比如Student表，会使用编号(id)来作为主键，但是随着业务的发展，数据对应的编号有可能是会发生变化的。
+在这种场景下，使用FlinkCDC + Doris Connector同步数据，便可以自动更新Doris主键列的数据。
+### 原理
+Flink CDC底层的采集工具是Debezium，Debezium内部使用op字段来标识对应的操作：op字段的取值分别为c、u、d、r，分别对应create、update、delete和read。
+而对于主键列的更新，FlinkCDC会向下游发送DELETE和INSERT事件，同时数据同步到Doris中后，就会自动更新主键列的数据。
+
+### 使用
+Flink程序可参考上面CDC同步的示例，成功提交任务后，在MySQL侧执行Update主键列的语句(`update  student set id = '1002' where id = '1001'`)，即可修改Doris中的数据。
 
 ## Java示例
 
@@ -505,3 +518,7 @@ Connector1.1.0版本以前，是攒批写入的，写入均是由数据驱动，
 10. **Flink导入有脏数据，如何跳过？**
 
 Flink在数据导入时，如果有脏数据，比如字段格式、长度等问题，会导致StreamLoad报错，此时Flink会不断的重试。如果需要跳过，可以通过禁用StreamLoad的严格模式(strict_mode=false,max_filter_ratio=1)或者在Sink算子之前对数据做过滤。
+
+11. **源表和Doris表应如何对应？**
+使用Flink Connector导入数据时，要注意两个方面，第一是源表的列和类型跟flink sql中的列和类型要对应上；第二个是flink sql中的列和类型要跟doris表的列和类型对应上，具体可以参考上面的"Doris 和 Flink 列类型映射关系"
+

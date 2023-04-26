@@ -164,7 +164,7 @@ ReplayedJournalId: 49292
 Doris supports SSL-based encrypted connections. It currently supports TLS1.2 and TLS1.3 protocols. Doris' SSL mode can be enabled through the following configuration:
 Modify the FE configuration file `conf/fe.conf` and add `enable_ssl = true`.
 
-Next, connect to Doris through `mysql` client, mysql supports three SSL modes:
+Next, connect to Doris through `mysql` client, mysql supports five SSL modes:
 
 1. `mysql -uroot -P9030 -h127.0.0.1` is the same as `mysql --ssl-mode=PREFERRED -uroot -P9030 -h127.0.0.1`, both try to establish an SSL encrypted connection at the beginning, if it fails , a normal connection is attempted.
 
@@ -172,12 +172,14 @@ Next, connect to Doris through `mysql` client, mysql supports three SSL modes:
 
 3. `mysql --ssl-mode=REQUIRED -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connections.
 
+4.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connection and verify the validity of the server's identity by specifying the CA certificate。
+
+5.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem --ssl-cert=client-cert.pem --ssl-key=client-key.pem -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connection, two-way ssl。
+
 >Note:
 >`--ssl-mode` parameter is introduced by mysql5.7.11 version, please refer to [here](https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-connp-props-security.html) for mysql client version lower than this version。
 
-Doris needs a key certificate file to verify the SSL encrypted connection. The default key certificate file is located at `Doris/fe/mysql_ssl_default_certificate/certificate.p12`, and the default password is `doris`. You can modify the FE configuration file `conf/fe. conf`, add `mysql_ssl_default_certificate = /path/to/your/certificate` to modify the key certificate file, and you can also add the password corresponding to your custom key book file through `mysql_ssl_default_certificate_password = your_password`.
-
-For the generation of the key certificate file, please refer to [Key Certificate Configuration](../admin-manual/certificate.md)。
+Doris needs a key certificate file to verify the SSL encrypted connection. The default key certificate file is located at `Doris/fe/mysql_ssl_default_certificate/`. For the generation of the key certificate file, please refer to [Key Certificate Configuration](../admin-manual/certificate.md)。
 
 #### Stop FE
 

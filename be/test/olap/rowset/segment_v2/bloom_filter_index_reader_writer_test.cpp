@@ -15,18 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/logging.h"
-#include "io/fs/file_system.h"
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/key_coder.h"
+#include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/types.h"
+#include "olap/uint24.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {

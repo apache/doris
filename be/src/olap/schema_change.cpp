@@ -252,7 +252,7 @@ ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
 Status BlockChanger::change_block(vectorized::Block* ref_block,
                                   vectorized::Block* new_block) const {
     ObjectPool pool;
-    RuntimeState* state = pool.add(new RuntimeState());
+    RuntimeState* state = pool.add(RuntimeState::create_unique().release());
     state->set_desc_tbl(&_desc_tbl);
     state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =
@@ -459,8 +459,8 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSchemaSPtr base_tablet_schema) {
     do {
         auto new_block =
-                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
         rowset_reader->next_block(ref_block.get());
         if (ref_block->rows() == 0) {
@@ -531,11 +531,10 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         return Status::OK();
     };
 
-    auto new_block =
-            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+    auto new_block = vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
 
     do {
-        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         rowset_reader->next_block(ref_block.get());
         if (ref_block->rows() == 0) {
             break;
@@ -557,7 +556,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
         // move unique ptr
         blocks.push_back(
-                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block()));
+                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block()));
         swap(blocks.back(), new_block);
     } while (true);
 

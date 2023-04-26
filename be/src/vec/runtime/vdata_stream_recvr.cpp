@@ -147,7 +147,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     int64_t deserialize_time = 0;
     {
         SCOPED_RAW_TIMER(&deserialize_time);
-        block.reset(new Block(pblock));
+        block = Block::create_unique(pblock);
     }
 
     auto block_byte_size = block->allocated_bytes();
@@ -186,7 +186,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
 
     auto block_bytes_received = block->bytes();
     // Has to use unique ptr here, because clone column may failed if allocate memory failed.
-    BlockUPtr nblock = std::make_unique<Block>(block->get_columns_with_type_and_name());
+    BlockUPtr nblock = Block::create_unique(block->get_columns_with_type_and_name());
 
     // local exchange should copy the block contented if use move == false
     if (use_move) {
@@ -327,7 +327,7 @@ VDataStreamRecvr::VDataStreamRecvr(
     }
 
     // Initialize the counters
-    auto* memory_usage = _profile->create_child("MemoryUsage", true, true);
+    auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
     _profile->add_child(memory_usage, false, nullptr);
     _blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
     _bytes_received_counter = ADD_COUNTER(_profile, "BytesReceived", TUnit::BYTES);

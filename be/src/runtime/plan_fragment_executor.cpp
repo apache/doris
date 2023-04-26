@@ -45,7 +45,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/query_statistics.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_filter_mgr.h"
@@ -94,7 +94,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
-                                     QueryFragmentsCtx* fragments_ctx) {
+                                     QueryContext* query_ctx) {
     OpentelemetryTracer tracer = telemetry::get_noop_tracer();
     if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
         tracer = telemetry::get_tracer(print_id(_query_id));
@@ -112,12 +112,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals =
-            fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
-    _runtime_state.reset(new RuntimeState(params, request.query_options, query_globals, _exec_env));
-    _runtime_state->set_query_fragments_ctx(fragments_ctx);
-    _runtime_state->set_query_mem_tracker(fragments_ctx == nullptr
-                                                  ? _exec_env->orphan_mem_tracker()
-                                                  : fragments_ctx->query_mem_tracker);
+            query_ctx == nullptr ? request.query_globals : query_ctx->query_globals;
+    _runtime_state =
+            RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
+    _runtime_state->set_query_ctx(query_ctx);
+    _runtime_state->set_query_mem_tracker(query_ctx == nullptr ? _exec_env->orphan_mem_tracker()
+                                                               : query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -142,8 +142,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up desc tbl
     DescriptorTbl* desc_tbl = nullptr;
-    if (fragments_ctx != nullptr) {
-        desc_tbl = fragments_ctx->desc_tbl;
+    if (query_ctx != nullptr) {
+        desc_tbl = query_ctx->desc_tbl;
     } else {
         DCHECK(request.__isset.desc_tbl);
         RETURN_IF_ERROR(DescriptorTbl::create(obj_pool(), request.desc_tbl, &desc_tbl));
@@ -422,6 +422,10 @@ void PlanFragmentExecutor::report_profile() {
             std::stringstream ss;
             profile()->compute_time_in_profile();
             profile()->pretty_print(&ss);
+            if (load_channel_profile()) {
+                // load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
+                load_channel_profile()->pretty_print(&ss);
+            }
             VLOG_FILE << ss.str();
         }
 
@@ -459,7 +463,8 @@ void PlanFragmentExecutor::send_report(bool done) {
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
-    _report_status_cb(status, _is_report_success ? profile() : nullptr, done || !status.ok());
+    _report_status_cb(status, _is_report_success ? profile() : nullptr,
+                      _is_report_success ? load_channel_profile() : nullptr, done || !status.ok());
 }
 
 void PlanFragmentExecutor::stop_report_thread() {
@@ -487,7 +492,7 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     _cancel_msg = msg;
     _runtime_state->set_is_cancelled(true);
     // To notify wait_for_start()
-    _runtime_state->get_query_fragments_ctx()->set_ready_to_execute(true);
+    _runtime_state->get_query_ctx()->set_ready_to_execute(true);
 
     // must close stream_mgr to avoid dead lock in Exchange Node
     auto env = _runtime_state->exec_env();
@@ -503,6 +508,10 @@ const RowDescriptor& PlanFragmentExecutor::row_desc() {
 
 RuntimeProfile* PlanFragmentExecutor::profile() {
     return _runtime_state->runtime_profile();
+}
+
+RuntimeProfile* PlanFragmentExecutor::load_channel_profile() {
+    return _runtime_state->load_channel_profile();
 }
 
 void PlanFragmentExecutor::close() {
@@ -538,8 +547,12 @@ void PlanFragmentExecutor::close() {
             // After add the operation, the print out like that:
             // UNION_NODE (id=0):(Active: 56.720us, non-child: 82.53%)
             // We can easily know the exec node execute time without child time consumed.
-            _runtime_state->runtime_profile()->compute_time_in_profile();
-            _runtime_state->runtime_profile()->pretty_print(&ss);
+            profile()->compute_time_in_profile();
+            profile()->pretty_print(&ss);
+            if (load_channel_profile()) {
+                // load_channel_profile()->compute_time_in_profile();  // TODO load channel profile add timer
+                load_channel_profile()->pretty_print(&ss);
+            }
             LOG(INFO) << ss.str();
         }
         LOG(INFO) << "Close() fragment_instance_id="

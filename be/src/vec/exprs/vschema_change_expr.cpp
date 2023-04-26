@@ -84,8 +84,8 @@ Status VSchemaChangeExpr::execute(VExprContext* context, doris::vectorized::Bloc
     ColumnObject& object_column = *assert_cast<ColumnObject*>(
             block->get_by_position(_column_id).column->assume_mutable().get());
     CHECK(object_column.is_finalized());
-    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> full_base_schema_view;
-    full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
+    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> full_base_schema_view =
+            vectorized::schema_util::FullBaseSchemaView::create_unique();
     full_base_schema_view->table_id = _table_id;
     vectorized::ColumnsWithTypeAndName cols_with_type_name;
     cols_with_type_name.reserve(object_column.get_subcolumns().size());

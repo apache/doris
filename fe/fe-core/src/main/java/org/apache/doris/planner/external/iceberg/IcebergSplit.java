@@ -28,7 +28,7 @@ import java.util.List;
 @Data
 public class IcebergSplit extends FileSplit {
     public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts) {
-        super(file, start, length, fileLength, hosts);
+        super(file, start, length, fileLength, hosts, null);
     }
 
     private Analyzer analyzer;

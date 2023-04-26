@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -251,6 +252,26 @@ public class HMSExternalTable extends ExternalTable {
             default:
                 throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
         }
+    }
+
+    public String getViewText() {
+        String viewText = getViewExpandedText();
+        if (StringUtils.isNotEmpty(viewText)) {
+            return viewText;
+        }
+        return getViewOriginalText();
+    }
+
+    public String getViewExpandedText() {
+        LOG.debug("View expanded text of hms table [{}.{}.{}] : {}",
+                this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewExpandedText());
+        return remoteTable.getViewExpandedText();
+    }
+
+    public String getViewOriginalText() {
+        LOG.debug("View original text of hms table [{}.{}.{}] : {}",
+                this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewOriginalText());
+        return remoteTable.getViewOriginalText();
     }
 
     public String getMetastoreUri() {

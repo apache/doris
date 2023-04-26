@@ -176,6 +176,11 @@ void TxnManager::set_txn_related_delete_bitmap(
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         auto it = txn_tablet_map.find(key);
         DCHECK(it != txn_tablet_map.end());
+        if (it == txn_tablet_map.end()) {
+            LOG(WARNING) << "transaction_id: " << transaction_id
+                         << " partition_id: " << partition_id << " may be cleared";
+            return;
+        }
         auto load_itr = it->second.find(tablet_info);
         DCHECK(load_itr != it->second.end());
         TabletTxnInfo& load_info = load_itr->second;

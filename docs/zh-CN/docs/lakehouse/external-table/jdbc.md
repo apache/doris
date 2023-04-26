@@ -228,6 +228,33 @@ PROPERTIES (
 );
 ```
 
+#### 8.OceanBase测试
+
+| OceanBase 版本 | OceanBase JDBC驱动版本 |
+|--------------|--------------------|
+| 4.1.0        | oceanbase-client-2.4.2.jar |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_oceanbase
+properties (
+    "type"="jdbc",
+    "user"="root",
+    "password"="",
+    "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
+    "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Driverr"
+);
+
+CREATE EXTERNAL TABLE `ext_oceanbase` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_oceanbase",
+    "table" = "test.test",
+    "table_type"="oceanbase"
+);
+```
+
 ## 类型匹配
 
 各个数据库之间数据类型存在不同，这里列出了各个数据库中的类型和Doris之中数据类型匹配的情况。
@@ -363,6 +390,23 @@ PROPERTIES (
 |   char    |        CHAR         |
 |   array   |        ARRAY        |
 |  others   |     UNSUPPORTED     |
+
+### OceanBase
+
+|    OceanBase    |  Doris   |
+|:---------------:|:--------:|
+|     BOOLEAN     |  STRING  |
+|       BIT       |  STRING  |
+|     TINYINT     | TINYINT  |
+|    SMALLINT     | SMALLINT |
+|       INT       |   INT    |
+|     BIGINT      |  BIGINT  |
+|     VARCHAR     | VARCHAR  |
+|      DATE       |   DATE   |
+|      FLOAT      |  FLOAT   |
+|    DATETIME     | DATETIME |
+|     DOUBLE      |  DOUBLE  |
+|     DECIMAL     | DECIMAL  |
 
 
 ## Q&A

@@ -29,6 +29,10 @@ suite("analyze_test") {
 
     def tblName3 = "${dbName3}.analyze_test_tbl_3"
 
+    def dbName4 = "analyze_test_db_4"
+
+    def tblName4 = "${dbName4}.analyze_test_tbl_4"
+
 
     sql """
         DROP DATABASE IF EXISTS ${dbName1};
@@ -55,6 +59,13 @@ suite("analyze_test") {
         CREATE DATABASE ${dbName3};
     """
 
+    sql """
+        DROP DATABASE IF EXISTS ${dbName4}
+    """
+
+    sql """
+        CREATE DATABASE ${dbName4};
+    """
 
     sql """
         DROP TABLE IF EXISTS ${tblName1}
@@ -95,6 +106,18 @@ suite("analyze_test") {
             "enable_unique_key_merge_on_write"="true"
     );"""
 
+    sql """
+        DROP TABLE IF EXISTS ${tblName4}
+    """
+
+    sql """CREATE TABLE ${tblName4} (analyze_test_col1 varchar(11451) not null, analyze_test_col2 int not null, analyze_test_col3 int not null)
+    UNIQUE KEY(analyze_test_col1)
+    DISTRIBUTED BY HASH(analyze_test_col1)
+    BUCKETS 3
+    PROPERTIES(
+            "replication_num"="1",
+            "enable_unique_key_merge_on_write"="true"
+    );"""
 
     sql """insert into ${tblName1} values(1, 2, 3);"""
     sql """insert into ${tblName1} values(4, 5, 6);"""
@@ -114,6 +137,12 @@ suite("analyze_test") {
     sql """insert into ${tblName3} values(3, 8, 2);"""
     sql """insert into ${tblName3} values(5, 2, 1);"""
 
+    sql """insert into ${tblName4} values(1, 2, 3);"""
+    sql """insert into ${tblName4} values(4, 5, 6);"""
+    sql """insert into ${tblName4} values(7, 1, 9);"""
+    sql """insert into ${tblName4} values(3, 8, 2);"""
+    sql """insert into ${tblName4} values(5, 2, 1);"""
+
     sql """
             delete from __internal_schema.column_statistics where col_id in  ('analyze_test_col1', 'analyze_test_col2', 'analyze_test_col3')
     """
@@ -130,9 +159,9 @@ suite("analyze_test") {
         analyze sync table ${tblName3};
     """
 
-    order_qt_sql """
-        select count, ndv, null_count, min, max, data_size_in_bytes from __internal_schema.column_statistics where
-            col_id in ('analyze_test_col1', 'analyze_test_col2', 'analyze_test_col3') order by col_id
+    order_qt_sql_1 """
+        select count, null_count, min, max, data_size_in_bytes from __internal_schema.column_statistics where
+            col_id in ('analyze_test_col1', 'analyze_test_col2', 'analyze_test_col3')
     """
 
     sql """
@@ -140,6 +169,22 @@ suite("analyze_test") {
     """
     sql """
         ALTER TABLE ${tblName3} DROP COLUMN analyze_test_col2;
+    """
+
+    sql """
+        analyze sync table ${tblName4} with sample rows 5;
+    """
+
+    sql """
+        analyze table ${tblName4} with sync with incremental with sample percent 20;
+    """
+
+    sql """
+        analyze sync table ${tblName4} update histogram with sample percent 20 with buckets 2;
+    """
+
+    sql """
+        analyze table ${tblName4} update histogram with sync with sample rows 20 with buckets 2;
     """
 
     sql """
@@ -151,19 +196,23 @@ suite("analyze_test") {
     """
 
     sql """
+        DROP DATABASE ${dbName4}
+    """
+
+    sql """
         DROP EXPIRED STATS
     """
 
-    order_qt_sql """
-        select count, ndv, null_count, min, max, data_size_in_bytes from __internal_schema.column_statistics where
-            col_id in ('analyze_test_col1', 'analyze_test_col2', 'analyze_test_col3') order by col_id
+    order_qt_sql_2 """
+        select count, null_count, min, max, data_size_in_bytes from __internal_schema.column_statistics where
+            col_id in ('analyze_test_col1', 'analyze_test_col2', 'analyze_test_col3')
     """
 
     sql """
         DROP STATS ${tblName3} (analyze_test_col1);
     """
 
-    qt_sql """
+    qt_sql_5 """
         SELECT COUNT(*) FROM __internal_schema.column_statistics  where
             col_id in ('analyze_test_col1', 'analyze_test_col2', 'analyze_test_col3') 
     """
@@ -182,5 +231,65 @@ suite("analyze_test") {
     //    """
     //    exception """errCode = 2, detailMessage = Unexpected exception: column stats for analyze_test_col1 is unknown"""
     //}
+
+    sql """
+        insert into __internal_schema.analysis_jobs values(788943185,-1,'internal','default_cluster:analyze_test_db_1',
+        'analyze_test_tbl_1', 'analyze_test_col3',-1 ,'MANUAL','sFULL','',0,'PENDING', 'ONCE');
+    """
+
+    sql """
+        DROP EXPIRED STATS
+    """
+
+//    Exception e = null;
+//    int failedCount = 0;
+//
+//    do {
+//        try {
+//            result = sql  """
+//                SELECT COUNT(*) FROM __internal_schema.analysis_jobs WHERE tbl_name = 'analyze_test_tbl_1'
+//            """
+//            assertEquals(0, result[0][0])
+//            e = null
+//            break
+//        } catch (Exception except) {
+//            failedCount ++
+//            e = except
+//            Thread.sleep(10000)
+//        }
+//    } while (e != null && failedCount < 30)
+//
+//    if (e != null) {
+//        throw e;
+//    }
+
+    sql """CREATE TABLE ${tblName2} (analyze_test_col1 varchar(11451) not null, analyze_test_col2 int not null, analyze_test_col3 int not null)
+    UNIQUE KEY(analyze_test_col1)
+    DISTRIBUTED BY HASH(analyze_test_col1)
+    BUCKETS 3
+    PROPERTIES(
+            "replication_num"="1",
+            "enable_unique_key_merge_on_write"="true"
+    );"""
+
+    sql """
+        DELETE FROM __internal_schema.analysis_jobs WHERE job_id > 0
+    """
+
+    test {
+        sql """
+            ANALYZE TABLE ${tblName2}
+        """
+
+        rowNum 1
+    }
+
+    sql """
+        ANALYZE SYNC TABLE ${tblName2}
+    """
+
+    qt_sql_4 """
+        SELECT COUNT(*) FROM __internal_schema.analysis_jobs WHERE tbl_name = 'analyze_test_tbl_2'
+    """
 
 }

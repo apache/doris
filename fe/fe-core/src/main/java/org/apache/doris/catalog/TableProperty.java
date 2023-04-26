@@ -107,9 +107,6 @@ public class TableProperty implements Writable {
                 buildInMemory();
                 buildStoragePolicy();
                 break;
-            case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE:
-                buildEnableLightSchemaChange();
-                break;
             default:
                 break;
         }

@@ -36,7 +36,7 @@
 #pragma once
 
 #include "gutil/atomicops.h"
-#include "gutil/basictypes.h"
+#include "gutil/integral_types.h"
 
 namespace base {
 namespace internal {

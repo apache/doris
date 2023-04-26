@@ -326,8 +326,8 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     TQueryOptions query_options;
     TQueryGlobals query_globals;
-    _runtime_state.reset(
-            new RuntimeState(params, query_options, query_globals, ExecEnv::GetInstance()));
+    _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
+                                                 ExecEnv::GetInstance());
     DescriptorTbl* desc_tbl = nullptr;
     Status status = DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {

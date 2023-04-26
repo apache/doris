@@ -143,7 +143,7 @@ public class SelectStmt extends QueryStmt {
         this.colLabels = Lists.newArrayList();
     }
 
-    SelectStmt(
+    public SelectStmt(
             SelectList selectList,
             FromClause fromClause,
             Expr wherePredicate,

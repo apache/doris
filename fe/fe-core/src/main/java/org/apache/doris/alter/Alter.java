@@ -242,6 +242,11 @@ public class Alter {
                     }
                     Map<String, String> properties = clause.getProperties();
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+                        boolean isInMemory =
+                                        Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
+                        if (isInMemory == true) {
+                            throw new UserException("Not support set 'in_memory'='true' now!");
+                        }
                         needProcessOutsideTableLock = true;
                     } else {
                         List<String> partitionNames = clause.getPartitionNames();

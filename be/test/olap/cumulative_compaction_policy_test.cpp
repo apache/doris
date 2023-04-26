@@ -17,13 +17,18 @@
 
 #include "olap/cumulative_compaction_policy.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <sstream>
-
+#include "gtest/gtest_pred_impl.h"
 #include "olap/cumulative_compaction.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "util/uid_util.h"
 
 namespace doris {
 

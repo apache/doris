@@ -46,13 +46,15 @@ namespace doris::vectorized {
 
 // TODO: now we only use merge sort
 class MergeSorterState {
+    ENABLE_FACTORY_CREATOR(MergeSorterState);
+
 public:
     MergeSorterState(const RowDescriptor& row_desc, int64_t offset, int64_t limit,
                      RuntimeState* state, RuntimeProfile* profile)
             // create_empty_block should ignore invalid slots, unsorted_block
             // should be same structure with arrival block from child node
             // since block from child node may ignored these slots
-            : unsorted_block_(new Block(
+            : unsorted_block_(Block::create_unique(
                       VectorizedUtils::create_empty_block(row_desc, true /*ignore invalid slot*/))),
               offset_(offset),
               limit_(limit),
@@ -179,6 +181,8 @@ protected:
 };
 
 class FullSorter final : public Sorter {
+    ENABLE_FACTORY_CREATOR(FullSorter);
+
 public:
     FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
