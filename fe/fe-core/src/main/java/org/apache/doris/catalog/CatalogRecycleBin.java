@@ -162,9 +162,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
         idToRecycleTime.put(table.getId(), recycleTime);
         idToTable.put(table.getId(), tableInfo);
-        if (!Env.isCheckpointThread()) {
-            Env.getCurrentEnv().markTableDropped(table);
-        }
         LOG.info("recycle table[{}-{}]", table.getId(), table.getName());
         return true;
     }
@@ -183,9 +180,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 range, listPartitionItem, dataProperty, replicaAlloc, isInMemory, isMutable);
         idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
         idToPartition.put(partition.getId(), partitionInfo);
-        if (!Env.isCheckpointThread()) {
-            Env.getCurrentEnv().markPartitionDropped(partition);
-        }
         LOG.info("recycle partition[{}-{}]", partition.getId(), partition.getName());
         return true;
     }
@@ -596,9 +590,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             iterator.remove();
             idToRecycleTime.remove(table.getId());
             tableNames.remove(table.getName());
-            if (!Env.isCheckpointThread()) {
-                Env.getCurrentEnv().unmarkTableDropped(table);
-            }
         }
 
         if (!tableNames.isEmpty()) {
@@ -701,10 +692,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 RecoverInfo recoverInfo = new RecoverInfo(db.getId(), table.getId(), -1L, "", newTableName, "");
                 Env.getCurrentEnv().getEditLog().logRecoverTable(recoverInfo);
             }
-
-            if (!Env.isCheckpointThread()) {
-                Env.getCurrentEnv().unmarkTableDropped(table);
-            }
         } finally {
             table.writeUnlock();
         }
@@ -787,11 +774,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         // log
         RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "", "", newPartitionName);
         Env.getCurrentEnv().getEditLog().logRecoverPartition(recoverInfo);
-
-        if (!Env.isCheckpointThread()) {
-            Env.getCurrentEnv().unmarkPartitionDropped(recoverPartition);
-        }
-
         LOG.info("recover partition[{}]", partitionId);
     }
 
@@ -832,10 +814,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             iterator.remove();
             idToRecycleTime.remove(partitionId);
 
-            if (!Env.isCheckpointThread()) {
-                Env.getCurrentEnv().unmarkPartitionDropped(recyclePartitionInfo.getPartition());
-            }
-
             LOG.info("replay recover partition[{}]", partitionId);
             break;
         }
@@ -864,9 +842,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     long indexId = index.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     for (Tablet tablet : index.getTablets()) {
-                        // all tablets in RecycleBin are dropped
-                        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium,
-                                                                true);
+                        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
                         long tabletId = tablet.getId();
                         invertedIndex.addTablet(tabletId, tabletMeta);
                         for (Replica replica : tablet.getReplicas()) {
@@ -918,8 +894,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long indexId = index.getId();
                 int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                 for (Tablet tablet : index.getTablets()) {
-                    TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium,
-                                                            true);
+                    TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
                     long tabletId = tablet.getId();
                     invertedIndex.addTablet(tabletId, tabletMeta);
                     for (Replica replica : tablet.getReplicas()) {

@@ -355,8 +355,7 @@ struct TRecoverTabletReq {
 
 enum TTabletMetaType {
     PARTITIONID,
-    INMEMORY,
-    MARKDROP
+    INMEMORY
 }
 
 struct TTabletMetaInfo {
@@ -367,7 +366,6 @@ struct TTabletMetaInfo {
     5: optional bool is_in_memory
     // 6: optional string storage_policy;
     7: optional i64 storage_policy_id
-    8: optional bool is_dropped
 }
 
 struct TUpdateTabletMetaInfoReq {
