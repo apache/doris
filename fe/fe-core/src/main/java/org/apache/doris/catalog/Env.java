@@ -1171,7 +1171,7 @@ public class Env {
     }
 
     private void getSelfHostPort() {
-        String hostName = Strings.nullToEmpty(FrontendOptions.getHostName());
+        String hostName = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
         selfNode = new HostInfo(hostName, Config.edit_log_port);
         LOG.info("get self node: {}", selfNode);
     }

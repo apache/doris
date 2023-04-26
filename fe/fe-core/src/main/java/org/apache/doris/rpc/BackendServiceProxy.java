@@ -107,13 +107,9 @@ public class BackendServiceProxy {
     }
 
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
-        LOG.warn("zdtest==============hostname:" + address.getHostname());
         String realIp = NetUtils.getIpByHost(address.getHostname());
-        LOG.warn("zdtest==============realIp:" + realIp);
-
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
         if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)) {
-            LOG.warn("zdtest==============ipequals,return");
             return serviceClientExtIp.client;
         }
         // not exist, create one and return.
@@ -121,8 +117,8 @@ public class BackendServiceProxy {
         try {
             serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
+                LOG.warn("Cached ip changed ,before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
                 serviceMap.remove(address);
-                LOG.warn("zdtest==============ipchange ,remove");
             }
             serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp == null) {

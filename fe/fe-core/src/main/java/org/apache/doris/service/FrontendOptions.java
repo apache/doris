@@ -167,23 +167,19 @@ public class FrontendOptions {
 
     public static String getLocalHostAddress() {
         if (useFqdn) {
+            // localAddr.getHostName() is same as run `hostname`
+            // localAddr.getCanonicalHostName() is same as the first domain of cat `/etc/hosts|grep 'self ip'`
+            // when on k8s
+            // run `cat /etc/hosts` return
+            // '172.16.0.61 doris-be-cluster1-0.doris-be-cluster1.default.svc.cluster.local doris-be-cluster1-0'
+            // run `hostname`
+            // return 'doris-be-cluster1-0'
+            // node on k8s communication with each other use like
+            // 'doris-be-cluster1-0.doris-be-cluster1.default.svc.cluster.local'
+            // so we call localAddr.getCanonicalHostName() at here
             return localAddr.getCanonicalHostName();
         }
         return InetAddresses.toAddrString(localAddr);
-    }
-
-    public static String getHostName() {
-        // localAddr.getHostName() is same as run `hostname`
-        // localAddr.getCanonicalHostName() is same as the first domain of cat `/etc/hosts|grep 'self ip'`
-        // when on k8s
-        // run `cat /etc/hosts` return
-        // '172.16.0.61 doris-be-cluster1-0.doris-be-cluster1.default.svc.cluster.local doris-be-cluster1-0'
-        // run `hostname`
-        // return 'doris-be-cluster1-0'
-        // node on k8s communication with each other use like
-        // 'doris-be-cluster1-0.doris-be-cluster1.default.svc.cluster.local'
-        // so we call localAddr.getCanonicalHostName() at here
-        return localAddr.getCanonicalHostName();
     }
 
     private static void analyzePriorityCidrs() {
