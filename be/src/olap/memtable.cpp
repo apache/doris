@@ -299,20 +299,24 @@ void MemTable::_collect_vskiplist_results() {
                               return value < 0;
                           }
                       });
-            std::vector<RowInBlock *> temp_row_in_blocks;
-            for(int i = 0;i < _row_in_blocks.size();i++){
-                if(!temp_row_in_blocks.empty() && (*_vec_row_comparator)(temp_row_in_blocks.back(),_row_in_blocks[i])==0){
+            std::vector<RowInBlock*> temp_row_in_blocks;
+            for (int i = 0; i < _row_in_blocks.size(); i++) {
+                if (!temp_row_in_blocks.empty() &&
+                    (*_vec_row_comparator)(temp_row_in_blocks.back(), _row_in_blocks[i]) == 0) {
                     _merged_rows++;
                     _aggregate_two_row_in_block(_row_in_blocks[i], temp_row_in_blocks.back());
-                }else{
-                    _row_in_blocks[i]->init_agg_places(_arena->aligned_alloc(_total_size_of_aggregate_states, 16),
-                                      _offsets_of_aggregate_states.data());
-                    for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
+                } else {
+                    _row_in_blocks[i]->init_agg_places(
+                            _arena->aligned_alloc(_total_size_of_aggregate_states, 16),
+                            _offsets_of_aggregate_states.data());
+                    for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns();
+                         cid++) {
                         auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
                         auto data = _row_in_blocks[i]->agg_places(cid);
                         _agg_functions[cid]->create(data);
-                        _agg_functions[cid]->add(data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                                 _row_in_blocks[i]->_row_pos, nullptr);
+                        _agg_functions[cid]->add(
+                                data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+                                _row_in_blocks[i]->_row_pos, nullptr);
                     }
                     temp_row_in_blocks.push_back(_row_in_blocks[i]);
                 }
