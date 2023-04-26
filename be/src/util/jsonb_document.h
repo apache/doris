@@ -74,6 +74,9 @@
 
 // #include "util/string_parser.hpp"
 
+#include "common/compiler_util.h"
+#include "common/logging.h"
+
 namespace doris {
 
 #pragma pack(push, 1)
