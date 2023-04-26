@@ -29,9 +29,12 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 
 /**
  * executable function:
@@ -464,8 +467,15 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "unix_timestamp", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "INT")
     public static IntegerLiteral unixTimestamp(VarcharLiteral date, VarcharLiteral format) {
-        return new IntegerLiteral(getTimestamp(LocalDateTime.parse(date.getValue(),
-                DateUtils.formatBuilder(format.getValue()).toFormatter())));
+        DateTimeFormatter formatter = DateUtils.formatBuilder(format.getValue()).toFormatter();
+        LocalDateTime dateObj;
+        try {
+            dateObj = LocalDateTime.parse(date.getValue(), formatter);
+        } catch (DateTimeParseException e) {
+            // means the date string doesn't contain time fields.
+            dateObj = LocalDate.parse(date.getValue(), formatter).atStartOfDay();
+        }
+        return new IntegerLiteral(getTimestamp(dateObj));
     }
 
     private static Integer getTimestamp(LocalDateTime dateTime) {
@@ -474,7 +484,9 @@ public class DateTimeExtractAndTransform {
         if (dateTime.isBefore(specialLowerBound) || dateTime.isAfter(specialUpperBound)) {
             return 0;
         }
-        return ((int) Duration.between(specialLowerBound, dateTime
+        return ((int) Duration.between(
+                specialLowerBound,
+                dateTime
                 .atZone(ZoneId.systemDefault())
                 .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
                 .toLocalDateTime()).getSeconds());
