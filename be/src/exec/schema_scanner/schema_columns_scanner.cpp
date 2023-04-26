@@ -17,16 +17,24 @@
 
 #include "exec/schema_scanner/schema_columns_scanner.h"
 
-#include <cstddef>
+#include <fmt/format.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/Types_types.h>
+
 #include <cstdint>
-#include <memory>
-#include <sstream>
 
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/primitive_type.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaColumnsScanner::_s_col_columns = {
         //   name,       type,          size,                     is_null
@@ -447,7 +455,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
             if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
                 data_type == TPrimitiveType::STRING) {
                 if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
-                    srcs[i] = _desc_result.columns[i].columnDesc.columnLength * 4;
+                    srcs[i] = _desc_result.columns[i].columnDesc.columnLength * 4L;
                     datas[i] = srcs + i;
                 } else {
                     datas[i] = nullptr;

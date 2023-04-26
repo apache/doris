@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -25,6 +24,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.obj.S3Storage;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -86,9 +86,6 @@ public class S3Resource extends Resource {
     @Override
     protected void setProperties(Map<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
-
-        // compatible with old version
-        S3Properties.convertToStdProperties(properties);
         // check properties
         S3Properties.requiredS3PingProperties(properties);
         // default need check resource conf valid, so need fix ut and regression case
@@ -164,7 +161,7 @@ public class S3Resource extends Resource {
                 throw new DdlException("current not support modify property : " + any.get());
             }
         }
-        // compatible with old version
+        // compatible with old version, Need convert if modified properties map uses old properties.
         S3Properties.convertToStdProperties(properties);
         boolean needCheck = isNeedCheck(properties);
         LOG.debug("s3 info need check validity : {}", needCheck);

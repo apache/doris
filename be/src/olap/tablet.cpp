@@ -17,68 +17,113 @@
 
 #include "olap/tablet.h"
 
+#include <assert.h>
+#include <butil/logging.h>
 #include <bvar/reducer.h>
 #include <bvar/window.h>
-#include <ctype.h>
-#include <fmt/core.h>
-#include <glog/logging.h>
-#include <opentelemetry/common/threadlocal.h>
-#include <pthread.h>
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
+#include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
-#include <stdio.h>
-#include <sys/stat.h>
+#include <stdlib.h>
+#include <time.h>
 
 #include <algorithm>
 #include <atomic>
-#include <cstdint>
+#include <boost/container/detail/std_fwd.hpp>
+#include <roaring/roaring.hh>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <filesystem>
+#include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <tuple>
+#include <type_traits>
 #include <unordered_set>
 
 #include "agent/utils.h"
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "gutil/ref_counted.h"
 #include "gutil/strings/stringpiece.h"
+#include "gutil/strings/substitute.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/base_compaction.h"
 #include "olap/base_tablet.h"
 #include "olap/cumulative_compaction.h"
+#include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/reader.h"
-#include "olap/row_cursor.h"
+#include "olap/olap_meta.h"
+#include "olap/primary_key_index.h"
+#include "olap/rowid_conversion.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
-#include "olap/tablet_meta_manager.h"
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
+#include "olap/types.h"
+#include "olap/utils.h"
 #include "segment_loader.h"
 #include "service/point_query_executor.h"
 #include "util/defer_op.h"
-#include "util/path_util.h"
+#include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
+#include "util/stopwatch.hpp"
+#include "util/threadpool.h"
 #include "util/time.h"
 #include "util/trace.h"
 #include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 using namespace ErrorCode;
 
 using std::pair;
@@ -932,6 +977,10 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
+    if (_tablet_meta->is_dropped()) {
+        return false;
+    }
+
     if (tablet_state() == TABLET_NOTREADY) {
         // In TABLET_NOTREADY, we keep last 10 versions in new tablet so base tablet max_version
         // not merged in new tablet and then we can do compaction
@@ -1531,6 +1580,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // tablet may not have cooldowned data, but the storage policy is set
         tablet_info->__set_cooldown_term(_cooldown_term);
     }
+    tablet_info->__set_is_dropped(_tablet_meta->is_dropped());
 }
 
 // should use this method to get a copy of current tablet meta
@@ -2653,9 +2703,9 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletT
     }
 
     RETURN_IF_ERROR(calc_delete_bitmap(rowset->rowset_id(), segments, &rowset_ids_to_add,
-                                       delete_bitmap, cur_version - 1, true));
+                                       delete_bitmap, cur_version - 1, false));
 
-    // Check the delete_bitmap correctness.
+    // Check the delete_bitmap correctness, now the check is only enabled in DEBUG env.
     if (load_info->num_keys != 0) {
         DeleteBitmap rs_bm(tablet_id());
         delete_bitmap->subset({rowset->rowset_id(), 0, 0},

@@ -22,12 +22,9 @@
 
 #include <re2/re2.h>
 
-#include <iomanip>
-#include <locale>
-#include <sstream>
-#include <string_view>
+#include <memory>
+#include <string>
 
-#include "gutil/strings/numbers.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {

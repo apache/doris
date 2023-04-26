@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
+
 public class Config extends ConfigBase {
 
     /**
@@ -1736,7 +1738,8 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_pipeline_load = false;
 
-    @ConfField
+    // enable_resource_group should be immutable and temporarily set to mutable during the development test phase
+    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_resource_group = false;
 
     @ConfField(mutable = false, masterOnly = true)
@@ -1804,7 +1807,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 1;
+    public static int max_be_exec_version = 2;
 
     /**
      * Min data version of backends serialize block.
@@ -1827,7 +1830,7 @@ public class Config extends ConfigBase {
     /*
      * mtmv is still under dev, remove this config when it is graduate.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_mtmv = false;
 
     /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
@@ -1999,7 +2002,7 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = false, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
 
     /**
@@ -2008,6 +2011,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_func_pushdown = true;
+
+    /**
+     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
+     * otherwise it will throw an AnalysisException.
+     */
+    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
+    public static boolean enable_query_hive_views = false;
 
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
@@ -2036,21 +2046,40 @@ public class Config extends ConfigBase {
     /**
      * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_ssl = true;
 
     /**
-     * Default certificate file location for mysql ssl connection.
+     * If set to ture, ssl connection needs to authenticate client's certificate.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_certificate = System.getenv("DORIS_HOME")
-            + "/mysql_ssl_default_certificate/certificate.p12";
+    public static boolean ssl_force_client_auth = false;
 
     /**
-     * Password for default certificate file.
+     * Default CA certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_certificate_password = "doris";
+    public static String mysql_ssl_default_ca_certificate = System.getenv("DORIS_HOME")
+            + "/mysql_ssl_default_certificate/ca_certificate.p12";
+
+    /**
+     * Default server certificate file location for mysql ssl connection.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_server_certificate = System.getenv("DORIS_HOME")
+            + "/mysql_ssl_default_certificate/server_certificate.p12";
+
+    /**
+     * Password for default CA certificate file.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_ca_certificate_password = "doris";
+
+    /**
+     * Password for default CA certificate file.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_server_certificate_password = "doris";
 
     /**
      * Used to set session variables randomly to check more issues in github workflow
@@ -2113,5 +2142,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean infodb_support_ext_catalog = false;
+
+    /**
+     * If true, auth check will be disabled. The default value is false.
+     * This is to solve the case that user forgot the password.
+     */
+    @ConfField(mutable = false)
+    public static boolean skip_localhost_auth_check  = false;
 }
 

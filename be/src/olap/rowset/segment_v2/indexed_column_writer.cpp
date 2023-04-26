@@ -17,10 +17,14 @@
 
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <ostream>
 #include <string>
 
 #include "common/logging.h"
 #include "olap/key_coder.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/options.h"
@@ -29,7 +33,7 @@
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/types.h"
 #include "util/block_compression.h"
-#include "util/coding.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {

@@ -17,6 +17,11 @@
 
 #include "exec/es/es_scroll_query.h"
 
+#include <glog/logging.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
+#include <stdlib.h>
+
 #include <sstream>
 
 #include "exec/es/es_scan_reader.h"

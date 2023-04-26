@@ -251,7 +251,7 @@ if [[ ! -f "${DORIS_HOME}/be/src/apache-orc/README.md" ]]; then
     echo "apache-orc not exists, need to update submodules ..."
     set +e
     cd "${DORIS_HOME}"
-    git submodule update --init --recursive
+    git submodule update --init --recursive be/src/apache-orc
     exit_code=$?
     set -e
     if [[ "${exit_code}" -ne 0 ]]; then
@@ -391,6 +391,9 @@ echo "Build generated code"
 cd "${DORIS_HOME}/gensrc"
 # DO NOT using parallel make(-j) for gensrc
 make
+rm -rf "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/parquet"
+cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris"
+cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/"
 
 # Assesmble FE modules
 FE_MODULES=''

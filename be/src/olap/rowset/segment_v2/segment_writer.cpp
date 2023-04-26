@@ -17,24 +17,40 @@
 
 #include "olap/rowset/segment_v2/segment_writer.h"
 
+#include <assert.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <parallel_hashmap/phmap.h>
+
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "common/consts.h"
 #include "common/logging.h" // LOG
+#include "gutil/port.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
+#include "olap/key_coder.h"
+#include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
-#include "olap/row_cursor.h"                      // RowCursor
+#include "olap/row_cursor.h"                      // IWYU pragma: keep
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/page_io.h"
-#include "olap/schema.h"
+#include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/short_key_index.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/common/schema_util.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -219,7 +235,9 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
             _primary_key_index_builder.reset(
                     new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
             RETURN_IF_ERROR(_primary_key_index_builder->init());
+#ifndef NDEBUG
             _key_set.reset(new std::unordered_set<std::string>());
+#endif
         } else {
             _short_key_index_builder.reset(
                     new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
@@ -327,8 +345,10 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             // create primary indexes
             for (size_t pos = 0; pos < num_rows; pos++) {
                 std::string key = _full_encode_keys(key_columns, pos);
+#ifndef NDEBUG
                 DCHECK(_key_set.get() != nullptr);
                 _key_set->insert(key);
+#endif
                 if (_tablet_schema->has_sequence_col()) {
                     _encode_seq_column(seq_column, pos, &key);
                 }

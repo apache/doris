@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -52,7 +53,7 @@ public class PushdownProjectThroughInnerJoin extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalProject(logicalJoin())
-            .whenNot(CBOUtils::isAllSlotProject)
+            .whenNot(LogicalProject::isAllSlots)
             .when(project -> project.child().getJoinType().isInnerJoin())
             .whenNot(project -> project.child().hasJoinHint())
             .then(project -> {
@@ -105,7 +106,7 @@ public class PushdownProjectThroughInnerJoin extends OneExplorationRuleFactory {
                 Plan newRight = CBOUtils.projectOrSelf(newBProject.build(), join.right());
 
                 Plan newJoin = join.withChildrenNoContext(newLeft, newRight);
-                return CBOUtils.projectOrSelfInOrder(new ArrayList<>(project.getOutput()), newJoin);
+                return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
             }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_JOIN);
     }
 }

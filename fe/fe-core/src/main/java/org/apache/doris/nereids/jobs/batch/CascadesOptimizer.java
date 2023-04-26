@@ -26,7 +26,7 @@ import java.util.Objects;
  * cascade optimizer.
  */
 public class CascadesOptimizer {
-    private CascadesContext cascadesContext;
+    private final CascadesContext cascadesContext;
 
     public CascadesOptimizer(CascadesContext cascadesContext) {
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext cannot be null");

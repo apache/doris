@@ -17,8 +17,12 @@
 
 #pragma once
 
-#include <atomic>
+#include <stdint.h>
 
+#include <atomic>
+#include <unordered_set>
+
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "util/spinlock.h"
 #include "util/uid_util.h"

@@ -17,17 +17,24 @@
 
 #include "agent/user_resource_listener.h"
 
-#include <thrift/TApplicationException.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 #include <thrift/Thrift.h>
-#include <thrift/protocol/TBinaryProtocol.h>
-#include <thrift/transport/TBufferTransports.h>
-#include <thrift/transport/TSocket.h>
+#include <thrift/transport/TTransportException.h>
 
 #include <future>
-#include <map>
+#include <ostream>
+#include <string>
+#include <vector>
 
-#include "gen_cpp/FrontendService.h"
+#include "common/config.h"
+#include "common/status.h"
 #include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 

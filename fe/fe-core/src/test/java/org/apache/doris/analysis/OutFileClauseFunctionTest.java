@@ -17,83 +17,119 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
-import java.util.UUID;
-
-public class OutFileClauseFunctionTest {
-
-    private static String baseDir = "fe";
-    private static String runningDir = baseDir + "/mocked/MaterializedViewFunctionTest/"
-            + UUID.randomUUID().toString() + "/";
-    private static ConnectContext ctx;
-
+public class OutFileClauseFunctionTest extends TestWithFeService {
     private static final String DB_NAME = "db1";
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected void runBeforeAll() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
         FeConstants.runningUnitTest = true;
         Config.enable_outfile_to_local = true;
-        ctx = UtFrameUtils.createDefaultCtx();
-        UtFrameUtils.createDorisCluster(runningDir);
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt("create database db1;", ctx);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        connectContext = createDefaultCtx();
+        createDatabase(DB_NAME);
+        useDatabase(DB_NAME);
         String createTableSQL = "create table " + DB_NAME
                 + ".test  (k1 int, k2 varchar ) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTableSQL, ctx);
-        Env.getCurrentEnv().createTable(createTableStmt);
-    }
-
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
+        createTable(createTableSQL);
     }
 
     @Test
     public void testSelectStmtOutFileClause() throws Exception {
         String query1 = "select * from db1.test into outfile \"file:///" + runningDir + "/result_\";";
-        QueryStmt analyzedQueryStmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(query1, ctx);
-        Assert.assertTrue(analyzedQueryStmt.hasOutFileClause());
+        QueryStmt analyzedQueryStmt = createStmt(query1);
+        Assertions.assertTrue(analyzedQueryStmt.hasOutFileClause());
         OutFileClause outFileClause = analyzedQueryStmt.getOutFileClause();
         boolean isOutFileClauseAnalyzed = Deencapsulation.getField(outFileClause, "isAnalyzed");
-        Assert.assertTrue(isOutFileClauseAnalyzed);
-        Assert.assertEquals(outFileClause.getFileFormatType(), TFileFormatType.FORMAT_CSV_PLAIN);
+        Assertions.assertTrue(isOutFileClauseAnalyzed);
+        Assertions.assertEquals(outFileClause.getFileFormatType(), TFileFormatType.FORMAT_CSV_PLAIN);
     }
 
     @Test
     public void testSetOperationStmtOutFileClause() throws Exception {
         String query1 = "select * from db1.test union select * from db1.test into outfile \"file:///" + runningDir + "/result_\";";
-        QueryStmt analyzedSetOperationStmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(query1, ctx);
-        Assert.assertTrue(analyzedSetOperationStmt.hasOutFileClause());
+        QueryStmt analyzedSetOperationStmt = createStmt(query1);
+        Assertions.assertTrue(analyzedSetOperationStmt.hasOutFileClause());
         OutFileClause outFileClause = analyzedSetOperationStmt.getOutFileClause();
         boolean isOutFileClauseAnalyzed = Deencapsulation.getField(outFileClause, "isAnalyzed");
-        Assert.assertTrue(isOutFileClauseAnalyzed);
-        Assert.assertEquals(outFileClause.getFileFormatType(), TFileFormatType.FORMAT_CSV_PLAIN);
+        Assertions.assertTrue(isOutFileClauseAnalyzed);
+        Assertions.assertEquals(outFileClause.getFileFormatType(), TFileFormatType.FORMAT_CSV_PLAIN);
     }
 
     @Test
     public void testParquetFormat() throws Exception {
         String query1 = "select * from db1.test union select * from db1.test into outfile \"file:///" + runningDir + "/result_\" FORMAT AS PARQUET;";
-        QueryStmt analyzedSetOperationStmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(query1, ctx);
-        Assert.assertTrue(analyzedSetOperationStmt.hasOutFileClause());
+        QueryStmt analyzedSetOperationStmt = createStmt(query1);
+        Assertions.assertTrue(analyzedSetOperationStmt.hasOutFileClause());
         OutFileClause outFileClause = analyzedSetOperationStmt.getOutFileClause();
         boolean isOutFileClauseAnalyzed = Deencapsulation.getField(outFileClause, "isAnalyzed");
-        Assert.assertTrue(isOutFileClauseAnalyzed);
-        Assert.assertEquals(outFileClause.getFileFormatType(), TFileFormatType.FORMAT_PARQUET);
+        Assertions.assertTrue(isOutFileClauseAnalyzed);
+        Assertions.assertEquals(outFileClause.getFileFormatType(), TFileFormatType.FORMAT_PARQUET);
+    }
+
+    @Test
+    public void testHdfsFile() throws Exception {
+        String loc1 = "'hdfs://hacluster/data/test/'";
+        String loc2 = "'hdfs:///data/test/'";
+
+        String query1 = "select * from db1.test \n"
+                + "into outfile "
+                + loc1
+                + "\n"
+                + "format as csv\n"
+                + "properties(\n"
+                + "'column_separator' = ',',\n"
+                + "'line_delimiter' = '\\n',\n"
+                + "'broker.name' = 'broker',\n"
+                + "'broker.fs.defaultFS'='hdfs://hacluster/',\n"
+                + "'broker.dfs.nameservices'='hacluster',\n"
+                + "'broker.dfs.ha.namenodes.hacluster'='n1,n2',\n"
+                + "'broker.dfs.namenode.rpc-address.hacluster.n1'='master1:8020',\n"
+                + "'broker.dfs.namenode.rpc-address.hacluster.n2'='master2:8020',\n"
+                + "'broker.dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'"
+                + ");";
+        QueryStmt analyzedOutStmt = createStmt(query1);
+        Assertions.assertTrue(analyzedOutStmt.hasOutFileClause());
+
+        OutFileClause outFileClause = analyzedOutStmt.getOutFileClause();
+        boolean isOutFileClauseAnalyzed = Deencapsulation.getField(outFileClause, "isAnalyzed");
+        Assertions.assertTrue(isOutFileClauseAnalyzed);
+
+        QueryStmt analyzedOutStmtLoc2 = createStmt(query1.replace(loc1, loc2));
+        Assertions.assertTrue(analyzedOutStmtLoc2.hasOutFileClause());
+
+        String query2 = "select * from db1.test \n"
+                + "into outfile "
+                + loc1
+                + "\n"
+                + "format as csv\n"
+                + "properties(\n"
+                + "'column_separator' = ',',\n"
+                + "'line_delimiter' = '\\n',\n"
+                + "'fs.defaultFS'='hdfs://hacluster/',\n"
+                + "'dfs.nameservices'='hacluster',\n"
+                + "'dfs.ha.namenodes.hacluster'='n1,n2',\n"
+                + "'dfs.namenode.rpc-address.hacluster.n1'='master1:8020',\n"
+                + "'dfs.namenode.rpc-address.hacluster.n2'='master2:8020',\n"
+                + "'dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'"
+                + ");";
+        QueryStmt analyzedOutStmt2 = createStmt(query2);
+        Assertions.assertTrue(analyzedOutStmt2.hasOutFileClause());
+
+        OutFileClause outFileClause2 = analyzedOutStmt2.getOutFileClause();
+        boolean isOutFileClauseAnalyzed2 = Deencapsulation.getField(outFileClause2, "isAnalyzed");
+        Assertions.assertTrue(isOutFileClauseAnalyzed2);
+
+        QueryStmt analyzedOutStmt2Loc2 = createStmt(query2.replace(loc1, loc2));
+        Assertions.assertTrue(analyzedOutStmt2Loc2.hasOutFileClause());
     }
 }

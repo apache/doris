@@ -17,22 +17,27 @@
 
 #include "http/action/meta_action.h"
 
+#include <json2pb/pb_to_json.h>
+#include <stdint.h>
+
+#include <cstring>
+#include <exception>
+#include <memory>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
-#include "olap/tablet_meta_manager.h"
-#include "util/json_util.h"
+#include "util/easy_json.h"
 
 namespace doris {
 

@@ -17,12 +17,15 @@
 
 #include "olap/rowset/unique_rowset_id_generator.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <iostream>
+#include <memory>
+#include <string>
 
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
-#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
 

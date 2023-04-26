@@ -35,10 +35,6 @@ import java.util.stream.Collectors;
  * Common
  */
 public class CBOUtils {
-    public static boolean isAllSlotProject(LogicalProject<? extends Plan> project) {
-        return project.getProjects().stream().allMatch(expr -> expr instanceof Slot);
-    }
-
     /**
      * Split project according to whether namedExpr contains by splitChildExprIds.
      * Notice: projects must all be Slot.
@@ -56,14 +52,6 @@ public class CBOUtils {
      * If projects is empty or project output equal plan output, return the original plan.
      */
     public static Plan projectOrSelf(List<NamedExpression> projects, Plan plan) {
-        Set<Slot> outputSet = plan.getOutputSet();
-        if (projects.isEmpty() || (outputSet.size() == projects.size() && outputSet.containsAll(projects))) {
-            return plan;
-        }
-        return new LogicalProject<>(projects, plan);
-    }
-
-    public static Plan projectOrSelfInOrder(List<NamedExpression> projects, Plan plan) {
         if (projects.isEmpty() || projects.equals(plan.getOutput())) {
             return plan;
         }

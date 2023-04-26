@@ -17,21 +17,65 @@
 
 #include "vorc_reader.h"
 
+#include <cctz/civil_time_detail.h>
+#include <ctype.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <exception>
+#include <iterator>
+#include <map>
+#include <ostream>
 #include <tuple>
+#include <variant>
 
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
+#include "common/exception.h"
+#include "exec/olap_utils.h"
+#include "gutil/casts.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
-#include "olap/iterators.h"
+#include "orc/Exceptions.hh"
+#include "orc/Int128.hh"
+#include "orc/MemoryPool.hh"
+#include "orc/OrcFile.hh"
+#include "orc/sargs/Literal.hh"
+#include "orc/sargs/SearchArgument.hh"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "util/slice.h"
+#include "util/timezone_utils.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+class RuntimeState;
+
+namespace io {
+class IOContext;
+enum class FileCachePolicy : uint8_t;
+} // namespace io
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -156,9 +200,9 @@ Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
         io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &inner_reader, cache_policy));
+        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &inner_reader,
+                io::DelegateReader::AccessMode::RANDOM, cache_policy, _io_ctx));
         _file_input_stream.reset(
                 new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics, _io_ctx));
     }
@@ -580,8 +624,8 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::TIMESTAMP:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::DECIMAL:
-        // TODO: using decimal v3 instead
-        return TypeDescriptor(PrimitiveType::TYPE_DECIMALV2);
+        return TypeDescriptor::create_decimalv3_type(orc_type->getPrecision(),
+                                                     orc_type->getScale());
     case orc::TypeKind::DATE:
         return TypeDescriptor(PrimitiveType::TYPE_DATEV2);
     case orc::TypeKind::VARCHAR:

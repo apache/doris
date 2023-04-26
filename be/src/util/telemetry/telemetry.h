@@ -17,8 +17,19 @@
 
 #pragma once
 
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/noop.h>
+#include <opentelemetry/trace/scope.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/span_context.h>
+#include <opentelemetry/trace/tracer.h>
+#include <opentelemetry/trace/tracer_provider.h>
+
+#include <string>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "opentelemetry/trace/provider.h"
-#include "util/telemetry/open_telemetry_scop_wrapper.hpp"
 
 /// A trace represents the execution process of a single request in the system, span represents a
 /// logical operation unit with start time and execution duration in the system, and multiple spans

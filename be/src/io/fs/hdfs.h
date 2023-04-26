@@ -18,7 +18,7 @@
 #pragma once
 
 #ifdef USE_HADOOP_HDFS
-#include <hadoop_hdfs/hdfs.h>
+#include <hadoop_hdfs/hdfs.h> // IWYU pragma: export
 #else
-#include <hdfs/hdfs.h>
+#include <hdfs/hdfs.h> // IWYU pragma: export
 #endif

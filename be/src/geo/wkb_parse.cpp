@@ -17,24 +17,104 @@
 
 #include "wkb_parse.h"
 
-#include <string.h>
+#include <cstddef>
+#include <istream>
+#include <sstream>
+#include <vector>
 
+#include "geo/ByteOrderDataInStream.h"
+#include "geo/ByteOrderValues.h"
+#include "geo/geo_types.h"
+#include "geo/wkb_parse_ctx.h"
 #include "geo_tobinary_type.h"
-#include "sstream"
 
 namespace doris {
 
-GeoParseStatus WkbParse::parse_wkb(std::istream& is, bool isEwkb, GeoShape** shape) {
+unsigned char ASCIIHexToUChar(char val) {
+    switch (val) {
+    case '0':
+        return 0;
+    case '1':
+        return 1;
+    case '2':
+        return 2;
+    case '3':
+        return 3;
+    case '4':
+        return 4;
+    case '5':
+        return 5;
+    case '6':
+        return 6;
+    case '7':
+        return 7;
+    case '8':
+        return 8;
+    case '9':
+        return 9;
+    case 'A':
+    case 'a':
+        return 10;
+    case 'B':
+    case 'b':
+        return 11;
+    case 'C':
+    case 'c':
+        return 12;
+    case 'D':
+    case 'd':
+        return 13;
+    case 'E':
+    case 'e':
+        return 14;
+    case 'F':
+    case 'f':
+        return 15;
+    default:
+        return GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+}
+
+GeoParseStatus WkbParse::parse_wkb(std::istream& is, GeoShape** shape) {
     WkbParseContext ctx;
 
-    ctx.isEwkb = isEwkb;
-    ctx = *(WkbParse::read(is, &ctx));
+    ctx = *(WkbParse::read_hex(is, &ctx));
     if (ctx.parse_status == GEO_PARSE_OK) {
         *shape = ctx.shape;
     } else {
         ctx.parse_status = GEO_PARSE_WKT_SYNTAX_ERROR;
     }
     return ctx.parse_status;
+}
+
+WkbParseContext* WkbParse::read_hex(std::istream& is, WkbParseContext* ctx) {
+    // setup input/output stream
+    std::stringstream os(std::ios_base::binary | std::ios_base::in | std::ios_base::out);
+
+    while (true) {
+        const int input_high = is.get();
+        if (input_high == std::char_traits<char>::eof()) {
+            break;
+        }
+
+        const int input_low = is.get();
+        if (input_low == std::char_traits<char>::eof()) {
+            ctx->parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+            return ctx;
+        }
+
+        const char high = static_cast<char>(input_high);
+        const char low = static_cast<char>(input_low);
+
+        const unsigned char result_high = ASCIIHexToUChar(high);
+        const unsigned char result_low = ASCIIHexToUChar(low);
+
+        const unsigned char value = static_cast<unsigned char>((result_high << 4) + result_low);
+
+        // write the value to the output stream
+        os << value;
+    }
+    return WkbParse::read(os, ctx);
 }
 
 WkbParseContext* WkbParse::read(std::istream& is, WkbParseContext* ctx) {
@@ -69,23 +149,6 @@ GeoShape* WkbParse::readGeometry(WkbParseContext* ctx) {
     uint32_t typeInt = ctx->dis.readUnsigned();
 
     uint32_t geometryType = (typeInt & 0xffff) % 1000;
-
-    bool hasSRID = ((typeInt & 0x20000000) != 0);
-
-    if (ctx->isEwkb) {
-        if (!hasSRID) {
-            return nullptr;
-        }
-
-        ctx->srid = ctx->dis.readInt(); // read SRID
-        if (ctx->srid != 4326) {
-            return nullptr;
-        }
-    }
-
-    if (!ctx->isEwkb && hasSRID) {
-        return nullptr;
-    }
 
     GeoShape* shape;
 

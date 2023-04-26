@@ -17,18 +17,26 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+#include <stdint.h>
+
+#include <string>
+
 #include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "runtime/cache/result_cache.h"
 #include "util/priority_thread_pool.hpp"
 
-namespace brpc {
-class Controller;
-}
+namespace google {
+namespace protobuf {
+class Closure;
+class RpcController;
+} // namespace protobuf
+} // namespace google
 
 namespace doris {
 
 class ExecEnv;
+class PHandShakeRequest;
+class PHandShakeResponse;
 
 class PInternalServiceImpl : public PBackendService {
 public:

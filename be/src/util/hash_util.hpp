@@ -20,13 +20,15 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <xxh3.h>
 #include <zlib.h>
 
 #include <functional>
 
-#include "common/compiler_util.h"
-#include "gen_cpp/Types_types.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "gutil/hash/hash.h"      // IWYU pragma: keep
 #include "runtime/define_primitive_type.h"
 #include "util/cpu_info.h"
 #include "util/murmur_hash3.h"

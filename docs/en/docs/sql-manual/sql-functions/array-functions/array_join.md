@@ -37,9 +37,7 @@ array_join
 
 #### Syntax
 
-```
-VARCHAR array_join(ARRAY<T> arr, VARCHAR sep[, VARCHAR null_replace])
-```
+`VARCHAR array_join(ARRAY<T> arr, VARCHAR sep[, VARCHAR null_replace])`
 
 Combines all elements in the array to generate a new string according to the separator (sep) 
 and the string to replace NULL (null_replace).

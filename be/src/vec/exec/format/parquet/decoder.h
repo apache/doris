@@ -17,16 +17,40 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
 #include <cstdint>
+#include <memory>
+#include <ostream>
+#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/parquet_types.h"
 #include "schema_desc.h"
 #include "util/rle_encoding.h"
+#include "util/slice.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_decimal.h" // IWYU pragma: keep
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace vectorized {
+class ColumnString;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

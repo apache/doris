@@ -17,6 +17,8 @@
 
 #include "brpc_carrier.h"
 
+#include <brpc/http_header.h>
+
 opentelemetry::nostd::string_view doris::telemetry::RpcServerCarrier::Get(
         opentelemetry::nostd::string_view key) const noexcept {
     auto it = cntl_->http_request().GetHeader(key.data());

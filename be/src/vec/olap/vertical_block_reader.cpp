@@ -17,12 +17,26 @@
 
 #include "vec/olap/vertical_block_reader.h"
 
+#include <assert.h>
+#include <gen_cpp/olap_file.pb.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <ostream>
+
 #include "common/status.h"
-#include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/tablet_schema.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
-#include "vec/olap/block_reader.h"
-#include "vec/olap/vcollect_iterator.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris::vectorized {

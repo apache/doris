@@ -17,13 +17,31 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
+#include <new>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "olap/hll.h"
+#include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
+#include "runtime/decimalv2_value.h"
+#include "util/bitmap_value.h"
+#include "util/quantile_state.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 

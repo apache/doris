@@ -36,9 +36,7 @@ BITMAP_HASH
 
 #### Syntax
 
-```
-BITMAP BITMAP_HASH(<any_value>)
-```
+`BITMAP BITMAP_HASH(<any_value>)`
 
 #### Arguments
 

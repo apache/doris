@@ -24,7 +24,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.validator.routines.InetAddressValidator;
 
 import java.net.InetAddress;
@@ -83,6 +83,6 @@ public class ModifyNodeHostNameClause extends AlterClause {
 
     @Override
     public String toSql() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("toSql() method not implemented");
     }
 }

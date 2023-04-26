@@ -26,7 +26,6 @@ package-lock.json
 **/build/
 **/target/
 **/node_modules/
-**/dist/
 **/log/
 
 # ignore project file
@@ -74,6 +73,8 @@ fe/fe-core/gen/
 fe/fe-core/src/main/resources/static/
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/gen/
+fe/fe-core/src/main/java/org/apache/doris/thrift
+fe/fe-core/src/main/java/org/apache/parquet
 
 # BE
 be/build*/
@@ -84,6 +85,7 @@ be/src/gen_cpp/opcode
 be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
+be/src/apache-orc/
 
 ## tools
 tools/ssb-tools/ssb-data/
@@ -101,3 +103,4 @@ lru_cache_test
 
 /conf/log4j2-spring.xml
 /fe/fe-core/src/test/resources/real-help-resource.zip
+/ui/dist

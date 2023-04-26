@@ -65,4 +65,26 @@ suite("test_arithmetic_expressions") {
     qt_select "select (a + b + c) / d from ${table1};"
     qt_select "select a + b + c + d + e + f + g + h + i + j + k from ${table1};"
     sql "drop table if exists ${table1}"
+
+    def table2 = "test_arithmetic_expressions"
+
+    sql "drop table if exists ${table2}"
+    sql """ create table ${table2} (
+            id smallint,
+            fz decimal(27,9),
+            fzv3 decimalv3(27,9),
+            fm decimalv3(38,10))
+            DISTRIBUTED BY HASH(`id`) BUCKETS auto
+            PROPERTIES
+            (
+                "replication_num" = "1"
+            ); """
+
+    sql """ insert into ${table2} values (1,92594283.129196000,92594283.129196000,147202.0000000000); """
+    sql """ insert into ${table2} values (2,107684988.257976000,107684988.257976000,148981.0000000000); """
+    sql """ insert into ${table2} values (3,76891560.464178000,76891560.464178000,106161.0000000000); """
+    sql """ insert into ${table2} values (4,277170831.851350000,277170831.851350000,402344.0000000000); """
+
+    qt_select """ select id, fz/fm as dec,fzv3/fm as decv3 from ${table2} ORDER BY id; """
+    sql "drop table if exists ${table2}"
 }

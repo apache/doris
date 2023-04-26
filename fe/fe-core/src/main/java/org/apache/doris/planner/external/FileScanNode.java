@@ -18,12 +18,18 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -31,6 +37,7 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
@@ -40,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Base class for External File Scan, including external query and load.
@@ -155,5 +163,51 @@ public class FileScanNode extends ExternalScanNode {
                                             FileScanProviderIf scanProvider)
             throws UserException {
         scanProvider.createScanRangeLocations(conjuncts, params, backendPolicy, scanRangeLocations);
+    }
+
+    protected void setDefaultValueExprs(FileScanProviderIf scanProvider,
+                                        Map<String, SlotDescriptor> slotDescByName,
+                                        TFileScanRangeParams params,
+                                        boolean useVarcharAsNull) throws UserException {
+        TableIf tbl = scanProvider.getTargetTable();
+        Preconditions.checkNotNull(tbl);
+        TExpr tExpr = new TExpr();
+        tExpr.setNodes(Lists.newArrayList());
+
+        for (Column column : tbl.getBaseSchema()) {
+            Expr expr;
+            if (column.getDefaultValue() != null) {
+                if (column.getDefaultValueExprDef() != null) {
+                    expr = column.getDefaultValueExpr();
+                } else {
+                    expr = new StringLiteral(column.getDefaultValue());
+                }
+            } else {
+                if (column.isAllowNull()) {
+                    // For load, use Varchar as Null, for query, use column type.
+                    if (useVarcharAsNull) {
+                        expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                    } else {
+                        expr = NullLiteral.create(column.getType());
+                    }
+                } else {
+                    expr = null;
+                }
+            }
+            SlotDescriptor slotDesc = slotDescByName.get(column.getName());
+            // if slot desc is null, which mean it is an unrelated slot, just skip.
+            // eg:
+            // (a, b, c) set (x=a, y=b, z=c)
+            // c does not exist in file, the z will be filled with null, even if z has default value.
+            // and if z is not nullable, the load will fail.
+            if (slotDesc != null) {
+                if (expr != null) {
+                    expr = castToSlot(slotDesc, expr);
+                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
+                } else {
+                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
+                }
+            }
+        }
     }
 }

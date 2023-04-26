@@ -17,16 +17,23 @@
 
 #pragma once
 
-#include <future>
+#include <stdint.h>
+#include <time.h>
+
 #include <memory>
+#include <shared_mutex>
 
 #include "common/status.h"
 #include "io/cache/file_cache.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 class WholeFileCache final : public FileCache {
 public:

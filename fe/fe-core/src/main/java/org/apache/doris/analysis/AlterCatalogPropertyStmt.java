@@ -36,15 +36,21 @@ import java.util.Map;
  */
 public class AlterCatalogPropertyStmt extends DdlStmt {
     private final String catalogName;
+    private final String comment;
     private final Map<String, String> newProperties;
 
     public AlterCatalogPropertyStmt(String catalogName, Map<String, String> newProperties) {
         this.catalogName = catalogName;
         this.newProperties = newProperties;
+        this.comment = newProperties.getOrDefault("comment", "");
     }
 
     public String getCatalogName() {
         return catalogName;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     public Map<String, String> getNewProperties() {

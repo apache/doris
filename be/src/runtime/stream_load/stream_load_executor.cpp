@@ -18,16 +18,34 @@
 #include "runtime/stream_load/stream_load_executor.h"
 
 #include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
+#include <future>
+#include <map>
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/config.h"
 #include "common/status.h"
 #include "common/utils.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/message_body_sink.h"
+#include "runtime/runtime_state.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
+#include "util/time.h"
+#include "util/uid_util.h"
 
 namespace doris {
 using namespace ErrorCode;

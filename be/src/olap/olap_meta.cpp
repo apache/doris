@@ -17,9 +17,16 @@
 
 #include "olap/olap_meta.h"
 
+#include <rocksdb/iterator.h>
+#include <rocksdb/status.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
 #include <sstream>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "olap/olap_define.h"
 #include "rocksdb/db.h"

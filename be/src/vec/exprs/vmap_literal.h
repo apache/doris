@@ -16,12 +16,20 @@
 // under the License.
 #pragma once
 
+#include "common/status.h"
 #include "vec/exprs/vliteral.h"
 
 namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
 
 namespace vectorized {
+class VExprContext;
+
 class VMapLiteral : public VLiteral {
+    ENABLE_FACTORY_CREATOR(VMapLiteral);
+
 public:
     VMapLiteral(const TExprNode& node) : VLiteral(node, false) {}
     ~VMapLiteral() override = default;

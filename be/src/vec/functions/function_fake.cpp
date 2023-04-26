@@ -17,9 +17,19 @@
 
 #include "vec/functions/function_fake.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <ostream>
+#include <string>
+
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 

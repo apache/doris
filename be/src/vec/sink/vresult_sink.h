@@ -16,22 +16,34 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/data_sink.h"
-#include "vec/sink/vresult_writer.h"
 
 namespace doris {
-class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
 class BufferControlBlock;
-class ResultWriter;
-class MemTracker;
-struct ResultFileOptions;
+class QueryStatistics;
+class RowDescriptor;
+class TExpr;
+
 namespace pipeline {
 class ResultSinkOperator;
 }
 namespace vectorized {
 class VExprContext;
+class Block;
+class VResultWriter;
 
 struct ResultFileOptions {
     // [[deprecated]]

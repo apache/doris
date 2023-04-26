@@ -72,7 +72,7 @@ public class EagerGroupBy implements ExplorationRuleFactory {
                         .then(agg -> eagerGroupBy(agg, agg.child(), ImmutableList.of()))
                         .toRule(RuleType.EAGER_GROUP_BY),
                 logicalAggregate(logicalProject(innerLogicalJoin()))
-                        .when(agg -> CBOUtils.isAllSlotProject(agg.child()))
+                        .when(agg -> agg.child().isAllSlots())
                         .when(agg -> agg.child().child().getOtherJoinConjuncts().size() == 0)
                         .when(agg -> agg.getGroupByExpressions().stream().allMatch(e -> e instanceof Slot))
                         .when(agg -> agg.getAggregateFunctions().stream()

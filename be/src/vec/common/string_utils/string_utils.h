@@ -23,7 +23,6 @@
 #include <cstddef>
 #include <cstring>
 #include <string>
-#include <type_traits>
 
 namespace detail {
 bool starts_with(const std::string& s, const char* prefix, size_t prefix_size);

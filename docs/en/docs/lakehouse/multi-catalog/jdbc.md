@@ -33,7 +33,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 ## Usage
 
-1. Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse and Doris.
+1. Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse, Doris, SAP HANA, Trino and OceanBase.
 
 ## Create Catalog
 
@@ -179,7 +179,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 
 8. Trino
 
-<version since="dev"></version>
+<version since="1.2.4"></version>
 
 ```sql
 CREATE CATALOG trino_catalog PROPERTIES (
@@ -199,6 +199,21 @@ When Trino is mapped, Doris's Database corresponds to a Schema in Trino that spe
 | Catalog  | Catalog | 
 | Database | Schema  |
 | Table    | Table   |
+
+9. OceanBase
+
+<version since="dev"></version>
+
+```sql
+CREATE CATALOG jdbc_oceanbase PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Drive"
+)
+```
 
 ### Parameter Description
 
@@ -442,11 +457,40 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 **Note:**
 Currently, only Hive connected to Trino has been tested. Other data sources connected to Trino have not been tested.
 
+### OceanBase
+
+| OceanBase Type                                                                                                                                       | Doris Type  | Comment                                                                                    |
+|------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------|
+| TINYINT                                                                                                                                              | TINYINT     |                                                                                            |
+| SMALLINT                                                                                                                                             | SMALLINT    |                                                                                            |
+| MEDIUMINT                                                                                                                                            | INT         |                                                                                            |
+| INT                                                                                                                                                  | INT         |                                                                                            |
+| BIGINT                                                                                                                                               | BIGINT      |                                                                                            |
+| UNSIGNED TINYINT                                                                                                                                     | SMALLINT    | Doris does not support UNSIGNED data types so UNSIGNED TINYINT will be mapped to SMALLINT. |
+| UNSIGNED MEDIUMINT                                                                                                                                   | INT         | Doris does not support UNSIGNED data types so UNSIGNED MEDIUMINT will be mapped to INT.    |
+| UNSIGNED INT                                                                                                                                         | BIGINT      | Doris does not support UNSIGNED data types so UNSIGNED INT will be mapped to BIGINT.       |
+| UNSIGNED BIGINT                                                                                                                                      | LARGEINT    | Doris does not support UNSIGNED data types so UNSIGNED BIGINT will be mapped to LARGEINT.  |
+| FLOAT                                                                                                                                                | FLOAT       |                                                                                            |
+| DOUBLE                                                                                                                                               | DOUBLE      |                                                                                            |
+| DECIMAL                                                                                                                                              | DECIMALV3   |                                                                                            |
+| DATE                                                                                                                                                 | DATEV2      |                                                                                            |
+| TIMESTAMP                                                                                                                                            | DATETIMEV2  |                                                                                            |
+| DATETIME                                                                                                                                             | DATETIMEV2  |                                                                                            |
+| YEAR                                                                                                                                                 | DATETIMEV2  |                                                                                            |
+| TIME                                                                                                                                                 | STRING      |                                                                                            |
+| CHAR                                                                                                                                                 | CHAR        |                                                                                            |
+| VARCHAR                                                                                                                                              | VARCHAR     |                                                                                            |
+| BOOLEAN、TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT  | STRING      |                                                                                            |
+| Other                                                                                                                                                | UNSUPPORTED |                                                                                            |
+
+**Note:**
+At present, only the MySQL mode of OceanBase has been adapted, while the Oracle mode has not been fully tested
+
 ## FAQ
 
-1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse and SAP HANA?
+1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase?
 
-   Currently, Doris supports MySQL, Oracle, PostgreSQL, SQLServer, and ClickHouse. We are planning to expand this list. Technically, any databases that support JDBC access can be connected to Doris in the form of JDBC external tables. You are more than welcome to be a Doris contributor to expedite this effort.
+   Currently, Doris supports MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase. We are planning to expand this list. Technically, any databases that support JDBC access can be connected to Doris in the form of JDBC external tables. You are more than welcome to be a Doris contributor to expedite this effort.
 
 2. Why does Mojibake occur when Doris tries to read emojis from MySQL external tables?
 

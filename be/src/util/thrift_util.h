@@ -17,15 +17,26 @@
 
 #pragma once
 
+#include <stdint.h>
+#include <string.h>
 #include <thrift/TApplicationException.h>
-#include <thrift/protocol/TBinaryProtocol.h>
-#include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/transport/TBufferTransports.h>
 
-#include <sstream>
+#include <exception>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
+
+namespace apache {
+namespace thrift {
+namespace protocol {
+class TProtocol;
+class TProtocolFactory;
+} // namespace protocol
+} // namespace thrift
+} // namespace apache
 
 namespace doris {
 
