@@ -218,17 +218,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         // PhysicalProperties.ANY means any.
         // in Nereids: default the data will be partition by keys.
 
-        hints = hints.stream().map(String::toUpperCase).collect(Collectors.toList());
-        LOG.warn("only {} and {} will be applied", InsertStmt.SHUFFLE_HINT, InsertStmt.NOSHUFFLE_HINT);
-        if (hints.contains(InsertStmt.NOSHUFFLE_HINT)) {
-            return PhysicalProperties.GATHER;
-        } else if (hints.contains(InsertStmt.SHUFFLE_HINT)) {
-            return PhysicalProperties.ANY;
-        } else {
-            List<ExprId> exprIds = outputs.subList(0, ((OlapTable) table).getKeysNum()).stream()
-                    .map(NamedExpression::getExprId).collect(Collectors.toList());
-            return PhysicalProperties.createHash(new DistributionSpecHash(exprIds, ShuffleType.NATURAL));
+        if (hints != null) {
+            hints = hints.stream().map(String::toUpperCase).collect(Collectors.toList());
+            LOG.warn("only {} and {} will be applied", InsertStmt.SHUFFLE_HINT, InsertStmt.NOSHUFFLE_HINT);
+            if (hints.contains(InsertStmt.NOSHUFFLE_HINT)) {
+                return PhysicalProperties.GATHER;
+            } else if (hints.contains(InsertStmt.SHUFFLE_HINT)) {
+                return PhysicalProperties.ANY;
+            }
         }
+        List<ExprId> exprIds = outputs.subList(0, ((OlapTable) table).getKeysNum()).stream()
+                .map(NamedExpression::getExprId).collect(Collectors.toList());
+        return PhysicalProperties.createHash(new DistributionSpecHash(exprIds, ShuffleType.NATURAL));
     }
 
     private void addUnassignedColumns() throws org.apache.doris.common.AnalysisException {
