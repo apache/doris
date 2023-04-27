@@ -92,6 +92,7 @@ public class TwoPhaseReadOpt extends PlanPostProcessor {
         PhysicalOlapScan olapScan;
         PhysicalProject<Plan> project = null;
         PhysicalFilter<Plan> filter = null;
+        child = localTopN.child();
         while (child instanceof Project || child instanceof Filter) {
             if (child instanceof Filter) {
                 filter = (PhysicalFilter<Plan>) child;
