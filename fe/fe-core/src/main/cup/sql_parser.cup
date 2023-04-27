@@ -1327,6 +1327,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
     :}
+    | KW_ALTER KW_RESOURCE KW_GROUP ident_or_text:resourceGroupName opt_properties:properties
+    {:
+        RESULT = new AlterResourceGroupStmt(resourceGroupName, properties);
+    :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
     {:
