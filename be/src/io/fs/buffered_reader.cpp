@@ -727,7 +727,8 @@ Status DelegateReader::create_file_reader(RuntimeProfile* profile,
         *file_reader = std::make_shared<InMemoryFileReader>(reader);
     } else if (access_mode == AccessMode::SEQUENTIAL) {
         io::FileReaderSPtr safeReader = std::make_shared<ThreadSafeReader>(reader);
-        *file_reader = std::make_shared<io::PrefetchBufferedReader>(profile, safeReader, file_range, io_ctx);
+        *file_reader = std::make_shared<io::PrefetchBufferedReader>(profile, safeReader, file_range,
+                                                                    io_ctx);
     } else {
         *file_reader = std::move(reader);
     }
