@@ -17,6 +17,7 @@
 
 package org.apache.doris.resource.resourcegroup;
 
+import org.apache.doris.analysis.AlterResourceGroupStmt;
 import org.apache.doris.analysis.CreateResourceGroupStmt;
 import org.apache.doris.analysis.DropResourceGroupStmt;
 import org.apache.doris.catalog.Env;
@@ -171,5 +172,33 @@ public class ResourceGroupMgrTest {
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("is not allowed"));
         }
+    }
+
+    @Test
+    public void testAlterResourceGroup() throws UserException {
+        Config.enable_resource_group = true;
+        ResourceGroupMgr resourceGroupMgr = new ResourceGroupMgr();
+        Map<String, String> properties = Maps.newHashMap();
+        String name = "g1";
+        try {
+            AlterResourceGroupStmt stmt1 = new AlterResourceGroupStmt(name, properties);
+            resourceGroupMgr.alterResourceGroup(stmt1);
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("does not exist"));
+        }
+
+        properties.put(ResourceGroup.CPU_SHARE, "10");
+        CreateResourceGroupStmt createStmt = new CreateResourceGroupStmt(false, name, properties);
+        resourceGroupMgr.createResourceGroup(createStmt);
+
+        Map<String, String> newProperties = Maps.newHashMap();
+        newProperties.put(ResourceGroup.CPU_SHARE, "5");
+        AlterResourceGroupStmt stmt2 = new AlterResourceGroupStmt(name, newProperties);
+        resourceGroupMgr.alterResourceGroup(stmt2);
+
+        List<TPipelineResourceGroup> tResourceGroups = resourceGroupMgr.getResourceGroup(name);
+        Assert.assertEquals(1, tResourceGroups.size());
+        TPipelineResourceGroup tResourceGroup1 = tResourceGroups.get(0);
+        Assert.assertEquals(tResourceGroup1.getProperties().get(ResourceGroup.CPU_SHARE), "5");
     }
 }

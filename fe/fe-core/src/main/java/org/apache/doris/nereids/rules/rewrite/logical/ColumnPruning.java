@@ -250,7 +250,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
             Set<Slot> childOutputSet = child.getOutputSet();
-            Set<Slot> childRequiredSlots = Sets.intersection(childrenRequiredSlots, childOutputSet);
+            Set<Slot> childRequiredSlots = childOutputSet.stream()
+                    .filter(childrenRequiredSlots::contains).collect(Collectors.toSet());
             Plan prunedChild = doPruneChild(plan, child, childRequiredSlots);
             if (prunedChild != child) {
                 hasNewChildren = true;

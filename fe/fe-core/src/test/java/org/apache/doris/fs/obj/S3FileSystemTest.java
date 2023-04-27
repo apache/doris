@@ -17,11 +17,10 @@
 
 package org.apache.doris.fs.obj;
 
-import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.S3FileSystem;
 
 import org.apache.commons.codec.digest.DigestUtils;
@@ -66,7 +65,7 @@ public class S3FileSystemTest {
         properties.put(PropertyConverter.USE_PATH_STYLE, "false");
 
         properties.put("AWS_REGION", "bj");
-        fileSystem = (S3FileSystem) FileSystemFactory.get(StorageBackend.StorageType.S3, properties);
+        fileSystem = (S3FileSystem) FileSystemFactory.getS3FileSystem(properties);
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
 
         content =

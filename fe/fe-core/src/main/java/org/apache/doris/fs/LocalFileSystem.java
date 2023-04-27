@@ -17,8 +17,8 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
+import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
 import java.util.Map;

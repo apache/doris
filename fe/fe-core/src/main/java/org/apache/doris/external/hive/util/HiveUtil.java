@@ -42,6 +42,7 @@ import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -182,7 +183,7 @@ public final class HiveUtil {
         }
     }
 
-    public static boolean isSplittable(InputFormat<?, ?> inputFormat, FileSystem fileSystem, Path path) {
+    public static boolean isSplittable(InputFormat<?, ?> inputFormat, Path path, JobConf jobConf) {
         // ORC uses a custom InputFormat but is always splittable
         if (inputFormat.getClass().getSimpleName().equals("OrcInputFormat")) {
             return true;
@@ -204,8 +205,8 @@ public final class HiveUtil {
         }
         try {
             method.setAccessible(true);
-            return (boolean) method.invoke(inputFormat, fileSystem, path);
-        } catch (InvocationTargetException | IllegalAccessException e) {
+            return (boolean) method.invoke(inputFormat, path.getFileSystem(jobConf), path);
+        } catch (InvocationTargetException | IllegalAccessException | IOException e) {
             throw new RuntimeException(e);
         }
     }

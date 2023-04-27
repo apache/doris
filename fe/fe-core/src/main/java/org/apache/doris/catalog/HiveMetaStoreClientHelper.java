@@ -36,7 +36,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.fs.FileLocations;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
@@ -47,8 +49,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.LocatedFileStatus;
-import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
@@ -74,7 +75,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TException;
 
-import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -179,7 +179,7 @@ public class HiveMetaStoreClientHelper {
             List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl, StorageBackend.StorageType type)
             throws DdlException {
         RemoteFileSystem fs = FileSystemFactory.get("HiveMetaStore", type, hiveTable.getHiveProperties());
-        List<RemoteIterator<LocatedFileStatus>> remoteIterators = new ArrayList<>();
+        List<FileLocations> remoteLocationsList = new ArrayList<>();
         try {
             if (remoteHiveTbl.getPartitionKeys().size() > 0) {
                 String metaStoreUris = hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS);
@@ -188,14 +188,14 @@ public class HiveMetaStoreClientHelper {
                         hivePartitionPredicate);
                 for (Partition p : hivePartitions) {
                     String location = normalizeS3LikeSchema(p.getSd().getLocation());
-                    remoteIterators.add(fs.listLocatedStatus(location));
+                    remoteLocationsList.add(fs.listLocations(location));
                 }
             } else {
                 // hive non-partitioned table, get file iterator from table sd info
                 String location = normalizeS3LikeSchema(remoteHiveTbl.getSd().getLocation());
-                remoteIterators.add(fs.listLocatedStatus(location));
+                remoteLocationsList.add(fs.listLocations(location));
             }
-            return getAllFileStatus(fileStatuses, remoteIterators, fs);
+            return getAllFileStatus(fileStatuses, remoteLocationsList, fs);
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e);
         }
@@ -213,46 +213,41 @@ public class HiveMetaStoreClientHelper {
     }
 
     private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
-            List<RemoteIterator<LocatedFileStatus>> remoteIterators, RemoteFileSystem fs) throws UserException {
-        boolean needFullPath = fs.getStorageType() == StorageBackend.StorageType.S3
-                || fs.getStorageType() == StorageBackend.StorageType.OFS
-                || fs.getStorageType() == StorageBackend.StorageType.JFS;
+                                           List<FileLocations> remoteLocationsList, RemoteFileSystem fs)
+                throws UserException {
         String hdfsUrl = "";
-        Queue<RemoteIterator<LocatedFileStatus>> queue = Queues.newArrayDeque(remoteIterators);
+        Queue<FileLocations> queue = Queues.newArrayDeque(remoteLocationsList);
         while (queue.peek() != null) {
-            RemoteIterator<LocatedFileStatus> iterator = queue.poll();
+            FileLocations locs = queue.poll();
             try {
-                while (iterator.hasNext()) {
-                    LocatedFileStatus fileStatus = iterator.next();
-                    if (fileStatus.isDirectory()) {
+                for (RemoteFile fileLocation : locs.locations()) {
+                    Path filePath = fileLocation.getPath();
+                    // hdfs://host:port/path/to/partition/file_name
+                    String fullUri = filePath.toString();
+                    if (fileLocation.isDirectory()) {
                         // recursive visit the directory to get the file path.
-                        queue.add(fs.listLocatedStatus(fileStatus.getPath().toString()));
+                        queue.add(fs.listLocations(fullUri));
                         continue;
                     }
                     TBrokerFileStatus brokerFileStatus = new TBrokerFileStatus();
-                    brokerFileStatus.setIsDir(fileStatus.isDirectory());
+                    brokerFileStatus.setIsDir(fileLocation.isDirectory());
                     brokerFileStatus.setIsSplitable(true);
-                    brokerFileStatus.setSize(fileStatus.getLen());
-                    // path = "/path/to/partition/file_name"
+                    brokerFileStatus.setSize(fileLocation.getSize());
+                    // filePath.toUri().getPath() = "/path/to/partition/file_name"
                     // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse
                     //     + /dae.db/customer/state=CA/city=SanJose/000000_0
-                    String path = fileStatus.getPath().toUri().getPath();
-                    if (needFullPath) {
-                        // Backend need full s3 path (with s3://bucket at the beginning) to read the data on s3.
-                        // path = "s3://bucket/path/to/partition/file_name"
-                        // eg: s3://hive-s3-test/region/region.tbl
-                        path = fileStatus.getPath().toString();
-                    }
+                    // fullUri: Backend need full s3 path (with s3://bucket at the beginning) to read the data on s3.
+                    // path = "s3://bucket/path/to/partition/file_name"
+                    // eg: s3://hive-s3-test/region/region.tbl
+                    String path = fs.needFullPath() ? fullUri : filePath.toUri().getPath();
                     brokerFileStatus.setPath(path);
                     fileStatuses.add(brokerFileStatus);
                     if (StringUtils.isEmpty(hdfsUrl)) {
-                        // hdfs://host:port/path/to/partition/file_name
-                        String fullUri = fileStatus.getPath().toString();
                         // hdfs://host:port
                         hdfsUrl = fullUri.replace(path, "");
                     }
                 }
-            } catch (IOException e) {
+            } catch (UserException e) {
                 LOG.warn("List HDFS file IOException: {}", e.getMessage());
                 throw new DdlException("List HDFS file failed. Error: " + e.getMessage());
             }

@@ -152,19 +152,7 @@
                         "advanced/cache/partition-cache"
                     ]
                 },
-                {
-                    "type": "category",
-                    "label": "Join Optimization",
-                    "items": [
-                        "advanced/join-optimization/bucket-shuffle-join",
-                        "advanced/join-optimization/colocation-join",
-                        "advanced/join-optimization/runtime-filter",
-                        "advanced/join-optimization/doris-join-optimization"
-                    ]
-                },
-                "advanced/pipeline-execution-engine",
                 "advanced/autobucket",
-                "advanced/materialized-view",
                 "advanced/broker",
                 {
                     "type": "category",
@@ -184,9 +172,27 @@
                 "advanced/small-file-mgr",
                 "advanced/cold_hot_separation",
                 "advanced/compute_node",
-                "advanced/hight-concurrent-point-query",
-                "advanced/nereids",
                 "advanced/lateral-view"
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Query Acceleration",
+            "items": [
+                "query-acceleration/pipeline-execution-engine",
+                "query-acceleration/nereids",
+                "query-acceleration/hight-concurrent-point-query",
+                "query-acceleration/materialized-view",
+                {
+                    "type": "category",
+                    "label": "Join Optimization",
+                    "items": [
+                        "query-acceleration/join-optimization/bucket-shuffle-join",
+                        "query-acceleration/join-optimization/colocation-join",
+                        "query-acceleration/join-optimization/runtime-filter",
+                        "query-acceleration/join-optimization/doris-join-optimization"
+                    ]
+                }
             ]
         },
         {
@@ -301,6 +307,7 @@
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/array_zip",
                                 "sql-manual/sql-functions/array-functions/array_shuffle",
+                                "sql-manual/sql-functions/array-functions/array_cum_sum",
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
@@ -1215,7 +1222,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
-                "releasenotes/release-1.2.4",
+                "releasenotes/release-1.2.4.1",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",
                 "releasenotes/release-1.2.1",

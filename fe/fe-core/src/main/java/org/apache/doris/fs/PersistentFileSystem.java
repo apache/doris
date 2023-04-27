@@ -38,6 +38,12 @@ public abstract class PersistentFileSystem implements FileSystem, Writable {
     protected String name;
     protected StorageBackend.StorageType type;
 
+    public boolean needFullPath() {
+        return type == StorageBackend.StorageType.S3
+                    || type == StorageBackend.StorageType.OFS
+                    || type == StorageBackend.StorageType.JFS;
+    }
+
     public PersistentFileSystem(String name, StorageBackend.StorageType type) {
         this.name = name;
         this.type = type;

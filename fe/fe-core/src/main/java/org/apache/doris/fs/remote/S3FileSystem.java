@@ -18,7 +18,6 @@
 package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
@@ -46,7 +45,7 @@ public class S3FileSystem extends ObjFileSystem {
     }
 
     @Override
-    protected FileSystem getFileSystem(String remotePath) throws UserException {
+    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem == null) {
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
@@ -64,7 +63,7 @@ public class S3FileSystem extends ObjFileSystem {
     @Override
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
-            FileSystem s3AFileSystem = getFileSystem(remotePath);
+            FileSystem s3AFileSystem = nativeFileSystem(remotePath);
             Path pathPattern = new Path(remotePath);
             FileStatus[] files = s3AFileSystem.globStatus(pathPattern);
             if (files == null) {

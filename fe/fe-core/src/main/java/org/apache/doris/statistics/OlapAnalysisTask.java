@@ -74,7 +74,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partNames = tbl.getPartitionNames();
+            Set<String> partNames = info.partitionNames;
             for (String partName : partNames) {
                 Partition part = tbl.getPartition(partName);
                 if (part == null) {

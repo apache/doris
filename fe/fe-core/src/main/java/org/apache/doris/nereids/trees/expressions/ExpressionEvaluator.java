@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.collect.ImmutableMultimap;
 
@@ -104,7 +105,7 @@ public enum ExpressionEvaluator {
             }
             boolean match = true;
             for (int i = 0; i < candidateTypes.length; i++) {
-                if (!candidateTypes[i].equals(expectedTypes[i])) {
+                if (!(expectedTypes[i].toCatalogDataType().matchesType(candidateTypes[i].toCatalogDataType()))) {
                     match = false;
                     break;
                 }
@@ -142,7 +143,11 @@ public enum ExpressionEvaluator {
             DataType returnType = DataType.convertFromString(annotation.returnType());
             List<DataType> argTypes = new ArrayList<>();
             for (String type : annotation.argTypes()) {
-                argTypes.add(DataType.convertFromString(type));
+                if (type.equalsIgnoreCase("DECIMALV3")) {
+                    argTypes.add(DecimalV3Type.WILDCARD);
+                } else {
+                    argTypes.add(DataType.convertFromString(type));
+                }
             }
             FunctionSignature signature = new FunctionSignature(name,
                     argTypes.toArray(new DataType[argTypes.size()]), returnType);

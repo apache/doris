@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -51,6 +52,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public abstract class QueryScanProvider implements FileScanProviderIf {
     public static final Logger LOG = LogManager.getLogger(QueryScanProvider.class);
@@ -119,12 +121,16 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             params.setProperties(locationProperties);
         }
 
+        List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
             TScanRangeLocations curLocations = newLocations(params, backendPolicy);
             FileSplit fileSplit = (FileSplit) split;
-            List<String> pathPartitionKeys = getPathPartitionKeys();
-            List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
-                    pathPartitionKeys, false);
+
+            // If fileSplit has partition values, use the values collected from hive partitions.
+            // Otherwise, use the values in file path.
+            List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
+                    ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys, false)
+                    : fileSplit.getPartitionValues();
 
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
             // external data lake table
@@ -196,5 +202,24 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             rangeDesc.setPath(fileSplit.getPath().toString());
         }
         return rangeDesc;
+    }
+
+    protected static Optional<TFileType> getTFileType(String location) {
+        if (location != null && !location.isEmpty()) {
+            if (FeConstants.isObjStorage(location)) {
+                return Optional.of(TFileType.FILE_S3);
+            } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
+                return Optional.of(TFileType.FILE_HDFS);
+            } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
+                return Optional.of(TFileType.FILE_LOCAL);
+            } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
+                return Optional.of(TFileType.FILE_BROKER);
+            } else if (location.startsWith(FeConstants.FS_PREFIX_GFS)) {
+                return Optional.of(TFileType.FILE_BROKER);
+            } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
+                return Optional.of(TFileType.FILE_BROKER);
+            }
+        }
+        return Optional.empty();
     }
 }
