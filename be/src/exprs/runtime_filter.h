@@ -404,7 +404,7 @@ protected:
 
     bool _profile_init = false;
     doris::Mutex _profile_mutex;
-    std::string _name = "";
+    std::string _name;
     bool _opt_remote_rf;
 };
 
