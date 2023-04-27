@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Load Json Format Data",
+    "title": "Load JSON Format Data",
     "language": "en"
 }
 ---
@@ -46,7 +46,7 @@ Currently only the following two JSON formats are supported:
 
    JSON format with Array as root node. Each element in the Array represents a row of data to be imported, usually an Object. An example is as follows:
 
-   ````JSON
+   ````json
    [
        { "id": 123, "city" : "beijing"},
        { "id": 456, "city" : "shanghai"},
@@ -54,7 +54,7 @@ Currently only the following two JSON formats are supported:
    ]
    ````
 
-   ````JSON
+   ````json
    [
        { "id": 123, "city" : { "name" : "beijing", "region" : "haidian"}},
        { "id": 456, "city" : { "name" : "beijing", "region" : "chaoyang"}},
@@ -69,11 +69,11 @@ Currently only the following two JSON formats are supported:
 2. A single row of data represented by Object
    JSON format with Object as root node. The entire Object represents a row of data to be imported. An example is as follows:
 
-   ````JSON
+   ````json
    { "id": 123, "city" : "beijing"}
    ````
    
-   ````JSON
+   ````json
    { "id": 123, "city" : { "name" : "beijing", "region" : "haidian" }}
    ````
    
@@ -83,7 +83,7 @@ Currently only the following two JSON formats are supported:
    
    A row of data represented by Object represents a row of data to be imported. The example is as follows:
    
-   ````JSON
+   ````json
    { "id": 123, "city" : "beijing"}
    { "id": 456, "city" : "shanghai"}
    ...
@@ -121,7 +121,7 @@ Doris supports extracting data specified in JSON through JSON Path.
 
   The JSON data is as follows:
 
-  ````JSON
+  ````json
   { "id": 123, "city" : "beijing"}
   ````
 
@@ -129,7 +129,7 @@ Doris supports extracting data specified in JSON through JSON Path.
 
   If the JSON data is as follows:
 
-  ````JSON
+  ````json
   { "id": 123, "name" : "beijing"}
   ````
 
@@ -139,11 +139,11 @@ Doris supports extracting data specified in JSON through JSON Path.
 
   Specify a set of JSON Path in the form of a JSON data. Each element in the array represents a column to extract. An example is as follows:
 
-  ````JSON
+  ````json
   ["$.id", "$.name"]
   ````
 
-  ````JSON
+  ````json
   ["$.id.sub_id", "$.name[0]", "$.city[0]"]
   ````
 
@@ -155,19 +155,19 @@ Doris supports extracting data specified in JSON through JSON Path.
 
   The JSON data is:
 
-  ````JSON
+  ````json
   { "id": 123, "city" : { "name" : "beijing", "region" : "haidian" }}
   ````
 
   JSON Path is `["$.city"]`. The matched elements are:
 
-  ````JSON
+  ````json
   { "name" : "beijing", "region" : "haidian" }
   ````
 
   The element will be converted to a string for subsequent import operations:
 
-  ````JSON
+  ````json
   "{'name':'beijing','region':'haidian'}"
   ````
 
@@ -177,7 +177,7 @@ Doris supports extracting data specified in JSON through JSON Path.
 
   The JSON data is:
 
-  ````JSON
+  ````json
   { "id": 123, "name" : "beijing"}
   ````
 
@@ -185,17 +185,17 @@ Doris supports extracting data specified in JSON through JSON Path.
 
   Doris currently does not distinguish between null values represented in JSON data and null values produced when a match fails. Suppose the JSON data is:
 
-  ````JSON
+  ````json
   { "id": 123, "name" : null }
   ````
 
   The same result would be obtained with the following two JSON Paths: `123` and `null`.
 
-  ````JSON
+  ````json
   ["$.id", "$.name"]
   ````
 
-  ````JSON
+  ````json
   ["$.id", "$.info"]
   ````
 
@@ -203,13 +203,13 @@ Doris supports extracting data specified in JSON through JSON Path.
 
   In order to prevent misoperation caused by some parameter setting errors. When Doris tries to match a row of data, if all columns fail to match, it considers this to be an error row. Suppose the Json data is:
 
-  ````JSON
+  ````json
   { "id": 123, "city" : "beijing" }
   ````
 
   If the JSON Path is written incorrectly as (or if the JSON Path is not specified, the columns in the table do not contain `id` and `city`):
 
-  ````JSON
+  ````json
   ["$.ad", "$.infa"]
   ````
 
@@ -223,7 +223,7 @@ In other words, it is equivalent to rearranging the columns of a JSON format dat
 
 Data content:
 
-````JSON
+````json
 {"k1": 1, "k2": 2}
 ````
 
@@ -297,7 +297,7 @@ Doris supports extracting data specified in JSON through JSON root.
 
   The JSON data is as follows:
 
-  ```JSON
+  ```json
   { "id": 123, "name" : { "id" : "321", "city" : "shanghai" }}
   ```
 
@@ -309,7 +309,7 @@ Doris supports extracting data specified in JSON through JSON root.
 
   Specify JSON root `-H "json_root: $.name"`. The matched elements are:
 
-  ```JSON
+  ```json
   { "id" : "321", "city" : "shanghai" }
   ```
 
@@ -319,7 +319,7 @@ Doris supports extracting data specified in JSON through JSON root.
 
 Example data is as follows:
 
-````JSON
+````json
 [
     {"k1": 1, "k2": "a"},
     {"k1": 2},
@@ -386,7 +386,7 @@ code INT NULL
 
 1. Import a single row of data 1
 
-   ````JSON
+   ````json
    {"id": 100, "city": "beijing", "code" : 1}
    ````
 
@@ -416,7 +416,7 @@ code INT NULL
 
 2. Import a single row of data 2
 
-   ````JSON
+   ````json
    {"id": 100, "content": {"city": "beijing", "code": 1}}
    ````
 
@@ -434,7 +434,7 @@ code INT NULL
 
 3. Import multiple rows of data as Array
 
-   ````JSON
+   ````json
    [
        {"id": 100, "city": "beijing", "code" : 1},
        {"id": 101, "city": "shanghai"},
@@ -512,11 +512,11 @@ Import result:
 Since the Rapidjson handles decimal and largeint numbers which will cause precision problems, 
 we suggest you to use JSON string to import data to `array<decimal>` or `array<largeint>` column.
 
-```JSON
+```json
 {"k1": 39, "k2": ["-818.2173181"]}
 ```
 
-```JSON
+```json
 {"k1": 40, "k2": ["10000000000000000000.1111111222222222"]}
 ```
 
@@ -536,7 +536,7 @@ MySQL > select * from array_test_decimal;
 ```
 
 
-```JSON
+```json
 {"k1": 999, "k2": ["76959836937749932879763573681792701709", "26017042825937891692910431521038521227"]}
 ```
 

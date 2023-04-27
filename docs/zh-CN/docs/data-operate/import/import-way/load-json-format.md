@@ -38,15 +38,15 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行 JSON �
 
 暂不支持其他方式的 JSON 格式数据导入。
 
-## 支持的 Json 格式
+## 支持的 JSON 格式
 
-当前仅支持以下两种 Json 格式：
+当前仅支持以下两种 JSON 格式：
 
 1. 以 Array 表示的多行数据
 
    以 Array 为根节点的 JSON 格式。Array 中的每个元素表示要导入的一行数据，通常是一个 Object。示例如下：
 
-   ```JSON
+   ```json
    [
        { "id": 123, "city" : "beijing"},
        { "id": 456, "city" : "shanghai"},
@@ -54,7 +54,7 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行 JSON �
    ]
    ```
 
-   ```JSON
+   ```json
    [
        { "id": 123, "city" : { "name" : "beijing", "region" : "haidian"}},
        { "id": 456, "city" : { "name" : "beijing", "region" : "chaoyang"}},
@@ -70,11 +70,11 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行 JSON �
 
    以 Object 为根节点的 JSON 格式。整个 Object 即表示要导入的一行数据。示例如下：
 
-   ```JSON
+   ```json
    { "id": 123, "city" : "beijing"}
    ```
 
-   ```JSON
+   ```json
    { "id": 123, "city" : { "name" : "beijing", "region" : "haidian" }}
    ```
 
@@ -84,7 +84,7 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行 JSON �
 
    Object表示的一行数据即表示要导入的一行数据，示例如下：
 
-   ```JSON
+   ```json
    { "id": 123, "city" : "beijing"}
    { "id": 456, "city" : "shanghai"}
    ...
@@ -122,7 +122,7 @@ Doris 支持通过 JSON Path 抽取 JSON 中指定的数据。
 
   JSON 数据如下：
 
-  ```JSON
+  ```json
   { "id": 123, "city" : "beijing"}
   ```
 
@@ -130,7 +130,7 @@ Doris 支持通过 JSON Path 抽取 JSON 中指定的数据。
 
   如果 JSON 数据如下：
 
-  ```JSON
+  ```json
   { "id": 123, "name" : "beijing"}
   ```
 
@@ -140,11 +140,11 @@ Doris 支持通过 JSON Path 抽取 JSON 中指定的数据。
 
   通过一个 JSON 数据的形式指定一组 JSON Path。数组中的每个元素表示一个要抽取的列。示例如下：
 
-  ```JSON
+  ```json
   ["$.id", "$.name"]
   ```
 
-  ```JSON
+  ```json
   ["$.id.sub_id", "$.name[0]", "$.city[0]"]
   ```
 
@@ -156,19 +156,19 @@ Doris 支持通过 JSON Path 抽取 JSON 中指定的数据。
 
   JSON 数据为：
 
-  ```JSON
+  ```json
   { "id": 123, "city" : { "name" : "beijing", "region" : "haidian" }}
   ```
 
   JSON Path 为 `["$.city"]`。则匹配到的元素为：
 
-  ```JSON
+  ```json
   { "name" : "beijing", "region" : "haidian" }
   ```
 
   该元素会被转换为字符串进行后续导入操作：
 
-  ```JSON
+  ```json
   "{'name':'beijing','region':'haidian'}"
   ```
 
@@ -178,7 +178,7 @@ Doris 支持通过 JSON Path 抽取 JSON 中指定的数据。
 
   JSON 数据为：
 
-  ```JSON
+  ```json
   { "id": 123, "name" : "beijing"}
   ```
 
@@ -186,17 +186,17 @@ Doris 支持通过 JSON Path 抽取 JSON 中指定的数据。
 
   Doris 当前不区分 JSON 数据中表示的 null 值，和匹配失败时产生的 null 值。假设 JSON 数据为：
 
-  ```JSON
+  ```json
   { "id": 123, "name" : null }
   ```
 
   则使用以下两种 JSON Path 会获得相同的结果：`123` 和 `null`。
 
-  ```JSON
+  ```json
   ["$.id", "$.name"]
   ```
 
-  ```JSON
+  ```json
   ["$.id", "$.info"]
   ```
 
@@ -204,13 +204,13 @@ Doris 支持通过 JSON Path 抽取 JSON 中指定的数据。
 
   为防止一些参数设置错误导致的误操作。Doris 在尝试匹配一行数据时，如果所有列都匹配失败，则会认为这个是一个错误行。假设 JSON 数据为：
 
-  ```JSON
+  ```json
   { "id": 123, "city" : "beijing" }
   ```
 
   如果 JSON Path 错误的写为（或者不指定 JSON Path 时，表中的列不包含 `id` 和 `city`）：
 
-  ```JSON
+  ```json
   ["$.ad", "$.infa"]
   ```
 
@@ -224,7 +224,7 @@ JSON Path 用于指定如何对 JSON 格式中的数据进行抽取，而 Column
 
 数据内容：
 
-```JSON
+```json
 {"k1" : 1, "k2": 2}
 ```
 
@@ -298,7 +298,7 @@ Doris 支持通过 JSON root 抽取 JSON 中指定的数据。
 
   JSON 数据为：
 
-  ```JSON
+  ```json
   { "id": 123, "name" : { "id" : "321", "city" : "shanghai" }}
   ```
 
@@ -310,7 +310,7 @@ Doris 支持通过 JSON root 抽取 JSON 中指定的数据。
 
   指定 JSON root `-H "json_root: $.name"`。则匹配到的元素为：
 
-  ```JSON
+  ```json
   { "id" : "321", "city" : "shanghai" }
   ```
 
@@ -320,7 +320,7 @@ Doris 支持通过 JSON root 抽取 JSON 中指定的数据。
 
 示例数据如下：
 
-```JSON
+```json
 [
     {"k1": 1, "k2": "a"},
     {"k1": 2},
@@ -386,7 +386,7 @@ code    INT     NULL
 
 1. 导入单行数据1
 
-   ```JSON
+   ```json
    {"id": 100, "city": "beijing", "code" : 1}
    ```
 
@@ -416,7 +416,7 @@ code    INT     NULL
 
 2. 导入单行数据2
 
-   ```JSON
+   ```json
    {"id": 100, "content": {"city": "beijing", "code" : 1}}
    ```
 
@@ -434,7 +434,7 @@ code    INT     NULL
 
 3. 以 Array 形式导入多行数据
 
-   ```JSON
+   ```json
    [
        {"id": 100, "city": "beijing", "code" : 1},
        {"id": 101, "city": "shanghai"},
@@ -468,9 +468,9 @@ code    INT     NULL
      105     {"order1":["guangzhou"]}    6
      ```
 
-4. 以 多行Object 形式导入多行数据
+4. 以多行 Object 形式导入多行数据
 
-      ```
+      ```json
       {"id": 100, "city": "beijing", "code" : 1}
       {"id": 101, "city": "shanghai"}
       {"id": 102, "city": "tianjin", "code" : 3}
@@ -514,11 +514,11 @@ curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\
 6. 使用 JSON 导入Array类型
 由于 RapidJSON 处理decimal和largeint数值会导致精度问题，所以我们建议使用 JSON 字符串来导入数据到`array<decimal>` 或 `array<largeint>`列。
 
-```JSON
+```json
 {"k1": 39, "k2": ["-818.2173181"]}
 ```
 
-```JSON
+```json
 {"k1": 40, "k2": ["10000000000000000000.1111111222222222"]}
 ```
 
@@ -538,7 +538,7 @@ MySQL > select * from array_test_decimal;
 ```
 
 
-```JSON
+```json
 {"k1": 999, "k2": ["76959836937749932879763573681792701709", "26017042825937891692910431521038521227"]}
 ```
 
