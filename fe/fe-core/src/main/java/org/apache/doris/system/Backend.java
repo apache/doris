@@ -84,6 +84,8 @@ public class Backend implements Writable {
     private volatile int httpPort; // web service
     @SerializedName("beRpcPort")
     private volatile int beRpcPort; // be rpc port
+    @SerializedName("numCores")
+    private volatile long numCores = 1;
     @SerializedName("brpcPort")
     private volatile int brpcPort = -1;
 
@@ -233,6 +235,10 @@ public class Backend implements Writable {
         return this.backendStatus.lastStreamLoadTime;
     }
 
+    public long getNumCores() {
+        return numCores;
+    }
+
     public void setLastStreamLoadTime(long lastStreamLoadTime) {
         this.backendStatus.lastStreamLoadTime = lastStreamLoadTime;
     }
@@ -251,6 +257,10 @@ public class Backend implements Writable {
 
     public void setLoadDisabled(boolean isLoadDisabled) {
         this.backendStatus.isLoadDisabled = isLoadDisabled;
+    }
+
+    public void setNumCores(long numCores) {
+        this.numCores = numCores;
     }
 
     // for test only
@@ -688,6 +698,11 @@ public class Backend implements Writable {
                 this.brpcPort = hbResponse.getBrpcPort();
             }
 
+            if (this.numCores != hbResponse.getNumCores() && !FeConstants.runningUnitTest) {
+                isChanged = true;
+                this.numCores = hbResponse.getNumCores();
+            }
+
             if (!this.getNodeRoleTag().value.equals(hbResponse.getNodeRole()) && Tag.validNodeRoleTag(
                     hbResponse.getNodeRole())) {
                 isChanged = true;
@@ -707,6 +722,7 @@ public class Backend implements Writable {
                 this.lastStartTime = hbResponse.getBeStartTime();
                 isChanged = true;
             }
+
             heartbeatErrMsg = "";
             this.heartbeatFailureCounter = 0;
         } else {
