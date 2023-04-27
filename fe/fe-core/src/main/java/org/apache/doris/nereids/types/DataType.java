@@ -367,6 +367,10 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof IntegralType && !(this instanceof LargeIntType);
     }
 
+    public boolean isFloatLikeType() {
+        return this.isFloatType() || isDoubleType() || isDecimalLikeType();
+    }
+
     public boolean isTinyIntType() {
         return this instanceof TinyIntType;
     }

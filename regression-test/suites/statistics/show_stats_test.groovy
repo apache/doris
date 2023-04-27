@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_show_stats") {
-    def dbName = "stats_test"
+    def dbName = "test_show_stats"
     def tblName = "${dbName}.example_tbl"
 
     sql "DROP DATABASE IF EXISTS ${dbName}"
@@ -73,6 +73,4 @@ suite("test_show_stats") {
     qt_sql "SHOW COLUMN HISTOGRAM ${tblName}(city);"
 
     sql "DROP DATABASE IF EXISTS ${dbName}"
-
-    sql "CREATE DATABASE IF NOT EXISTS ${dbName};"
 }

@@ -232,7 +232,7 @@ PROPERTIES (
 
 | OceanBase 版本 | OceanBase JDBC驱动版本 |
 |--------------|--------------------|
-| 4.1.0        | oceanbase-client-2.4.2.jar |
+| 3.2.3        | oceanbase-client-2.4.2.jar |
 
 ```sql
 CREATE EXTERNAL RESOURCE jdbc_oceanbase
@@ -242,7 +242,8 @@ properties (
     "password"="",
     "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
     "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Driverr"
+    "driver_class" = "com.oceanbase.jdbc.Driver",
+    "oceanbase_mode" = "mysql" or "oracle"
 );
 
 CREATE EXTERNAL TABLE `ext_oceanbase` (
@@ -254,6 +255,9 @@ PROPERTIES (
     "table_type"="oceanbase"
 );
 ```
+> **注意：**
+>
+> 在创建OceanBase外表时，只需在创建Resource时指定`oceanbase_mode`参数，创建外表的table_type为oceanbase。
 
 ## 类型匹配
 
@@ -393,21 +397,8 @@ PROPERTIES (
 
 ### OceanBase
 
-|    OceanBase    |  Doris   |
-|:---------------:|:--------:|
-|     BOOLEAN     |  STRING  |
-|       BIT       |  STRING  |
-|     TINYINT     | TINYINT  |
-|    SMALLINT     | SMALLINT |
-|       INT       |   INT    |
-|     BIGINT      |  BIGINT  |
-|     VARCHAR     | VARCHAR  |
-|      DATE       |   DATE   |
-|      FLOAT      |  FLOAT   |
-|    DATETIME     | DATETIME |
-|     DOUBLE      |  DOUBLE  |
-|     DECIMAL     | DECIMAL  |
-
+MySQL 模式请参考 [MySQL类型映射](#MySQL)
+Oracle 模式请参考 [Oracle类型映射](#Oracle)
 
 ## Q&A
 

@@ -653,7 +653,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt;
 
 nonterminal FromClause opt_using_clause;
 
@@ -746,7 +746,7 @@ nonterminal LiteralExpr literal;
 nonterminal CaseExpr case_expr;
 nonterminal ArrayList<CaseWhenClause> case_when_clause_list;
 nonterminal FunctionParams function_params;
-nonterminal Expr function_call_expr, array_expr;
+nonterminal Expr function_call_expr, array_expr, map_expr;
 nonterminal ArrayLiteral array_literal;
 nonterminal MapLiteral map_literal;
 nonterminal StructField struct_field;
@@ -1083,6 +1083,8 @@ stmt ::=
     {: RESULT = set; :}
     | kill_stmt:kill
     {: RESULT = kill; :}
+    | kill_analysis_job_stmt: k
+    {: RESULT = k; :}
     | describe_stmt:describe
     {: RESULT = describe; :}
     | show_stmt:show
@@ -1324,6 +1326,10 @@ alter_stmt ::=
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
+    :}
+    | KW_ALTER KW_RESOURCE KW_GROUP ident_or_text:resourceGroupName opt_properties:properties
+    {:
+        RESULT = new AlterResourceGroupStmt(resourceGroupName, properties);
     :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
@@ -4753,6 +4759,13 @@ kill_stmt ::=
     :}
     ;
 
+kill_analysis_job_stmt ::=
+    KW_KILL KW_ANALYZE INTEGER_LITERAL:value
+    {:
+        RESULT = new KillAnalysisJobStmt(value.intValue());
+    :}
+    ;
+
 // TODO(zhaochun): stolen from MySQL. Why not use value list, maybe avoid shift/reduce conflict
 // Set statement
 set_stmt ::=
@@ -6275,6 +6288,17 @@ map_literal ::=
   :}
   ;
 
+map_expr ::=
+  KW_MAP LPAREN function_params:params RPAREN
+  {:
+    RESULT = new FunctionCallExpr("map", params);
+  :}
+  | KW_MAP LPAREN RPAREN
+  {:
+    RESULT = new MapLiteral();
+  :}
+  ;
+
 struct_field ::=
   ident:name COLON type:type
   {: RESULT = new StructField(name, type); :}
@@ -6320,6 +6344,8 @@ non_pred_expr ::=
   | array_expr:a
   {: RESULT = a; :}
   | array_literal:a
+  {: RESULT = a; :}
+  | map_expr:a
   {: RESULT = a; :}
   | map_literal:a
   {: RESULT = a; :}

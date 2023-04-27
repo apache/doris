@@ -24,6 +24,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -77,6 +78,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
 
     @Override
     public Double visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, Void context) {
+        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
+                && children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return -1.0;
+        }
         return 0.0;
     }
 
@@ -126,8 +131,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
             if (ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
                 // We need to recalculate the required property of right child,
                 // to make right child compatible with left child.
-                PhysicalProperties rightRequireProperties = calRightRequiredOfBucketShuffleJoin(leftHashSpec,
-                        rightHashSpec);
+                PhysicalProperties rightRequireProperties = calRightRequiredOfBucketShuffleJoin(
+                        leftHashSpec, rightHashSpec);
                 if (!rightOutput.equals(rightRequireProperties)) {
                     updateChildEnforceAndCost(rightChild, rightOutput,
                             (DistributionSpecHash) rightRequireProperties.getDistributionSpec(), rightLowest.first);
@@ -193,8 +198,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
         GroupExpression enforcer = outputDistributionSpec.addEnforcer(child.getOwnerGroup());
         jobContext.getCascadesContext().getMemo().addEnforcerPlan(enforcer, child.getOwnerGroup());
         Cost totalCost = CostCalculator.addChildCost(enforcer.getPlan(),
-                currentCost,
                 CostCalculator.calculateCost(enforcer, Lists.newArrayList(childOutput)),
+                currentCost,
                 0);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,

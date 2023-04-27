@@ -17,5 +17,49 @@
 
 package org.apache.doris.fs;
 
-public class LocalFileSystem {
+import org.apache.doris.backup.RemoteFile;
+import org.apache.doris.backup.Status;
+
+import java.util.List;
+
+public class LocalFileSystem implements FileSystem {
+    @Override
+    public Status exists(String remotePath) {
+        return null;
+    }
+
+    @Override
+    public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
+        return null;
+    }
+
+    @Override
+    public Status upload(String localPath, String remotePath) {
+        return null;
+    }
+
+    @Override
+    public Status directUpload(String content, String remoteFile) {
+        return null;
+    }
+
+    @Override
+    public Status rename(String origFilePath, String destFilePath) {
+        return null;
+    }
+
+    @Override
+    public Status delete(String remotePath) {
+        return null;
+    }
+
+    @Override
+    public Status makeDir(String remotePath) {
+        return null;
+    }
+
+    @Override
+    public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        return null;
+    }
 }

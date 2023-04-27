@@ -17,16 +17,17 @@
 
 package org.apache.doris.fs.remote;
 
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.fs.operations.BrokerFileOperations;
+import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
 import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
@@ -46,8 +47,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
 import com.google.common.base.Preconditions;
-import org.apache.hadoop.fs.LocatedFileStatus;
-import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -72,18 +71,12 @@ import java.util.Map;
 
 public class BrokerFileSystem extends RemoteFileSystem {
     private static final Logger LOG = LogManager.getLogger(BrokerFileSystem.class);
-    private String name;
-
-    private BrokerFileOperations operations;
+    private final BrokerFileOperations operations;
 
     public BrokerFileSystem(String name, Map<String, String> properties) {
-        this.name = name;
+        super(name, StorageBackend.StorageType.BROKER);
         this.properties = properties;
         this.operations = new BrokerFileOperations(name, properties);
-    }
-
-    public static String clientId() {
-        return FrontendOptions.getLocalHostAddress() + ":" + Config.edit_log_port;
     }
 
     public Pair<TPaloBrokerService.Client, TNetworkAddress> getBroker() {
@@ -171,7 +164,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
         // 2. open file reader with broker
         TBrokerFD fd = new TBrokerFD();
-        Status opStatus = operations.openReader(client, address, remoteFilePath, fd);
+        Status opStatus = operations.openReader(OpParams.of(client, address, remoteFilePath, fd));
         if (!opStatus.ok()) {
             return opStatus;
         }
@@ -296,7 +289,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
                     + BrokerUtil.printBroker(name, address));
         } finally {
             // close broker reader
-            Status closeStatus = operations.closeReader(client, address, fd);
+            Status closeStatus = operations.closeReader(OpParams.of(client, address, fd));
             if (!closeStatus.ok()) {
                 LOG.warn(closeStatus.getErrMsg());
                 if (status.ok()) {
@@ -329,7 +322,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
         Status status = Status.OK;
         try {
             // 2. open file writer with broker
-            status = operations.openWriter(client, address, remoteFile, fd);
+            status = operations.openWriter(OpParams.of(client, address, remoteFile, fd));
             if (!status.ok()) {
                 return status;
             }
@@ -349,7 +342,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
                         + ", broker: " + BrokerUtil.printBroker(name, address));
             }
         } finally {
-            Status closeStatus = operations.closeWriter(client, address, fd);
+            Status closeStatus = operations.closeWriter(OpParams.of(client, address, fd));
             if (closeStatus.getErrCode() == Status.ErrCode.BAD_CONNECTION
                     || status.getErrCode() == Status.ErrCode.BAD_CONNECTION) {
                 ClientPool.brokerPool.invalidateObject(address, client);
@@ -374,7 +367,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
         // 2. open file write with broker
         TBrokerFD fd = new TBrokerFD();
-        Status status = operations.openWriter(client, address, remotePath, fd);
+        Status status = operations.openWriter(OpParams.of(client, address, remotePath, fd));
         if (!status.ok()) {
             return status;
         }
@@ -463,7 +456,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
                     + ", broker: " + BrokerUtil.printBroker(name, address));
         } finally {
             // close write
-            Status closeStatus = operations.closeWriter(client, address, fd);
+            Status closeStatus = operations.closeWriter(OpParams.of(client, address, fd));
             if (!closeStatus.ok()) {
                 LOG.warn(closeStatus.getErrMsg());
                 if (status.ok()) {
@@ -560,16 +553,6 @@ public class BrokerFileSystem extends RemoteFileSystem {
         }
 
         return Status.OK;
-    }
-
-    @Override
-    public RemoteIterator<LocatedFileStatus> listLocatedStatus(String remotePath) throws UserException {
-        return null;
-    }
-
-    @Override
-    public Status list(String remotePath, List<RemoteFile> result) {
-        return list(remotePath, result, true);
     }
 
     // List files in remotePath
