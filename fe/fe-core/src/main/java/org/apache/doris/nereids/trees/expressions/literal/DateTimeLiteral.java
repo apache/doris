@@ -272,39 +272,27 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     public DateTimeLiteral plusDays(int days) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusDays(days);
-        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond());
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusDays(days));
     }
 
     public DateTimeLiteral plusYears(int years) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusYears(years);
-        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond());
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusYears(years));
     }
 
     public DateTimeLiteral plusMonths(int months) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusMonths(months);
-        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond());
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusMonths(months));
     }
 
     public DateTimeLiteral plusHours(int hours) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusHours(hours);
-        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond());
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusHours(hours));
     }
 
     public DateTimeLiteral plusMinutes(int minutes) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusMinutes(minutes);
-        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond());
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusMinutes(minutes));
     }
 
     public DateTimeLiteral plusSeconds(long seconds) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusSeconds(seconds);
-        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond());
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusSeconds(seconds));
     }
 
     public long getHour() {
@@ -337,7 +325,8 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     public static DateTimeLiteral fromJavaDateType(LocalDateTime dateTime) {
-        return new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
-                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
+        return dateTime.isBefore(startOfAD) ? null
+                : new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
     }
 }

@@ -44,6 +44,7 @@ public class DateLiteral extends Literal {
     protected static DateTimeFormatter DATE_FORMATTER = null;
     protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
     protected static DateTimeFormatter DATEKEY_FORMATTER = null;
+    protected static LocalDateTime startOfAD = LocalDateTime.of(0, 1, 1, 0, 0, 0);
 
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
 
@@ -210,6 +211,7 @@ public class DateLiteral extends Literal {
     }
 
     public static DateLiteral fromJavaDateType(LocalDateTime dateTime) {
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+        return dateTime.isBefore(startOfAD) ? null
+                : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }

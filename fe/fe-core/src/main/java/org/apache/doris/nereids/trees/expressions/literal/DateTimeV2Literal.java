@@ -118,13 +118,13 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime) {
-        return new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
-                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
+        return fromJavaDateType(dateTime, 6);
     }
 
     public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int percision) {
-        return new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
-                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
-                dateTime.getNano() / (long) Math.pow(10, 9 - percision));
+        return dateTime.isBefore(startOfAD) ? null
+                : new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                        dateTime.getNano() / (long) Math.pow(10, 9 - percision));
     }
 }

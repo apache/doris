@@ -65,6 +65,7 @@ public class DateV2Literal extends DateLiteral {
     }
 
     public static DateV2Literal fromJavaDateType(LocalDateTime dateTime) {
-        return new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+        return dateTime.isBefore(startOfAD) ? null
+                : new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }
