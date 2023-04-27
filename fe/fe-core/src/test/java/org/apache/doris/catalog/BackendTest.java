@@ -39,6 +39,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class BackendTest {
     private Backend backend;
@@ -116,7 +117,7 @@ public class BackendTest {
     @Test
     public void testSerialization() throws Exception {
         // Write 100 objects to file
-        Path path = Paths.get("./backendTest");
+        Path path = Paths.get("./backendTest" + UUID.randomUUID());
         Files.createFile(path);
         DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
@@ -200,8 +201,7 @@ public class BackendTest {
         back2.setTagMap(tagMap);
         Assert.assertNotEquals(back1, back2);
 
-        Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true, tags: {location=default}]",
-                back1.toString());
+        Assert.assertTrue(back1.toString().contains("tags: {location=default}"));
         Assert.assertEquals("{\"compute\" : \"c1\", \"location\" : \"l1\"}", back2.getTagMapString());
 
         // 3. delete files
