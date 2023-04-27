@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
 
@@ -71,6 +72,8 @@ protected:
 };
 
 class GeoPoint : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoPoint);
+
 public:
     GeoPoint();
     ~GeoPoint() override;
@@ -107,6 +110,8 @@ private:
 };
 
 class GeoLine : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoLine);
+
 public:
     GeoLine();
     ~GeoLine() override;
@@ -132,12 +137,14 @@ private:
 };
 
 class GeoPolygon : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoPolygon);
+
 public:
     GeoPolygon();
     ~GeoPolygon() override;
 
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
-    GeoCoordinateListList* to_coords() const;
+    const std::unique_ptr<GeoCoordinateListList> to_coords() const;
 
     GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
     const S2Polygon* polygon() const { return _polygon.get(); }
@@ -158,6 +165,8 @@ private:
 };
 
 class GeoCircle : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoCircle);
+
 public:
     GeoCircle();
     ~GeoCircle() override;
