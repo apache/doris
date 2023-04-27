@@ -1,2 +1,2 @@
-- name: Pull Request Stats
-  uses: flowwer-dev/pull-request-stats@v2.8.1
+name: Pull Request Stats
+uses: flowwer-dev/pull-request-stats@v2.8.1
