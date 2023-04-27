@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
@@ -66,6 +67,7 @@ public class HistogramTaskTest extends TestWithFeService {
                         + "PROPERTIES(\n"
                         + "    \"replication_num\"=\"1\"\n"
                         + ")");
+        FeConstants.runningUnitTest = true;
     }
 
     @Tested
@@ -78,19 +80,19 @@ public class HistogramTaskTest extends TestWithFeService {
                 "ANALYZE TABLE t1(col1) UPDATE HISTOGRAM");
         Assertions.assertNotNull(executor);
 
-        ConcurrentMap<Long, Map<Long, AnalysisTaskInfo>> taskMap =
+        ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> taskMap =
                 Deencapsulation.getField(analysisManager, "analysisJobIdToTaskMap");
         Assertions.assertEquals(1, taskMap.size());
 
-        for (Entry<Long, Map<Long, AnalysisTaskInfo>> infoMap : taskMap.entrySet()) {
-            Map<Long, AnalysisTaskInfo> taskInfo = infoMap.getValue();
+        for (Entry<Long, Map<Long, BaseAnalysisTask>> infoMap : taskMap.entrySet()) {
+            Map<Long, BaseAnalysisTask> taskInfo = infoMap.getValue();
             Assertions.assertEquals(1, taskInfo.size());
 
-            for (Entry<Long, AnalysisTaskInfo> infoEntry : taskInfo.entrySet()) {
-                AnalysisTaskInfo info = infoEntry.getValue();
-                Assertions.assertEquals(AnalysisType.HISTOGRAM, info.analysisType);
-                Assertions.assertEquals("t1", info.tblName);
-                Assertions.assertEquals("col1", info.colName);
+            for (Entry<Long, BaseAnalysisTask> infoEntry : taskInfo.entrySet()) {
+                BaseAnalysisTask task = infoEntry.getValue();
+                Assertions.assertEquals(AnalysisType.HISTOGRAM, task.info.analysisType);
+                Assertions.assertEquals("t1", task.info.tblName);
+                Assertions.assertEquals("col1", task.info.colName);
             }
         }
     }

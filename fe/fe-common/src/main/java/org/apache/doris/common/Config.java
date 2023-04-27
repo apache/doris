@@ -2149,5 +2149,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false)
     public static boolean skip_localhost_auth_check  = false;
+
+    /**
+     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
+     */
+    @ConfField
+    public static boolean enable_stats = true;
 }
 

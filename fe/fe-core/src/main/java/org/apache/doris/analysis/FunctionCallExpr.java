@@ -1461,6 +1461,13 @@ public class FunctionCallExpr extends Expr {
             fn.getReturnType().getPrimitiveType().setTimeType();
         }
 
+        if (fnName.getFunction().equalsIgnoreCase("map")) {
+            if ((children.size() & 1) == 1) {
+                throw new AnalysisException("map can't be odd parameters, need even parameters: "
+                        + this.toSql());
+            }
+        }
+
         if (fnName.getFunction().equalsIgnoreCase("named_struct")) {
             if ((children.size() & 1) == 1) {
                 throw new AnalysisException("named_struct can't be odd parameters, need even parameters: "
@@ -1559,10 +1566,9 @@ public class FunctionCallExpr extends Expr {
                         && (args[ix].isArrayType())
                         && ((ArrayType) args[ix]).getItemType().isDecimalV3()))) {
                     continue;
-                } else if (!argTypes[i].matchesType(args[ix]) && !(
-                        argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
+                } else if (!argTypes[i].matchesType(args[ix])
                         && (!fn.getReturnType().isDecimalV3()
-                        || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
+                                || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
                     uncheckedCastChild(args[ix], i);
                 }
             }
@@ -1631,6 +1637,11 @@ public class FunctionCallExpr extends Expr {
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
+        for (OrderByElement o : orderByElements) {
+            if (!o.getExpr().isAnalyzed) {
+                o.getExpr().analyzeImpl(analyzer);
+            }
+        }
     }
 
     // if return type is nested type, need to be determined the sub-element type

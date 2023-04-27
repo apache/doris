@@ -253,8 +253,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_store_row_column(tablet_schema.store_row_column);
     }
 
-    tablet_meta_pb.set_is_dropped(false);
-
     init_from_pb(tablet_meta_pb);
 }
 
@@ -278,8 +276,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _storage_policy_id(b._storage_policy_id),
           _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
-          _delete_bitmap(b._delete_bitmap),
-          _is_dropped(b._is_dropped) {};
+          _delete_bitmap(b._delete_bitmap) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -555,12 +552,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
         }
     }
-
-    if (tablet_meta_pb.has_is_dropped()) {
-        _is_dropped = tablet_meta_pb.is_dropped();
-    } else {
-        _is_dropped = false;
-    }
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -634,8 +625,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             *(delete_bitmap_pb->add_segment_delete_bitmaps()) = std::move(bitmap_data);
         }
     }
-
-    tablet_meta_pb->set_is_dropped(_is_dropped);
 }
 
 uint32_t TabletMeta::mem_size() const {

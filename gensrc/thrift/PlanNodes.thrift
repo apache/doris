@@ -1001,6 +1001,8 @@ struct TRuntimeFilterDesc {
 
   // for bitmap filter
   11: optional bool bitmap_filter_not_in
+
+  12: optional bool opt_remote_rf;
 }
 
 struct TDataGenScanNode {
