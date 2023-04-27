@@ -158,9 +158,6 @@ public class ExportJob implements Writable {
 
     private String sql = "";
 
-    // If set to true, the profile of export job with be pushed to ProfileManager
-    private volatile boolean enableProfile = false;
-
     // The selectStmt is sql 'select ... into outfile ...'
     @Getter
     private List<QueryStmt> selectStmtList = Lists.newArrayList();
@@ -220,7 +217,6 @@ public class ExportJob implements Writable {
         this.exportPath = path;
         this.sessionVariables = stmt.getSessionVariables();
         this.timeoutSecond = sessionVariables.getQueryTimeoutS();
-        this.enableProfile = sessionVariables.enableProfile();
 
         this.qualifiedUser = stmt.getQualifiedUser();
         this.userIdentity = stmt.getUserIdentity();
@@ -617,10 +613,6 @@ public class ExportJob implements Writable {
 
     public String getQueryId() {
         return queryId;
-    }
-
-    public boolean getEnableProfile() {
-        return enableProfile;
     }
 
     @Override
