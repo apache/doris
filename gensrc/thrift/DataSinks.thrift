@@ -160,12 +160,18 @@ struct TMultiCastDataStreamSink {
     2: optional list<list<TPlanFragmentDestination>> destinations;
 }
 
+struct TFetchOption {
+    1: optional bool use_two_phase_fetch;
+    // Nodes in this cluster, used for second phase fetch
+    2: optional Descriptors.TPaloNodesInfo nodes_info;
+    // Whether fetch row store
+    3: optional bool fetch_row_store;
+}
+
 struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
-    3: optional bool use_two_phase_fetch;
-    // Nodes in this cluster, used for second phase fetch
-    4: optional Descriptors.TPaloNodesInfo nodes_info;
+    3: optional TFetchOption fetch_option;
 }
 
 struct TResultFileSink {

@@ -35,6 +35,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -51,6 +52,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.statistics.query.StatsDelta;
+import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRuntimeFilterMode;
 
@@ -473,6 +475,7 @@ public class OriginalPlanner extends Planner {
     // and reconconstruct the final block
     private void injectRowIdColumnSlot() {
         boolean injected = false;
+        OlapTable olapTable = null;
         for (PlanFragment fragment : fragments) {
             PlanNode node = fragment.getPlanRoot();
             PlanNode parent = null;
@@ -493,6 +496,7 @@ public class OriginalPlanner extends Planner {
                 sortNode.getResolvedTupleExprs().add(extSlot);
                 sortNode.getSortInfo().setUseTwoPhaseRead();
                 injected = true;
+                olapTable = scanNode.getOlapTable();
                 break;
             }
             // case2
@@ -500,12 +504,15 @@ public class OriginalPlanner extends Planner {
                 OlapScanNode scanNode = (OlapScanNode) node;
                 injectRowIdColumnSlot(analyzer, scanNode.getTupleDesc());
                 injected = true;
+                olapTable = scanNode.getOlapTable();
                 break;
             }
         }
         for (PlanFragment fragment : fragments) {
             if (injected && fragment.getSink() instanceof ResultSink) {
-                ((ResultSink) fragment.getSink()).setUseTwoPhaseReadOpt(true);
+                TFetchOption fetchOption = new TFetchOption();
+                fetchOption.setFetchRowStore(olapTable.storeRowColumn());
+                ((ResultSink) fragment.getSink()).setFetchOption(fetchOption);
                 break;
             }
         }

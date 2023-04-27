@@ -28,7 +28,6 @@
 
 #include "common/status.h"
 #include "exec/data_sink.h"
-#include "exec/tablet_info.h" // DorisNodesInfo
 #include "vec/sink/vresult_writer.h"
 
 namespace doris {
@@ -161,8 +160,7 @@ private:
     int _buf_size;            // Allocated from _pool
 
     // for fetch data by rowids
-    DorisNodesInfo _nodes_info;
-    bool _use_two_phase_read = false;
+    TFetchOption _fetch_option;
 };
 } // namespace vectorized
 

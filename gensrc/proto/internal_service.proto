@@ -603,23 +603,35 @@ message PFetchTableSchemaResult {
   repeated PTypeDesc column_types = 4;
 }
 
+message RowId {
+    optional int64 tablet_id = 1;
+    optional string rowset_id = 2;
+    optional uint64 segment_id = 3;
+    optional uint64 ordinal_id = 4;
+}
+
 message PMultiGetRequest {
-    message RowId {
-        optional int64 tablet_id = 1;
-        optional string rowset_id = 2;
-        optional uint64 segment_id = 3;
-        optional uint64 ordinal_id = 4;
-    };
     repeated RowId rowids = 1;
     optional PTupleDescriptor desc = 2;
     repeated PSlotDescriptor slots = 3;
     // for compability
     optional int32 be_exec_version = 4;
+    optional bool fetch_row_store = 5;
+    optional PUniqueId query_id = 6;
 };
 
 message PMultiGetResponse {
     optional PBlock block = 1;
     optional PStatus status = 2;
+ 
+    // more effecient serialization fields for row store
+    enum RowFormat {
+        JSONB = 0;
+    };
+    optional RowFormat format = 3;
+    repeated bytes binary_row_data = 4;
+    // for sorting rows
+    repeated RowId row_ids = 5;
 };
 
 message PFetchColIdsRequest {

@@ -1416,16 +1416,30 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     }
 }
 
-static Status read_by_rowids(
-        std::pair<size_t, size_t> row_range_idx, const TupleDescriptor& desc,
-        const google::protobuf::RepeatedPtrField<PMultiGetRequest_RowId>& rowids,
-        vectorized::Block* sub_block, vectorized::MutableColumnPtr& row_id_col) {
+Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
+                                        PMultiGetResponse* response) {
     OlapReaderStatistics stats;
-    //read from row_range.first to row_range.second
-    for (size_t i = row_range_idx.first; i < row_range_idx.second; ++i) {
+    vectorized::Block result_block;
+
+    // init desc
+    TupleDescriptor desc(request.desc());
+    std::vector<SlotDescriptor> slots;
+    slots.reserve(request.slots().size());
+    for (const auto& pslot : request.slots()) {
+        slots.push_back(SlotDescriptor(pslot));
+        desc.add_slot(&slots.back());
+    }
+
+    // read row by row
+    for (size_t i = 0; i < request.rowids_size(); ++i) {
+        const auto& row_id = request.rowids(i);
         MonotonicStopWatch watch;
         watch.start();
-        const auto& row_id = rowids[i];
+        Defer _defer([&]() {
+            LOG_EVERY_N(INFO, 100)
+                    << "multiget_data single_row, cost(us):" << watch.elapsed_time() / 1000;
+            *response->add_row_ids() = row_id;
+        });
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 row_id.tablet_id(), true /*include deleted*/);
         RowsetId rowset_id;
@@ -1455,25 +1469,26 @@ static Status read_by_rowids(
             continue;
         }
         segment_v2::SegmentSharedPtr segment = *it;
-        Defer _defer([&]() {
-            LOG_EVERY_N(INFO, 100)
-                    << "multiget_data single_row, cost(us):" << watch.elapsed_time() / 1000;
-            GlobalRowLoacation row_location(row_id.tablet_id(), rowset->rowset_id(),
-                                            row_id.segment_id(), row_id.ordinal_id());
-            row_id_col->insert_data(reinterpret_cast<const char*>(&row_location),
-                                    sizeof(GlobalRowLoacation));
-        });
-        if (tablet->tablet_schema()->store_row_column()) {
-            // Faster path to utilize row store
+        GlobalRowLoacation row_location(row_id.tablet_id(), rowset->rowset_id(),
+                                        row_id.segment_id(), row_id.ordinal_id());
+        // fetch by row store, more effcient way
+        if (request.fetch_row_store()) {
+            CHECK(tablet->tablet_schema()->store_row_column());
             RowLocation loc(rowset_id, segment->id(), row_id.ordinal_id());
-            RETURN_IF_ERROR(tablet->lookup_row_data({}, loc, rowset, &desc, stats, sub_block));
+            string* value = response->add_binary_row_data();
+            RETURN_IF_ERROR(tablet->lookup_row_data({}, loc, rowset, &desc, stats, *value));
             continue;
         }
-        for (int x = 0; x < desc.slots().size() - 1; ++x) {
+
+        // fetch by column store
+        if (result_block.is_empty_column()) {
+            result_block = vectorized::Block(desc.slots(), request.rowids().size());
+        }
+        for (int x = 0; x < desc.slots().size(); ++x) {
             int index = tablet_schema->field_index(desc.slots()[x]->col_unique_id());
             segment_v2::ColumnIterator* column_iterator = nullptr;
             vectorized::MutableColumnPtr column =
-                    sub_block->get_by_position(x).column->assume_mutable();
+                    result_block.get_by_position(x).column->assume_mutable();
             if (index < 0) {
                 column->insert_default();
                 continue;
@@ -1493,49 +1508,17 @@ static Status read_by_rowids(
             RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column));
         }
     }
-    return Status::OK();
-}
-
-Status PInternalServiceImpl::_multi_get(const PMultiGetRequest* request,
-                                        PMultiGetResponse* response) {
-    TupleDescriptor desc(request->desc());
-    std::vector<SlotDescriptor> slots;
-    slots.reserve(request->slots().size());
-    for (const auto& pslot : request->slots()) {
-        slots.push_back(SlotDescriptor(pslot));
-        desc.add_slot(&slots.back());
+    // serialize block if not empty
+    if (!result_block.is_empty_column()) {
+        VLOG_DEBUG << "dump block:" << result_block.dump_data(0, 10)
+                   << ", be_exec_version:" << request.be_exec_version();
+        [[maybe_unused]] size_t compressed_size = 0;
+        [[maybe_unused]] size_t uncompressed_size = 0;
+        int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
+        RETURN_IF_ERROR(result_block.serialize(be_exec_version, response->mutable_block(),
+                                               &uncompressed_size, &compressed_size,
+                                               segment_v2::CompressionTypePB::LZ4));
     }
-    assert(desc.slots().back()->col_name() == BeConsts::ROWID_COL);
-    vectorized::Block block(desc.slots(), request->rowids().size());
-    vectorized::MutableColumnPtr row_id_col = vectorized::ColumnString::create();
-    RETURN_IF_ERROR(read_by_rowids(std::pair {0, request->rowids_size()}, desc, request->rowids(),
-                                   &block, row_id_col));
-    block.replace_by_position(block.columns() - 1, row_id_col->get_ptr());
-    std::vector<size_t> char_type_idx;
-    for (size_t i = 0; i < desc.slots().size(); i++) {
-        auto column_desc = desc.slots()[i];
-        auto type_desc = column_desc->type();
-        do {
-            if (type_desc.type == TYPE_CHAR) {
-                char_type_idx.emplace_back(i);
-                break;
-            } else if (type_desc.type != TYPE_ARRAY) {
-                break;
-            }
-            // for Array<Char> or Array<Array<Char>>
-            type_desc = type_desc.children[0];
-        } while (true);
-    }
-    // shrink char_type suffix zero data
-    block.shrink_char_type_column_suffix_zero(char_type_idx);
-    VLOG_DEBUG << "dump block:" << block.dump_data(0, 10)
-               << ", be_exec_version:" << request->be_exec_version();
-
-    [[maybe_unused]] size_t compressed_size = 0;
-    [[maybe_unused]] size_t uncompressed_size = 0;
-    int be_exec_version = request->has_be_exec_version() ? request->be_exec_version() : 0;
-    RETURN_IF_ERROR(block.serialize(be_exec_version, response->mutable_block(), &uncompressed_size,
-                                    &compressed_size, segment_v2::CompressionTypePB::LZ4));
     return Status::OK();
 }
 
@@ -1549,7 +1532,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
         watch.start();
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
-        Status st = _multi_get(request, response);
+        Status st = _multi_get(*request, response);
         st.to_protobuf(response->mutable_status());
         LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
     });

@@ -18,9 +18,6 @@
 #include "vec/jsonb/serialize.h"
 
 #include <assert.h>
-#include <glog/logging.h>
-#include <parallel_hashmap/phmap.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <memory>
@@ -28,13 +25,10 @@
 
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
-<<<<<<< HEAD
-=======
 #include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
 #include "util/bitmap_value.h"
->>>>>>> 5153bfda6b (fix compile)
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"
