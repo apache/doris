@@ -38,6 +38,8 @@ public:
     AcceptNullPredicate(ColumnPredicate* nested)
             : ColumnPredicate(nested->column_id(), nested->opposite()), _nested {nested} {}
 
+    ~AcceptNullPredicate() override { delete _nested; }
+
     PredicateType type() const override { return _nested->type(); }
 
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
