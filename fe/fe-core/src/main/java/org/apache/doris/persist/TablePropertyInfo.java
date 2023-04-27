@@ -17,13 +17,15 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,15 +36,20 @@ import java.util.Map;
  * PersistInfo for Table properties
  */
 public class TablePropertyInfo implements Writable {
+    @SerializedName(value = "dbId")
+    private long dbId;
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "propertyMap")
     private Map<String, String> propertyMap;
+    @SerializedName(value = "groupId")
     private GroupId groupId;
 
-    public TablePropertyInfo() {
-
+    private TablePropertyInfo() {
     }
 
-    public TablePropertyInfo(long tableId, GroupId groupId, Map<String, String> propertyMap) {
+    public TablePropertyInfo(long dbId, long tableId, GroupId groupId, Map<String, String> propertyMap) {
+        this.dbId = dbId;
         this.tableId = tableId;
         this.groupId = groupId;
         this.propertyMap = propertyMap;
@@ -50,6 +57,10 @@ public class TablePropertyInfo implements Writable {
 
     public Map<String, String> getPropertyMap() {
         return propertyMap;
+    }
+
+    public long getDbId() {
+        return dbId;
     }
 
     public long getTableId() {
@@ -62,34 +73,25 @@ public class TablePropertyInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(tableId);
-        if (groupId == null) {
-            out.writeBoolean(false);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static TablePropertyInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_119) {
+            TablePropertyInfo info = new TablePropertyInfo();
+            info.readFields(in);
+            return info;
         } else {
-            out.writeBoolean(true);
-            groupId.write(out);
-        }
-        int size = propertyMap.size();
-        out.writeInt(size);
-        for (Map.Entry<String, String> kv : propertyMap.entrySet()) {
-            Text.writeString(out, kv.getKey());
-            Text.writeString(out, kv.getValue());
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, TablePropertyInfo.class);
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
-        long dbId = -1;
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {
-            dbId = in.readLong();
-        }
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_55) {
-            if (in.readBoolean()) {
-                groupId = GroupId.read(in);
-            }
-        } else {
-            groupId = new GroupId(dbId, tableId);
+        if (in.readBoolean()) {
+            groupId = GroupId.read(in);
         }
 
         int size = in.readInt();
@@ -113,13 +115,14 @@ public class TablePropertyInfo implements Writable {
 
         TablePropertyInfo info = (TablePropertyInfo) obj;
 
-        return tableId == info.tableId && groupId.equals(info.groupId)
+        return dbId == info.dbId && tableId == info.tableId && groupId.equals(info.groupId)
                 && propertyMap.equals(info.propertyMap);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
+        sb.append(" db id: ").append(dbId);
         sb.append(" table id: ").append(tableId);
         sb.append(" group id: ").append(groupId);
         sb.append(" propertyMap: ").append(propertyMap);

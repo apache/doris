@@ -26,20 +26,19 @@ import org.apache.doris.utframe.MockedBackendFactory.BeThriftService;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
-
 import org.apache.thrift.TProcessor;
 
 import java.io.IOException;
 
 /*
  * Mocked Backend
- * A mocked Backend has 3 rpc services. 
+ * A mocked Backend has 3 rpc services.
  *      HeartbeatService.Iface to handle heart beat from Frontend.
  *      BeThriftService to handle agent tasks and other requests from Frontend.
  *      BRpcService to handle the query request from Frontend.
- *      
+ *
  * Users can create a BE by customizing three rpc services.
- * 
+ *
  * Better to create a mocked Backend from MockedBackendFactory.
  * In MockedBackendFactory, there default rpc service for above 3 rpc services.
  */
@@ -48,7 +47,7 @@ public class MockedBackend {
     private ThriftServer heartbeatServer;
     private ThriftServer beThriftServer;
     private Server backendServer;
-    
+
     private String host;
     private int heartbeatPort;
     private int thriftPort;

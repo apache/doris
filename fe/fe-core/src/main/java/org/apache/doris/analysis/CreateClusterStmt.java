@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -72,7 +72,7 @@ public class CreateClusterStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "CREATE CLUSTER");
         }
         FeNameFormat.checkDbName(clusterName);
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_AUTHORITY, analyzer.getQualifiedUser());
         }
 
@@ -89,7 +89,7 @@ public class CreateClusterStmt extends DdlStmt {
         if (instanceNum < 0) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_CREATE_ISTANCE_NUM_ERROR);
         }
-        
+
         final String password = passwd;
         if (!Strings.isNullOrEmpty(password)) {
             scramblePassword = MysqlPassword.makeScrambledPassword(password);

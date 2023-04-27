@@ -21,10 +21,19 @@ public class FileSystemIdentity {
 
     private final String hostName;
     private final String ugiInfo;
+
+    private final String extraInfo;
     
     public FileSystemIdentity(String hostName, String ugiInfo) {
         this.hostName = hostName;
         this.ugiInfo = ugiInfo;
+        this.extraInfo = null;
+    }
+
+    public FileSystemIdentity(String hostName, String ugiInfo, String extraInfo) {
+        this.hostName = hostName;
+        this.ugiInfo = ugiInfo;
+        this.extraInfo = extraInfo;
     }
 
     @Override
@@ -34,6 +43,7 @@ public class FileSystemIdentity {
         result = prime * result
                 + ((hostName == null) ? 0 : hostName.hashCode());
         result = prime * result + ((ugiInfo == null) ? 0 : ugiInfo.hashCode());
+        result = prime * result + ((extraInfo == null) ? 0 : extraInfo.hashCode());
         return result;
     }
 
@@ -61,6 +71,13 @@ public class FileSystemIdentity {
                 return false;
             }
         } else if (!ugiInfo.equals(other.ugiInfo)) {
+            return false;
+        }
+        if (extraInfo == null) {
+            if (other.extraInfo != null) {
+                return false;
+            }
+        } else if (!extraInfo.equals(other.extraInfo)) {
             return false;
         }
         return true;

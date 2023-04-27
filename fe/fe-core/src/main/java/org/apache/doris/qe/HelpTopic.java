@@ -27,10 +27,11 @@ import java.util.Map;
 // Stolen from MySQL help_topic table.
 // Used to store one help topic.
 public class HelpTopic implements HelpObjectIface {
-    private static final String DESCRIPTION = "description";
-    private static final String EXAMPLE = "example";
+    public static final String DESCRIPTION = "description";
+    public static final String EXAMPLE = "example";
+    public static final String KEYWORDS = "keywords";
+
     private static final String URL = "url";
-    private static final String KEYWORD = "keyword";
     private static final String CATEGORY = "category";
     private String name = "";
     private String description = "";
@@ -86,9 +87,17 @@ public class HelpTopic implements HelpObjectIface {
             this.url = url;
         }
         // Keyword
-        String keyword = doc.getValue().get(KEYWORD);
+        String keyword = doc.getValue().get(KEYWORDS);
         if (!Strings.isNullOrEmpty(keyword)) {
-            this.keywords = Lists.newArrayList(Splitter.onPattern(",").trimResults().omitEmptyStrings().split(keyword));
+            List<String> keywordTexts = Lists.newArrayList(
+                    Splitter.onPattern("\n").trimResults().omitEmptyStrings().split(keyword));
+            for (String keywordText : keywordTexts) {
+                if (keywordText.startsWith("```")) {
+                    continue;
+                }
+                this.keywords.addAll(Lists.newArrayList(
+                        Splitter.onPattern(",").trimResults().omitEmptyStrings().split(keywordText)));
+            }
         }
         // Category
         String category = doc.getValue().get(CATEGORY);
@@ -102,4 +111,3 @@ public class HelpTopic implements HelpObjectIface {
         return "name: " + name + ", desc: " + description;
     }
 }
-

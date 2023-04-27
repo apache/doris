@@ -18,16 +18,15 @@
 package org.apache.doris.external.elasticsearch;
 
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -54,12 +53,13 @@ public class EsRepository extends MasterDaemon {
     }
 
     public void registerTable(EsTable esTable) {
-        if (Catalog.isCheckpointThread()) {
+        if (Env.isCheckpointThread()) {
             return;
         }
         esTables.put(esTable.getId(), esTable);
         esClients.put(esTable.getId(),
-                new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd(), esTable.isHttpSslEnabled()));
+                new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd(),
+                        esTable.isHttpSslEnabled()));
         LOG.info("register a new table [{}] to sync list", esTable);
     }
 
@@ -73,9 +73,10 @@ public class EsRepository extends MasterDaemon {
     protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
-                esTable.syncTableMetaData(esClients.get(esTable.getId()));
+                esTable.syncTableMetaData();
             } catch (Throwable e) {
-                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
+                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster",
+                        esTable.getName(), e);
                 esTable.setEsTablePartitions(null);
                 esTable.setLastMetaDataSyncException(e);
             }
@@ -86,12 +87,12 @@ public class EsRepository extends MasterDaemon {
     // the rest of tables will be added or removed by replaying edit log
     // when fe is start to load image, should call this method to init the state store
     public void loadTableFromCatalog() {
-        if (Catalog.isCheckpointThread()) {
+        if (Env.isCheckpointThread()) {
             return;
         }
-        List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
+        List<Long> dbIds = Env.getCurrentEnv().getInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
-            Database database = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            Database database = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (database == null) {
                 continue;
             }

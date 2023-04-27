@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.EventType;
@@ -98,7 +98,7 @@ public class AuditEventProcessorTest {
 
     @Test
     public void testAuditEventProcessor() throws IOException {
-        AuditEventProcessor processor = Catalog.getCurrentAuditEventProcessor();
+        AuditEventProcessor processor = Env.getCurrentAuditEventProcessor();
         long start = System.currentTimeMillis();
         for (int i = 0; i < 10000; i++) {
             AuditEvent event = new AuditEvent.AuditEventBuilder().setEventType(EventType.AFTER_QUERY)

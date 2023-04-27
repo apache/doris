@@ -27,6 +27,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
+@Deprecated
+// replaced by BackendReplicaInfo
 public class BackendTabletsInfo implements Writable {
 
     private long backendId;
@@ -109,7 +111,7 @@ public class BackendTabletsInfo implements Writable {
         for (int i = 0; i < size; i++) {
             long tabletId = in.readLong();
             int schemaHash = in.readInt();
-            tabletSchemaHash.add(Pair.create(tabletId, schemaHash));
+            tabletSchemaHash.add(Pair.of(tabletId, schemaHash));
         }
 
         bad = in.readBoolean();
@@ -124,9 +126,7 @@ public class BackendTabletsInfo implements Writable {
             replicaPersistInfos = Lists.newArrayList();
         }
 
-        if (in.readBoolean()) {
-
-        }
+        in.readBoolean();
     }
 
 }

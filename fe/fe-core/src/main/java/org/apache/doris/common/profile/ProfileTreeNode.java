@@ -20,6 +20,11 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.TreeNode;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+
+import java.util.List;
 
 public class ProfileTreeNode extends TreeNode<ProfileTreeNode> {
 
@@ -27,6 +32,7 @@ public class ProfileTreeNode extends TreeNode<ProfileTreeNode> {
     protected String id;
     protected CounterNode counterNode;
     protected String activeTime;
+    protected List<String> infoStrings = Lists.newArrayList();
     protected String nonChild;
 
     protected String fragmentId = "";
@@ -73,6 +79,14 @@ public class ProfileTreeNode extends TreeNode<ProfileTreeNode> {
 
     public String getActiveTime() {
         return activeTime;
+    }
+
+    public void setInfoStrings(List<String> infoStrings) {
+        this.infoStrings = infoStrings;
+    }
+
+    public List<String> getInfoStrings() {
+        return infoStrings;
     }
 
     public void setNonChild(String nonChild) {
@@ -129,10 +143,52 @@ public class ProfileTreeNode extends TreeNode<ProfileTreeNode> {
         if (level == ProfileTreePrinter.PrintLevel.INSTANCE) {
             sb.append("(Active: ").append(activeTime).append(", ");
             sb.append("non-child: ").append(nonChild).append(")").append("\n");
+            if (!infoStrings.isEmpty()) {
+                String infoStringIndent = printIndent(indent + 1);
+                sb.append(infoStringIndent).append(" - Info:").append("\n");
+                infoStringIndent = printIndent(indent + 5);
+                for (String info : infoStrings) {
+                    sb.append(infoStringIndent).append(" - ").append(info).append("\n");
+                }
+            }
             // print counters
             sb.append(counterNode.toTree(indent + 1));
         }
         return sb.toString();
+    }
+
+    public JSONObject debugStringInJson(ProfileTreePrinter.PrintLevel level, String nodeLevel) {
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("id", nodeLevel);
+        JSONObject title = new JSONObject();
+        if (!id.equals(ProfileTreeBuilder.UNKNOWN_ID)) {
+            title.put("id", id);
+        }
+        title.put("name", name);
+        jsonObject.put("title", title);
+        if (level == ProfileTreePrinter.PrintLevel.FRAGMENT) {
+            jsonObject.put("fragment", fragmentId);
+            JSONArray labels = new JSONArray();
+            if (!Strings.isNullOrEmpty(maxInstanceActiveTime)) {
+                JSONObject label = new JSONObject();
+                label.put("name", "MaxActiveTime");
+                label.put("value", maxInstanceActiveTime);
+                labels.add(label);
+            }
+            jsonObject.put("labels", labels);
+        }
+        if (level == ProfileTreePrinter.PrintLevel.INSTANCE) {
+            jsonObject.put("active", activeTime);
+            jsonObject.put("non-child", nonChild);
+            JSONArray counters = new JSONArray();
+            for (CounterNode node : counterNode.getChildren()) {
+                JSONObject counter = new JSONObject();
+                counter.put(node.getCounter().first, node.getCounter().second);
+                counters.add(counter);
+            }
+            jsonObject.put("counters", counters);
+        }
+        return jsonObject;
     }
 
     private String printIndent(int indent) {

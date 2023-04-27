@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_DEBUG_COUNTERS_H
-#define DORIS_BE_SRC_COMMON_UTIL_DEBUG_COUNTERS_H
+#pragma once
 
 #include "util/runtime_profile.h"
 
@@ -64,5 +63,3 @@ public:
 #endif // ENABLE_DEBUG_COUNTERS
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_UTIL_DEBUG_COUNTERS_H

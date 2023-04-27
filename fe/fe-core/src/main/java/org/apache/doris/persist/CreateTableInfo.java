@@ -17,13 +17,9 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,13 +27,14 @@ import org.slf4j.LoggerFactory;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 public class CreateTableInfo implements Writable {
     public static final Logger LOG = LoggerFactory.getLogger(CreateTableInfo.class);
 
     private String dbName;
     private Table table;
-    
+
     public CreateTableInfo() {
         // for persist
     }
@@ -46,11 +43,11 @@ public class CreateTableInfo implements Writable {
         this.dbName = dbName;
         this.table = table;
     }
-    
+
     public String getDbName() {
         return dbName;
     }
-    
+
     public Table getTable() {
         return table;
     }
@@ -59,20 +56,21 @@ public class CreateTableInfo implements Writable {
         Text.writeString(out, dbName);
         table.write(out);
     }
+
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-            dbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
-        } else {
-            dbName = Text.readString(in);
-        }
-        
+        dbName = Text.readString(in);
         table = Table.read(in);
     }
-    
+
     public static CreateTableInfo read(DataInput in) throws IOException {
         CreateTableInfo createTableInfo = new CreateTableInfo();
         createTableInfo.readFields(in);
         return createTableInfo;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(dbName, table);
     }
 
     public boolean equals(Object obj) {
@@ -82,9 +80,9 @@ public class CreateTableInfo implements Writable {
         if (!(obj instanceof CreateTableInfo)) {
             return false;
         }
-        
+
         CreateTableInfo info = (CreateTableInfo) obj;
-        
+
         return (dbName.equals(info.dbName))
                 && (table.equals(info.table));
     }

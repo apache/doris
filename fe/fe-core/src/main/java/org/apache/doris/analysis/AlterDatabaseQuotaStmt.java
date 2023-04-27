@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -37,7 +37,8 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
     public enum QuotaType {
         NONE,
         DATA,
-        REPLICA
+        REPLICA,
+        TRANSACTION
     }
 
     public AlterDatabaseQuotaStmt(String dbName, QuotaType quotaType, String quotaValue) {
@@ -62,8 +63,9 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                    analyzer.getQualifiedUser(), dbName);
         }
 
         if (Strings.isNullOrEmpty(dbName)) {
@@ -74,12 +76,15 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
             quota = ParseUtil.analyzeDataVolumn(quotaValue);
         } else if (quotaType == QuotaType.REPLICA) {
             quota = ParseUtil.analyzeReplicaNumber(quotaValue);
+        } else if (quotaType == QuotaType.TRANSACTION) {
+            quota = ParseUtil.analyzeTransactionNumber(quotaValue);
         }
-
     }
 
     @Override
     public String toSql() {
-        return "ALTER DATABASE " + dbName + " SET " + (quotaType == QuotaType.DATA ? "DATA" : "REPLICA") +" QUOTA " + quotaValue;
+        return "ALTER DATABASE " + dbName + " SET "
+                + quotaType.name()
+                + " QUOTA " + quotaValue;
     }
 }

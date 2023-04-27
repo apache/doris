@@ -17,14 +17,21 @@
 
 #include "http/ev_http_server.h"
 
-#include <event2/buffer.h>
-#include <event2/bufferevent.h>
+#include <arpa/inet.h>
+#include <butil/endpoint.h>
+#include <butil/fd_utility.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
-#include <event2/keyvalq_struct.h>
 #include <event2/thread.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
+#include <algorithm>
 #include <memory>
 #include <sstream>
 
@@ -33,9 +40,12 @@
 #include "http/http_handler.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "service/brpc.h"
-#include "util/debug_util.h"
+#include "http/http_status.h"
+#include "service/backend_options.h"
 #include "util/threadpool.h"
+
+struct event_base;
+struct evhttp;
 
 namespace doris {
 
@@ -72,7 +82,8 @@ static int on_connection(struct evhttp_request* req, void* param) {
 }
 
 EvHttpServer::EvHttpServer(int port, int num_workers)
-        : _host("0.0.0.0"), _port(port), _num_workers(num_workers), _real_port(0) {
+        : _port(port), _num_workers(num_workers), _real_port(0) {
+    _host = BackendOptions::get_service_bind_address();
     DCHECK_GT(_num_workers, 0);
 }
 
@@ -82,10 +93,13 @@ EvHttpServer::EvHttpServer(const std::string& host, int port, int num_workers)
 }
 
 EvHttpServer::~EvHttpServer() {
-    stop();
+    if (_started) {
+        stop();
+    }
 }
 
 void EvHttpServer::start() {
+    _started = true;
     // bind to
     auto s = _bind();
     CHECK(s.ok()) << s.to_string();
@@ -128,24 +142,22 @@ void EvHttpServer::stop() {
     {
         std::lock_guard<std::mutex> lock(_event_bases_lock);
         for (int i = 0; i < _num_workers; ++i) {
-            LOG(WARNING) << "event_base_loopbreak ret: "
-                         << event_base_loopbreak(_event_bases[i].get());
+            event_base_loopbreak(_event_bases[i].get());
         }
         _event_bases.clear();
     }
     _workers->shutdown();
     close(_server_fd);
+    _started = false;
 }
 
 void EvHttpServer::join() {}
 
 Status EvHttpServer::_bind() {
     butil::EndPoint point;
-    auto res = butil::hostname2endpoint(_host.c_str(), _port, &point);
+    auto res = butil::str2endpoint(_host.c_str(), _port, &point);
     if (res < 0) {
-        std::stringstream ss;
-        ss << "convert address failed, host=" << _host << ", port=" << _port;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("convert address failed, host={}, port={}", _host, _port);
     }
     _server_fd = butil::tcp_listen(point);
     if (_server_fd < 0) {

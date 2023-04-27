@@ -25,15 +25,23 @@ public class CommandLineOptions {
     private String helperNode;
     private boolean runBdbTools;
     private BDBToolOptions bdbToolOpts = null;
+    private boolean runImageTool;
+    private String imagePath;
 
-    public CommandLineOptions(boolean isVersion, String helperNode, BDBToolOptions bdbToolOptions) {
+    public CommandLineOptions(boolean isVersion, String helperNode, BDBToolOptions bdbToolOptions, String imagePath) {
         this.isVersion = isVersion;
         this.helperNode = helperNode;
         this.bdbToolOpts = bdbToolOptions;
+        this.imagePath = imagePath;
         if (this.bdbToolOpts != null) {
             runBdbTools = true;
         } else {
             runBdbTools = false;
+        }
+        if (!imagePath.isEmpty()) {
+            runImageTool = true;
+        } else {
+            runImageTool = false;
         }
     }
 
@@ -53,12 +61,21 @@ public class CommandLineOptions {
         return bdbToolOpts;
     }
 
+    public boolean runImageTool() {
+        return runImageTool;
+    }
+
+    public String getImagePath() {
+        return imagePath;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("print version: " + isVersion).append("\n");
         sb.append("helper node: " + helperNode).append("\n");
         sb.append("bdb tool options: \n(\n" + bdbToolOpts).append("\n)\n");
+        sb.append("image tool options:  \n(\n" + imagePath).append("\n)\n");
         return sb.toString();
     }
 

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
 #include <gflags/gflags.h>
 
 #include <filesystem>
@@ -25,12 +27,11 @@
 #include <string>
 
 #include "common/status.h"
-#include "env/env.h"
-#include "gen_cpp/olap_file.pb.h"
-#include "gen_cpp/segment_v2.pb.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
@@ -42,28 +43,23 @@
 #include "olap/utils.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/file_utils.h"
 
 using std::filesystem::path;
 using doris::DataDir;
-using doris::OLAP_SUCCESS;
 using doris::OlapMeta;
-using doris::OLAPStatus;
 using doris::Status;
 using doris::TabletMeta;
 using doris::TabletMetaManager;
-using doris::FileUtils;
 using doris::Slice;
-using doris::RandomAccessFile;
 using strings::Substitute;
 using doris::segment_v2::SegmentFooterPB;
 using doris::segment_v2::ColumnReader;
-using doris::segment_v2::BinaryPlainPageDecoder;
 using doris::segment_v2::PageHandle;
 using doris::segment_v2::PagePointer;
 using doris::segment_v2::ColumnReaderOptions;
 using doris::segment_v2::ColumnIteratorOptions;
 using doris::segment_v2::PageFooterPB;
+using doris::io::FileReaderSPtr;
 
 const std::string HEADER_PREFIX = "tabletmeta_";
 
@@ -97,8 +93,8 @@ std::string get_usage(const std::string& progname) {
 
 void show_meta() {
     TabletMeta tablet_meta;
-    OLAPStatus s = tablet_meta.create_from_file(FLAGS_pb_meta_path);
-    if (s != OLAP_SUCCESS) {
+    Status s = tablet_meta.create_from_file(FLAGS_pb_meta_path);
+    if (!s.ok()) {
         std::cout << "load pb meta file:" << FLAGS_pb_meta_path << " failed"
                   << ", status:" << s << std::endl;
         return;
@@ -114,9 +110,9 @@ void show_meta() {
 
 void get_meta(DataDir* data_dir) {
     std::string value;
-    OLAPStatus s =
+    Status s =
             TabletMetaManager::get_json_meta(data_dir, FLAGS_tablet_id, FLAGS_schema_hash, &value);
-    if (s == doris::OLAP_ERR_META_KEY_NOT_FOUND) {
+    if (s.is<doris::ErrorCode::META_KEY_NOT_FOUND>()) {
         std::cout << "no tablet meta for tablet_id:" << FLAGS_tablet_id
                   << ", schema_hash:" << FLAGS_schema_hash << std::endl;
         return;
@@ -126,8 +122,8 @@ void get_meta(DataDir* data_dir) {
 
 void load_meta(DataDir* data_dir) {
     // load json tablet meta into meta
-    OLAPStatus s = TabletMetaManager::load_json_meta(data_dir, FLAGS_json_meta_path);
-    if (s != OLAP_SUCCESS) {
+    Status s = TabletMetaManager::load_json_meta(data_dir, FLAGS_json_meta_path);
+    if (!s.ok()) {
         std::cout << "load meta failed, status:" << s << std::endl;
         return;
     }
@@ -135,8 +131,8 @@ void load_meta(DataDir* data_dir) {
 }
 
 void delete_meta(DataDir* data_dir) {
-    OLAPStatus s = TabletMetaManager::remove(data_dir, FLAGS_tablet_id, FLAGS_schema_hash);
-    if (s != OLAP_SUCCESS) {
+    Status s = TabletMetaManager::remove(data_dir, FLAGS_tablet_id, FLAGS_schema_hash);
+    if (!s.ok()) {
         std::cout << "delete tablet meta failed for tablet_id:" << FLAGS_tablet_id
                   << ", schema_hash:" << FLAGS_schema_hash << ", status:" << s << std::endl;
         return;
@@ -146,15 +142,10 @@ void delete_meta(DataDir* data_dir) {
 
 Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
     std::string root_path;
-    Status st = FileUtils::canonicalize(dir, &root_path);
-    if (!st.ok()) {
-        std::cout << "invalid root path:" << FLAGS_root_path << ", error: " << st.to_string()
-                  << std::endl;
-        return Status::InternalError("invalid root path");
-    }
+    RETURN_IF_ERROR(doris::io::global_local_filesystem()->canonicalize(dir, &root_path));
     doris::StorePath path;
     auto res = parse_root_path(root_path, &path);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         std::cout << "parse root path failed:" << root_path << std::endl;
         return Status::InternalError("parse root path failed");
     }
@@ -165,8 +156,8 @@ Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
         std::cout << "new data dir failed" << std::endl;
         return Status::InternalError("new data dir failed");
     }
-    st = p->init();
-    if (!st.ok()) {
+    res = p->init();
+    if (!res.ok()) {
         std::cout << "data_dir load failed" << std::endl;
         return Status::InternalError("data_dir load failed");
     }
@@ -197,7 +188,7 @@ void batch_delete_meta(const std::string& tablet_file) {
         }
         // 1. get dir
         std::string dir;
-        Status st = FileUtils::canonicalize(v[0], &dir);
+        Status st = doris::io::global_local_filesystem()->canonicalize(v[0], &dir);
         if (!st.ok()) {
             std::cout << "invalid root dir in tablet_file: " << line << std::endl;
             err_num++;
@@ -238,8 +229,8 @@ void batch_delete_meta(const std::string& tablet_file) {
             continue;
         }
 
-        OLAPStatus s = TabletMetaManager::remove(data_dir, tablet_id, schema_hash);
-        if (s != OLAP_SUCCESS) {
+        Status s = TabletMetaManager::remove(data_dir, tablet_id, schema_hash);
+        if (!s.ok()) {
             std::cout << "delete tablet meta failed for tablet_id:" << tablet_id
                       << ", schema_hash:" << schema_hash << ", status:" << s << std::endl;
             err_num++;
@@ -254,64 +245,63 @@ void batch_delete_meta(const std::string& tablet_file) {
     return;
 }
 
-Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer) {
+Status get_segment_footer(doris::io::FileReader* file_reader, SegmentFooterPB* footer) {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
-    std::string file_name = input_file->file_name();
-    uint64_t file_size;
-    RETURN_IF_ERROR(input_file->size(&file_size));
-
+    std::string file_name = file_reader->path();
+    uint64_t file_size = file_reader->size();
     if (file_size < 12) {
-        return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < 12",
-                                                      file_name, file_size));
+        return Status::Corruption("Bad segment file {}: file size {} < 12", file_name, file_size);
     }
 
+    size_t bytes_read = 0;
     uint8_t fixed_buf[12];
-    RETURN_IF_ERROR(input_file->read_at(file_size - 12, Slice(fixed_buf, 12)));
+    Slice slice(fixed_buf, 12);
+    RETURN_IF_ERROR(file_reader->read_at(file_size - 12, slice, &bytes_read));
 
     // validate magic number
     const char* k_segment_magic = "D0R1";
     const uint32_t k_segment_magic_length = 4;
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption(
-                strings::Substitute("Bad segment file $0: magic number not match", file_name));
+        return Status::Corruption("Bad segment file {}: magic number not match", file_name);
     }
 
     // read footer PB
     uint32_t footer_length = doris::decode_fixed32_le(fixed_buf);
     if (file_size < 12 + footer_length) {
-        return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < $2",
-                                                      file_name, file_size, 12 + footer_length));
+        return Status::Corruption("Bad segment file {}: file size {} < {}", file_name, file_size,
+                                  12 + footer_length);
     }
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(input_file->read_at(file_size - 12 - footer_length, footer_buf));
+    Slice slice2(footer_buf);
+    RETURN_IF_ERROR(file_reader->read_at(file_size - 12 - footer_length, slice2, &bytes_read));
 
     // validate footer PB's checksum
     uint32_t expect_checksum = doris::decode_fixed32_le(fixed_buf + 4);
     uint32_t actual_checksum = doris::crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
-        return Status::Corruption(strings::Substitute(
-                "Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2", file_name,
-                actual_checksum, expect_checksum));
+        return Status::Corruption(
+                "Bad segment file {}: footer checksum not match, actual={} vs expect={}", file_name,
+                actual_checksum, expect_checksum);
     }
 
     // deserialize footer PB
     if (!footer->ParseFromString(footer_buf)) {
-        return Status::Corruption(strings::Substitute(
-                "Bad segment file $0: failed to parse SegmentFooterPB", file_name));
+        return Status::Corruption("Bad segment file {}: failed to parse SegmentFooterPB",
+                                  file_name);
     }
     return Status::OK();
 }
 
 void show_segment_footer(const std::string& file_name) {
-    std::unique_ptr<RandomAccessFile> input_file;
-    Status status = doris::Env::Default()->new_random_access_file(file_name, &input_file);
+    doris::io::FileReaderSPtr file_reader;
+    Status status = doris::io::global_local_filesystem()->open_file(file_name, &file_reader);
     if (!status.ok()) {
-        std::cout << "open file failed: " << status.to_string() << std::endl;
+        std::cout << "open file failed: " << status << std::endl;
         return;
     }
     SegmentFooterPB footer;
-    status = get_segment_footer(input_file.get(), &footer);
+    status = get_segment_footer(file_reader.get(), &footer);
     if (!status.ok()) {
         std::cout << "get footer failed: " << status.to_string() << std::endl;
         return;
@@ -337,7 +327,8 @@ int main(int argc, char** argv) {
         show_meta();
     } else if (FLAGS_operation == "batch_delete_meta") {
         std::string tablet_file;
-        Status st = FileUtils::canonicalize(FLAGS_tablet_file, &tablet_file);
+        Status st =
+                doris::io::global_local_filesystem()->canonicalize(FLAGS_tablet_file, &tablet_file);
         if (!st.ok()) {
             std::cout << "invalid tablet file: " << FLAGS_tablet_file
                       << ", error: " << st.to_string() << std::endl;

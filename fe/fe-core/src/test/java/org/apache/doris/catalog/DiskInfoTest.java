@@ -21,42 +21,41 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.thrift.TStorageMedium;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 public class DiskInfoTest {
 
-    private Catalog catalog;
+    private Env env;
 
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
     private FakeEditLog fakeEditLog;
 
     @Before
     public void setUp() {
-        catalog = AccessTestUtil.fetchAdminCatalog();
+        env = AccessTestUtil.fetchAdminCatalog();
 
-        fakeCatalog = new FakeCatalog();
+        fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
 
-        FakeCatalog.setCatalog(catalog);
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
-        FakeCatalog.setSystemInfo(AccessTestUtil.fetchSystemInfoService());
+        FakeEnv.setEnv(env);
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
+        FakeEnv.setSystemInfo(AccessTestUtil.fetchSystemInfoService());
     }
 
     @Test
     public void testSerialization() throws IOException {
         // write disk info to file
-        File file = new File("./diskInfoTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get("./diskInfoTest"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         DiskInfo diskInfo1 = new DiskInfo("/disk1");
         // 1 GB
@@ -73,7 +72,7 @@ public class DiskInfoTest {
         dos.close();
 
         // read disk info from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         DiskInfo result = DiskInfo.read(dis);
 
         // check
@@ -81,5 +80,8 @@ public class DiskInfoTest {
         Assert.assertEquals(totalCapacityB, result.getTotalCapacityB());
         Assert.assertEquals(dataUsedCapacityB, result.getDataUsedCapacityB());
         Assert.assertTrue(result.getStorageMedium() == null);
+        // close
+        dis.close();
+        Files.deleteIfExists(path);
     }
 }

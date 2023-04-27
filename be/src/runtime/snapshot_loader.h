@@ -15,25 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_SNAPSHOT_LOADER_H
-#define DORIS_BE_SRC_RUNTIME_SNAPSHOT_LOADER_H
+#pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "olap/tablet.h"
-#include "runtime/client_cache.h"
 
 namespace doris {
+namespace io {
+class RemoteFileSystem;
+} // namespace io
 
+struct FileStat {
+    std::string name;
+    std::string md5;
+    int64_t size;
+};
 class ExecEnv;
-class StorageBackend;
-class FileStat;
 
 /*
  * Upload:
@@ -50,10 +55,10 @@ class FileStat;
  * It will also only download files which does not exist in local dir.
  *
  * Move:
- * move() is the final step of restore process. it will replace the 
+ * move() is the final step of restore process. it will replace the
  * old tablet data dir with the newly downloaded snapshot dir.
  * and reload the tablet header to take this tablet on line.
- * 
+ *
  */
 class SnapshotLoader {
 public:
@@ -61,10 +66,10 @@ public:
     SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
                    const TNetworkAddress& broker_addr,
                    const std::map<std::string, std::string>& broker_prop);
-    SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
-                   const std::map<std::string, std::string>& broker_prop);
 
     ~SnapshotLoader();
+
+    Status init(TStorageBackendType::type type, const std::string& location);
 
     Status upload(const std::map<std::string, std::string>& src_to_dest_path,
                   std::map<int64_t, std::vector<std::string>>* tablet_files);
@@ -86,11 +91,6 @@ private:
 
     bool _end_with(const std::string& str, const std::string& match);
 
-    void _assemble_file_name(const std::string& snapshot_path, const std::string& tablet_path,
-                             int64_t tablet_id, int64_t start_version, int64_t end_version,
-                             int64_t version_hash, int32_t seg_num, const std::string suffix,
-                             std::string* snapshot_file, std::string* tablet_file);
-
     Status _replace_tablet_id(const std::string& file_name, int64_t tablet_id,
                               std::string* new_file_name);
 
@@ -99,15 +99,15 @@ private:
     Status _report_every(int report_threshold, int* counter, int finished_num, int total_num,
                          TTaskType::type type);
 
+    Status _list_with_checksum(const std::string& dir, std::map<std::string, FileStat>* md5_files);
+
 private:
     ExecEnv* _env;
     int64_t _job_id;
     int64_t _task_id;
     const TNetworkAddress _broker_addr;
     const std::map<std::string, std::string> _prop;
-    std::unique_ptr<StorageBackend> _storage_backend;
+    std::shared_ptr<io::RemoteFileSystem> _remote_fs;
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_SNAPSHOT_LOADER_H

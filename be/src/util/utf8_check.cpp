@@ -9,8 +9,6 @@
 
 #include "util/utf8_check.h"
 
-#include <cstdlib>
-
 #if defined(__i386) || defined(__x86_64__)
 #include "util/simdutf8check.h"
 #elif defined(__aarch64__)

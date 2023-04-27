@@ -18,44 +18,53 @@
 #include "service/backend_service.h"
 
 #include <arrow/record_batch.h>
-#include <gperftools/heap-profiler.h>
+#include <fmt/format.h>
+#include <gen_cpp/BackendService.h>
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/DorisExternalService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Planner_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <sys/types.h>
 #include <thrift/concurrency/ThreadFactory.h>
-#include <thrift/processor/TMultiplexedProcessor.h>
-#include <thrift/protocol/TDebugProtocol.h>
+#include <time.h>
 
 #include <map>
 #include <memory>
+#include <ostream>
+#include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/DorisExternalService_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/TDorisExternalService.h"
-#include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "runtime/data_stream_mgr.h"
-#include "runtime/descriptors.h"
+#include "olap/tablet_manager.h"
 #include "runtime/exec_env.h"
-#include "runtime/export_task_mgr.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/primitive_type.h"
-#include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/stream_load_context.h"
-#include "service/backend_options.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/arrow/row_batch.h"
-#include "util/blocking_queue.hpp"
-#include "util/debug_util.h"
-#include "util/doris_metrics.h"
-#include "util/network_util.h"
 #include "util/thrift_server.h"
-#include "util/thrift_util.h"
 #include "util/uid_util.h"
-#include "util/url_coding.h"
+
+namespace apache {
+namespace thrift {
+class TException;
+class TMultiplexedProcessor;
+class TProcessor;
+namespace transport {
+class TTransportException;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
 
 namespace doris {
 
@@ -79,7 +88,7 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
 
     *server = new ThriftServer("backend", be_processor, port, config::be_service_threads);
 
-    LOG(INFO) << "DorisInternalService listening on " << port;
+    LOG(INFO) << "Doris BackendService listening on " << port;
 
     return Status::OK();
 }
@@ -88,8 +97,6 @@ void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                         const TExecPlanFragmentParams& params) {
     LOG(INFO) << "exec_plan_fragment() instance_id=" << params.params.fragment_instance_id
               << " coord=" << params.coord << " backend#=" << params.backend_num;
-    VLOG_ROW << "exec_plan_fragment params is "
-             << apache::thrift::ThriftDebugString(params).c_str();
     start_plan_fragment_execution(params).set_t_status(&return_val);
 }
 
@@ -103,7 +110,7 @@ Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentPara
 void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                                           const TCancelPlanFragmentParams& params) {
     LOG(INFO) << "cancel_plan_fragment(): instance_id=" << params.fragment_instance_id;
-    _exec_env->fragment_mgr()->cancel(params.fragment_instance_id).set_t_status(&return_val);
+    _exec_env->fragment_mgr()->cancel(params.fragment_instance_id);
 }
 
 void BackendService::transmit_data(TTransmitDataResult& return_val,
@@ -142,15 +149,9 @@ void BackendService::transmit_data(TTransmitDataResult& return_val,
         //        params.sender_id,
         //        params.be_number);
         //VLOG_ROW << "params.eos: " << (params.eos ? "true" : "false")
-        //        << " close_sender status: " << status.get_error_msg();
+        //        << " close_sender status: " << status;
         //status.set_t_status(&return_val);
     }
-}
-
-void BackendService::fetch_data(TFetchDataResult& return_val, const TFetchDataParams& params) {
-    // maybe hang in this function
-    Status status = _exec_env->result_mgr()->fetch_data(params.fragment_instance_id, &return_val);
-    status.set_t_status(&return_val);
 }
 
 void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
@@ -164,7 +165,7 @@ void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequ
     //    } else {
     //        VLOG_RPC << "start export task failed id="
     //            << request.params.params.fragment_instance_id
-    //            << " and err_msg=" << status.get_error_msg();
+    //            << " and err_msg=" << status;
     //    }
     //    status.to_thrift(&t_status);
 }
@@ -193,7 +194,7 @@ void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_
     //    Status status = _exec_env->export_task_mgr()->erase_task(task_id);
     //    if (!status.ok()) {
     //        LOG(WARNING) << "delete export task failed. because "
-    //            << status.get_error_msg() << " with task_id " << task_id;
+    //            << status << " with task_id " << task_id;
     //    } else {
     //        VLOG_RPC << "delete export task successful with task_id " << task_id;
     //    }
@@ -211,8 +212,7 @@ int64_t BackendService::get_trash_used_capacity() {
     StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
 
     for (const auto& root_path_info : data_dir_infos) {
-        std::string lhs_trash_path = root_path_info.path + TRASH_PREFIX;
-        std::filesystem::path trash_path(lhs_trash_path);
+        auto trash_path = fmt::format("{}/{}", root_path_info.path, TRASH_PREFIX);
         result += StorageEngine::instance()->get_file_or_directory_size(trash_path);
     }
     return result;
@@ -229,8 +229,7 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
 
         diskTrashInfo.__set_state(root_path_info.is_used ? "ONLINE" : "OFFLINE");
 
-        std::string lhs_trash_path = root_path_info.path + TRASH_PREFIX;
-        std::filesystem::path trash_path(lhs_trash_path);
+        auto trash_path = fmt::format("{}/{}", root_path_info.path, TRASH_PREFIX);
         diskTrashInfo.__set_trash_used_capacity(
                 StorageEngine::instance()->get_file_or_directory_size(trash_path));
 
@@ -369,5 +368,9 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 
 void BackendService::clean_trash() {
     StorageEngine::instance()->start_trash_sweep(nullptr, true);
+}
+
+void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
+    StorageEngine::instance()->tablet_manager()->get_all_tablets_storage_format(&result);
 }
 } // namespace doris

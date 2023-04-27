@@ -27,14 +27,14 @@ import java.io.IOException;
 import java.util.Map;
 
 public class TableCommitInfo implements Writable {
-    
+
     private long tableId;
     private Map<Long, PartitionCommitInfo> idToPartitionCommitInfo;
 
     public TableCommitInfo() {
-        
+
     }
-    
+
     public TableCommitInfo(long tableId) {
         this.tableId = tableId;
         idToPartitionCommitInfo = Maps.newHashMap();
@@ -74,15 +74,15 @@ public class TableCommitInfo implements Writable {
     public Map<Long, PartitionCommitInfo> getIdToPartitionCommitInfo() {
         return idToPartitionCommitInfo;
     }
-    
+
     public void addPartitionCommitInfo(PartitionCommitInfo info) {
         this.idToPartitionCommitInfo.put(info.getPartitionId(), info);
     }
-    
+
     public void removePartition(long partitionId) {
         this.idToPartitionCommitInfo.remove(partitionId);
     }
-    
+
     public PartitionCommitInfo getPartitionCommitInfo(long partitionId) {
         return this.idToPartitionCommitInfo.get(partitionId);
     }

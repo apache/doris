@@ -14,12 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/sse-util.hpp
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_SSE_UTIL_H
-#define DORIS_BE_SRC_COMMON_UTIL_SSE_UTIL_H
+#pragma once
 
-#include <nmmintrin.h>
-#include <smmintrin.h>
+#if defined(__aarch64__)
+#include <sse2neon.h> // IWYU pragma: export
+#elif defined(__x86_64__)
+#include <emmintrin.h> // IWYU pragma: export
+#include <immintrin.h> // IWYU pragma: export
+#include <mm_malloc.h> // IWYU pragma: export
+#include <smmintrin.h> // IWYU pragma: export
+#endif
 
 namespace doris {
 
@@ -46,30 +54,13 @@ static const int STRCHR_MODE = _SIDD_CMP_EQUAL_ANY | _SIDD_UBYTE_OPS;
 
 // In this mode, sse text processing functions will return the number of bytes that match
 // consecutively from the beginning.
-static const int STRCMP_MODE = _SIDD_CMP_EQUAL_EACH | _SIDD_UBYTE_OPS
-                               | _SIDD_NEGATIVE_POLARITY;
+static const int STRCMP_MODE = _SIDD_CMP_EQUAL_EACH | _SIDD_UBYTE_OPS | _SIDD_NEGATIVE_POLARITY;
 
 // Precomputed mask values up to 16 bits.
 static const int SSE_BITMASK[CHARS_PER_128_BIT_REGISTER] = {
-    1 << 0,
-    1 << 1,
-    1 << 2,
-    1 << 3,
-    1 << 4,
-    1 << 5,
-    1 << 6,
-    1 << 7,
-    1 << 8,
-    1 << 9,
-    1 << 10,
-    1 << 11,
-    1 << 12,
-    1 << 13,
-    1 << 14,
-    1 << 15,
+        1 << 0, 1 << 1, 1 << 2,  1 << 3,  1 << 4,  1 << 5,  1 << 6,  1 << 7,
+        1 << 8, 1 << 9, 1 << 10, 1 << 11, 1 << 12, 1 << 13, 1 << 14, 1 << 15,
 };
 
-}
-}
-
-#endif
+} // namespace sse_util
+} // namespace doris

@@ -14,16 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/os-info.cc
+// and modified by Doris
 
 #include "util/os_info.h"
 
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
 #include <fstream>
-#include <iostream>
-#include <sstream>
 
 namespace doris {
 

@@ -17,16 +17,17 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.UserPropertyProcNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -34,7 +35,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -63,7 +63,7 @@ public class ShowUserPropertyStmt extends ShowStmt {
         } else {
             user = ClusterNamespace.getFullName(getClusterName(), user);
 
-            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
         }
@@ -72,15 +72,15 @@ public class ShowUserPropertyStmt extends ShowStmt {
     }
 
     public List<List<String>> getRows() throws AnalysisException {
-        List<List<String>> rows = Catalog.getCurrentCatalog().getAuth().getUserProperties(user);
+        List<List<String>> rows = Env.getCurrentEnv().getAuth().getUserProperties(user);
 
         if (pattern == null) {
             return rows;
         }
 
         List<List<String>> result = Lists.newArrayList();
-        PatternMatcher matcher = PatternMatcher.createMysqlPattern(pattern,
-                                                                   CaseSensibility.USER.getCaseSensibility());
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(pattern,
+                CaseSensibility.USER.getCaseSensibility());
         for (List<String> row : rows) {
             String key = row.get(0).split("\\" + SetUserPropertyVar.DOT_SEPARATOR)[0];
             if (matcher.match(key)) {

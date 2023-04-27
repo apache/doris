@@ -17,10 +17,19 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+
 public class ExplainOptions {
 
     private boolean isVerbose;
     private boolean isGraph;
+
+    private ExplainCommand.ExplainLevel explainLevel;
+
+    public ExplainOptions(ExplainCommand.ExplainLevel explainLevel) {
+        this.explainLevel = explainLevel;
+    }
 
     public ExplainOptions(boolean isVerbose, boolean isGraph) {
         this.isVerbose = isVerbose;
@@ -28,10 +37,18 @@ public class ExplainOptions {
     }
 
     public boolean isVerbose() {
-        return isVerbose;
+        return explainLevel == ExplainLevel.VERBOSE || isVerbose;
     }
 
     public boolean isGraph() {
-        return isGraph;
+        return explainLevel == ExplainLevel.GRAPH || isGraph;
+    }
+
+    public boolean hasExplainLevel() {
+        return explainLevel != null;
+    }
+
+    public ExplainLevel getExplainLevel() {
+        return explainLevel;
     }
 }

@@ -17,9 +17,9 @@
 
 package org.apache.doris.common.proc;
 
-import java.util.List;
-
 import com.google.common.collect.Lists;
+
+import java.util.List;
 
 public class BaseProcResult implements ProcResult {
     protected List<String> names;
@@ -41,6 +41,12 @@ public class BaseProcResult implements ProcResult {
 
     public void addRow(List<String> row) {
         rows.add(row);
+    }
+
+    public void addRows(List<List<String>> rows) {
+        for (List<String> row : rows) {
+            addRow(row);
+        }
     }
 
     public void setRows(List<List<String>> rows) {

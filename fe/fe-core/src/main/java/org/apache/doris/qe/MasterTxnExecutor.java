@@ -41,16 +41,16 @@ public class MasterTxnExecutor {
 
     public MasterTxnExecutor(ConnectContext ctx) {
         this.ctx = ctx;
-        this.waitTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
-        this.thriftTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
+        this.waitTimeoutMs = ctx.getExecTimeout() * 1000;
+        this.thriftTimeoutMs = ctx.getExecTimeout() * 1000;
     }
 
     private TNetworkAddress getMasterAddress() throws TException {
-        if (!ctx.getCatalog().isReady()) {
+        if (!ctx.getEnv().isReady()) {
             throw new TException("Node catalog is not ready, please wait for a while.");
         }
-        String masterHost = ctx.getCatalog().getMasterIp();
-        int masterRpcPort = ctx.getCatalog().getMasterRpcPort();
+        String masterHost = ctx.getEnv().getMasterIp();
+        int masterRpcPort = ctx.getEnv().getMasterRpcPort();
         return new TNetworkAddress(masterHost, masterRpcPort);
     }
 
@@ -62,6 +62,7 @@ public class MasterTxnExecutor {
             throw new TException("Failed to get master client.", e);
         }
     }
+
     // Send request to Master
     public TLoadTxnBeginResult beginTxn(TLoadTxnBeginRequest request) throws TException {
         TNetworkAddress thriftAddress = getMasterAddress();
@@ -138,4 +139,3 @@ public class MasterTxnExecutor {
         }
     }
 }
-

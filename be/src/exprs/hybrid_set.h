@@ -15,22 +15,162 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
-
-#include <parallel_hashmap/phmap.h>
-
-#include <cstring>
+#pragma once
 
 #include "common/object_pool.h"
-#include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
+#define FIXED_CONTAINER_MAX_SIZE 8
+
+/**
+ * Fix Container can use simd to improve performance. 1 <= N <= 8 can be improved performance by test. FIXED_CONTAINER_MAX_SIZE = 8.
+ * @tparam T Element Type
+ * @tparam N Fixed Number
+ */
+template <typename T, size_t N>
+class FixedContainer {
+public:
+    using Self = FixedContainer;
+    using ElementType = T;
+
+    class Iterator;
+
+    FixedContainer() : _size(0) { static_assert(N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE); }
+
+    ~FixedContainer() = default;
+
+    void insert(const T& value) {
+        DCHECK(_size < N);
+        _data[_size++] = value;
+    }
+
+    void insert(Iterator begin, Iterator end) {
+        for (auto iter = begin; iter != end; ++iter) {
+            DCHECK(_size < N);
+            _data[_size++] = (*iter);
+        }
+    }
+
+    // Use '|' instead of '||' has better performance by test.
+    bool find(const T& value) const {
+        if constexpr (N == 1) {
+            return (value == _data[0]);
+        }
+        if constexpr (N == 2) {
+            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]);
+        }
+        if constexpr (N == 3) {
+            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
+                   (uint8_t)(value == _data[2]);
+        }
+        if constexpr (N == 4) {
+            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
+                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]);
+        }
+        if constexpr (N == 5) {
+            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
+                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
+                   (uint8_t)(value == _data[4]);
+        }
+        if constexpr (N == 6) {
+            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
+                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
+                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]);
+        }
+        if constexpr (N == 7) {
+            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
+                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
+                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
+                   (uint8_t)(value == _data[6]);
+        }
+        if constexpr (N == FIXED_CONTAINER_MAX_SIZE) {
+            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
+                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
+                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
+                   (uint8_t)(value == _data[6]) | (uint8_t)(value == _data[7]);
+        }
+        CHECK(false) << "unreachable path";
+        return false;
+    }
+
+    size_t size() const { return _size; }
+
+    class Iterator {
+    public:
+        explicit Iterator(std::array<T, N>& data, size_t index) : _data(data), _index(index) {}
+        Iterator& operator++() {
+            ++_index;
+            return *this;
+        }
+        Iterator operator++(int) {
+            Iterator ret_val = *this;
+            ++(*this);
+            return ret_val;
+        }
+        bool operator==(Iterator other) const { return _index == other._index; }
+        bool operator!=(Iterator other) const { return !(*this == other); }
+        T& operator*() const { return _data[_index]; }
+
+        T* operator->() const { return &operator*(); }
+
+        // iterator traits
+        using iterator_category = std::forward_iterator_tag;
+        using difference_type = std::ptrdiff_t;
+        using value_type = T;
+        using pointer = T*;
+        using reference = T&;
+
+    private:
+        std::array<T, N>& _data;
+        size_t _index;
+    };
+    Iterator begin() { return Iterator(_data, 0); }
+    Iterator end() { return Iterator(_data, _size); }
+
+private:
+    std::array<T, N> _data;
+    size_t _size;
+};
+
+/**
+ * Dynamic Container uses phmap::flat_hash_set.
+ * @tparam T Element Type
+ */
+template <typename T>
+class DynamicContainer {
+public:
+    using Self = DynamicContainer;
+    using Iterator = typename vectorized::flat_hash_set<T>::iterator;
+    using ElementType = T;
+
+    DynamicContainer() = default;
+    ~DynamicContainer() = default;
+
+    void insert(const T& value) { _set.insert(value); }
+
+    void insert(Iterator begin, Iterator end) { _set.insert(begin, end); }
+
+    bool find(const T& value) const { return _set.contains(value); }
+
+    Iterator begin() { return _set.begin(); }
+
+    Iterator end() { return _set.end(); }
+
+    size_t size() const { return _set.size(); }
+
+private:
+    vectorized::flat_hash_set<T> _set;
+};
+
+// TODO Maybe change void* parameter to template parameter better.
 class HybridSetBase {
 public:
     HybridSetBase() = default;
@@ -39,16 +179,53 @@ public:
     // use in vectorize execute engine
     virtual void insert(void* data, size_t) = 0;
 
-    virtual void insert(HybridSetBase* set) = 0;
+    virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
+
+    virtual void insert(HybridSetBase* set) {
+        HybridSetBase::IteratorBase* iter = set->begin();
+        while (iter->has_next()) {
+            const void* value = iter->get_value();
+            insert(value);
+            iter->next();
+        }
+    }
 
     virtual int size() = 0;
-    virtual bool find(void* data) = 0;
+    virtual bool find(const void* data) const = 0;
     // use in vectorize execute engine
-    virtual bool find(void* data, size_t) = 0;
+    virtual bool find(const void* data, size_t) const = 0;
+
+    virtual void find_fixed_len(const char* __restrict data, const uint8* __restrict null_map,
+                                int number, uint8* __restrict results) {
+        LOG(FATAL) << "HybridSetBase not support find_fixed_len";
+    }
+
+    virtual void find_batch(const doris::vectorized::IColumn& column, size_t rows,
+                            doris::vectorized::ColumnUInt8::Container& results) {
+        LOG(FATAL) << "HybridSetBase not support find_batch";
+    }
+
+    virtual void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
+                                     doris::vectorized::ColumnUInt8::Container& results) {
+        LOG(FATAL) << "HybridSetBase not support find_batch_negative";
+    }
+
+    virtual void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
+                                     const doris::vectorized::NullMap& null_map,
+                                     doris::vectorized::ColumnUInt8::Container& results) {
+        LOG(FATAL) << "HybridSetBase not support find_batch_nullable";
+    }
+
+    virtual void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
+                                              const doris::vectorized::NullMap& null_map,
+                                              doris::vectorized::ColumnUInt8::Container& results) {
+        LOG(FATAL) << "HybridSetBase not support find_batch_nullable_negative";
+    }
+
     class IteratorBase {
     public:
-        IteratorBase() {}
-        virtual ~IteratorBase() {}
+        IteratorBase() = default;
+        virtual ~IteratorBase() = default;
         virtual const void* get_value() = 0;
         virtual bool has_next() const = 0;
         virtual void next() = 0;
@@ -57,134 +234,403 @@ public:
     virtual IteratorBase* begin() = 0;
 };
 
-template <class T>
+template <typename Type>
+const Type* check_and_get_hybrid_set(const HybridSetBase& column) {
+    return typeid_cast<const Type*>(&column);
+}
+
+template <typename Type>
+const Type* check_and_get_hybrid_set(const HybridSetBase* column) {
+    return typeid_cast<const Type*>(column);
+}
+
+template <typename Type>
+bool check_hybrid_set(const HybridSetBase& column) {
+    return check_and_get_hybrid_set<Type>(&column);
+}
+
+template <typename Type>
+bool check_hybrid_set(const HybridSetBase* column) {
+    return check_and_get_hybrid_set<Type>(column);
+}
+
+template <PrimitiveType T,
+          typename _ContainerType = DynamicContainer<typename VecPrimitiveTypeTraits<T>::CppType>,
+          typename _ColumnType = typename VecPrimitiveTypeTraits<T>::ColumnType>
 class HybridSet : public HybridSetBase {
 public:
+    using ContainerType = _ContainerType;
+    using ElementType = typename ContainerType::ElementType;
+    using ColumnType = _ColumnType;
+
     HybridSet() = default;
 
     ~HybridSet() override = default;
 
     void insert(const void* data) override {
-        if (data == nullptr) return;
+        if (data == nullptr) {
+            return;
+        }
 
-        if (sizeof(T) >= 16) {
-            // for largeint, it will core dump with no memcpy
-            T value;
-            memcpy(&value, data, sizeof(T));
+        if constexpr (sizeof(ElementType) >= 16) {
+            // for large int, it will core dump with no memcpy
+            ElementType value;
+            memcpy(&value, data, sizeof(ElementType));
             _set.insert(value);
         } else {
-            _set.insert(*reinterpret_cast<const T*>(data));
+            _set.insert(*reinterpret_cast<const ElementType*>(data));
         }
     }
     void insert(void* data, size_t) override { insert(data); }
 
-    void insert(HybridSetBase* set) override {
-        HybridSet<T>* hybrid_set = reinterpret_cast<HybridSet<T>*>(set);
-        _set.insert(hybrid_set->_set.begin(), hybrid_set->_set.end());
-    }
-
-    int size() override { return _set.size(); }
-
-    bool find(void* data) override {
-        auto it = _set.find(*reinterpret_cast<T*>(data));
-        return !(it == _set.end());
-    }
-
-    bool find(void* data, size_t) override { return find(data); }
-
-    template <class _iT>
-    class Iterator : public IteratorBase {
-    public:
-        Iterator(typename phmap::flat_hash_set<_iT>::iterator begin,
-                 typename phmap::flat_hash_set<_iT>::iterator end)
-                : _begin(begin), _end(end) {}
-        ~Iterator() override = default;
-        virtual bool has_next() const { return !(_begin == _end); }
-        virtual const void* get_value() { return _begin.operator->(); }
-        virtual void next() { ++_begin; }
-
-    private:
-        typename phmap::flat_hash_set<_iT>::iterator _begin;
-        typename phmap::flat_hash_set<_iT>::iterator _end;
-    };
-
-    IteratorBase* begin() override {
-        return _pool.add(new (std::nothrow) Iterator<T>(_set.begin(), _set.end()));
-    }
-
-private:
-    phmap::flat_hash_set<T> _set;
-    ObjectPool _pool;
-};
-
-class StringValueSet : public HybridSetBase {
-public:
-    StringValueSet() = default;
-
-    ~StringValueSet() override = default;
-
-    void insert(const void* data) override {
-        if (data == nullptr) return;
-
-        const auto* value = reinterpret_cast<const StringValue*>(data);
-        std::string str_value(value->ptr, value->len);
-        _set.insert(str_value);
-    }
-    void insert(void* data, size_t size) override {
-        std::string str_value(reinterpret_cast<char*>(data), size);
-        _set.insert(str_value);
-    }
-
-    void insert(HybridSetBase* set) override {
-        StringValueSet* string_set = reinterpret_cast<StringValueSet*>(set);
-        _set.insert(string_set->_set.begin(), string_set->_set.end());
-    }
-
-    int size() override { return _set.size(); }
-
-    bool find(void* data) override {
-        auto* value = reinterpret_cast<StringValue*>(data);
-        std::string_view str_value(const_cast<const char*>(value->ptr), value->len);
-        auto it = _set.find(str_value);
-
-        return !(it == _set.end());
-    }
-
-    bool find(void* data, size_t size) override {
-        std::string str_value(reinterpret_cast<char*>(data), size);
-        auto it = _set.find(str_value);
-        return !(it == _set.end());
-    }
-
-    class Iterator : public IteratorBase {
-    public:
-        Iterator(phmap::flat_hash_set<std::string>::iterator begin,
-                 phmap::flat_hash_set<std::string>::iterator end)
-                : _begin(begin), _end(end) {}
-        ~Iterator() override = default;
-        virtual bool has_next() const { return !(_begin == _end); }
-        virtual const void* get_value() {
-            _value.ptr = const_cast<char*>(_begin->data());
-            _value.len = _begin->length();
-            return &_value;
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        for (int i = 0; i < number; i++) {
+            insert((void*)((ElementType*)data + offsets[i]));
         }
-        virtual void next() { ++_begin; }
+    }
+
+    int size() override { return _set.size(); }
+
+    bool find(const void* data) const override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        return _set.find(*reinterpret_cast<const ElementType*>(data));
+    }
+
+    bool find(const void* data, size_t) const override { return find(data); }
+
+    void find_fixed_len(const char* __restrict data, const uint8* __restrict null_map, int number,
+                        uint8* __restrict results) override {
+        ElementType* value = (ElementType*)data;
+        if (null_map == nullptr) {
+            for (int i = 0; i < number; i++) {
+                results[i] = _set.find(value[i]);
+            }
+        } else {
+            for (int i = 0; i < number; i++) {
+                results[i] = _set.find(value[i]) & !null_map[i];
+            }
+        }
+    }
+
+    void find_batch(const doris::vectorized::IColumn& column, size_t rows,
+                    doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<false, false>(column, rows, nullptr, results);
+    }
+
+    void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
+                             doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<false, true>(column, rows, nullptr, results);
+    }
+
+    void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
+                             const doris::vectorized::NullMap& null_map,
+                             doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<true, false>(column, rows, &null_map, results);
+    }
+
+    void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
+                                      const doris::vectorized::NullMap& null_map,
+                                      doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<true, true>(column, rows, &null_map, results);
+    }
+
+    template <bool is_nullable, bool is_negative>
+    void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
+                     const doris::vectorized::NullMap* null_map,
+                     doris::vectorized::ColumnUInt8::Container& results) {
+        auto& col = assert_cast<const ColumnType&>(column);
+        const auto* __restrict data = (ElementType*)col.get_data().data();
+        const uint8_t* __restrict null_map_data;
+        if constexpr (is_nullable) {
+            null_map_data = null_map->data();
+        }
+        auto* __restrict result_data = results.data();
+        for (size_t i = 0; i < rows; ++i) {
+            if constexpr (!is_nullable && !is_negative) {
+                result_data[i] = _set.find(data[i]);
+            } else if constexpr (!is_nullable && is_negative) {
+                result_data[i] = !_set.find(data[i]);
+            } else if constexpr (is_nullable && !is_negative) {
+                result_data[i] = _set.find(data[i]) & (!null_map_data[i]);
+            } else { // (is_nullable && is_negative)
+                result_data[i] = !(_set.find(data[i]) & (!null_map_data[i]));
+            }
+        }
+    }
+
+    class Iterator : public IteratorBase {
+    public:
+        Iterator(typename ContainerType::Iterator begin, typename ContainerType::Iterator end)
+                : _begin(begin), _end(end) {}
+        ~Iterator() override = default;
+        bool has_next() const override { return !(_begin == _end); }
+        const void* get_value() override { return _begin.operator->(); }
+        void next() override { ++_begin; }
 
     private:
-        typename phmap::flat_hash_set<std::string>::iterator _begin;
-        typename phmap::flat_hash_set<std::string>::iterator _end;
-        StringValue _value;
+        typename ContainerType::Iterator _begin;
+        typename ContainerType::Iterator _end;
     };
 
     IteratorBase* begin() override {
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
 
+    ContainerType* get_inner_set() { return &_set; }
+
 private:
-    phmap::flat_hash_set<std::string> _set;
+    ContainerType _set;
+    ObjectPool _pool;
+};
+
+template <typename _ContainerType = DynamicContainer<std::string>>
+class StringSet : public HybridSetBase {
+public:
+    using ContainerType = _ContainerType;
+
+    StringSet() = default;
+
+    ~StringSet() override = default;
+
+    void insert(const void* data) override {
+        if (data == nullptr) {
+            return;
+        }
+
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        std::string str_value(value->data, value->size);
+        _set.insert(str_value);
+    }
+
+    void insert(void* data, size_t size) override {
+        std::string str_value(reinterpret_cast<char*>(data), size);
+        _set.insert(str_value);
+    }
+
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        LOG(FATAL) << "string set not support insert_fixed_len";
+    }
+
+    int size() override { return _set.size(); }
+
+    bool find(const void* data) const override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        auto* value = reinterpret_cast<const StringRef*>(data);
+        std::string str_value(const_cast<const char*>(value->data), value->size);
+        return _set.find(str_value);
+    }
+
+    bool find(const void* data, size_t size) const override {
+        std::string str_value(reinterpret_cast<const char*>(data), size);
+        return _set.find(str_value);
+    }
+
+    void find_batch(const doris::vectorized::IColumn& column, size_t rows,
+                    doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<false, false>(column, rows, nullptr, results);
+    }
+
+    void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
+                             doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<false, true>(column, rows, nullptr, results);
+    }
+
+    void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
+                             const doris::vectorized::NullMap& null_map,
+                             doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<true, false>(column, rows, &null_map, results);
+    }
+
+    void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
+                                      const doris::vectorized::NullMap& null_map,
+                                      doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<true, true>(column, rows, &null_map, results);
+    }
+
+    template <bool is_nullable, bool is_negative>
+    void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
+                     const doris::vectorized::NullMap* null_map,
+                     doris::vectorized::ColumnUInt8::Container& results) {
+        auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
+        const uint8_t* __restrict null_map_data;
+        if constexpr (is_nullable) {
+            null_map_data = null_map->data();
+        }
+        auto* __restrict result_data = results.data();
+        for (size_t i = 0; i < rows; ++i) {
+            const auto& string_data = col.get_data_at(i).to_string();
+            if constexpr (!is_nullable && !is_negative) {
+                result_data[i] = _set.find(string_data);
+            } else if constexpr (!is_nullable && is_negative) {
+                result_data[i] = !_set.find(string_data);
+            } else if constexpr (is_nullable && !is_negative) {
+                result_data[i] = _set.find(string_data) & (!null_map_data[i]);
+            } else { // (is_nullable && is_negative)
+                result_data[i] = !(_set.find(string_data) & (!null_map_data[i]));
+            }
+        }
+    }
+
+    class Iterator : public IteratorBase {
+    public:
+        Iterator(typename ContainerType::Iterator begin, typename ContainerType::Iterator end)
+                : _begin(begin), _end(end) {}
+        ~Iterator() override = default;
+        bool has_next() const override { return !(_begin == _end); }
+        const void* get_value() override {
+            _value.data = const_cast<char*>(_begin->data());
+            _value.size = _begin->length();
+            return &_value;
+        }
+        void next() override { ++_begin; }
+
+    private:
+        typename ContainerType::Iterator _begin;
+        typename ContainerType::Iterator _end;
+        StringRef _value;
+    };
+
+    IteratorBase* begin() override {
+        return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
+    }
+
+    ContainerType* get_inner_set() { return &_set; }
+
+private:
+    ContainerType _set;
+    ObjectPool _pool;
+};
+
+// note: Two difference from StringSet
+// 1 StringRef has better comparison performance than std::string
+// 2 std::string keeps its own memory, bug StringRef just keeps ptr and len, so you the caller should manage memory of StringRef
+template <typename _ContainerType = DynamicContainer<StringRef>>
+class StringValueSet : public HybridSetBase {
+public:
+    using ContainerType = _ContainerType;
+
+    StringValueSet() = default;
+
+    ~StringValueSet() override = default;
+
+    void insert(const void* data) override {
+        if (data == nullptr) {
+            return;
+        }
+
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        StringRef sv(value->data, value->size);
+        _set.insert(sv);
+    }
+
+    void insert(void* data, size_t size) override {
+        StringRef sv(reinterpret_cast<char*>(data), size);
+        _set.insert(sv);
+    }
+
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        LOG(FATAL) << "string set not support insert_fixed_len";
+    }
+
+    int size() override { return _set.size(); }
+
+    bool find(const void* data) const override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        auto* value = reinterpret_cast<const StringRef*>(data);
+        return _set.find(*value);
+    }
+
+    bool find(const void* data, size_t size) const override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        StringRef sv(reinterpret_cast<const char*>(data), size);
+        return _set.find(sv);
+    }
+
+    void find_batch(const doris::vectorized::IColumn& column, size_t rows,
+                    doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<false, false>(column, rows, nullptr, results);
+    }
+
+    void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
+                             doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<false, true>(column, rows, nullptr, results);
+    }
+
+    void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
+                             const doris::vectorized::NullMap& null_map,
+                             doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<true, false>(column, rows, &null_map, results);
+    }
+
+    void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
+                                      const doris::vectorized::NullMap& null_map,
+                                      doris::vectorized::ColumnUInt8::Container& results) override {
+        _find_batch<true, true>(column, rows, &null_map, results);
+    }
+
+    template <bool is_nullable, bool is_negative>
+    void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
+                     const doris::vectorized::NullMap* null_map,
+                     doris::vectorized::ColumnUInt8::Container& results) {
+        auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
+        const uint8_t* __restrict null_map_data;
+        if constexpr (is_nullable) {
+            null_map_data = null_map->data();
+        }
+        auto* __restrict result_data = results.data();
+        for (size_t i = 0; i < rows; ++i) {
+            if constexpr (!is_nullable && !is_negative) {
+                result_data[i] = _set.find(col.get_data_at(i));
+            } else if constexpr (!is_nullable && is_negative) {
+                result_data[i] = !_set.find(col.get_data_at(i));
+            } else if constexpr (is_nullable && !is_negative) {
+                result_data[i] = _set.find(col.get_data_at(i)) & (!null_map_data[i]);
+            } else { // (is_nullable && is_negative)
+                result_data[i] = !(_set.find(col.get_data_at(i)) & (!null_map_data[i]));
+            }
+        }
+    }
+
+    class Iterator : public IteratorBase {
+    public:
+        Iterator(typename ContainerType::Iterator begin, typename ContainerType::Iterator end)
+                : _begin(begin), _end(end) {}
+        ~Iterator() override = default;
+        bool has_next() const override { return !(_begin == _end); }
+        const void* get_value() override {
+            _value.data = const_cast<char*>(_begin->data);
+            _value.size = _begin->size;
+            return &_value;
+        }
+        void next() override { ++_begin; }
+
+    private:
+        typename ContainerType::Iterator _begin;
+        typename ContainerType::Iterator _end;
+        StringRef _value;
+    };
+
+    IteratorBase* begin() override {
+        return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
+    }
+
+    ContainerType* get_inner_set() { return &_set; }
+
+private:
+    ContainerType _set;
     ObjectPool _pool;
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H

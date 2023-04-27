@@ -20,18 +20,17 @@ package org.apache.doris.service;
 import org.junit.Assert;
 import org.junit.Test;
 
-import javax.validation.constraints.AssertTrue;
 import java.util.HashSet;
 import java.util.Set;
 
 public class ExecuteEnvTest {
-    int THREAD_MAX_NUM = 10;
-    int[] oids = new int[THREAD_MAX_NUM];
+    int threadMaxNum = 10;
+    int[] oids = new int[threadMaxNum];
 
     @Test
     public void testGetInstance() {
         Set<Thread> tds = new HashSet<Thread>();
-        for (int i = 0 ;i < THREAD_MAX_NUM; i++) {
+        for (int i = 0; i < threadMaxNum; i++) {
             Thread td = new Thread(new MyTest(i, oids));
             tds.add(td);
             td.start();
@@ -44,25 +43,25 @@ public class ExecuteEnvTest {
                 e.printStackTrace();
             }
         }
-        for (int i = 1; i < THREAD_MAX_NUM; i++) {
-            Assert.assertEquals(oids[i-1], oids[i]);
+        for (int i = 1; i < threadMaxNum; i++) {
+            Assert.assertEquals(oids[i - 1], oids[i]);
         }
     }
-}
 
-class MyTest implements Runnable {
-    public int index;
-    public int[] oids;
+    static class MyTest implements Runnable {
+        public int index;
+        public int[] oids;
 
-    MyTest(int index, int[] oids) {
-        this.index = index;
-        this.oids = oids;
-    }
+        MyTest(int index, int[] oids) {
+            this.index = index;
+            this.oids = oids;
+        }
 
-    @Override
-    public void run() {
-        ExecuteEnv instance = ExecuteEnv.getInstance();
-        int oid = instance.hashCode();
-        oids[index] = oid;
+        @Override
+        public void run() {
+            ExecuteEnv instance = ExecuteEnv.getInstance();
+            int oid = instance.hashCode();
+            oids[index] = oid;
+        }
     }
 }

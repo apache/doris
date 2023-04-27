@@ -19,11 +19,8 @@
 
 #include <math.h>
 
-#include <exception>
 #include <memory>
 #include <sstream>
-
-#include "common/logging.h"
 
 namespace doris {
 
@@ -194,6 +191,10 @@ int64_t base64_decode(const char* data, size_t length, char* decoded_data) {
 
     // run through the whole string, converting as we go
     while ((ch = *current++) != '\0' && length-- > 0) {
+        if (ch >= 256 || ch < 0) {
+            return -1;
+        }
+
         if (ch == base64_pad) {
             if (*current != '=' && (i % 4) == 1) {
                 return -1;
@@ -239,6 +240,7 @@ int64_t base64_decode(const char* data, size_t length, char* decoded_data) {
             return 0;
         case 2:
             k++;
+            [[fallthrough]];
         case 3:
             decoded_data[k] = 0;
         default:

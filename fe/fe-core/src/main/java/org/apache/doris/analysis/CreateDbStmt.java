@@ -17,26 +17,30 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-// 用于描述CREATE DATABASE的内部结构
+import java.util.HashMap;
+import java.util.Map;
+
 public class CreateDbStmt extends DdlStmt {
     private boolean ifNotExists;
     private String dbName;
+    private Map<String, String> properties;
 
-    public CreateDbStmt(boolean ifNotExists, String dbName) {
+    public CreateDbStmt(boolean ifNotExists, String dbName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.dbName = dbName;
+        this.properties = properties == null ? new HashMap<>() : properties;
     }
 
     public String getFullDbName() {
@@ -47,8 +51,12 @@ public class CreateDbStmt extends DdlStmt {
         return ifNotExists;
     }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
@@ -56,8 +64,9 @@ public class CreateDbStmt extends DdlStmt {
         FeNameFormat.checkDbName(dbName);
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.CREATE)) {
+            ErrorReport.reportAnalysisException(
+                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
         }
     }
 
@@ -70,6 +79,11 @@ public class CreateDbStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE DATABASE ").append("`").append(dbName).append("`");
+        if (properties.size() > 0) {
+            stringBuilder.append("\nPROPERTIES (\n");
+            stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));
+            stringBuilder.append("\n)");
+        }
         return stringBuilder.toString();
     }
 }

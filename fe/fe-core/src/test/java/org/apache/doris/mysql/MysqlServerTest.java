@@ -17,12 +17,12 @@
 
 package org.apache.doris.mysql;
 
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
 
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -102,18 +102,8 @@ public class MysqlServerTest {
 
         // stop and join
         server.stop();
-        server.join();
 
         Assert.assertEquals(2, submitNum);
-    }
-
-    @Test
-    public void testInvalidParam() throws IOException {
-        ServerSocket socket = new ServerSocket(0);
-        int port = socket.getLocalPort();
-        socket.close();
-        MysqlServer server = new MysqlServer(port, null);
-        Assert.assertFalse(server.start());
     }
 
     @Test
@@ -127,7 +117,6 @@ public class MysqlServerTest {
         Assert.assertFalse(server1.start());
 
         server.stop();
-        server.join();
     }
 
     @Test
@@ -154,7 +143,6 @@ public class MysqlServerTest {
 
         // stop and join
         server.stop();
-        server.join();
 
         Assert.assertEquals(2, submitFailNum);
     }

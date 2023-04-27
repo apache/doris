@@ -33,11 +33,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
@@ -64,10 +65,11 @@ import java.util.stream.Collectors;
 public class PartitionsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId").add("PartitionName")
-            .add("VisibleVersion").add("VisibleVersionTime").add("VisibleVersionHash")
+            .add("VisibleVersion").add("VisibleVersionTime")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
-            .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime")
+            .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
+            .add("IsMutable")
             .build();
 
     private Database db;
@@ -90,17 +92,33 @@ public class PartitionsProcDir implements ProcDirInterface {
         }
         if (subExpr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
-            if (subExpr.getChild(1) instanceof StringLiteral && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
+            if (subExpr.getChild(1) instanceof StringLiteral
+                    && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
                 return ((StringLiteral) subExpr.getChild(1)).getValue().equals(element);
             }
             long leftVal;
             long rightVal;
             if (subExpr.getChild(1) instanceof DateLiteral) {
-                leftVal = (new DateLiteral((String) element, Type.DATETIME)).getLongValue();
+                Type type;
+                switch (subExpr.getChild(1).getType().getPrimitiveType()) {
+                    case DATE:
+                    case DATETIME:
+                        type = Type.DATETIME;
+                        break;
+                    case DATEV2:
+                        type = Type.DATETIMEV2;
+                        break;
+                    case DATETIMEV2:
+                        type = subExpr.getChild(1).getType();
+                        break;
+                    default:
+                        throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
+                }
+                leftVal = (new DateLiteral((String) element, type)).getLongValue();
                 rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             } else {
                 leftVal = Long.parseLong(element.toString());
-                rightVal = ((IntLiteral)subExpr.getChild(1)).getLongValue();
+                rightVal = ((IntLiteral) subExpr.getChild(1)).getLongValue();
             }
             switch (binaryPredicate.getOp()) {
                 case EQ:
@@ -120,7 +138,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     Preconditions.checkState(false, "No defined binary operator.");
             }
         } else {
-            return like((String)element, ((StringLiteral) subExpr.getChild(1)).getValue());
+            return like((String) element, ((StringLiteral) subExpr.getChild(1)).getValue());
         }
         return true;
     }
@@ -134,7 +152,8 @@ public class PartitionsProcDir implements ProcDirInterface {
         return str.matches(expr);
     }
 
-    public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs, LimitElement limitElement) throws AnalysisException {
+    public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs,
+            LimitElement limitElement) throws AnalysisException {
         List<List<Comparable>> partitionInfos = getPartitionInfos();
         List<List<Comparable>> filterPartitionInfos;
         //where
@@ -176,7 +195,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             if (endIndex > filterPartitionInfos.size()) {
                 endIndex = filterPartitionInfos.size();
             }
-            filterPartitionInfos = filterPartitionInfos.subList(beginIndex,endIndex);
+            filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
         }
 
         return getBasicProcResult(filterPartitionInfos);
@@ -215,7 +234,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionIds = tblPartitionInfo.getPartitionItemEntryList(isTempPartition, true).stream()
                         .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
-                Collection<Partition> partitions = isTempPartition ? olapTable.getTempPartitions() : olapTable.getPartitions();
+                Collection<Partition> partitions = isTempPartition
+                        ? olapTable.getTempPartitions() : olapTable.getPartitions();
                 partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
             }
 
@@ -229,7 +249,6 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(partitionName);
                 partitionInfo.add(partition.getVisibleVersion());
                 partitionInfo.add(TimeUtils.longToTimeString(partition.getVisibleVersionTime()));
-                partitionInfo.add(partition.getVisibleVersionHash());
                 partitionInfo.add(partition.getState());
 
                 if (tblPartitionInfo.getType() == PartitionType.RANGE
@@ -260,7 +279,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     }
                     partitionInfo.add(sb.toString());
                 } else {
-                    partitionInfo.add("ALL KEY");
+                    partitionInfo.add("RANDOM");
                 }
 
                 partitionInfo.add(distributionInfo.getBucketNum());
@@ -270,6 +289,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
                 partitionInfo.add(dataProperty.getStorageMedium().name());
                 partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
+                partitionInfo.add(dataProperty.getStoragePolicy());
 
                 partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 
@@ -281,6 +301,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(tblPartitionInfo.getIsInMemory(partitionId));
                 // replica allocation
                 partitionInfo.add(tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
+
+                partitionInfo.add(tblPartitionInfo.getIsMutable(partitionId));
 
                 partitionInfos.add(partitionInfo);
             }
@@ -329,7 +351,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 return i;
             }
         }
-        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                columnName, FeNameFormat.getColumnNameRegex());
         return -1;
     }
 }

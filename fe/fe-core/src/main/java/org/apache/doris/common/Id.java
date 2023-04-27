@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/Id.java
+// and modified by Doris
 
 package org.apache.doris.common;
 
@@ -23,7 +26,7 @@ import java.util.ArrayList;
  * Integer ids that cannot accidentally be compared with ints.
  */
 public class Id<IdType extends Id<IdType>> {
-    static private int INVALID_ID = -1;
+    private static final int INVALID_ID = -1;
     protected final int id;
 
     public Id() {

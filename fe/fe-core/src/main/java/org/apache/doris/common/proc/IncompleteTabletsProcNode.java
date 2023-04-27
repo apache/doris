@@ -17,7 +17,8 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Joiner;
@@ -28,24 +29,38 @@ import java.util.Collections;
 
 public class IncompleteTabletsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("UnhealthyTablets").add("InconsistentTablets").add("CloningTablets").add("BadTablets")
+            .add("ReplicaMissingTablets").add("VersionIncompleteTablets").add("ReplicaRelocatingTablets")
+            .add("RedundantTablets").add("ReplicaMissingInClusterTablets").add("ReplicaMissingForTagTablets")
+            .add("ForceRedundantTablets").add("ColocateMismatchTablets").add("ColocateRedundantTablets")
+            .add("NeedFurtherRepairTablets").add("UnrecoverableTablets").add("ReplicaCompactionTooSlowTablets")
+            .add("InconsistentTablets").add("OversizeTablets")
             .build();
     private static final Joiner JOINER = Joiner.on(",");
 
-    final Database db;
+    final DatabaseIf<TableIf> db;
 
-    public IncompleteTabletsProcNode(Database db) {
+    public IncompleteTabletsProcNode(DatabaseIf db) {
         this.db = db;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        StatisticProcDir.DBStatistic statistic = new StatisticProcDir.DBStatistic(db);
+        TabletHealthProcDir.DBTabletStatistic statistic = new TabletHealthProcDir.DBTabletStatistic(db);
         return new BaseProcResult(TITLE_NAMES, Collections.singletonList(Arrays.asList(
-                JOINER.join(statistic.unhealthyTabletIds),
+                JOINER.join(statistic.replicaMissingTabletIds),
+                JOINER.join(statistic.versionIncompleteTabletIds),
+                JOINER.join(statistic.replicaRelocatingTabletIds),
+                JOINER.join(statistic.redundantTabletIds),
+                JOINER.join(statistic.replicaMissingInClusterTabletIds),
+                JOINER.join(statistic.replicaMissingForTagTabletIds),
+                JOINER.join(statistic.forceRedundantTabletIds),
+                JOINER.join(statistic.colocateMismatchTabletIds),
+                JOINER.join(statistic.colocateRedundantTabletIds),
+                JOINER.join(statistic.needFurtherRepairTabletIds),
+                JOINER.join(statistic.unrecoverableTabletIds),
+                JOINER.join(statistic.replicaCompactionTooSlowTabletIds),
                 JOINER.join(statistic.inconsistentTabletIds),
-                JOINER.join(statistic.cloningTabletIds),
-                JOINER.join(statistic.unrecoverableTabletIds)
+                JOINER.join(statistic.oversizeTabletIds)
         )));
     }
 

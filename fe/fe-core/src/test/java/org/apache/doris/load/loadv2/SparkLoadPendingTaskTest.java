@@ -23,10 +23,10 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
@@ -40,30 +40,29 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartition;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartitionInfo;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
+import org.apache.doris.sparkdpp.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlFileGroup;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlIndex;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlPartition;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlPartitionInfo;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlTable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.junit.Assert;
-import org.junit.Test;
-
-import java.util.List;
-import java.util.Map;
-
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.util.List;
+import java.util.Map;
 
 public class SparkLoadPendingTaskTest {
 
@@ -71,10 +70,9 @@ public class SparkLoadPendingTaskTest {
     public void testExecuteTask(@Injectable SparkLoadJob sparkLoadJob,
                                 @Injectable SparkResource resource,
                                 @Injectable BrokerDesc brokerDesc,
-                                @Mocked Catalog catalog, @Injectable SparkLoadAppHandle handle,
+                                @Mocked Env env, @Injectable SparkLoadAppHandle handle,
                                 @Injectable Database database,
-                                @Injectable OlapTable table) throws LoadException {
-        long dbId = 0L;
+                                @Injectable OlapTable table) throws UserException {
         long tableId = 1L;
 
         // columns
@@ -97,7 +95,7 @@ public class SparkLoadPendingTaskTest {
         Map<BrokerFileGroupAggInfo.FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                                                   null, null, null, false, null);
+                null, null, null, false, null);
         BrokerFileGroup brokerFileGroup = new BrokerFileGroup(desc);
         brokerFileGroups.add(brokerFileGroup);
         BrokerFileGroupAggInfo.FileGroupAggKey aggKey = new BrokerFileGroupAggInfo.FileGroupAggKey(tableId, null);
@@ -148,10 +146,9 @@ public class SparkLoadPendingTaskTest {
     public void testRangePartitionHashDistribution(@Injectable SparkLoadJob sparkLoadJob,
                                                    @Injectable SparkResource resource,
                                                    @Injectable BrokerDesc brokerDesc,
-                                                   @Mocked Catalog catalog,
+                                                   @Mocked Env env,
                                                    @Injectable Database database,
                                                    @Injectable OlapTable table) throws LoadException, DdlException, AnalysisException {
-        long dbId = 0L;
         long tableId = 1L;
 
         // c1 is partition column, c2 is distribution column
@@ -173,9 +170,9 @@ public class SparkLoadPendingTaskTest {
         int distributionColumnIndex = 1;
         DistributionInfo distributionInfo = new HashDistributionInfo(3, Lists.newArrayList(columns.get(distributionColumnIndex)));
         Partition partition1 = new Partition(partition1Id, "p1", null,
-                                             distributionInfo);
+                distributionInfo);
         Partition partition2 = new Partition(partition2Id, "p2", null,
-                                             new HashDistributionInfo(4, Lists.newArrayList(columns.get(distributionColumnIndex))));
+                new HashDistributionInfo(4, Lists.newArrayList(columns.get(distributionColumnIndex))));
         int partitionColumnIndex = 0;
         List<Partition> partitions = Lists.newArrayList(partition1, partition2);
         RangePartitionInfo partitionInfo = new RangePartitionInfo(Lists.newArrayList(columns.get(partitionColumnIndex)));
@@ -192,7 +189,7 @@ public class SparkLoadPendingTaskTest {
         Map<BrokerFileGroupAggInfo.FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                                                   null, null, null, false, null);
+                null, null, null, false, null);
         BrokerFileGroup brokerFileGroup = new BrokerFileGroup(desc);
         brokerFileGroups.add(brokerFileGroup);
         BrokerFileGroupAggInfo.FileGroupAggKey aggKey = new BrokerFileGroupAggInfo.FileGroupAggKey(tableId, null);

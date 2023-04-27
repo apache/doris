@@ -17,14 +17,16 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "common/status.h"
 #include "http/http_method.h"
 #include "util/path_trie.hpp"
+
+struct event_base;
 
 namespace doris {
 
@@ -67,7 +69,7 @@ private:
 
     int _server_fd = -1;
     std::unique_ptr<ThreadPool> _workers;
-    std::mutex _event_bases_lock;    // protect _event_bases
+    std::mutex _event_bases_lock; // protect _event_bases
     std::vector<std::shared_ptr<event_base>> _event_bases;
 
     std::mutex _handler_lock;
@@ -78,6 +80,7 @@ private:
     PathTrie<HttpHandler*> _delete_handlers;
     PathTrie<HttpHandler*> _head_handlers;
     PathTrie<HttpHandler*> _options_handlers;
+    bool _started = false;
 };
 
 } // namespace doris

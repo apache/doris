@@ -22,9 +22,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -48,6 +47,15 @@ public class CommonUserProperties implements Writable {
     // The tag of the resource that the user is allowed to use
     @SerializedName("resourceTags")
     private Set<Tag> resourceTags = Sets.newHashSet();
+    // user level exec_mem_limit, if > 0, will overwrite the exec_mem_limit in session variable
+    @SerializedName("execMemLimit")
+    private long execMemLimit = -1;
+
+    @SerializedName("queryTimeout")
+    private int queryTimeout = -1;
+
+    @SerializedName("insertTimeout")
+    private int insertTimeout = -1;
 
     private String[] sqlBlockRulesSplit = {};
 
@@ -62,7 +70,7 @@ public class CommonUserProperties implements Writable {
     String getSqlBlockRules() {
         return sqlBlockRules;
     }
-    
+
     String[] getSqlBlockRulesSplit() {
         return sqlBlockRulesSplit;
     }
@@ -79,7 +87,7 @@ public class CommonUserProperties implements Writable {
         this.sqlBlockRules = sqlBlockRules;
         setSqlBlockRulesSplit(sqlBlockRules);
     }
-    
+
     void setSqlBlockRulesSplit(String sqlBlockRules) {
         // split
         this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
@@ -99,6 +107,30 @@ public class CommonUserProperties implements Writable {
 
     public Set<Tag> getResourceTags() {
         return resourceTags;
+    }
+
+    public long getExecMemLimit() {
+        return execMemLimit;
+    }
+
+    public void setExecMemLimit(long execMemLimit) {
+        this.execMemLimit = execMemLimit;
+    }
+
+    public int getQueryTimeout() {
+        return queryTimeout;
+    }
+
+    public void setQueryTimeout(int timeout) {
+        this.queryTimeout = timeout;
+    }
+
+    public int getInsertTimeout() {
+        return insertTimeout;
+    }
+
+    public void setInsertTimeout(int insertTimeout) {
+        this.insertTimeout = insertTimeout;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {

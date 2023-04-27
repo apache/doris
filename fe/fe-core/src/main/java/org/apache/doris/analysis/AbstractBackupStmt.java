@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -28,7 +28,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,8 +36,8 @@ import java.util.Map;
 public class AbstractBackupStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(AbstractBackupStmt.class);
 
-    private final static String PROP_TIMEOUT = "timeout";
-    private final static long MIN_TIMEOUT_MS = 600 * 1000L; // 10 min
+    private static final String PROP_TIMEOUT = "timeout";
+    private static final long MIN_TIMEOUT_MS = 600 * 1000L; // 10 min
 
     protected LabelName labelName;
     protected String repoName;
@@ -47,8 +46,9 @@ public class AbstractBackupStmt extends DdlStmt {
 
     protected long timeoutMs;
 
-    public AbstractBackupStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause abstractBackupTableRefClause,
-                              Map<String, String> properties) {
+    public AbstractBackupStmt(LabelName labelName, String repoName,
+            AbstractBackupTableRefClause abstractBackupTableRefClause,
+            Map<String, String> properties) {
         this.labelName = labelName;
         this.repoName = repoName;
         this.abstractBackupTableRefClause = abstractBackupTableRefClause;
@@ -61,7 +61,7 @@ public class AbstractBackupStmt extends DdlStmt {
 
         // user need database level privilege(not table level), because when doing restore operation,
         // the restore table may be newly created, so we can not judge its privileges.
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                 labelName.getDbName(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }
@@ -142,4 +142,3 @@ public class AbstractBackupStmt extends DdlStmt {
         return timeoutMs;
     }
 }
-

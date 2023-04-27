@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_MOCK_MOCK_TASK_WORKER_POOL_H
 #define DORIS_BE_SRC_MOCK_MOCK_TASK_WORKER_POOL_H
 
-#include "agent/status.h"
 #include "agent/task_worker_pool.h"
+#include "common/status.h"
 
 namespace doris {
 

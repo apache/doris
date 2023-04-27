@@ -14,24 +14,28 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/UnionNode.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
-import java.util.List;
-
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import java.util.List;
+
 public class UnionNode extends SetOperationNode {
-    protected UnionNode(PlanNodeId id, TupleId tupleId) {
-        super(id, tupleId, "UNION");
+    public UnionNode(PlanNodeId id, TupleId tupleId) {
+        super(id, tupleId, "UNION", StatisticalType.UNION_NODE);
     }
 
-    protected UnionNode(PlanNodeId id, TupleId tupleId,
+    public UnionNode(PlanNodeId id, TupleId tupleId,
                         List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId, "UNION", setOpResultExprs, isInSubplan);
+        super(id, tupleId, "UNION", setOpResultExprs, isInSubplan, StatisticalType.UNION_NODE);
     }
 
     @Override

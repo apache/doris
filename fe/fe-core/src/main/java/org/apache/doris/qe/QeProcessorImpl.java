@@ -22,7 +22,9 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileWriter;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TStatus;
@@ -31,7 +33,6 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -81,49 +82,56 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public void registerQuery(TUniqueId queryId, QueryInfo info) throws UserException {
-        LOG.info("register query id = " + DebugUtil.printId(queryId) + ", job: " + info.getCoord().getJobId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("register query id = " + DebugUtil.printId(queryId) + ", job: " + info.getCoord().getJobId());
+        }
         final QueryInfo result = coordinatorMap.putIfAbsent(queryId, info);
         if (result != null) {
             throw new UserException("queryId " + queryId + " already exists");
         }
     }
 
+    @Override
     public void registerInstances(TUniqueId queryId, Integer instancesNum) throws UserException {
         if (!coordinatorMap.containsKey(queryId)) {
             throw new UserException("query not exists in coordinatorMap:" + DebugUtil.printId(queryId));
         }
         QueryInfo queryInfo = coordinatorMap.get(queryId);
-        if (queryInfo.getConnectContext() != null &&
-                !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
+        if (queryInfo.getConnectContext() != null
+                && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
         ) {
             String user = queryInfo.getConnectContext().getQualifiedUser();
-            long maxQueryInstances = queryInfo.getConnectContext().getCatalog().getAuth().getMaxQueryInstances(user);
+            long maxQueryInstances = queryInfo.getConnectContext().getEnv().getAuth().getMaxQueryInstances(user);
             if (maxQueryInstances <= 0) {
                 maxQueryInstances = Config.default_max_query_instances;
             }
             if (maxQueryInstances > 0) {
-                AtomicInteger currentCount = userToInstancesCount.computeIfAbsent(user, __ -> new AtomicInteger(0));
+                AtomicInteger currentCount = userToInstancesCount
+                        .computeIfAbsent(user, ignored -> new AtomicInteger(0));
                 // Many query can reach here.
                 if (instancesNum + currentCount.get() > maxQueryInstances) {
                     throw new UserException("reach max_query_instances " + maxQueryInstances);
                 }
             }
             queryToInstancesNum.put(queryId, instancesNum);
-            userToInstancesCount.computeIfAbsent(user, __ -> new AtomicInteger(0)).addAndGet(instancesNum);
+            userToInstancesCount.computeIfAbsent(user, ignored -> new AtomicInteger(0)).addAndGet(instancesNum);
+            MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN.getOrAdd(user).increase(instancesNum.longValue());
         }
     }
 
     public Map<String, Integer> getInstancesNumPerUser() {
-        return Maps.transformEntries(userToInstancesCount, (__, value) -> value != null ? value.get() : 0);
+        return Maps.transformEntries(userToInstancesCount, (ignored, value) -> value != null ? value.get() : 0);
     }
 
     @Override
     public void unregisterQuery(TUniqueId queryId) {
         QueryInfo queryInfo = coordinatorMap.remove(queryId);
         if (queryInfo != null) {
-            LOG.info("deregister query id {}", DebugUtil.printId(queryId));
-            if (queryInfo.getConnectContext() != null &&
-                    !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("deregister query id {}", DebugUtil.printId(queryId));
+            }
+            if (queryInfo.getConnectContext() != null
+                    && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {
                 Integer num = queryToInstancesNum.remove(queryId);
                 if (num != null) {
@@ -139,7 +147,9 @@ public final class QeProcessorImpl implements QeProcessor {
                 }
             }
         } else {
-            LOG.warn("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
+            }
         }
     }
 
@@ -160,6 +170,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     .user(context.getQualifiedUser())
                     .connId(String.valueOf(context.getConnectionId()))
                     .db(context.getDatabase())
+                    .catalog(context.getDefaultCatalog())
                     .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
                     .profile(info.getCoord().getQueryProfile())
                     .isReportSucc(context.getSessionVariable().enableProfile()).build();
@@ -178,15 +189,22 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         final TReportExecStatusResult result = new TReportExecStatusResult();
         final QueryInfo info = coordinatorMap.get(params.query_id);
+
         if (info == null) {
-            result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
-            LOG.info("ReportExecStatus() runtime error, query {} does not exist", params.query_id);
+            // There is no QueryInfo for StreamLoad, so we return OK
+            if (params.query_type == TQueryType.LOAD) {
+                result.setStatus(new TStatus(TStatusCode.OK));
+            } else {
+                result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
+            }
+            LOG.info("ReportExecStatus() runtime error, query {} with type {} does not exist",
+                    DebugUtil.printId(params.query_id), params.query_type);
             return result;
         }
         try {
             info.getCoord().updateFragmentExecStatus(params);
             if (info.getCoord().getProfileWriter() != null && params.isSetProfile()) {
-                writeProfileExecutor.submit(new WriteProfileTask(params));
+                writeProfileExecutor.submit(new WriteProfileTask(params, info));
             }
         } catch (Exception e) {
             LOG.warn(e.getMessage());
@@ -196,13 +214,22 @@ public final class QeProcessorImpl implements QeProcessor {
         return result;
     }
 
+    @Override
+    public String getCurrentQueryByQueryId(TUniqueId queryId) {
+        QueryInfo info = coordinatorMap.get(queryId);
+        if (info != null && info.sql != null) {
+            return info.sql;
+        }
+        return "";
+    }
+
     public static final class QueryInfo {
         private final ConnectContext connectContext;
         private final Coordinator coord;
         private final String sql;
         private final long startExecTime;
 
-        // from Export, Pull load, Insert 
+        // from Export, Pull load, Insert
         public QueryInfo(Coordinator coord) {
             this(null, null, coord);
         }
@@ -235,8 +262,11 @@ public final class QeProcessorImpl implements QeProcessor {
     private class WriteProfileTask implements Runnable {
         private TReportExecStatusParams params;
 
-        WriteProfileTask(TReportExecStatusParams params) {
+        private QueryInfo queryInfo;
+
+        WriteProfileTask(TReportExecStatusParams params, QueryInfo queryInfo) {
             this.params = params;
+            this.queryInfo = queryInfo;
         }
 
         @Override

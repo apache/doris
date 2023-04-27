@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
+import org.apache.doris.alter.DecommissionType;
 
 import java.util.List;
 

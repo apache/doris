@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/FunctionArgsDef.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -34,8 +37,13 @@ public class FunctionArgsDef {
         this.isVariadic = isVariadic;
     }
 
-    public Type[] getArgTypes() { return argTypes; }
-    public boolean isVariadic() { return isVariadic; }
+    public Type[] getArgTypes() {
+        return argTypes;
+    }
+
+    public boolean isVariadic() {
+        return isVariadic;
+    }
 
     public void analyze(Analyzer analyzer) throws AnalysisException {
         argTypes = new Type[argTypeDefs.size()];
@@ -68,5 +76,7 @@ public class FunctionArgsDef {
     }
 
     @Override
-    public String toString() { return toSql(); }
+    public String toString() {
+        return toSql();
+    }
 }

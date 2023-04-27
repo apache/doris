@@ -18,7 +18,7 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.LoadColumnsInfo;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -33,23 +33,21 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Test;
 
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-
 public class RoutineLoadTaskSchedulerTest {
 
     @Mocked
     private RoutineLoadManager routineLoadManager;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private AgentTaskExecutor agentTaskExecutor;
 
@@ -71,7 +69,7 @@ public class RoutineLoadTaskSchedulerTest {
         Deencapsulation.setField(kafkaProgress, "partitionIdToOffset", partitionIdToOffset);
 
         Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
-        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1l, "default_cluster", 20000,
+        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1L, "default_cluster", 20000,
                 partitionIdToOffset);
         routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
 
@@ -85,10 +83,10 @@ public class RoutineLoadTaskSchedulerTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
-                catalog.getRoutineLoadManager();
+                result = env;
+                env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
 

@@ -17,19 +17,25 @@
 
 #include "runtime/fragment_mgr.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <thread>
 
 #include "common/config.h"
 #include "exec/data_sink.h"
+#include "gtest/gtest_pred_impl.h"
+#include "runtime/exec_env.h"
 #include "runtime/plan_fragment_executor.h"
-#include "runtime/row_batch.h"
-#include "util/monotime.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
 static Status s_prepare_status;
 static Status s_open_status;
-static int s_abort_cnt;
 // Mock used for this unittest
 PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
                                            const report_status_callback& report_status_cb)
@@ -38,20 +44,16 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
 PlanFragmentExecutor::~PlanFragmentExecutor() {}
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
-                                     QueryFragmentsCtx* batch_ctx) {
+                                     QueryContext* batch_ctx) {
     return s_prepare_status;
 }
 
 Status PlanFragmentExecutor::open() {
-    SleepFor(MonoDelta::FromMilliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
     return s_open_status;
 }
 
-void PlanFragmentExecutor::cancel() {}
-
-void PlanFragmentExecutor::set_abort() {
-    LOG(INFO) << "Plan Aborted";
-    s_abort_cnt++;
+void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
 }
 
 void PlanFragmentExecutor::close() {}
@@ -78,9 +80,9 @@ TEST_F(FragmentMgrTest, Normal) {
     params.params.fragment_instance_id = TUniqueId();
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
-    ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
+    EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
     // Duplicated
-    ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
+    EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
 }
 
 TEST_F(FragmentMgrTest, AddNormal) {
@@ -90,7 +92,7 @@ TEST_F(FragmentMgrTest, AddNormal) {
         params.params.fragment_instance_id = TUniqueId();
         params.params.fragment_instance_id.__set_hi(100 + i);
         params.params.fragment_instance_id.__set_lo(200);
-        ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
+        EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
     }
 }
 
@@ -100,9 +102,7 @@ TEST_F(FragmentMgrTest, CancelNormal) {
     params.params.fragment_instance_id = TUniqueId();
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
-    ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
-    // Cancel after add
-    ASSERT_TRUE(mgr.cancel(params.params.fragment_instance_id).ok());
+    EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
 }
 
 TEST_F(FragmentMgrTest, CancelWithoutAdd) {
@@ -111,7 +111,6 @@ TEST_F(FragmentMgrTest, CancelWithoutAdd) {
     params.params.fragment_instance_id = TUniqueId();
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
-    ASSERT_TRUE(mgr.cancel(params.params.fragment_instance_id).ok());
 }
 
 TEST_F(FragmentMgrTest, PrepareFailed) {
@@ -121,21 +120,20 @@ TEST_F(FragmentMgrTest, PrepareFailed) {
     params.params.fragment_instance_id = TUniqueId();
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
-    ASSERT_FALSE(mgr.exec_plan_fragment(params).ok());
+    EXPECT_FALSE(mgr.exec_plan_fragment(params).ok());
 }
 
 TEST_F(FragmentMgrTest, OfferPoolFailed) {
     config::fragment_pool_thread_num_min = 1;
     config::fragment_pool_thread_num_max = 1;
     config::fragment_pool_queue_size = 0;
-    s_abort_cnt = 0;
-    FragmentMgr mgr(nullptr);
+    FragmentMgr mgr(doris::ExecEnv::GetInstance());
 
     TExecPlanFragmentParams params;
     params.params.fragment_instance_id = TUniqueId();
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
-    ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
+    EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
 
     // the first plan open will cost 50ms, so the next 3 plans will be aborted.
     for (int i = 1; i < 4; ++i) {
@@ -143,15 +141,8 @@ TEST_F(FragmentMgrTest, OfferPoolFailed) {
         params.params.fragment_instance_id = TUniqueId();
         params.params.fragment_instance_id.__set_hi(100 + i);
         params.params.fragment_instance_id.__set_lo(200);
-        ASSERT_FALSE(mgr.exec_plan_fragment(params).ok());
+        EXPECT_FALSE(mgr.exec_plan_fragment(params).ok());
     }
-    ASSERT_EQ(3, s_abort_cnt);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

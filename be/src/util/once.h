@@ -14,13 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/once.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_UTIL_ONCE_H
-#define DORIS_BE_SRC_UTIL_ONCE_H
+#pragma once
 
 #include <atomic>
 
 #include "olap/olap_common.h"
+#include "util/lock.h"
 
 namespace doris {
 
@@ -52,10 +55,16 @@ public:
     // lambda and stores its return value. Otherwise, returns the stored Status.
     template <typename Fn>
     ReturnType call(Fn fn) {
-        std::call_once(_once_flag, [this, fn] {
-            _status = fn();
-            _has_called.store(true, std::memory_order_release);
-        });
+        if (!_has_called.load(std::memory_order_acquire)) {
+            do {
+                std::lock_guard l(_mutex);
+                if (_has_called.load(std::memory_order_acquire)) break;
+
+                _status = fn();
+                _has_called.store(true, std::memory_order_release);
+
+            } while (false);
+        }
         return _status;
     }
 
@@ -72,10 +81,8 @@ public:
 
 private:
     std::atomic<bool> _has_called;
-    std::once_flag _once_flag;
+    doris::Mutex _mutex;
     ReturnType _status;
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_UTIL_ONCE_H

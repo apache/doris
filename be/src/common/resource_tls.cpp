@@ -17,10 +17,12 @@
 
 #include "common/resource_tls.h"
 
+#include <gen_cpp/Types_types.h>
 #include <pthread.h>
 
+#include <ostream>
+
 #include "common/logging.h"
-#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -29,7 +31,7 @@ static bool s_is_init = false;
 
 static void resource_destructor(void* value) {
     TResourceInfo* info = (TResourceInfo*)value;
-    if (info == nullptr) {
+    if (info != nullptr) {
         delete info;
     }
 }

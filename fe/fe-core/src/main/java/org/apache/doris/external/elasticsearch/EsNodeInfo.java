@@ -24,6 +24,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * This class represents one node with the http and potential thrift publish address
@@ -164,8 +165,12 @@ public class EsNodeInfo {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
 
         EsNodeInfo nodeInfo = (EsNodeInfo) o;
 
@@ -193,8 +198,8 @@ public class EsNodeInfo {
         if (hasThrift != nodeInfo.hasThrift) {
             return false;
         }
-        return (publishAddress != null ? publishAddress.equals(nodeInfo.publishAddress) : nodeInfo.publishAddress == null)
-                && (thriftAddress != null ? thriftAddress.equals(nodeInfo.thriftAddress) : nodeInfo.thriftAddress == null);
+        return (Objects.equals(publishAddress, nodeInfo.publishAddress))
+                && (Objects.equals(thriftAddress, nodeInfo.thriftAddress));
     }
 
     @Override
@@ -214,18 +219,18 @@ public class EsNodeInfo {
 
     @Override
     public String toString() {
-        return "EsNodeInfo{" +
-                "id='" + id + '\'' +
-                ", name='" + name + '\'' +
-                ", host='" + host + '\'' +
-                ", ip='" + ip + '\'' +
-                ", publishAddress=" + publishAddress +
-                ", hasHttp=" + hasHttp +
-                ", isClient=" + isClient +
-                ", isData=" + isData +
-                ", isIngest=" + isIngest +
-                ", hasThrift=" + hasThrift +
-                ", thriftAddress=" + thriftAddress +
-                '}';
+        return "EsNodeInfo{"
+                + "id='" + id + '\''
+                + ", name='" + name + '\''
+                + ", host='" + host + '\''
+                + ", ip='" + ip + '\''
+                + ", publishAddress=" + publishAddress
+                + ", hasHttp=" + hasHttp
+                + ", isClient=" + isClient
+                + ", isData=" + isData
+                + ", isIngest=" + isIngest
+                + ", hasThrift=" + hasThrift
+                + ", thriftAddress=" + thriftAddress
+                + '}';
     }
 }

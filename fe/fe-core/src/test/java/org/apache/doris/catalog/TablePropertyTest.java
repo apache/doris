@@ -21,26 +21,17 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 
 public class TablePropertyTest {
-    private static String fileName = "./TablePropertyTest";
-
-    @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
-    }
 
     @Test
     public void testNormal() throws IOException {
@@ -48,9 +39,8 @@ public class TablePropertyTest {
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("TablePropertyTest", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         HashMap<String, String> properties = new HashMap<>();
         properties.put(DynamicPartitionProperty.ENABLE, "true");
@@ -67,7 +57,7 @@ public class TablePropertyTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         TableProperty readTableProperty = TableProperty.read(in);
         DynamicPartitionProperty readDynamicPartitionProperty = readTableProperty.getDynamicPartitionProperty();
         DynamicPartitionProperty dynamicPartitionProperty = new DynamicPartitionProperty(properties);
@@ -79,6 +69,8 @@ public class TablePropertyTest {
         Assert.assertEquals(readDynamicPartitionProperty.getEnd(), dynamicPartitionProperty.getEnd());
         Assert.assertEquals(readDynamicPartitionProperty.getTimeUnit(), dynamicPartitionProperty.getTimeUnit());
         Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, readTableProperty.getReplicaAllocation());
+
         in.close();
+        Files.delete(path);
     }
 }

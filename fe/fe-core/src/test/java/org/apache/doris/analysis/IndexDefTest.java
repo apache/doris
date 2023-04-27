@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -30,7 +29,7 @@ public class IndexDefTest {
 
     @Before
     public void setUp() throws Exception {
-        def = new IndexDef("index1", Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala");
+        def = new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, null, "balabala");
     }
 
     @Test
@@ -46,8 +45,8 @@ public class IndexDefTest {
                             + "xxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxinde"
                             + "x1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxx"
                             + "xxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxx"
-                            + "xxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxx",
-                    Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP,
+                            + "xxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxx", false,
+                    Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, null,
                     "balabala");
             def.analyze();
             Assert.fail("No exception throws.");
@@ -55,7 +54,7 @@ public class IndexDefTest {
             Assert.assertTrue(e instanceof AnalysisException);
         }
         try {
-            def = new IndexDef("", Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala");
+            def = new IndexDef("", false, Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, null, "balabala");
             def.analyze();
             Assert.fail("No exception throws.");
         } catch (AnalysisException e) {

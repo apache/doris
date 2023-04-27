@@ -74,7 +74,7 @@ bool DorisClient::exec(const string& sql) {
         std::cout << "Query result:" << std::endl;
         for (int i = 0; i < num_rows; i++) {
             _row = mysql_fetch_row(_result);
-            if (_row < 0) {
+            if (_row == nullptr) {
                 break;
             }
             for (int j = 0; j < num_fields; j++) {

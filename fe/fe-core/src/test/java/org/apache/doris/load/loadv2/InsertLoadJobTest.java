@@ -17,32 +17,36 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
-
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Optional;
 import java.util.Set;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-
 public class InsertLoadJobTest {
 
     @Test
-    public void testGetTableNames(@Mocked Catalog catalog,
-                                  @Injectable Database database,
-                                  @Injectable Table table) throws MetaNotFoundException {
-        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "");
+    public void testGetTableNames(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable Database database,
+            @Injectable Table table) throws MetaNotFoundException {
+        UserIdentity userInfo = new UserIdentity("root", "localhost");
+        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "", userInfo);
         String tableName = "table1";
         new Expectations() {
             {
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
                 catalog.getDb(anyLong);
                 result = Optional.of(database);
                 database.getTable(anyLong);

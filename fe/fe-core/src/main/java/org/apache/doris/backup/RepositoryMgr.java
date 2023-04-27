@@ -18,13 +18,12 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -76,7 +75,7 @@ public class RepositoryMgr extends Daemon implements Writable {
 
                 if (!isReplay) {
                     // write log
-                    Catalog.getCurrentCatalog().getEditLog().logCreateRepository(repo);
+                    Env.getCurrentEnv().getEditLog().logCreateRepository(repo);
                 }
 
                 LOG.info("successfully adding repo {} to repository mgr. is replay: {}",
@@ -106,7 +105,7 @@ public class RepositoryMgr extends Daemon implements Writable {
 
                 if (!isReplay) {
                     // log
-                    Catalog.getCurrentCatalog().getEditLog().logDropRepository(repoName);
+                    Env.getCurrentEnv().getEditLog().logDropRepository(repoName);
                 }
                 LOG.info("successfully removing repo {} from repository mgr", repoName);
                 return Status.OK;

@@ -24,7 +24,7 @@ import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -64,23 +64,24 @@ public class SparkResourceTest {
     }
 
     @Test
-    public void testFromStmt(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
+    public void testFromStmt(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                catalog.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
 
         // master: spark, deploy_mode: cluster
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         SparkResource resource = (SparkResource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, resource.getName());
@@ -94,7 +95,7 @@ public class SparkResourceTest {
 
         // master: spark, deploy_mode: client
         properties.put("spark.submit.deployMode", "client");
-        stmt = new CreateResourceStmt(true, name, properties);
+        stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         resource = (SparkResource) Resource.fromStmt(stmt);
         Assert.assertEquals("client", resource.getDeployMode().name().toLowerCase());
@@ -107,7 +108,7 @@ public class SparkResourceTest {
         properties.put("spark.driver.memory", "1g");
         properties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
         properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
-        stmt = new CreateResourceStmt(true, name, properties);
+        stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         resource = (SparkResource) Resource.fromStmt(stmt);
         Assert.assertTrue(resource.isYarnMaster());
@@ -117,20 +118,37 @@ public class SparkResourceTest {
         BaseProcResult result = new BaseProcResult();
         resource.getProcNodeData(result);
         Assert.assertEquals(9, result.getRows().size());
+
+        properties.clear();
+        properties.put("type", type);
+        properties.put("spark.master", "yarn");
+        properties.put("spark.submit.deployMode", "cluster");
+        properties.put("spark.hadoop.yarn.resourcemanager.ha.enabled", "true");
+        properties.put("spark.hadoop.yarn.resourcemanager.ha.rm-ids", "rm1,rm2");
+        properties.put("spark.hadoop.yarn.resourcemanager.hostname.rm1", "host1");
+        properties.put("spark.hadoop.yarn.resourcemanager.hostname.rm2", "host2");
+        properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        stmt = new CreateResourceStmt(true, false, name, properties);
+        stmt.analyze(analyzer);
+        resource = (SparkResource) Resource.fromStmt(stmt);
+        Assert.assertTrue(resource.isYarnMaster());
+        map = resource.getSparkConfigs();
+        Assert.assertEquals(7, map.size());
     }
 
     @Test
-    public void testUpdate(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
+    public void testUpdate(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                catalog.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -140,7 +158,7 @@ public class SparkResourceTest {
         properties.put("spark.driver.memory", "1g");
         properties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
         properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         SparkResource resource = (SparkResource) Resource.fromStmt(stmt);
         SparkResource copiedResource = resource.getCopiedResource();
@@ -157,22 +175,23 @@ public class SparkResourceTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testNoBroker(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
+    public void testNoBroker(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = false;
-                catalog.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
 
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         Resource.fromStmt(stmt);
     }

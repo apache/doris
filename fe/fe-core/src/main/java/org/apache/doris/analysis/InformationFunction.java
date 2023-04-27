@@ -50,7 +50,9 @@ public class InformationFunction extends Expr {
         return String.valueOf(intValue);
     }
 
-    public String getFuncType() {return funcType; }
+    public String getFuncType() {
+        return funcType;
+    }
 
     @Override
     public Expr clone() {
@@ -72,6 +74,9 @@ public class InformationFunction extends Expr {
             type = Type.BIGINT;
             intValue = analyzer.getConnectId();
             strValue = "";
+        } else if (funcType.equalsIgnoreCase("CURRENT_CATALOG")) {
+            type = Type.VARCHAR;
+            strValue = ConnectContext.get().getDefaultCatalog();
         }
     }
 

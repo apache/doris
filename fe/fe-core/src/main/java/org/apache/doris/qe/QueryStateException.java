@@ -17,12 +17,14 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Strings;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 
+import com.google.common.base.Strings;
+
 public class QueryStateException extends UserException {
     private QueryState queryState;
+
     public QueryStateException(MysqlStateType stateType, String msg) {
         super(Strings.nullToEmpty(msg));
         createQueryState(stateType, msg);
@@ -30,7 +32,7 @@ public class QueryStateException extends UserException {
 
     public void createQueryState(MysqlStateType stateType, String msg) {
         this.queryState = new QueryState();
-        switch (stateType) {
+        switch (stateType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case OK:
                 queryState.setOk(0L, 0, msg);
                 break;

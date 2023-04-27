@@ -1,8 +1,8 @@
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-#ifndef BASE_CPU_H_
-#define BASE_CPU_H_
+#pragma once
+
 #include <string>
 #include <tuple>
 
@@ -60,6 +60,7 @@ public:
         SSE42,
         AVX,
         AVX2,
+        AVX512,
         MAX_INTEL_MICRO_ARCHITECTURE
     };
     // Accessors for CPU information.
@@ -81,6 +82,7 @@ public:
     bool has_popcnt() const { return has_popcnt_; }
     bool has_avx() const { return has_avx_; }
     bool has_avx2() const { return has_avx2_; }
+    bool has_avx512() const { return has_avx512_; }
     bool has_aesni() const { return has_aesni_; }
     bool has_non_stop_time_stamp_counter() const { return has_non_stop_time_stamp_counter_; }
     bool is_running_in_vm() const { return is_running_in_vm_; }
@@ -107,6 +109,7 @@ private:
     bool has_popcnt_;
     bool has_avx_;
     bool has_avx2_;
+    bool has_avx512_;
     bool has_aesni_;
     bool has_non_stop_time_stamp_counter_;
     bool is_running_in_vm_;
@@ -114,4 +117,3 @@ private:
     std::string cpu_brand_;
 };
 } // namespace base
-#endif // BASE_CPU_H_

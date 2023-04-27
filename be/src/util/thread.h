@@ -14,21 +14,25 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/thread.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_UTIL_THREAD_H
-#define DORIS_BE_SRC_UTIL_THREAD_H
-
+#pragma once
+#include <butil/macros.h>
 #include <pthread.h>
-#include <syscall.h>
+#include <stdint.h>
 
-#include <atomic>
+#include <functional>
+#include <string>
+#include <utility>
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "http/web_page_handler.h"
 #include "util/countdown_latch.h"
 
 namespace doris {
+class WebPageHandler;
 
 class Thread : public RefCountedThreadSafe<Thread> {
 public:
@@ -84,6 +88,12 @@ public:
                          const A6& a6, scoped_refptr<Thread>* holder) {
         return start_thread(category, name, std::bind(f, a1, a2, a3, a4, a5, a6), NO_FLAGS, holder);
     }
+
+    static void set_self_name(const std::string& name);
+
+#ifndef __APPLE__
+    static void set_idle_sched();
+#endif
 
     ~Thread();
 
@@ -280,5 +290,3 @@ private:
 void register_thread_display_page(WebPageHandler* web_page_handler);
 
 } //namespace doris
-
-#endif //DORIS_BE_SRC_UTIL_THREAD_H

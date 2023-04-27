@@ -14,8 +14,7 @@
 //
 // IWYU pragma: private, include "strings/split.h"
 
-#ifndef STRINGS_SPLIT_INTERNAL_H_
-#define STRINGS_SPLIT_INTERNAL_H_
+#pragma once
 
 #include <iterator>
 using std::back_insert_iterator;
@@ -28,6 +27,7 @@ using std::vector;
 
 #include "gutil/port.h" // for LANG_CXX11
 #include "gutil/strings/stringpiece.h"
+#include "gutil/template_util.h" // IWYU pragma: keep
 
 #ifdef LANG_CXX11
 // This must be included after "base/port.h", which defines LANG_CXX11.
@@ -65,8 +65,14 @@ struct NoFilter {
 // The two-argument constructor is used to split the given text using the given
 // delimiter.
 template <typename Delimiter, typename Predicate = NoFilter>
-class SplitIterator : public std::iterator<std::input_iterator_tag, StringPiece> {
+class SplitIterator {
 public:
+    using iterator_category = std::input_iterator_tag;
+    using value_type = StringPiece;
+    using difference_type = ptrdiff_t;
+    using pointer = StringPiece*;
+    using reference = StringPiece&;
+
     // Two constructors for "end" iterators.
     explicit SplitIterator(Delimiter d) : delimiter_(std::move(d)), predicate_(), is_end_(true) {}
     SplitIterator(Delimiter d, Predicate p)
@@ -389,5 +395,3 @@ private:
 } // namespace internal
 
 } // namespace strings
-
-#endif // STRINGS_SPLIT_INTERNAL_H_

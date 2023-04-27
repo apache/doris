@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.publish;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.system.Backend;
@@ -41,7 +41,8 @@ public class ClusterStatePublisher {
     private static final Logger LOG = LogManager.getLogger(ClusterStatePublisher.class);
     private static volatile ClusterStatePublisher INSTANCE;
 
-    private ExecutorService executor = ThreadPoolManager.newDaemonFixedThreadPool(5, 256, "cluster-state-publisher", true);
+    private ExecutorService executor = ThreadPoolManager
+            .newDaemonFixedThreadPool(5, 256, "cluster-state-publisher", true);
 
     private SystemInfoService clusterInfoService;
 
@@ -54,7 +55,7 @@ public class ClusterStatePublisher {
         if (INSTANCE == null) {
             synchronized (ClusterStatePublisher.class) {
                 if (INSTANCE == null) {
-                    INSTANCE = new ClusterStatePublisher(Catalog.getCurrentSystemInfo());
+                    INSTANCE = new ClusterStatePublisher(Env.getCurrentSystemInfo());
                 }
             }
         }
@@ -94,7 +95,7 @@ public class ClusterStatePublisher {
         @Override
         public void run() {
             // Here to publish all worker
-            TNetworkAddress addr = new TNetworkAddress(node.getHost(), node.getBePort());
+            TNetworkAddress addr = new TNetworkAddress(node.getIp(), node.getBePort());
             BackendService.Client client = null;
             try {
                 client = ClientPool.backendPool.borrowObject(addr);

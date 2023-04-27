@@ -17,7 +17,7 @@
 
 package org.apache.doris.plugin;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 
 import org.apache.commons.io.FileUtils;
@@ -39,9 +39,9 @@ import java.util.Map;
 import java.util.Set;
 
 public class DynamicPluginLoader extends PluginLoader {
-    private final static Logger LOG = LogManager.getLogger(DynamicPluginLoader.class);
+    private static final Logger LOG = LogManager.getLogger(DynamicPluginLoader.class);
 
-    public final static String MD5SUM_KEY = "md5sum";
+    public static final String MD5SUM_KEY = "md5sum";
 
     // the final dir which contains all plugin files.
     // eg:
@@ -49,6 +49,7 @@ public class DynamicPluginLoader extends PluginLoader {
     protected Path installPath;
 
     protected String expectedMd5sum;
+
     // for processing install stmt
     DynamicPluginLoader(String pluginDir, String source, String expectedMd5sum) {
         super(pluginDir, source);
@@ -111,14 +112,15 @@ public class DynamicPluginLoader extends PluginLoader {
 
         movePlugin();
 
-        plugin = dynamicLoadPlugin(true);
-
-        pluginInstallValid();
-
-        pluginContext.setPluginPath(installPath.toString());
         try {
+            plugin = dynamicLoadPlugin(true);
+
+            pluginInstallValid();
+
+            pluginContext.setPluginPath(installPath.toString());
+
             plugin.init(pluginInfo, pluginContext);
-        } catch (Error e) {
+        } catch (Throwable e) {
             throw new UserException(e.getMessage());
         }
     }
@@ -152,11 +154,11 @@ public class DynamicPluginLoader extends PluginLoader {
     /**
      * reload plugin if plugin has already been installed, else will re-install.
      * Notice that this method will create a new instance of plugin.
-     * 
+     *
      * @throws PluginException
      */
     public void reload() throws IOException, UserException {
-        if (Catalog.isCheckpointThread()) {
+        if (Env.isCheckpointThread()) {
             /*
              * No need to reload the plugin when this is a checkpoint thread.
              * Because this reload() method will create a new instance of plugin and try to start it.
@@ -206,7 +208,7 @@ public class DynamicPluginLoader extends PluginLoader {
 
         Class<? extends Plugin> pluginClass;
         try {
-             pluginClass = loader.loadClass(pluginInfo.getClassName()).asSubclass(Plugin.class);
+            pluginClass = loader.loadClass(pluginInfo.getClassName()).asSubclass(Plugin.class);
         } catch (ClassNotFoundException e) {
             throw new UserException("Could not find plugin class [" + pluginInfo.getClassName() + "]", e);
         }
@@ -258,8 +260,8 @@ public class DynamicPluginLoader extends PluginLoader {
      */
     public void movePlugin() throws UserException, IOException {
         if (installPath == null || !Files.exists(installPath)) {
-            throw new PluginException("Install plugin " + pluginInfo.getName() + " failed, because install path doesn't "
-                    + "exist.");
+            throw new PluginException("Install plugin " + pluginInfo.getName()
+                    + " failed, because install path doesn't exist.");
         }
 
         Path targetPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());

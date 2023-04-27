@@ -31,12 +31,16 @@ struct TExportTaskRequest {
 
 struct TTabletStat {
     1: required i64 tablet_id
+    // local data size
     2: optional i64 data_size
     3: optional i64 row_num
+    4: optional i64 version_count
+    5: optional i64 remote_data_size 
 }
 
 struct TTabletStatResult {
     1: required map<i64, TTabletStat> tablets_stats
+    2: optional list<TTabletStat> tablet_stat_list
 }
 
 struct TKafkaLoadInfo {
@@ -99,6 +103,7 @@ struct TStreamLoadRecord {
     16: required i64 load_bytes
     17: required i64 start_time
     18: required i64 finish_time
+    19: optional string comment
 }
 
 struct TStreamLoadRecordResult {
@@ -109,6 +114,11 @@ struct TDiskTrashInfo {
     1: required string root_path
     2: required string state
     3: required i64 trash_used_capacity
+}
+
+struct TCheckStorageFormatResult {
+    1: optional list<i64> v1_tablets;
+    2: optional list<i64> v2_tablets;
 }
 
 service BackendService {
@@ -127,10 +137,6 @@ service BackendService {
     PaloInternalService.TTransmitDataResult transmit_data(
         1:PaloInternalService.TTransmitDataParams params);
 
-    // Coordinator Fetch Data From Root fragment
-    PaloInternalService.TFetchDataResult fetch_data(
-        1:PaloInternalService.TFetchDataParams params);
-
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 
     AgentService.TAgentResult make_snapshot(1:AgentService.TSnapshotRequest snapshot_request);
@@ -138,13 +144,6 @@ service BackendService {
     AgentService.TAgentResult release_snapshot(1:string snapshot_path);
 
     AgentService.TAgentResult publish_cluster_state(1:AgentService.TAgentPublishRequest request);
-
-    AgentService.TAgentResult submit_etl_task(1:AgentService.TMiniLoadEtlTaskRequest request);
-
-    AgentService.TMiniLoadEtlStatusResult get_etl_status(
-            1:AgentService.TMiniLoadEtlStatusRequest request);
-
-    AgentService.TAgentResult delete_etl_files(1:AgentService.TDeleteEtlFilesRequest request);
 
     Status.TStatus submit_export_task(1:TExportTaskRequest request);
 
@@ -172,4 +171,7 @@ service BackendService {
     TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
 
     oneway void clean_trash();
+
+    // check tablet rowset type
+    TCheckStorageFormatResult check_storage_format();
 }

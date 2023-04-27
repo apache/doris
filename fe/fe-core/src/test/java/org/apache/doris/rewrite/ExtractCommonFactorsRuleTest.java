@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -14,7 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-//
 
 package org.apache.doris.rewrite;
 
@@ -26,29 +25,30 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.BoundType;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
+import org.junit.Assert;
+import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import com.clearspring.analytics.util.Lists;
-import org.junit.Assert;
-import org.junit.Test;
-
 public class ExtractCommonFactorsRuleTest {
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     // Input: k1 in (k2, 1)
     // Result: false
     @Test
     public void testSingleColumnPredicateInColumn() {
-        SlotRef child0 = new SlotRef(new TableName("db1", "tb1"), "k1");
-        SlotRef inColumn = new SlotRef(new TableName("db1", "tb1"), "k2");
+        SlotRef child0 = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
+        SlotRef inColumn = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k2");
         IntLiteral intLiteral = new IntLiteral(1);
         List<Expr> inExprList = Lists.newArrayList();
         inExprList.add(inColumn);
@@ -65,8 +65,8 @@ public class ExtractCommonFactorsRuleTest {
     @Test
     public void testMergeTwoClauseRange() {
         // Clause1
-        SlotRef k1SlotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
-        SlotRef k2SlotRef = new SlotRef(new TableName("db1", "tb1"), "k2");
+        SlotRef k1SlotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
+        SlotRef k2SlotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k2");
         Range k1Range1 = Range.range(new IntLiteral(1), BoundType.OPEN, new IntLiteral(3), BoundType.OPEN);
         Range k2Range = Range.greaterThan(new IntLiteral(3));
         RangeSet<LiteralExpr> k1RangeSet1 = TreeRangeSet.create();
@@ -99,8 +99,8 @@ public class ExtractCommonFactorsRuleTest {
     @Test
     public void testMergeTwoClauseIn() {
         // Clause1
-        SlotRef k1SlotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
-        SlotRef k2SlotRef = new SlotRef(new TableName("db1", "tb1"), "k2");
+        SlotRef k1SlotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
+        SlotRef k2SlotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k2");
         IntLiteral intLiteral1 = new IntLiteral(1);
         IntLiteral intLiteral2 = new IntLiteral(2);
         List<Expr> k1Values1 = Lists.newArrayList();
@@ -142,7 +142,7 @@ public class ExtractCommonFactorsRuleTest {
         RangeSet<LiteralExpr> rangeSet = TreeRangeSet.create();
         rangeSet.add(range1);
         rangeSet.add(range2);
-        SlotRef slotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
+        SlotRef slotRef = new SlotRef(new TableName(internalCtl, "db1", "tb1"), "k1");
 
         ExtractCommonFactorsRule extractCommonFactorsRule = new ExtractCommonFactorsRule();
         Expr result = Deencapsulation.invoke(extractCommonFactorsRule,

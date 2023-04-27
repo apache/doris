@@ -12,6 +12,7 @@ LICENSE
 NOTICE
 gutil/*
 glibc-compatibility/*
+apache-orc/*
 manifest
 patches/*
 data/*
@@ -26,6 +27,7 @@ jmockit/*
 status.*
 env*
 lru*
+signal_handler.h
 skiplist.h
 string_search.hpp
 coding.*
@@ -33,5 +35,4 @@ condition_variable.*
 murmur_hash3.*
 utf8_check.cpp
 .markdownlintignore
-tsan_suppressions
 sse2neon.h

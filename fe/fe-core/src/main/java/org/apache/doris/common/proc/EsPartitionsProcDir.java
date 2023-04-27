@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 
@@ -69,8 +69,10 @@ public class EsPartitionsProcDir implements ProcDirInterface {
                 rangePartitionInfo = (RangePartitionInfo) esTable.getEsTablePartitions().getPartitionInfo();
             }
             Joiner joiner = Joiner.on(", ");
-            Map<String, EsShardPartitions> unPartitionedIndices = esTable.getEsTablePartitions().getUnPartitionedIndexStates();
-            Map<String, EsShardPartitions> partitionedIndices = esTable.getEsTablePartitions().getPartitionedIndexStates();
+            Map<String, EsShardPartitions> unPartitionedIndices
+                    = esTable.getEsTablePartitions().getUnPartitionedIndexStates();
+            Map<String, EsShardPartitions> partitionedIndices
+                    = esTable.getEsTablePartitions().getPartitionedIndexStates();
             for (EsShardPartitions esShardPartitions : unPartitionedIndices.values()) {
                 List<Comparable> partitionInfo = new ArrayList<Comparable>();
                 partitionInfo.add(esShardPartitions.getIndexName());
@@ -90,7 +92,8 @@ public class EsPartitionsProcDir implements ProcDirInterface {
                     colNames.add(column.getName());
                 }
                 partitionInfo.add(joiner.join(colNames));  // partition key
-                partitionInfo.add(rangePartitionInfo.getItem(esShardPartitions.getPartitionId()).getItems().toString());// range
+                partitionInfo.add(
+                        rangePartitionInfo.getItem(esShardPartitions.getPartitionId()).getItems().toString()); // range
                 partitionInfo.add("-");  // dis
                 partitionInfo.add(esShardPartitions.getShardRoutings().size());  // shards
                 partitionInfo.add(1);  //  replica num

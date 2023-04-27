@@ -17,16 +17,28 @@
 
 package org.apache.doris.common.util;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableTest;
+import org.apache.doris.common.MetaNotFoundException;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class MetaLockUtilsTest {
+
+    List<Table> tableList = ImmutableList.of(TableTest.newOlapTable(0, "test1", 0),
+            TableTest.newOlapTable(1, "test2", 0));
+
+    @Rule
+    public ExpectedException expectedException = ExpectedException.none();
 
     @Test
     public void testReadLockDatabases() {
@@ -43,7 +55,6 @@ public class MetaLockUtilsTest {
 
     @Test
     public void testReadLockTables() {
-        List<Table> tableList = Lists.newArrayList(new Table(Table.TableType.OLAP), new Table(Table.TableType.OLAP));
         MetaLockUtils.readLockTables(tableList);
         Assert.assertFalse(tableList.get(0).tryWriteLock(1, TimeUnit.MILLISECONDS));
         Assert.assertFalse(tableList.get(1).tryWriteLock(1, TimeUnit.MILLISECONDS));
@@ -55,22 +66,59 @@ public class MetaLockUtilsTest {
     }
 
     @Test
-    public void testWriteLockTables() {
-        List<Table> tableList = Lists.newArrayList(new Table(Table.TableType.OLAP), new Table(Table.TableType.OLAP));
+    public void testWriteLockTables() throws MetaNotFoundException {
         MetaLockUtils.writeLockTables(tableList);
         Assert.assertTrue(tableList.get(0).isWriteLockHeldByCurrentThread());
         Assert.assertTrue(tableList.get(1).isWriteLockHeldByCurrentThread());
         MetaLockUtils.writeUnlockTables(tableList);
         Assert.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
         Assert.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
-        Assert.assertTrue(MetaLockUtils.tryWriteLockTables(tableList, 1, TimeUnit.MILLISECONDS));
+        Assert.assertTrue(MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 1, TimeUnit.MILLISECONDS));
         Assert.assertTrue(tableList.get(0).isWriteLockHeldByCurrentThread());
         Assert.assertTrue(tableList.get(1).isWriteLockHeldByCurrentThread());
         MetaLockUtils.writeUnlockTables(tableList);
         tableList.get(1).readLock();
-        Assert.assertFalse(MetaLockUtils.tryWriteLockTables(tableList, 1, TimeUnit.MILLISECONDS));
+        Assert.assertFalse(MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 1, TimeUnit.MILLISECONDS));
         Assert.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
         Assert.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
         tableList.get(1).readUnlock();
+    }
+
+    @Test
+    public void testWriteLockTablesWithMetaNotFoundException() throws MetaNotFoundException {
+        MetaLockUtils.writeLockTablesOrMetaException(tableList);
+        Assert.assertTrue(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assert.assertTrue(tableList.get(1).isWriteLockHeldByCurrentThread());
+        MetaLockUtils.writeUnlockTables(tableList);
+        Assert.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assert.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
+        tableList.get(1).markDropped();
+        expectedException.expect(MetaNotFoundException.class);
+        expectedException.expectMessage("errCode = 7, detailMessage = unknown table, tableName=test2");
+        try {
+            MetaLockUtils.writeLockTablesOrMetaException(tableList);
+        } finally {
+            Assert.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
+            Assert.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
+        }
+    }
+
+    @Test
+    public void testTryWriteLockTablesWithMetaNotFoundException() throws MetaNotFoundException {
+        MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 1000, TimeUnit.MILLISECONDS);
+        Assert.assertTrue(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assert.assertTrue(tableList.get(1).isWriteLockHeldByCurrentThread());
+        MetaLockUtils.writeUnlockTables(tableList);
+        Assert.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assert.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
+        tableList.get(1).markDropped();
+        expectedException.expect(MetaNotFoundException.class);
+        expectedException.expectMessage("errCode = 7, detailMessage = unknown table, tableName=test2");
+        try {
+            MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 1000, TimeUnit.MILLISECONDS);
+        } finally {
+            Assert.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
+            Assert.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
+        }
     }
 }

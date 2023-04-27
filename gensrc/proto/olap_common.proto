@@ -28,7 +28,7 @@ message ColumnMessage {
     required uint32 length = 4; // ColumnPB.length
     required bool is_key = 5;   // ColumnPB.is_key
     optional string default_value = 6;  // ColumnPB.default_value
-    optional string referenced_column = 7;  // ColumnPB.
+    optional string referenced_column = 7;  // deprecated
     optional uint32 index_length = 8;   // ColumnPB.index_length
     optional uint32 precision = 9 [default = 27];   // ColumnPB.precision
     optional uint32 frac = 10 [default = 9];    // ColumnPB.frac

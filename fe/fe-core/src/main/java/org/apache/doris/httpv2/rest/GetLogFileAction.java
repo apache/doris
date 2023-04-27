@@ -22,11 +22,10 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.codehaus.jackson.map.ObjectMapper;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,7 +34,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -90,7 +88,7 @@ public class GetLogFileAction extends RestBaseController {
                     return ResponseEntityBuilder.internalError(e.getMessage());
                 }
             } else {
-                return ResponseEntityBuilder.okWithCommonError("Log file not exist: " + log.getName());
+                return ResponseEntityBuilder.okWithCommonError("Log file not exist: " + logFile);
             }
         }
         return ResponseEntityBuilder.ok();

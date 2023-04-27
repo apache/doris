@@ -48,7 +48,7 @@
  *   the necessary definitions.
  *
  * SYS_ERRNO:
- *   All system calls will update "errno" unless overriden by setting the
+ *   All system calls will update "errno" unless overridden by setting the
  *   SYS_ERRNO macro prior to including this file. SYS_ERRNO should be
  *   an l-value.
  *

@@ -15,20 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_SMALL_FILE_MGR_H
-#define DORIS_BE_SRC_RUNTIME_SMALL_FILE_MGR_H
+#pragma once
 
 #include <stdint.h>
 
 #include <mutex>
 #include <string>
 #include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
-#include "runtime/client_cache.h"
 
 namespace doris {
 
@@ -75,5 +70,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_SMALL_FILE_MGR_H

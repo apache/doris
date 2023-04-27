@@ -20,13 +20,14 @@ package org.apache.doris.load.sync.canal;
 import org.apache.doris.analysis.BinlogDesc;
 import org.apache.doris.analysis.ChannelDescription;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.sync.DataSyncJobType;
 import org.apache.doris.load.sync.SyncChannel;
 import org.apache.doris.load.sync.SyncFailMsg;
@@ -38,7 +39,11 @@ import org.apache.doris.persist.EditLog;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -48,12 +53,6 @@ import org.junit.Test;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 public class CanalSyncJobTest {
     private static final Logger LOG = LogManager.getLogger(CanalSyncJobTest.class);
 
@@ -62,7 +61,8 @@ public class CanalSyncJobTest {
     private String dbName;
     private String tblName;
     private String jobName;
-    private Catalog catalog;
+    private Env env;
+    private InternalCatalog catalog;
     private Map<String, String> properties;
 
     @Mocked
@@ -88,7 +88,7 @@ public class CanalSyncJobTest {
         properties.put(CanalSyncJob.CANAL_USERNAME, "test_user");
         properties.put(CanalSyncJob.CANAL_PASSWORD, "test_password");
 
-        catalog = Deencapsulation.newInstance(Catalog.class);
+        catalog = Deencapsulation.newInstance(InternalCatalog.class);
         new Expectations(catalog) {
             {
                 catalog.getDbNullable(10000L);
@@ -98,14 +98,23 @@ public class CanalSyncJobTest {
                 catalog.getDbNullable("testDb");
                 minTimes = 0;
                 result = database;
+            }
+        };
 
-                catalog.getEditLog();
+        env = Deencapsulation.newInstance(Env.class);
+        new Expectations(env) {
+            {
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 
@@ -141,9 +150,11 @@ public class CanalSyncJobTest {
             @Mock
             public void startup() {
             }
+
             @Mock
             public void shutdown(boolean needCleanUp) {
             }
+
             @Mock
             public void registerChannels(List<SyncChannel> channels) {
             }
@@ -302,9 +313,11 @@ public class CanalSyncJobTest {
             @Mock
             public void startup() {
             }
+
             @Mock
             public void shutdown(boolean needCleanUp) {
             }
+
             @Mock
             public void registerChannels(List<SyncChannel> channels) {
             }
@@ -393,7 +406,7 @@ public class CanalSyncJobTest {
                 result = "mysqlTbl";
             }
         };
-        
+
         try {
             CanalSyncJob canalSyncJob = new CanalSyncJob(jobId, jobName, dbId);
             canalSyncJob.setChannelDescriptions(channelDescriptions);

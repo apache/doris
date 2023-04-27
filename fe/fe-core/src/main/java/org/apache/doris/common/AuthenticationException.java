@@ -21,11 +21,25 @@ package org.apache.doris.common;
  * Thrown for authorization errors encountered when accessing Catalog objects.
  */
 public class AuthenticationException extends UserException {
+
+    public ErrorCode errorCode = ErrorCode.ERR_COMMON_ERROR;
+    public Object[] msgs;
+
     public AuthenticationException(String msg, Throwable cause) {
         super(msg, cause);
     }
 
     public AuthenticationException(String msg) {
         super(msg);
+    }
+
+    public AuthenticationException(ErrorCode code, Object... msgs) {
+        super(code.formatErrorMsg(msgs));
+        this.errorCode = code;
+        this.msgs = msgs;
+    }
+
+    public String formatErrMsg() {
+        return errorCode.formatErrorMsg(msgs);
     }
 }

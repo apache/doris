@@ -19,32 +19,30 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
-import org.apache.doris.alter.RollupJob;
-import org.apache.doris.alter.SchemaChangeJob;
 import org.apache.doris.cluster.Cluster;
-import org.apache.doris.persist.BatchRemoveTransactionsOperation;
+import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.persist.TableInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionState;
-
-import java.util.HashMap;
-import java.util.Map;
 
 import mockit.Mock;
 import mockit.MockUp;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class FakeEditLog extends MockUp<EditLog> {
-    
+
     private Map<Long, TransactionState> allTransactionState = new HashMap<>();
-    
+
     @Mock
-    public void $init(String nodeName) {
+    public void $init(String nodeName) { // CHECKSTYLE IGNORE THIS LINE
         // do nothing
-        System.out.println("abc");
     }
-    
+
     @Mock
     public void logInsertTransactionState(TransactionState transactionState) {
         // do nothing
@@ -58,39 +56,17 @@ public class FakeEditLog extends MockUp<EditLog> {
         System.out.println("delete transaction state is deleted");
         allTransactionState.remove(transactionState.getTransactionId());
     }
-    
+
     @Mock
     public void logSaveNextId(long nextId) {
         // do nothing
     }
-    
+
     @Mock
     public void logCreateCluster(Cluster cluster) {
         // do nothing
     }
-    
-    @Mock
-    public void logStartRollup(RollupJob rollupJob) {
-        
-    }
 
-    @Mock
-    public void logFinishingRollup(RollupJob rollupJob) {
-        
-    }
-    
-    @Mock
-    public void logCancelRollup(RollupJob rollupJob) {
-    }
-    
-    @Mock
-    public void logStartSchemaChange(SchemaChangeJob schemaChangeJob) {
-    }
-    
-    @Mock
-    public void logFinishingSchemaChange(SchemaChangeJob schemaChangeJob) {
-    }
-    
     @Mock
     public void logOpRoutineLoadJob(RoutineLoadOperation operation) {
     }
@@ -115,7 +91,12 @@ public class FakeEditLog extends MockUp<EditLog> {
     }
 
     @Mock
-    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation info) {
+    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 info) {
+
+    }
+
+    @Mock
+    public void logModifyDistributionType(TableInfo tableInfo) {
 
     }
 

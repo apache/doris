@@ -83,4 +83,17 @@ public class ParseUtil {
         return replicaNumber;
     }
 
+    public static long analyzeTransactionNumber(String transactionNumberStr) throws AnalysisException {
+        long transactionNumber = 0;
+        try {
+            transactionNumber = Long.parseLong(transactionNumberStr);
+        } catch (NumberFormatException nfe) {
+            throw new AnalysisException("invalid data volumn:" + transactionNumberStr);
+        }
+        if (transactionNumber <= 0L) {
+            throw new AnalysisException("Transaction quota size must larger than 0");
+        }
+        return transactionNumber;
+    }
+
 }

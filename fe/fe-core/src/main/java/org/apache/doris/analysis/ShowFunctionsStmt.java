@@ -17,11 +17,10 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -29,6 +28,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
 
 public class ShowFunctionsStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
@@ -50,7 +51,10 @@ public class ShowFunctionsStmt extends ShowStmt {
 
     private Expr expr;
 
-    public ShowFunctionsStmt(String dbName, boolean isBuiltin, boolean isVerbose, String wild, Expr expr) {
+    private SetType type = SetType.DEFAULT;
+
+    public ShowFunctionsStmt(String dbName, boolean isBuiltin, boolean isVerbose, String wild,
+            Expr expr) {
         this.dbName = dbName;
         this.isBuiltin = isBuiltin;
         this.isVerbose = isVerbose;
@@ -58,7 +62,16 @@ public class ShowFunctionsStmt extends ShowStmt {
         this.expr = expr;
     }
 
-    public String getDbName() { return dbName; }
+    public ShowFunctionsStmt(boolean isVerbose, String wild, Expr expr) {
+        this.type = SetType.GLOBAL;
+        this.isVerbose = isVerbose;
+        this.wild = wild;
+        this.expr = expr;
+    }
+
+    public String getDbName() {
+        return dbName;
+    }
 
     public boolean getIsBuiltin() {
         return isBuiltin;
@@ -76,6 +89,10 @@ public class ShowFunctionsStmt extends ShowStmt {
         return expr;
     }
 
+    public SetType getType() {
+        return type;
+    }
+
     public boolean like(String str) {
         str = str.toLowerCase();
         return str.matches(wild.replace(".", "\\.").replace("?", ".").replace("%", ".*").toLowerCase());
@@ -85,18 +102,14 @@ public class ShowFunctionsStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+        if (!FunctionUtil.isGlobalFunction(this.type)) {
+            this.dbName = FunctionUtil.reAcquireDbName(analyzer, dbName, getClusterName());
         }
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
+        if (!FunctionUtil.isGlobalFunction(this.type) && !Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
-                ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
+                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }
 
         if (expr != null) {
@@ -114,6 +127,9 @@ public class ShowFunctionsStmt extends ShowStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW ");
+        if (FunctionUtil.isGlobalFunction(this.type)) {
+            sb.append("GLOBAL ");
+        }
         if (isVerbose) {
             sb.append("FULL ");
         }

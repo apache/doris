@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/LikePredicate.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -51,13 +54,13 @@ public class LikePredicate extends Predicate {
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
-        functionSet.addBuiltin(ScalarFunction.createBuiltin(
+        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
                 Operator.LIKE.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
                 false,
                 "_ZN5doris13LikePredicate4likeEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
                 "_ZN5doris13LikePredicate12like_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
                 "_ZN5doris13LikePredicate10like_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
-        functionSet.addBuiltin(ScalarFunction.createBuiltin(
+        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
                 Operator.REGEXP.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
                 false,
                 "_ZN5doris13LikePredicate5regexEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
@@ -106,6 +109,12 @@ public class LikePredicate extends Predicate {
     }
 
     @Override
+    public String toDigestImpl() {
+        return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
+    }
+
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.FUNCTION_CALL;
     }
@@ -113,18 +122,21 @@ public class LikePredicate extends Predicate {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isFixedPointType()
-                && !getChild(0).getType().isNull()) {
+        if (getChild(0).getType().isObjectStored()) {
             throw new AnalysisException(
-              "left operand of " + op.toString() + " must be of type STRING or FIXED_POINT_TYPE: " + toSql());
+                    "left operand of " + op.toString() + " must not be Bitmap or HLL: " + toSql());
         }
         if (!getChild(1).getType().isStringType() && !getChild(1).getType().isNull()) {
-            throw new AnalysisException(
-              "right operand of " + op.toString() + " must be of type STRING: " + toSql());
+            throw new AnalysisException("right operand of " + op.toString() + " must be of type STRING: " + toSql());
         }
 
-        fn = getBuiltinFunction(analyzer, op.toString(),
-                collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        if (!getChild(0).getType().isStringType()) {
+            uncheckedCastChild(Type.VARCHAR, 0);
+        }
+
+        fn = getBuiltinFunction(op.toString(), collectChildReturnTypes(),
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+
         if (!getChild(1).getType().isNull() && getChild(1).isLiteral() && (op == Operator.REGEXP)) {
             // let's make sure the pattern works
             // TODO: this checks that it's a Java-supported regex, but the syntax supported
@@ -141,5 +153,4 @@ public class LikePredicate extends Predicate {
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
-
 }

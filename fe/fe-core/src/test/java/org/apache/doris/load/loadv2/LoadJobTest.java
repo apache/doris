@@ -14,12 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-//
 
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -39,16 +38,14 @@ import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class LoadJobTest {
 
@@ -66,6 +63,7 @@ public class LoadJobTest {
             loadJob.setJobProperties(jobProperties);
             Assert.fail();
         } catch (DdlException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
     }
 
@@ -93,7 +91,7 @@ public class LoadJobTest {
     public void testExecute(@Mocked GlobalTransactionMgr globalTransactionMgr,
                             @Mocked MasterTaskExecutor masterTaskExecutor)
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
-            QuotaExceedException, MetaNotFoundException {
+            QuotaExceedException, MetaNotFoundException, InterruptedException {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
@@ -110,9 +108,7 @@ public class LoadJobTest {
         } catch (LoadException e) {
             Assert.fail(e.getMessage());
         }
-        Assert.assertEquals(JobState.LOADING, loadJob.getState());
-        Assert.assertEquals(1, loadJob.getTransactionId());
-
+        Assert.assertEquals(JobState.PENDING, loadJob.getState());
     }
 
     @Test
@@ -143,12 +139,12 @@ public class LoadJobTest {
     }
 
     @Test
-    public void testProcessTimeout(@Mocked Catalog catalog, @Mocked EditLog editLog) {
+    public void testProcessTimeout(@Mocked Env env, @Mocked EditLog editLog) {
         LoadJob loadJob = new BrokerLoadJob();
         loadJob.setTimeout(0);
         new Expectations() {
             {
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
             }
@@ -169,22 +165,19 @@ public class LoadJobTest {
     @Test
     public void testUpdateStateToFinished(@Mocked MetricRepo metricRepo,
                                           @Injectable LoadTask loadTask1,
-            @Mocked LongCounterMetric longCounterMetric) {
-        
-        MetricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
+                                          @Mocked LongCounterMetric longCounterMetric) {
         LoadJob loadJob = new BrokerLoadJob();
         loadJob.idToTasks.put(1L, loadTask1);
-        
-        // TxnStateCallbackFactory factory = Catalog.getCurrentCatalog().getGlobalTransactionMgr().getCallbackFactory();
-        Catalog catalog = Catalog.getCurrentCatalog();
-        GlobalTransactionMgr mgr = new GlobalTransactionMgr(catalog);
-        Deencapsulation.setField(catalog, "globalTransactionMgr", mgr);
+
+        // TxnStateCallbackFactory factory = Catalog.getCurrentEnv().getGlobalTransactionMgr().getCallbackFactory();
+        Env env = Env.getCurrentEnv();
+        GlobalTransactionMgr mgr = new GlobalTransactionMgr(env);
+        Deencapsulation.setField(env, "globalTransactionMgr", mgr);
         Assert.assertEquals(1, loadJob.idToTasks.size());
         loadJob.updateState(JobState.FINISHED);
         Assert.assertEquals(JobState.FINISHED, loadJob.getState());
         Assert.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "finishTimestamp"));
-        Assert.assertEquals(100, (int)Deencapsulation.getField(loadJob, "progress"));
+        Assert.assertEquals(100, (int) Deencapsulation.getField(loadJob, "progress"));
         Assert.assertEquals(0, loadJob.idToTasks.size());
     }
 }
-

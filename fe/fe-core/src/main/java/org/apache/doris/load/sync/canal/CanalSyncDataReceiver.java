@@ -18,10 +18,12 @@
 package org.apache.doris.load.sync.canal;
 
 import org.apache.doris.load.sync.SyncDataReceiver;
+
 import com.alibaba.otter.canal.client.CanalConnector;
 import com.alibaba.otter.canal.protocol.Message;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 

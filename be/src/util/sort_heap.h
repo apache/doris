@@ -16,12 +16,14 @@
 // under the License.
 
 #pragma once
+
 #include <algorithm>
 #include <cassert>
 #include <queue>
 #include <utility>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 
 namespace doris {
 
@@ -112,7 +114,7 @@ private:
                 ++child_idx;
             }
 
-        /// Check if we are in order.
+            /// Check if we are in order.
         } while (!(_comp(*child_it, top)));
         *curr_it = top;
     }

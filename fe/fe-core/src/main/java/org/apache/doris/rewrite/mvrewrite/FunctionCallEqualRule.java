@@ -41,6 +41,7 @@ public class FunctionCallEqualRule implements MVExprEqualRule {
         builder.put(FunctionSet.HLL_UNION, "hll_union");
         builder.put(FunctionSet.HLL_UNION, "hll_raw_agg");
         builder.put(FunctionSet.TO_BITMAP, FunctionSet.TO_BITMAP);
+        builder.put(FunctionSet.TO_BITMAP_WITH_CHECK, FunctionSet.TO_BITMAP_WITH_CHECK);
         builder.put(FunctionSet.HLL_HASH, FunctionSet.HLL_HASH);
         columnAggTypeMatchFnName = builder.build();
     }

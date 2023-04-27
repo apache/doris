@@ -17,20 +17,18 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.system.Backend;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.util.DebugUtil;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,7 +49,7 @@ public class TrashProcDir implements ProcDirInterface {
     private List<Backend> backends = Lists.newArrayList();
 
     public TrashProcDir() {
-        ImmutableMap<Long, Backend> backendsInfo = Catalog.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
         for (Backend backend : backendsInfo.values()) {
             this.backends.add(backend);
         }
@@ -74,15 +72,13 @@ public class TrashProcDir implements ProcDirInterface {
     }
 
     public static void getTrashInfo(List<Backend> backends, List<List<String>> infos) {
-
         for (Backend backend : backends) {
             BackendService.Client client = null;
             TNetworkAddress address = null;
             Long trashUsedCapacityB = null;
             boolean ok = false;
             try {
-                long start = System.currentTimeMillis();
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                address = new TNetworkAddress(backend.getIp(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 trashUsedCapacityB = client.getTrashUsedCapacity();
                 ok = true;
@@ -96,9 +92,9 @@ public class TrashProcDir implements ProcDirInterface {
                 }
             }
 
-            List<String> backendInfo = new ArrayList<String>();
+            List<String> backendInfo = new ArrayList<>();
             backendInfo.add(String.valueOf(backend.getId()));
-            backendInfo.add(backend.getHost() + ":" + String.valueOf(backend.getHeartbeatPort()));
+            backendInfo.add(backend.getIp() + ":" + backend.getHeartbeatPort());
             if (trashUsedCapacityB != null) {
                 Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
                 backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " "
@@ -116,23 +112,17 @@ public class TrashProcDir implements ProcDirInterface {
     }
 
     @Override
-    public ProcNodeInterface lookup(String backendHostAndPort) throws AnalysisException {
-        if (Strings.isNullOrEmpty(backendHostAndPort)) {
-            throw new AnalysisException("BackendHost:HeartBeatPort is null");
-        }
-        String backendHost;
-        int backendHeartBeatPort;
+    public ProcNodeInterface lookup(String backendIdStr) throws AnalysisException {
+        long backendId = -1;
         try {
-            backendHost = backendHostAndPort.split(":")[0];
-            backendHeartBeatPort = Integer.parseInt(backendHostAndPort.split(":")[1]);
+            backendId = Long.parseLong(backendIdStr);
         } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid backend format: " + backendHostAndPort);
+            throw new AnalysisException("Invalid backend id format: " + backendIdStr);
         }
-        Backend backend = Catalog.getCurrentSystemInfo().getBackendWithHeartbeatPort(backendHost, backendHeartBeatPort);
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
         if (backend == null) {
-            throw new AnalysisException("Backend[" + backendHostAndPort + "] does not exist.");
+            throw new AnalysisException("Backend[" + backendId + "] does not exist.");
         }
-
         return new TrashProcNode(backend);
     }
 }

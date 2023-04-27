@@ -21,10 +21,12 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -34,16 +36,16 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 
-import mockit.Expectations;
-import mockit.Mocked;
-
 public class MetadataViewerTest {
-    
+
     private static Method getTabletStatusMethod;
     private static Method getTabletDistributionMethod;
-    
+
     @Mocked
-    private Catalog catalog;
+    private Env env;
+
+    @Mocked
+    private InternalCatalog internalCatalog;
 
     @Mocked
     private SystemInfoService infoService;
@@ -52,7 +54,7 @@ public class MetadataViewerTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        Class[] argTypes = new Class[] { String.class, String.class, List.class, ReplicaStatus.class, Operator.class };
+        Class[] argTypes = new Class[] {String.class, String.class, List.class, ReplicaStatus.class, Operator.class};
         getTabletStatusMethod = MetadataViewer.class.getDeclaredMethod("getTabletStatus", argTypes);
         getTabletStatusMethod.setAccessible(true);
 
@@ -68,11 +70,7 @@ public class MetadataViewerTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getDbOrDdlException(anyString);
+                internalCatalog.getDbOrDdlException(anyString);
                 minTimes = 0;
                 result = db;
             }
@@ -80,7 +78,19 @@ public class MetadataViewerTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = internalCatalog;
+            }
+        };
+
+        new Expectations() {
+            {
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = infoService;
 
@@ -99,7 +109,6 @@ public class MetadataViewerTest {
                 null };
         List<List<String>> result = (List<List<String>>) getTabletStatusMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
-        System.out.println(result);
 
         args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, partitions, ReplicaStatus.DEAD,
                 Operator.EQ };
@@ -118,7 +127,6 @@ public class MetadataViewerTest {
         Object[] args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, null };
         List<List<String>> result = (List<List<String>>) getTabletDistributionMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
-        System.out.println(result);
     }
 
 }

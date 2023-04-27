@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_UTF8_CHECK_H
-#define DORIS_BE_SRC_UTIL_UTF8_CHECK_H
+#pragma once
 
 #include <cstddef>
 
@@ -27,5 +26,3 @@ bool validate_utf8(const char* src, size_t len);
 // check utf8 use naive c++
 bool validate_utf8_naive(const char* data, size_t len);
 } // namespace doris
-
-#endif // DORIS_BE_SRC_UTIL_UTF8_CHECK_H

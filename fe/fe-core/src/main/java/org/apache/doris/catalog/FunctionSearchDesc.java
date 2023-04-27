@@ -38,9 +38,17 @@ public class FunctionSearchDesc implements Writable {
         this.isVariadic = isVariadic;
     }
 
-    public FunctionName getName() { return name; }
-    public Type[] getArgTypes() { return argTypes; }
-    public boolean isVariadic() { return isVariadic; }
+    public FunctionName getName() {
+        return name;
+    }
+
+    public Type[] getArgTypes() {
+        return argTypes;
+    }
+
+    public boolean isVariadic() {
+        return isVariadic;
+    }
 
     public boolean isIdentical(Function function) {
         if (!name.equals(function.getFunctionName())) {

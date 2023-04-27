@@ -49,7 +49,9 @@ public:
     // Add a sequence of values to the page.
     // The number of values actually added will be returned through count, which may be less
     // than requested if the page is full.
-    //
+
+    // check page if full before truly add, return ok when page is full so that column write
+    // will switch to next page
     // vals size should be decided according to the page build type
     // TODO make sure vals is naturally-aligned to its type so that impls can use aligned load
     // instead of memcpy to copy values.

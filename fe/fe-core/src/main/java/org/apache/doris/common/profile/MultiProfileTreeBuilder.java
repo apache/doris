@@ -23,11 +23,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Counter;
 import org.apache.doris.common.util.RuntimeProfile;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.tuple.Triple;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -35,15 +34,17 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-// MultiProfileTreeBuilder saves a set of ProfileTreeBuilder.
-// For a query profile, there is usually only one ExecutionProfile node.
-// For a load job profile, it may produce multiple subtasks, so there may be multiple ExecutionProfile nodes.
-//
-// Each ExecutionProfile node corresponds to a ProfileTreeBuilder
-public class MultiProfileTreeBuilder {
-    private static final Set<String> PROFILE_ROOT_NAMES;
-    public static final String PROFILE_NAME_EXECUTION = "Execution Profile";
 
+/**
+ * MultiProfileTreeBuilder saves a set of ProfileTreeBuilder.
+ * For a query profile, there is usually only one ExecutionProfile node.
+ * For a load job profile, it may produce multiple subtasks, so there may be multiple ExecutionProfile nodes.
+ * <p>
+ * Each ExecutionProfile node corresponds to a ProfileTreeBuilder
+ */
+public class MultiProfileTreeBuilder {
+    public static final String PROFILE_NAME_EXECUTION = "Execution Profile";
+    private static final Set<String> PROFILE_ROOT_NAMES;
     private static final String EXECUTION_ID_PATTERN_STR = "^Execution Profile (.*)";
     private static final Pattern EXECUTION_ID_PATTERN;
 
@@ -113,7 +114,7 @@ public class MultiProfileTreeBuilder {
     }
 
     public List<Triple<String, String, Long>> getInstanceList(String executionId, String fragmentId)
-         throws AnalysisException {
+            throws AnalysisException {
         ProfileTreeBuilder singleBuilder = getExecutionProfileTreeBuilder(executionId);
         return singleBuilder.getInstanceList(fragmentId);
     }
@@ -129,7 +130,8 @@ public class MultiProfileTreeBuilder {
         return singleBuilder.getFragmentTreeRoot();
     }
 
-    public List<ProfileTreeBuilder.FragmentInstances> getFragmentInstances(String executionId) throws AnalysisException{
+    public List<ProfileTreeBuilder.FragmentInstances> getFragmentInstances(String executionId)
+            throws AnalysisException {
         return getExecutionProfileTreeBuilder(executionId).getFragmentsInstances();
     }
 

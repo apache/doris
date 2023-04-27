@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_COMMON_COMPILER_UTIL_H
-#define DORIS_BE_SRC_COMMON_COMMON_COMPILER_UTIL_H
+#pragma once
 
 // Compiler hint that this branch is likely or unlikely to
 // be taken. Take from the "What all programmers should know
@@ -50,5 +49,3 @@
 #define MAY_ALIAS __attribute__((__may_alias__))
 
 #define ALIGN_CACHE_LINE __attribute__((aligned(CACHE_LINE_SIZE)))
-
-#endif

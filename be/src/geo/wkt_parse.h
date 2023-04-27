@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
+#pragma once
 
-#include "common/status.h"
+#include <stddef.h>
+
 #include "geo/geo_common.h"
 
 namespace doris {

@@ -22,13 +22,12 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.HashMap;
 import java.util.List;
@@ -62,7 +61,8 @@ public class SessionController extends BaseController {
     }
 
     private void appendSessionInfo(Map<String, Object> result) {
-        List<ConnectContext.ThreadInfo> threadInfos = ExecuteEnv.getInstance().getScheduler().listConnection("root");
+        List<ConnectContext.ThreadInfo> threadInfos = ExecuteEnv.getInstance().getScheduler()
+                .listConnection("root", false);
         List<List<String>> rows = Lists.newArrayList();
 
         result.put("column_names", SESSION_TABLE_HEADER);

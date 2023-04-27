@@ -17,26 +17,24 @@
 
 #include "exec/schema_scanner/schema_helper.h"
 
-#include <sstream>
-#include <thread>
+#include <gen_cpp/FrontendService.h>
 
-#include "exec/text_converter.hpp"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/client_cache.h"
-#include "runtime/exec_env.h"
-#include "runtime/row_batch.h"
-#include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
-#include "util/debug_util.h"
-#include "util/network_util.h"
-#include "util/runtime_profile.h"
 #include "util/thrift_rpc_helper.h"
-#include "util/thrift_util.h"
 
 namespace doris {
+class TDescribeTableParams;
+class TDescribeTableResult;
+class TDescribeTablesParams;
+class TDescribeTablesResult;
+class TGetDbsParams;
+class TGetDbsResult;
+class TGetTablesParams;
+class TGetTablesResult;
+class TListPrivilegesResult;
+class TListTableStatusResult;
+class TShowVariableRequest;
+class TShowVariableResult;
 
 Status SchemaHelper::get_db_names(const std::string& ip, const int32_t port,
                                   const TGetDbsParams& request, TGetDbsResult* result) {
@@ -69,6 +67,15 @@ Status SchemaHelper::describe_table(const std::string& ip, const int32_t port,
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
             ip, port, [&request, &result](FrontendServiceConnection& client) {
                 client->describeTable(*result, request);
+            });
+}
+
+Status SchemaHelper::describe_tables(const std::string& ip, const int32_t port,
+                                     const TDescribeTablesParams& request,
+                                     TDescribeTablesResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->describeTables(*result, request);
             });
 }
 

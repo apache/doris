@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.common.AnalysisException;
 
@@ -70,8 +71,9 @@ public class CreateIndexClause extends AlterTableClause {
             throw new AnalysisException("index definition expected.");
         }
         indexDef.analyze();
-        this.index = new Index(indexDef.getIndexName(), indexDef.getColumns(), indexDef.getIndexType(),
-                indexDef.getComment());
+        this.index = new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(),
+                indexDef.getColumns(), indexDef.getIndexType(),
+                indexDef.getProperties(), indexDef.getComment());
     }
 
     @Override

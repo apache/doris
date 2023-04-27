@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_LOAD_PATH_MGR_H
-#define DORIS_BE_SRC_RUNTIME_LOAD_PATH_MGR_H
+#pragma once
 
-#include <pthread.h>
+#include <stdint.h>
+#include <time.h>
 
 #include <mutex>
 #include <string>
@@ -26,13 +26,13 @@
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "util/thread.h"
-#include "util/uid_util.h"
+#include "util/countdown_latch.h"
 
 namespace doris {
 
 class TUniqueId;
 class ExecEnv;
+class Thread;
 
 // In every directory, '.trash' directory is used to save data need to delete
 // daemon thread is check no used directory to delete
@@ -64,7 +64,6 @@ private:
     std::vector<std::string> _path_vec;
     int _idx;
     int _reserved_hours;
-    pthread_t _cleaner_id;
     std::string _error_log_dir;
     uint32_t _next_shard;
     uint32_t _error_path_next_shard;
@@ -73,5 +72,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

@@ -15,23 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_DEBUG_UTIL_H
-#define DORIS_BE_SRC_COMMON_UTIL_DEBUG_UTIL_H
+#pragma once
 
-#include <ostream>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+
 #include <string>
 
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/Exprs_types.h"
-#include "gen_cpp/Opcodes_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/RuntimeProfile_types.h"
-#include "gen_cpp/Types_types.h"
-
 namespace doris {
-
-class PUniqueId;
 
 std::string print_plan_node_type(const TPlanNodeType::type& type);
 std::string print_tstmt_type(const TStmtType::type& type);
@@ -53,5 +45,3 @@ std::string get_version_string(bool compact);
 std::string hexdump(const char* buf, int len);
 
 } // namespace doris
-
-#endif

@@ -17,60 +17,69 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.StatsType;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Manually inject statistics for columns.
+ * Only OLAP table statistics are supported.
+ *
+ * Syntax:
+ *   ALTER TABLE table_name MODIFY COLUMN columnName
+ *   SET STATS ('k1' = 'v1', ...);
+ *
+ * e.g.
+ *   ALTER TABLE stats_test.example_tbl MODIFY COLUMN age
+ *   SET STATS ('row_count'='6001215');
+ */
 public class AlterColumnStatsStmt extends DdlStmt {
 
-    private static final ImmutableSet<String> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(ColumnStats.NDV)
-            .add(ColumnStats.AVG_SIZE)
-            .add(ColumnStats.MAX_SIZE)
-            .add(ColumnStats.NUM_NULLS)
-            .add(ColumnStats.MIN_VALUE)
-            .add(ColumnStats.MAX_VALUE)
+    private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
+            .add(StatsType.ROW_COUNT)
+            .add(ColumnStatistic.NDV)
+            .add(ColumnStatistic.AVG_SIZE)
+            .add(ColumnStatistic.MAX_SIZE)
+            .add(ColumnStatistic.NUM_NULLS)
+            .add(ColumnStatistic.MIN_VALUE)
+            .add(ColumnStatistic.MAX_VALUE)
+            .add(StatsType.DATA_SIZE)
             .build();
 
-    private TableName tableName;
-    private String columnName;
-    private Map<String, String> properties;
+    private final TableName tableName;
+    private final String columnName;
+    private final Map<String, String> properties;
 
-    public AlterColumnStatsStmt(TableName tableName, String columnName, Map<String, String> properties) {
+    private final List<String> partitionNames = Lists.newArrayList();
+    private final Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
+
+    public AlterColumnStatsStmt(TableName tableName, String columnName,
+            Map<String, String> properties) {
         this.tableName = tableName;
         this.columnName = columnName;
-        this.properties = properties;
-    }
-
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        // check table name
-        tableName.analyze(analyzer);
-        // check properties
-        Optional<String> optional = properties.keySet().stream().filter(
-                entity -> !CONFIGURABLE_PROPERTIES_SET.contains(entity.toLowerCase())).findFirst();
-        if (optional.isPresent()) {
-            throw new AnalysisException(optional.get() + " is invalid statistic");
-        }
-        // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
-                PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
-                    tableName.getTbl());
-        }
+        this.properties = properties == null ? Collections.emptyMap() : properties;
     }
 
     public TableName getTableName() {
@@ -81,7 +90,89 @@ public class AlterColumnStatsStmt extends DdlStmt {
         return columnName;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
+    public List<String> getPartitionNames() {
+        return partitionNames;
+    }
+
+    public Map<StatsType, String> getStatsTypeToValue() {
+        return statsTypeToValue;
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+        if (!Config.enable_stats) {
+            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
+                    + "in your FE conf file");
+        }
+        super.analyze(analyzer);
+
+        // check table name
+        tableName.analyze(analyzer);
+
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+
+        // check partition & column
+        checkColumnNames();
+
+        // check properties
+        Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
+                .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType))
+                .findFirst();
+        if (optional.isPresent()) {
+            throw new AnalysisException(optional.get() + " is invalid statistics");
+        }
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableName.getDb() + ": " + tableName.getTbl());
+        }
+
+        // get statsTypeToValue
+        properties.forEach((key, value) -> {
+            StatsType statsType = StatsType.fromString(key);
+            statsTypeToValue.put(statsType, value);
+        });
+    }
+
+    /**
+     * TODO(wzt): Support for external tables
+     */
+    private void checkColumnNames() throws AnalysisException {
+        Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
+        Table table = db.getTableOrAnalysisException(tableName.getTbl());
+
+        if (table.getType() != Table.TableType.OLAP) {
+            throw new AnalysisException("Only OLAP table statistics are supported");
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        if (olapTable.getColumn(columnName) == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                    columnName, FeNameFormat.getColumnNameRegex());
+        }
+    }
+
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("ALTER TABLE ");
+        sb.append(tableName.toSql());
+        sb.append(" MODIFY COLUMN ");
+        sb.append(columnName);
+        sb.append(" SET STATS ");
+        sb.append("(");
+        sb.append(new PrintableMap<>(properties,
+                " = ", true, false));
+        sb.append(")");
+
+        return sb.toString();
+    }
+
+    public String getValue(StatsType statsType) {
+        return statsTypeToValue.get(statsType);
     }
 }

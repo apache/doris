@@ -19,7 +19,8 @@ package org.apache.doris.http;
 
 import okhttp3.Request;
 import okhttp3.Response;
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -38,8 +39,10 @@ public class TableRowCountActionTest extends DorisHttpTestCase {
                 .build();
 
         Response response = networkClient.newCall(request).execute();
-        JSONObject jsonObject = new JSONObject(response.body().string());
-        Assert.assertEquals(200, jsonObject.getInt("status"));
-        Assert.assertEquals(2000, jsonObject.getLong("size"));
+        Assert.assertNotNull(response.body());
+        String res = response.body().string();
+        JSONObject jsonObject = (JSONObject) JSONValue.parse(res);
+        Assert.assertEquals(200, (long) ((JSONObject) jsonObject.get("data")).get("status"));
+        Assert.assertEquals(2000, (long) ((JSONObject) jsonObject.get("data")).get("size"));
     }
 }

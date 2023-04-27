@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.DorisAssert;
@@ -51,22 +51,23 @@ public class TableNameStoredLowercaseTest {
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
         UtFrameUtils.createDorisCluster(runningDir);
-        String table1 = "CREATE TABLE db1.TABLE1 (\n" +
-                "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
-                "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
-                "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
-                "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ")";
+        String table1 = "CREATE TABLE db1.TABLE1 (\n"
+                + "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n"
+                + "  `citycode` smallint(6) NULL COMMENT \"\",\n"
+                + "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n"
+                + "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "UNIQUE KEY(`siteid`, `citycode`, `username`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ")";
         String table2 = "create table db1.TABLE2(k1 int, k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
-                + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+                + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 "
+                + "properties('replication_num' = '1');";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
         dorisAssert.withTable(table1)
@@ -80,7 +81,8 @@ public class TableNameStoredLowercaseTest {
 
     @Test
     public void testTableNameLowerCase() {
-        Set<String> tableNames = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1").getTableNamesWithLock();
+        Set<String> tableNames = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db1")
+                .getTableNamesWithLock();
         Assert.assertEquals(2, tableNames.size());
         Assert.assertTrue(tableNames.contains("table1"));
         Assert.assertTrue(tableNames.contains("table2"));
@@ -89,23 +91,33 @@ public class TableNameStoredLowercaseTest {
 
     @Test
     public void testQueryTableNameCaseInsensitive() throws Exception {
-        String sql1 = "select Table1.siteid, Table2.k2 from table1 join table2 on TAble1.siteid = TAble2.k1" +
-                " where TABle2.k5 > 1000 order by TABLe1.siteid";
+        String sql1 = "select Table1.siteid, Table2.k2 from table1 join table2 on TAble1.siteid = TAble2.k1"
+                + " where TABle2.k5 > 1000 order by TABLe1.siteid";
         dorisAssert.query(sql1).explainQuery();
 
-        String sql2 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = " +
-                "'ech_dw' ORDER BY routines.ROUTINE_SCHEMA";
+        String sql2 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = "
+                + "'ech_dw' ORDER BY routines.ROUTINE_SCHEMA";
+        dorisAssert.query(sql2).explainQuery();
+    }
+
+    @Test
+    public void testQueryTableAliasCaseInsensitive() throws Exception {
+        String sql1 = "select T1.siteid, t2.k2 from table1 T1 join table2 T2 on t1.siteid = t2.k1"
+                + " where T2.k5 > 1000 order by t1.siteid";
+        dorisAssert.query(sql1).explainQuery();
+
+        String sql2 = "select t.siteid, T.username from (select * from Table1) T";
         dorisAssert.query(sql2).explainQuery();
     }
 
     @Test
     public void testCreateSameTableFailed() {
-        String TABle2 = "create table db1.TABle2(k1 int, k2 varchar(32), k3 varchar(32)) "
+        String table2 = "create table db1.TABle2(k1 int, k2 varchar(32), k3 varchar(32)) "
                 + "AGGREGATE KEY(k1, k2, k3) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         try {
-            dorisAssert.withTable(TABle2);
-            Assert.fail("The table name is case insensitive, " +
-                    "but the tables 'TABLE2' and 'table2' were successfully created");
+            dorisAssert.withTable(table2);
+            Assert.fail("The table name is case insensitive, "
+                    + "but the tables 'TABLE2' and 'table2' were successfully created");
         } catch (Exception e) {
             System.out.println(e.getMessage());
         }
@@ -113,8 +125,8 @@ public class TableNameStoredLowercaseTest {
         String view2 = "create view table2 as select * from TABLE2";
         try {
             dorisAssert.withView(view2);
-            Assert.fail("The table name is case insensitive, " +
-                    "but the table 'TABLE2' and view 'table2' were successfully created");
+            Assert.fail("The table name is case insensitive, "
+                    + "but the table 'TABLE2' and view 'table2' were successfully created");
         } catch (Exception e) {
             System.out.println(e.getMessage());
         }

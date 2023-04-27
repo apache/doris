@@ -17,8 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
@@ -45,13 +45,14 @@ public class PartitionPersistInfo implements Writable {
     private ReplicaAllocation replicaAlloc;
     private boolean isInMemory = false;
     private boolean isTempPartition = false;
-    
+    private boolean isMutable = true;
+
     public PartitionPersistInfo() {
     }
 
     public PartitionPersistInfo(long dbId, long tableId, Partition partition, Range<PartitionKey> range,
-                                PartitionItem listPartitionItem, DataProperty dataProperty, ReplicaAllocation replicaAlloc,
-                                boolean isInMemory, boolean isTempPartition) {
+            PartitionItem listPartitionItem, DataProperty dataProperty, ReplicaAllocation replicaAlloc,
+            boolean isInMemory, boolean isTempPartition, boolean isMutable) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partition = partition;
@@ -63,12 +64,13 @@ public class PartitionPersistInfo implements Writable {
         this.replicaAlloc = replicaAlloc;
         this.isInMemory = isInMemory;
         this.isTempPartition = isTempPartition;
+        this.isMutable = isMutable;
     }
-    
+
     public Long getDbId() {
         return dbId;
     }
-    
+
     public Long getTableId() {
         return tableId;
     }
@@ -97,6 +99,10 @@ public class PartitionPersistInfo implements Writable {
         return isInMemory;
     }
 
+    public boolean isMutable() {
+        return isMutable;
+    }
+
     public boolean isTempPartition() {
         return isTempPartition;
     }
@@ -112,6 +118,7 @@ public class PartitionPersistInfo implements Writable {
         replicaAlloc.write(out);
         out.writeBoolean(isInMemory);
         out.writeBoolean(isTempPartition);
+        out.writeBoolean(isMutable);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -120,28 +127,21 @@ public class PartitionPersistInfo implements Writable {
         partition = Partition.read(in);
 
         range = RangeUtils.readRange(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_98) {
-            listPartitionItem = ListPartitionItem.read(in);
-        } else {
-            listPartitionItem = ListPartitionItem.DUMMY_ITEM;
-        }
-
+        listPartitionItem = ListPartitionItem.read(in);
         dataProperty = DataProperty.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             this.replicaAlloc = new ReplicaAllocation(in.readShort());
         } else {
             this.replicaAlloc = ReplicaAllocation.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
-            isInMemory = in.readBoolean();
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
-            isTempPartition = in.readBoolean();
+        isInMemory = in.readBoolean();
+        isTempPartition = in.readBoolean();
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+            isMutable = in.readBoolean();
         }
     }
-    
+
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
@@ -149,9 +149,9 @@ public class PartitionPersistInfo implements Writable {
         if (!(obj instanceof PartitionPersistInfo)) {
             return false;
         }
-        
+
         PartitionPersistInfo info = (PartitionPersistInfo) obj;
-        
+
         return dbId.equals(info.dbId)
                    && tableId.equals(info.tableId)
                    && partition.equals(info.partition);

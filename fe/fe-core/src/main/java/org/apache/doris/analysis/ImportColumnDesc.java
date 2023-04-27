@@ -17,7 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Column;
+
+import com.google.common.base.Preconditions;
 
 public class ImportColumnDesc {
     private String columnName;
@@ -59,6 +62,12 @@ public class ImportColumnDesc {
         return expr == null;
     }
 
+    public Expr toBinaryPredicate() {
+        Preconditions.checkState(!isColumn());
+        BinaryPredicate pred = new BinaryPredicate(Operator.EQ, new SlotRef(null, columnName), expr);
+        return pred;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -68,4 +77,5 @@ public class ImportColumnDesc {
         }
         return sb.toString();
     }
+
 }

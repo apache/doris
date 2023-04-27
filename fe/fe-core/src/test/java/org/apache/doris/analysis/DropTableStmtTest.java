@@ -17,20 +17,22 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Mocked;
-
 public class DropTableStmtTest {
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
+
     private TableName tbl;
     private TableName noDbTbl;
     private Analyzer analyzer;
@@ -38,18 +40,22 @@ public class DropTableStmtTest {
     private Analyzer noDbAnalyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
 
     @Before
     public void setUp() {
-        tbl = new TableName("db1", "table1");
-        noDbTbl = new TableName("", "table1");
+        tbl = new TableName(internalCtl, "db1", "table1");
+        noDbTbl = new TableName(internalCtl, "", "table1");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
 
         new Expectations() {
             {
+                noDbAnalyzer.getDefaultCatalog();
+                minTimes = 0;
+                result = InternalCatalog.INTERNAL_CATALOG_NAME;
+
                 noDbAnalyzer.getDefaultDb();
                 minTimes = 0;
                 result = "";
@@ -60,7 +66,7 @@ public class DropTableStmtTest {
             }
         };
 
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
@@ -91,7 +97,7 @@ public class DropTableStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testNoTableFail() throws UserException, AnalysisException {
-        DropTableStmt stmt = new DropTableStmt(false, new TableName("db1", ""), true);
+        DropTableStmt stmt = new DropTableStmt(false, new TableName(internalCtl, "db1", ""), true);
         stmt.analyze(noDbAnalyzer);
         Assert.fail("No Exception throws.");
     }

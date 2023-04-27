@@ -31,22 +31,20 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class ColocateTableCheckerAndBalancerTest {
     private ColocateTableCheckerAndBalancer balancer = ColocateTableCheckerAndBalancer.getInstance();
@@ -75,6 +73,16 @@ public class ColocateTableCheckerAndBalancerTest {
         backend7 = new Backend(7L, "192.168.1.8", 9050);
         backend8 = new Backend(8L, "192.168.1.8", 9050);
         backend9 = new Backend(9L, "192.168.1.8", 9050);
+
+        backend1.setAlive(true);
+        backend2.setAlive(true);
+        backend3.setAlive(true);
+        backend4.setAlive(true);
+        backend5.setAlive(true);
+        backend6.setAlive(true);
+        backend7.setAlive(true);
+        backend8.setAlive(true);
+        backend9.setAlive(true);
 
         mixLoadScores = Maps.newHashMap();
         mixLoadScores.put(1L, 0.1);
@@ -306,7 +314,7 @@ public class ColocateTableCheckerAndBalancerTest {
 
     public final class FakeBackendLoadStatistic extends BackendLoadStatistic {
         public FakeBackendLoadStatistic(long beId, String clusterName, SystemInfoService infoService,
-                                    TabletInvertedIndex invertedIndex) {
+                                        TabletInvertedIndex invertedIndex) {
             super(beId, clusterName, Tag.DEFAULT_BACKEND_TAG, infoService, invertedIndex);
         }
 
@@ -320,7 +328,7 @@ public class ColocateTableCheckerAndBalancerTest {
     public void testGetBeSeqIndexes() {
         List<Long> flatBackendsPerBucketSeq = Lists.newArrayList(1L, 2L, 2L, 3L, 4L, 2L);
         List<Integer> indexes = Deencapsulation.invoke(balancer, "getBeSeqIndexes", flatBackendsPerBucketSeq, 2L);
-        Assert.assertArrayEquals(new int[]{1, 2, 5}, indexes.stream().mapToInt(i->i).toArray());
+        Assert.assertArrayEquals(new int[]{1, 2, 5}, indexes.stream().mapToInt(i -> i).toArray());
         System.out.println("backend1 id is " + backend1.getId());
     }
 
@@ -331,7 +339,7 @@ public class ColocateTableCheckerAndBalancerTest {
                                                @Mocked Backend myBackend3,
                                                @Mocked Backend myBackend4,
                                                @Mocked Backend myBackend5
-                                               ) {
+    ) {
         GroupId groupId = new GroupId(10000, 10001);
         Tag tag = Tag.DEFAULT_BACKEND_TAG;
         Set<Long> allBackendsInGroup = Sets.newHashSet(1L, 2L, 3L, 4L, 5L);
@@ -348,8 +356,11 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend2.isScheduleAvailable();
                 result = true;
                 minTimes = 0;
-                myBackend2.getTag();
+                myBackend2.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
+                minTimes = 0;
+                myBackend2.isMixNode();
+                result = true;
                 minTimes = 0;
 
                 // backend3 not available, and dead for a long time
@@ -363,10 +374,13 @@ public class ColocateTableCheckerAndBalancerTest {
                 result = false;
                 minTimes = 0;
                 myBackend3.getLastUpdateMs();
-                result = System.currentTimeMillis() - Config.tablet_repair_delay_factor_second * 1000 * 20;
+                result = System.currentTimeMillis() - (Config.colocate_group_relocate_delay_second + 20) * 1000;
                 minTimes = 0;
-                myBackend3.getTag();
+                myBackend3.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
+                minTimes = 0;
+                myBackend3.isMixNode();
+                result = true;
                 minTimes = 0;
 
                 // backend4 not available, and dead for a short time
@@ -382,8 +396,11 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend4.getLastUpdateMs();
                 result = System.currentTimeMillis();
                 minTimes = 0;
-                myBackend4.getTag();
+                myBackend4.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
+                minTimes = 0;
+                myBackend4.isMixNode();
+                result = true;
                 minTimes = 0;
 
                 // backend5 not available, and in decommission
@@ -399,8 +416,11 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend5.isDecommissioned();
                 result = true;
                 minTimes = 0;
-                myBackend5.getTag();
+                myBackend5.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
+                minTimes = 0;
+                myBackend5.isMixNode();
+                result = true;
                 minTimes = 0;
 
                 colocateTableIndex.getBackendsByGroup(groupId, tag);
@@ -422,7 +442,8 @@ public class ColocateTableCheckerAndBalancerTest {
                                       @Mocked Backend myBackend4,
                                       @Mocked Backend myBackend5,
                                       @Mocked Backend myBackend6,
-                                      @Mocked Backend myBackend7) throws AnalysisException {
+                                      @Mocked Backend myBackend7,
+                                      @Mocked Backend myBackend8) throws AnalysisException {
         List<Long> clusterBackendIds = Lists.newArrayList(1L, 2L, 3L, 4L, 5L);
         new Expectations() {
             {
@@ -441,8 +462,11 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend2.isScheduleAvailable();
                 result = true;
                 minTimes = 0;
-                myBackend2.getTag();
+                myBackend2.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
+                minTimes = 0;
+                myBackend2.isMixNode();
+                result = true;
                 minTimes = 0;
 
                 // backend3 not available, and dead for a long time
@@ -456,10 +480,13 @@ public class ColocateTableCheckerAndBalancerTest {
                 result = false;
                 minTimes = 0;
                 myBackend3.getLastUpdateMs();
-                result = System.currentTimeMillis() - Config.tablet_repair_delay_factor_second * 1000 * 20;
+                result = System.currentTimeMillis() - (Config.colocate_group_relocate_delay_second + 20) * 1000;
                 minTimes = 0;
-                myBackend3.getTag();
+                myBackend3.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
+                minTimes = 0;
+                myBackend3.isMixNode();
+                result = true;
                 minTimes = 0;
 
                 // backend4 available, not alive but dead for a short time
@@ -475,8 +502,11 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend4.getLastUpdateMs();
                 result = System.currentTimeMillis();
                 minTimes = 0;
-                myBackend4.getTag();
+                myBackend4.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
+                minTimes = 0;
+                myBackend4.isMixNode();
+                result = true;
                 minTimes = 0;
 
                 // backend5 not available, and in decommission
@@ -492,8 +522,11 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend5.isDecommissioned();
                 result = true;
                 minTimes = 0;
-                myBackend5.getTag();
+                myBackend5.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
+                minTimes = 0;
+                myBackend5.isMixNode();
+                result = true;
                 minTimes = 0;
 
                 // backend6 is available, but with different tag
@@ -509,8 +542,11 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend6.isDecommissioned();
                 result = false;
                 minTimes = 0;
-                myBackend6.getTag();
+                myBackend6.getLocationTag();
                 result = Tag.create(Tag.TYPE_LOCATION, "new_loc");
+                minTimes = 0;
+                myBackend6.isMixNode();
+                result = true;
                 minTimes = 0;
 
                 // backend7 is available, but in exclude sets
@@ -526,11 +562,34 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend7.isDecommissioned();
                 result = false;
                 minTimes = 0;
-                myBackend7.getTag();
+                myBackend7.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
+                minTimes = 0;
+                myBackend7.isMixNode();
+                result = true;
                 minTimes = 0;
                 myBackend7.getId();
                 result = 999L;
+                minTimes = 0;
+
+                // backend8 is available, it's a compute node.
+                infoService.getBackend(5L);
+                result = myBackend8;
+                minTimes = 0;
+                myBackend8.isScheduleAvailable();
+                result = false;
+                minTimes = 0;
+                myBackend8.isAlive();
+                result = true;
+                minTimes = 0;
+                myBackend8.isDecommissioned();
+                result = false;
+                minTimes = 0;
+                myBackend8.getLocationTag();
+                result = Tag.DEFAULT_BACKEND_TAG;
+                minTimes = 0;
+                myBackend8.isMixNode();
+                result = false;
                 minTimes = 0;
             }
         };

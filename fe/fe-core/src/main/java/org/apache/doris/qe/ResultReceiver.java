@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -48,11 +49,11 @@ public class ResultReceiver {
     private Long backendId;
     private Thread currentThread;
 
-    public ResultReceiver(TUniqueId tid, Long backendId, TNetworkAddress address, int timeoutMs) {
+    public ResultReceiver(TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs) {
         this.finstId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         this.backendId = backendId;
         this.address = address;
-        this.timeoutTs = System.currentTimeMillis() + timeoutMs;
+        this.timeoutTs = timeoutTs;
     }
 
     public RowBatch getNext(Status status) throws TException {
@@ -66,9 +67,10 @@ public class ResultReceiver {
                         .setFinstId(finstId)
                         .setRespInAttachment(false)
                         .build();
-                
+
                 currentThread = Thread.currentThread();
-                Future<InternalService.PFetchDataResult> future = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
+                Future<InternalService.PFetchDataResult> future
+                        = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
                 InternalService.PFetchDataResult pResult = null;
                 while (pResult == null) {
                     long currentTs = System.currentTimeMillis();
@@ -90,21 +92,22 @@ public class ResultReceiver {
                 if (code != TStatusCode.OK) {
                     status.setPstatus(pResult.getStatus());
                     return null;
-                } 
- 
+                }
+
                 rowBatch.setQueryStatistics(pResult.getQueryStatistics());
 
                 if (packetIdx != pResult.getPacketSeq()) {
-                    LOG.warn("receive packet failed, expect={}, receive={}", packetIdx, pResult.getPacketSeq());
+                    LOG.warn("finistId={}, receive packet failed, expect={}, receive={}",
+                            DebugUtil.printId(finstId), packetIdx, pResult.getPacketSeq());
                     status.setRpcStatus("receive error packet");
                     return null;
                 }
-    
+
                 packetIdx++;
                 isDone = pResult.getEos();
 
                 if (pResult.hasEmptyBatch() && pResult.getEmptyBatch()) {
-                    LOG.info("get first empty rowbatch");
+                    LOG.info("finistId={}, get first empty rowbatch", DebugUtil.printId(finstId));
                     rowBatch.setEos(false);
                     return rowBatch;
                 } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
@@ -118,11 +121,11 @@ public class ResultReceiver {
                 }
             }
         } catch (RpcException e) {
-            LOG.warn("fetch result rpc exception, finstId={}", finstId, e);
+            LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(finstId), e);
             status.setRpcStatus(e.getMessage());
             SimpleScheduler.addToBlacklist(backendId, e.getMessage());
         } catch (ExecutionException e) {
-            LOG.warn("fetch result execution exception, finstId={}", finstId, e);
+            LOG.warn("fetch result execution exception, finstId={}", DebugUtil.printId(finstId), e);
             if (e.getMessage().contains("time out")) {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
                 status.setStatus(new Status(TStatusCode.TIMEOUT, e.getMessage()));
@@ -131,14 +134,14 @@ public class ResultReceiver {
                 SimpleScheduler.addToBlacklist(backendId, e.getMessage());
             }
         } catch (TimeoutException e) {
-            LOG.warn("fetch result timeout, finstId={}", finstId, e);
+            LOG.warn("fetch result timeout, finstId={}", DebugUtil.printId(finstId), e);
             status.setStatus("query timeout");
         } finally {
             synchronized (this) {
                 currentThread = null;
             }
         }
-        
+
         if (isCancel) {
             status.setStatus(Status.CANCELLED);
         }

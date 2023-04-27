@@ -19,14 +19,13 @@ package org.apache.doris.http;
 
 import okhttp3.Request;
 import okhttp3.Response;
-import org.json.JSONArray;
-import org.json.JSONObject;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
-
-import static org.junit.Assert.assertTrue;
 
 public class TableSchemaActionTest extends DorisHttpTestCase {
 
@@ -40,13 +39,13 @@ public class TableSchemaActionTest extends DorisHttpTestCase {
                 .url(URI + QUERY_PLAN_URI)
                 .build();
         Response response = networkClient.newCall(request).execute();
-        assertTrue(response.isSuccessful());
+        Assert.assertTrue(response.isSuccessful());
         String respStr = response.body().string();
         Assert.assertNotNull(respStr);
-        JSONObject object = new JSONObject(respStr);
-        Assert.assertEquals(200, object.getInt("status"));
-        JSONArray propArray = object.getJSONArray("properties");
+        JSONObject object = (JSONObject) JSONValue.parse(respStr);
+        Assert.assertEquals(200, (long) ((JSONObject) object.get("data")).get("status"));
+        JSONArray propArray = (JSONArray) ((JSONObject) object.get("data")).get("properties");
         // k1, k2
-        Assert.assertEquals(2, propArray.length());
+        Assert.assertEquals(2, propArray.size());
     }
 }

@@ -22,7 +22,7 @@ public class CommandResult {
     private String stdout;
     private String stderr;
     private String errMsg;
-    
+
     public CommandResult() {
         this.returnCode = -1;
         this.stdout = null;

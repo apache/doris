@@ -21,7 +21,7 @@ import org.apache.doris.ha.FrontendNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,7 +60,8 @@ public class Storage {
     private FrontendNodeType role = FrontendNodeType.UNKNOWN;
     private String nodeName;
     private long editsSeq;
-    private long imageSeq;
+    private long latestImageSeq = 0;
+    private long latestValidatedImageSeq = 0;
     private String metaDir;
     private List<Long> editsFileSequenceNumbers;
 
@@ -70,11 +71,11 @@ public class Storage {
         this.metaDir = metaDir;
     }
 
-    public Storage(int clusterID, String token, long imageSeq, long editsSeq, String metaDir) {
+    public Storage(int clusterID, String token, long latestImageSeq, long editsSeq, String metaDir) {
         this.clusterID = clusterID;
         this.token = token;
         this.editsSeq = editsSeq;
-        this.imageSeq = imageSeq;
+        this.latestImageSeq = latestImageSeq;
         this.metaDir = metaDir;
     }
 
@@ -114,39 +115,41 @@ public class Storage {
             nodeName = prop.getProperty(NODE_NAME, null);
         }
 
-        // Find the latest image
+        // Find the latest two images
         File dir = new File(metaDir);
         File[] children = dir.listFiles();
         if (children == null) {
             return;
-        } else {
-            for (File child : children) {
-                String name = child.getName();
-                try {
-                    if (!name.equals(EDITS) && !name.equals(IMAGE_NEW)
-                            && !name.endsWith(".part") && name.contains(".")) {
-                        if (name.startsWith(IMAGE)) {
-                            imageSeq = Math.max(Long.parseLong(name.substring(name.lastIndexOf('.') + 1)), imageSeq);
-                        } else if (name.startsWith(EDITS)) {
-                            // Just record the sequence part of the file name
-                            editsFileSequenceNumbers.add(Long.parseLong(name.substring(name.lastIndexOf('.') + 1)));
-                            editsSeq = Math.max(Long.parseLong(name.substring(name.lastIndexOf('.') + 1)), editsSeq);
+        }
+        List<Long> imageIds = Lists.newArrayList();
+        for (File child : children) {
+            String name = child.getName();
+            try {
+                if (!name.equals(EDITS) && !name.equals(IMAGE_NEW)
+                        && !name.endsWith(".part") && name.contains(".")) {
+                    if (name.startsWith(IMAGE)) {
+                        long fileSeq = Long.parseLong(name.substring(name.lastIndexOf('.') + 1));
+                        imageIds.add(fileSeq);
+                        if (latestImageSeq < fileSeq) {
+                            latestImageSeq = fileSeq;
                         }
+                    } else if (name.startsWith(EDITS)) {
+                        // Just record the sequence part of the file name
+                        editsFileSequenceNumbers.add(Long.parseLong(name.substring(name.lastIndexOf('.') + 1)));
+                        editsSeq = Math.max(Long.parseLong(name.substring(name.lastIndexOf('.') + 1)), editsSeq);
                     }
-                } catch (Exception e) {
-                    LOG.warn(name + " is not a validate meta file, ignore it");
                 }
+            } catch (Exception e) {
+                LOG.warn(name + " is not a validate meta file, ignore it");
             }
         }
-
+        // set latestValidatedImageSeq to the second largest image id, or 0 if less than 2 images.
+        Collections.sort(imageIds);
+        latestValidatedImageSeq = imageIds.size() < 2 ? 0 : imageIds.get(imageIds.size() - 2);
     }
 
     public int getClusterID() {
         return clusterID;
-    }
-
-    public void setClusterID(int clusterID) {
-        this.clusterID = clusterID;
     }
 
     public String getToken() {
@@ -169,20 +172,12 @@ public class Storage {
         return metaDir;
     }
 
-    public void setMetaDir(String metaDir) {
-        this.metaDir = metaDir;
+    public long getLatestImageSeq() {
+        return latestImageSeq;
     }
 
-    public long getImageSeq() {
-        return imageSeq;
-    }
-
-    public void setImageSeq(long imageSeq) {
-        this.imageSeq = imageSeq;
-    }
-
-    public void setEditsSeq(long editsSeq) {
-        this.editsSeq = editsSeq;
+    public long getLatestValidatedImageSeq() {
+        return latestValidatedImageSeq;
     }
 
     public long getEditsSeq() {
@@ -228,7 +223,7 @@ public class Storage {
 
         writePropertiesToFile(properties, ROLE_FILE);
     }
-    
+
     private void writePropertiesToFile(Properties properties, String fileName) throws IOException {
         RandomAccessFile file = new RandomAccessFile(new File(metaDir, fileName), "rws");
         FileOutputStream out = null;
@@ -246,6 +241,7 @@ public class Storage {
         }
     }
 
+    // Only for test
     public void clear() throws IOException {
         File metaFile = new File(metaDir);
         if (metaFile.exists()) {
@@ -272,7 +268,7 @@ public class Storage {
     }
 
     public File getCurrentImageFile() {
-        return getImageFile(imageSeq);
+        return getImageFile(latestImageSeq);
     }
 
     public File getImageFile(long version) {
@@ -313,4 +309,3 @@ public class Storage {
     }
 
 }
-

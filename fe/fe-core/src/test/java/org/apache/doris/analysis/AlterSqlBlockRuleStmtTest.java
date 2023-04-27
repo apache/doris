@@ -19,11 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,14 +33,12 @@ import org.junit.Test;
 import java.util.HashMap;
 import java.util.Map;
 
-import mockit.Mocked;
-
 public class AlterSqlBlockRuleStmtTest {
 
     private Analyzer analyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private AccessControllerManager accessManager;
 
     @Mocked
     private ConnectContext ctx;
@@ -46,7 +46,7 @@ public class AlterSqlBlockRuleStmtTest {
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
@@ -61,6 +61,30 @@ public class AlterSqlBlockRuleStmtTest {
         Assert.assertEquals(false, rule.getEnable());
         Assert.assertEquals("select \\* from test_table", rule.getSql());
         Assert.assertEquals("test_rule", rule.getName());
+    }
+
+    @Test
+    public void testSqlAndSqlHashSetBoth() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CreateSqlBlockRuleStmt.SQL_PROPERTY, "select \\* from test_table");
+        properties.put(CreateSqlBlockRuleStmt.SQL_HASH_PROPERTY, "sqlHash");
+        AlterSqlBlockRuleStmt stmt = new AlterSqlBlockRuleStmt("test_rule", properties);
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "errCode = 2, detailMessage = Only sql or sqlHash can be configured",
+                () -> stmt.analyze(analyzer));
+    }
+
+    @Test
+    public void testSqlAndLimitationsSetBoth() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CreateSqlBlockRuleStmt.SQL_PROPERTY, "select \\* from test_table");
+        properties.put(CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM, "4");
+        AlterSqlBlockRuleStmt stmt = new AlterSqlBlockRuleStmt("test_rule", properties);
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "errCode = 2, detailMessage = sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
+                () -> stmt.analyze(analyzer));
     }
 
     @Test(expected = AnalysisException.class)

@@ -17,7 +17,7 @@
 
 package org.apache.doris.metric;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
@@ -60,6 +60,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     private int metricNumber = 0;
 
     private static final Map<String, String> CORE_METRICS = Maps.newHashMap();
+
     static {
         CORE_METRICS.put(MAX_JOURMAL_ID, TYPE_LONG);
         CORE_METRICS.put(CONNECTION_TOTAL, TYPE_LONG);
@@ -70,8 +71,8 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         CORE_METRICS.put(MAX_TABLET_COMPACTION_SCORE, TYPE_LONG);
     }
 
-    public SimpleCoreMetricVisitor(String prefix) {
-        super(prefix);
+    public SimpleCoreMetricVisitor() {
+        super();
     }
 
     @Override
@@ -103,43 +104,46 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visit(StringBuilder sb, Metric metric) {
+    public void visit(StringBuilder sb, String prefix, Metric metric) {
         if (!CORE_METRICS.containsKey(metric.getName())) {
             return;
         }
 
         if (CORE_METRICS.get(metric.getName()).equals(TYPE_DOUBLE)) {
-            sb.append(Joiner.on(" ").join(prefix + "_" + metric.getName(), TYPE_DOUBLE,
+            sb.append(Joiner.on(" ").join(prefix + metric.getName(), TYPE_DOUBLE,
                     String.format("%.2f", Double.valueOf(metric.getValue().toString())))).append("\n");
         } else {
-            sb.append(Joiner.on(" ").join(prefix + "_" + metric.getName(), CORE_METRICS.get(metric.getName()),
-                    metric.getValue().toString())).append("\n");
+            sb.append(Joiner.on(" ")
+                    .join(prefix + metric.getName(), CORE_METRICS.get(metric.getName()), metric.getValue().toString()))
+                    .append("\n");
         }
         return;
     }
 
     @Override
-    public void visitHistogram(StringBuilder sb, String name, Histogram histogram) {
+    public void visitHistogram(StringBuilder sb, String prefix, String name, Histogram histogram) {
         if (!CORE_METRICS.containsKey(name)) {
             return;
         }
         Snapshot snapshot = histogram.getSnapshot();
-        sb.append(Joiner.on(" ").join(prefix + "_" + name + "_75", CORE_METRICS.get(name),
+        sb.append(Joiner.on(" ").join(prefix + name + "_75", CORE_METRICS.get(name),
                 String.format("%.0f", snapshot.get75thPercentile()))).append("\n");
-        sb.append(Joiner.on(" ").join(prefix + "_" + name + "_95", CORE_METRICS.get(name),
+        sb.append(Joiner.on(" ").join(prefix + name + "_95", CORE_METRICS.get(name),
                 String.format("%.0f", snapshot.get95thPercentile()))).append("\n");
-        sb.append(Joiner.on(" ").join(prefix + "_" + name + "_99", CORE_METRICS.get(name),
+        sb.append(Joiner.on(" ").join(prefix + name + "_99", CORE_METRICS.get(name),
                 String.format("%.0f", snapshot.get99thPercentile()))).append("\n");
         return;
     }
 
     @Override
     public void getNodeInfo(StringBuilder sb) {
-        long feDeadNum = Catalog.getCurrentCatalog().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
-        long beDeadNum = Catalog.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive()).count();
-        long brokerDeadNum =  Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count();
-        sb.append(prefix + "_frontend_dead_num").append(" ").append(String.valueOf(feDeadNum)).append("\n");
-        sb.append(prefix + "_backend_dead_num").append(" ").append(String.valueOf(beDeadNum)).append("\n");
-        sb.append(prefix + "_broker_dead_num").append(" ").append(String.valueOf(brokerDeadNum)).append("\n");
+        long feDeadNum = Env.getCurrentEnv().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
+        long beDeadNum = Env.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive())
+                .count();
+        long brokerDeadNum = Env.getCurrentEnv().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive)
+                .count();
+        sb.append("doris_fe_frontend_dead_num").append(" ").append(feDeadNum).append("\n");
+        sb.append("doris_fe_backend_dead_num").append(" ").append(beDeadNum).append("\n");
+        sb.append("doris_fe_broker_dead_num").append(" ").append(brokerDeadNum).append("\n");
     }
 }

@@ -24,8 +24,7 @@ import org.apache.doris.common.FeConstants;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
 import java.util.List;
@@ -74,6 +73,13 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                                                  column.getDefaultValue() == null
                                                          ? FeConstants.null_string : column.getDefaultValue(),
                                                  extraStr);
+
+            if (column.getOriginType().isDateV2()) {
+                rowList.set(1, "DATE");
+            }
+            if (column.getOriginType().isDatetimeV2()) {
+                rowList.set(1, "DATETIME");
+            }
             result.addRow(rowList);
         }
         return result;

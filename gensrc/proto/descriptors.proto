@@ -21,18 +21,21 @@ package doris;
 option java_package = "org.apache.doris.proto";
 
 import "types.proto";
+import "olap_file.proto";
 
 message PSlotDescriptor {
     required int32 id = 1;
     required int32 parent = 2; // tuple id which this slot is belong to
     required PTypeDesc slot_type = 3;
     required int32 column_pos = 4;   // in originating table
-    required int32 byte_offset = 5;  // into tuple
+    required int32 byte_offset = 5;  // into tuple, not used any more
     required int32 null_indicator_byte = 6;
     required int32 null_indicator_bit = 7;
     required string col_name = 8;
     required int32 slot_idx = 9;
     required bool is_materialized = 10;
+    required int32 col_unique_id = 11;
+    required bool is_key = 12;
 };
 
 message PTupleDescriptor {
@@ -47,6 +50,8 @@ message POlapTableIndexSchema {
     required int64 id = 1;
     repeated string columns = 2;
     required int32 schema_hash = 3;
+    repeated ColumnPB columns_desc = 4;
+    repeated TabletIndexPB indexes_desc = 5;
 };
 
 message POlapTableSchemaParam {

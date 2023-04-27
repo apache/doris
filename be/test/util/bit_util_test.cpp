@@ -17,16 +17,13 @@
 
 #include "util/bit_util.h"
 
-#include <gtest/gtest.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <boost/utility.hpp>
-#include <iostream>
+#include <boost/utility/binary.hpp>
+#include <memory>
 
-#include "common/config.h"
-#include "util/cpu_info.h"
-#include "util/logging.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 
@@ -52,15 +49,3 @@ TEST(BitUtil, Popcount) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

@@ -109,23 +109,21 @@
 // (3) A null StringPiece is empty.
 //     An empty StringPiece may or may not be a null StringPiece.
 
-#ifndef STRINGS_STRINGPIECE_H_
-#define STRINGS_STRINGPIECE_H_
+#pragma once
 
 #include <assert.h>
 #include <stddef.h>
 #include <string.h>
-
-#include <functional>
 #include <iosfwd>
-#include <limits>
 #include <string>
+#include <cstddef>
+#include <iterator>
+#include <string_view>
+#include <limits> // IWYU pragma: keep
 
-#include "gutil/hash/hash.h"
-#include "gutil/integral_types.h"
-#include "gutil/port.h"
 #include "gutil/strings/fastmem.h"
-#include "gutil/type_traits.h"
+#include "gutil/hash/string_hash.h"
+#include "gutil/int128.h"
 
 class StringPiece {
 private:
@@ -289,10 +287,6 @@ public:
     StringPiece substr(size_type pos, size_type n = npos) const;
 };
 
-#ifndef SWIG
-DECLARE_POD(StringPiece); // So vector<StringPiece> becomes really fast
-#endif
-
 // This large function is defined inline so that in a fairly common case where
 // one of the arguments is a literal, the compiler can elide a lot of the
 // following comparisons.
@@ -326,7 +320,6 @@ inline bool operator<=(StringPiece x, StringPiece y) {
 inline bool operator>=(StringPiece x, StringPiece y) {
     return !(x < y);
 }
-class StringPiece;
 template <class X>
 struct GoodFastHash;
 
@@ -340,12 +333,10 @@ struct GoodFastHash;
 // SWIG doesn't know how to parse this stuff properly. Omit it.
 #ifndef SWIG
 
-namespace std {
 template <>
-struct hash<StringPiece> {
+struct std::hash<StringPiece> {
     size_t operator()(StringPiece s) const;
 };
-} // namespace std
 
 // An implementation of GoodFastHash for StringPiece.  See
 // GoodFastHash values.
@@ -361,5 +352,3 @@ struct GoodFastHash<StringPiece> {
 
 // allow StringPiece to be logged
 extern ostream& operator<<(ostream& o, StringPiece piece);
-
-#endif // STRINGS_STRINGPIECE_H__

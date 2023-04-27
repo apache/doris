@@ -14,16 +14,23 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/FunctionParams.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.thrift.TAggregateExpr;
+import org.apache.doris.thrift.TTypeDesc;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -55,8 +62,30 @@ public class FunctionParams implements Writable {
         isDistinct = false;
     }
 
-    static public FunctionParams createStarParam() {
+    public static FunctionParams createStarParam() {
         return new FunctionParams();
+    }
+
+    public FunctionParams clone(List<Expr> children) {
+        if (isStar()) {
+            Preconditions.checkState(children.isEmpty());
+            return FunctionParams.createStarParam();
+        }
+        return new FunctionParams(isDistinct(), children);
+    }
+
+    public TAggregateExpr createTAggregateExpr(boolean isMergeAggFn) {
+        List<TTypeDesc> paramTypes = new ArrayList<>();
+        if (exprs != null) {
+            for (Expr expr : exprs) {
+                TTypeDesc desc = expr.getType().toThrift();
+                desc.setIsNullable(expr.isNullable());
+                paramTypes.add(desc);
+            }
+        }
+        TAggregateExpr aggExpr = new TAggregateExpr(isMergeAggFn);
+        aggExpr.setParamTypes(paramTypes);
+        return aggExpr;
     }
 
     public boolean isStar() {
@@ -90,7 +119,7 @@ public class FunctionParams implements Writable {
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         isStar = in.readBoolean();
         isDistinct = in.readBoolean();
         if (in.readBoolean()) {

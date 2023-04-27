@@ -17,25 +17,34 @@
 
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 
-#include "common/logging.h"
-#include "env/env.h"
-#include "olap/fs/fs_util.h"
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <ostream>
+#include <string>
+
+#include "io/fs/file_writer.h"
 #include "olap/key_coder.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_io.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
 
 void OrdinalIndexWriter::append_entry(ordinal_t ordinal, const PagePointer& data_pp) {
     std::string key;
-    KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(&ordinal, &key);
+    KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(&ordinal,
+                                                                                      &key);
     _page_builder->add(key, data_pp);
     _last_pp = data_pp;
 }
 
-Status OrdinalIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* meta) {
-    CHECK(_page_builder->count() > 0) << "no entry has been added, filepath=" << wblock->path();
+Status OrdinalIndexWriter::finish(io::FileWriter* file_writer, ColumnIndexMetaPB* meta) {
+    CHECK(_page_builder->count() > 0)
+            << "no entry has been added, filepath=" << file_writer->path();
     meta->set_type(ORDINAL_INDEX);
     BTreeMetaPB* root_page_meta = meta->mutable_ordinal_index()->mutable_root_page();
 
@@ -50,7 +59,7 @@ Status OrdinalIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
 
         // write index page (currently it's not compressed)
         PagePointer pp;
-        RETURN_IF_ERROR(PageIO::write_page(wblock, {page_body.slice()}, page_footer, &pp));
+        RETURN_IF_ERROR(PageIO::write_page(file_writer, {page_body.slice()}, page_footer, &pp));
 
         root_page_meta->set_is_root_data_page(false);
         pp.to_proto(root_page_meta->mutable_root_page());
@@ -68,12 +77,8 @@ Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
         return Status::OK();
     }
     // need to read index page
-    std::unique_ptr<fs::ReadableBlock> rblock;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
-    RETURN_IF_ERROR(block_mgr->open_block(_filename, &rblock));
-
     PageReadOptions opts;
-    opts.rblock = rblock.get();
+    opts.file_reader = _file_reader.get();
     opts.page_pointer = PagePointer(_index_meta->root_page().root_page());
     opts.codec = nullptr; // ordinal index page uses NO_COMPRESSION right now
     OlapReaderStatistics tmp_stats;
@@ -98,8 +103,9 @@ Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     for (int i = 0; i < _num_pages; i++) {
         Slice key = reader.get_key(i);
         ordinal_t ordinal = 0;
-        RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::decode_ascending(
-                &key, sizeof(ordinal_t), (uint8_t*)&ordinal, nullptr));
+        RETURN_IF_ERROR(
+                KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::decode_ascending(
+                        &key, sizeof(ordinal_t), (uint8_t*)&ordinal));
 
         _ordinals[i] = ordinal;
         _pages[i] = reader.get_value(i);

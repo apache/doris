@@ -29,7 +29,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.FeConstants;
@@ -40,7 +40,9 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import com.google.common.collect.Sets;
+import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,10 +60,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import com.google.gson.Gson;
-import com.google.gson.annotations.SerializedName;
-import org.glassfish.jersey.internal.guava.Sets;
 
 /*
  * This is a memory structure mapping the job info file in repository.
@@ -359,8 +357,6 @@ public class BackupJobInfo implements Writable {
         public long id;
         @SerializedName("version")
         public long version;
-        @SerializedName("version_hash")
-        public long versionHash;
         @SerializedName("indexes")
         public Map<String, BackupIndexInfo> indexes = Maps.newHashMap();
 
@@ -516,7 +512,6 @@ public class BackupJobInfo implements Writable {
                     BackupPartitionInfo partitionInfo = new BackupPartitionInfo();
                     partitionInfo.id = partition.getId();
                     partitionInfo.version = partition.getVisibleVersion();
-                    partitionInfo.versionHash = partition.getVisibleVersionHash();
                     tableInfo.partitions.put(partition.getName(), partitionInfo);
                     // indexes
                     for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -526,7 +521,7 @@ public class BackupJobInfo implements Writable {
                         partitionInfo.indexes.put(olapTbl.getIndexNameById(index.getId()), idxInfo);
                         // tablets
                         if (content == BackupContent.METADATA_ONLY) {
-                            for (Tablet tablet: index.getTablets()) {
+                            for (Tablet tablet : index.getTablets()) {
                                 idxInfo.tablets.put(tablet.getId(), Lists.newArrayList());
                             }
                         } else {
@@ -584,7 +579,7 @@ public class BackupJobInfo implements Writable {
     }
 
     private static BackupJobInfo genFromJson(String json) {
-        /* parse the json string: 
+        /* parse the json string:
          * {
          *   "backup_time": 1522231864000,
          *   "name": "snapshot1",
@@ -711,4 +706,3 @@ public class BackupJobInfo implements Writable {
         return toJson(true);
     }
 }
-

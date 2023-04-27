@@ -16,7 +16,16 @@
 // under the License.
 #include "runtime/cache/result_node.h"
 
-#include "gen_cpp/internal_service.pb.h"
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+
+#include <iostream>
+#include <limits>
+#include <utility>
+
+#include "common/config.h"
+#include "olap/olap_define.h"
 #include "runtime/cache/cache_utils.h"
 
 namespace doris {
@@ -123,7 +132,7 @@ PCacheStatus ResultNode::update_sql_cache(const PUpdateCacheRequest* request,
 
 PCacheStatus ResultNode::update_partition_cache(const PUpdateCacheRequest* request,
                                                 bool& is_update_firstkey) {
-    PartitionKey first_key = kint64max;
+    PartitionKey first_key = std::numeric_limits<long>::max();
     if (_partition_list.size() == 0) {
         is_update_firstkey = true;
     } else {

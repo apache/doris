@@ -17,6 +17,9 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# This file is copied from
+# https://github.com/cloudera/Impala/blob/v0.7refresh/common/function-registry/gen_functions.py
+# and modified by Doris
 
 """
 # This script will generate the implementation of the simple functions for the BE.
@@ -34,6 +37,7 @@
 
 import string
 import os
+import errno
 
 unary_op = string.Template("\
 void* ComputeFunctions::${fn_signature}(Expr* e, TupleRow* row) {\n\
@@ -581,7 +585,7 @@ cc_preamble = '\
 #include "gen_cpp/opcode/functions.h"\n\
 #include "exprs/expr.h"\n\
 #include "exprs/case_expr.h"\n\
-#include "runtime/string_value.hpp"\n\
+#include "vec/common/string_tmp.h"\n\
 #include "runtime/tuple_row.h"\n\
 #include "util/mysql_dtoa.h"\n\
 #include "util/string_parser.hpp"\n\
@@ -630,8 +634,6 @@ header_template = string.Template("\
   static void* ${fn_signature}(Expr* e, TupleRow* row);\n")
 
 BE_PATH = "../gen_cpp/opcode/"
-if not os.path.exists(BE_PATH):
-    os.makedirs(BE_PATH)
 
 def initialize_sub(op, return_type, arg_types):
     """
@@ -654,6 +656,15 @@ def initialize_sub(op, return_type, arg_types):
     return sub
 
 if __name__ == "__main__":
+
+    try:
+        os.makedirs(BE_PATH)
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            pass
+        else:
+            raise
+
     h_file = open(BE_PATH + 'functions.h', 'w')
     cc_file = open(BE_PATH + 'functions.cc', 'w')
     python_file = open('generated_functions.py', 'w')

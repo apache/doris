@@ -25,8 +25,7 @@
 // and Google friendly API.
 //
 
-#ifndef UTIL_GTL_STL_UTIL_H_
-#define UTIL_GTL_STL_UTIL_H_
+#pragma once
 
 #include <stddef.h>
 #include <string.h> // for memcpy
@@ -42,7 +41,6 @@ using std::swap;
 #include <deque>
 using std::deque;
 #include <functional>
-using std::binary_function;
 using std::less;
 #include <iterator>
 using std::back_insert_iterator;
@@ -87,7 +85,7 @@ void STLClearObject(deque<T, A>* obj) {
 // Reduce memory usage on behalf of object if its capacity is greater
 // than or equal to "limit", which defaults to 2^20.
 template <class T>
-inline void STLClearIfBig(T* obj, size_t limit = 1 << 20) {
+ void STLClearIfBig(T* obj, size_t limit = 1 << 20) {
     if (obj->capacity() >= limit) {
         STLClearObject(obj);
     } else {
@@ -97,7 +95,7 @@ inline void STLClearIfBig(T* obj, size_t limit = 1 << 20) {
 
 // Specialization for deque, which doesn't implement capacity().
 template <class T, class A>
-inline void STLClearIfBig(deque<T, A>* obj, size_t limit = 1 << 20) {
+ void STLClearIfBig(deque<T, A>* obj, size_t limit = 1 << 20) {
     if (obj->size() >= limit) {
         STLClearObject(obj);
     } else {
@@ -125,7 +123,7 @@ inline void STLClearIfBig(deque<T, A>* obj, size_t limit = 1 << 20) {
 // operations cheap.  Note that the default number of buckets is 193
 // in the Gnu library implementation as of Jan '08.
 template <class T>
-inline void STLClearHashIfBig(T* obj, size_t limit) {
+ void STLClearHashIfBig(T* obj, size_t limit) {
     if (obj->bucket_count() >= limit) {
         T tmp;
         tmp.swap(*obj);
@@ -313,7 +311,7 @@ inline void STLAppendToString(string* str, const char* ptr, size_t n) {
 // change this as well.
 
 template <typename T, typename Allocator>
-inline T* vector_as_array(vector<T, Allocator>* v) {
+ T* vector_as_array(vector<T, Allocator>* v) {
 #ifdef NDEBUG
     return &*v->begin();
 #else
@@ -322,7 +320,7 @@ inline T* vector_as_array(vector<T, Allocator>* v) {
 }
 
 template <typename T, typename Allocator>
-inline const T* vector_as_array(const vector<T, Allocator>* v) {
+ const T* vector_as_array(const vector<T, Allocator>* v) {
 #ifdef NDEBUG
     return &*v->begin();
 #else
@@ -354,7 +352,7 @@ inline char* string_as_array(string* str) {
 // differed.
 
 template <class HashSet>
-inline bool HashSetEquality(const HashSet& set_a, const HashSet& set_b) {
+ bool HashSetEquality(const HashSet& set_a, const HashSet& set_b) {
     if (set_a.size() != set_b.size()) return false;
     for (typename HashSet::const_iterator i = set_a.begin(); i != set_a.end(); ++i)
         if (set_b.find(*i) == set_b.end()) return false;
@@ -362,7 +360,7 @@ inline bool HashSetEquality(const HashSet& set_a, const HashSet& set_b) {
 }
 
 template <class HashMap>
-inline bool HashMapEquality(const HashMap& map_a, const HashMap& map_b) {
+ bool HashMapEquality(const HashMap& map_a, const HashMap& map_b) {
     if (map_a.size() != map_b.size()) return false;
     for (typename HashMap::const_iterator i = map_a.begin(); i != map_a.end(); ++i) {
         typename HashMap::const_iterator j = map_b.find(i->first);
@@ -434,9 +432,9 @@ private:
 template <class STLContainer>
 class TemplatedElementDeleter : public BaseDeleter {
 public:
-    explicit TemplatedElementDeleter<STLContainer>(STLContainer* ptr) : container_ptr_(ptr) {}
+    explicit TemplatedElementDeleter(STLContainer* ptr) : container_ptr_(ptr) {}
 
-    virtual ~TemplatedElementDeleter<STLContainer>() { STLDeleteElements(container_ptr_); }
+    virtual ~TemplatedElementDeleter() { STLDeleteElements(container_ptr_); }
 
 private:
     STLContainer* container_ptr_;
@@ -467,9 +465,9 @@ private:
 template <class STLContainer>
 class TemplatedValueDeleter : public BaseDeleter {
 public:
-    explicit TemplatedValueDeleter<STLContainer>(STLContainer* ptr) : container_ptr_(ptr) {}
+    explicit TemplatedValueDeleter(STLContainer* ptr) : container_ptr_(ptr) {}
 
-    virtual ~TemplatedValueDeleter<STLContainer>() { STLDeleteValues(container_ptr_); }
+    virtual ~TemplatedValueDeleter() { STLDeleteValues(container_ptr_); }
 
 private:
     STLContainer* container_ptr_;
@@ -503,8 +501,8 @@ private:
 template <class STLContainer>
 class STLElementDeleter {
 public:
-    STLElementDeleter<STLContainer>(STLContainer* ptr) : container_ptr_(ptr) {}
-    ~STLElementDeleter<STLContainer>() { STLDeleteElements(container_ptr_); }
+    STLElementDeleter(STLContainer* ptr) : container_ptr_(ptr) {}
+    ~STLElementDeleter() { STLDeleteElements(container_ptr_); }
 
 private:
     STLContainer* container_ptr_;
@@ -513,8 +511,8 @@ private:
 template <class STLContainer>
 class STLValueDeleter {
 public:
-    STLValueDeleter<STLContainer>(STLContainer* ptr) : container_ptr_(ptr) {}
-    ~STLValueDeleter<STLContainer>() { STLDeleteValues(container_ptr_); }
+    STLValueDeleter(STLContainer* ptr) : container_ptr_(ptr) {}
+    ~STLValueDeleter() { STLDeleteValues(container_ptr_); }
 
 private:
     STLContainer* container_ptr_;
@@ -642,7 +640,7 @@ bool STLIncludes(const SortedSTLContainerA& a, const SortedSTLContainerB& b) {
 // the contents of an STL map. For other sample usage, see the unittest.
 
 template <typename Pair, typename UnaryOp>
-class UnaryOperateOnFirst : public std::unary_function<Pair, typename UnaryOp::result_type> {
+class UnaryOperateOnFirst {
 public:
     UnaryOperateOnFirst() {}
 
@@ -661,7 +659,7 @@ UnaryOperateOnFirst<Pair, UnaryOp> UnaryOperate1st(const UnaryOp& f) {
 }
 
 template <typename Pair, typename UnaryOp>
-class UnaryOperateOnSecond : public std::unary_function<Pair, typename UnaryOp::result_type> {
+class UnaryOperateOnSecond {
 public:
     UnaryOperateOnSecond() {}
 
@@ -680,8 +678,7 @@ UnaryOperateOnSecond<Pair, UnaryOp> UnaryOperate2nd(const UnaryOp& f) {
 }
 
 template <typename Pair, typename BinaryOp>
-class BinaryOperateOnFirst
-        : public std::binary_function<Pair, Pair, typename BinaryOp::result_type> {
+class BinaryOperateOnFirst {
 public:
     BinaryOperateOnFirst() {}
 
@@ -703,8 +700,7 @@ BinaryOperateOnFirst<Pair, BinaryOp> BinaryOperate1st(const BinaryOp& f) {
 }
 
 template <typename Pair, typename BinaryOp>
-class BinaryOperateOnSecond
-        : public std::binary_function<Pair, Pair, typename BinaryOp::result_type> {
+class BinaryOperateOnSecond {
 public:
     BinaryOperateOnSecond() {}
 
@@ -737,9 +733,7 @@ BinaryOperateOnSecond<Pair, BinaryOp> BinaryOperate2nd(const BinaryOp& f) {
 // F has to be a model of AdaptableBinaryFunction.
 // G1 and G2 have to be models of AdabtableUnaryFunction.
 template <typename F, typename G1, typename G2>
-class BinaryComposeBinary
-        : public binary_function<typename G1::argument_type, typename G2::argument_type,
-                                 typename F::result_type> {
+class BinaryComposeBinary {
 public:
     BinaryComposeBinary(F f, G1 g1, G2 g2) : f_(f), g1_(g1), g2_(g2) {}
 
@@ -763,49 +757,6 @@ template <typename F, typename G1, typename G2>
 BinaryComposeBinary<F, G1, G2> BinaryCompose2(F f, G1 g1, G2 g2) {
     return BinaryComposeBinary<F, G1, G2>(f, g1, g2);
 }
-
-// This is a wrapper for an STL allocator which keeps a count of the
-// active bytes allocated by this class of allocators.  This is NOT
-// THREAD SAFE.  This should only be used in situations where you can
-// ensure that only a single thread performs allocation and
-// deallocation.
-template <typename T, typename Alloc = std::allocator<T>>
-class STLCountingAllocator : public Alloc {
-public:
-    typedef typename Alloc::pointer pointer;
-    typedef typename Alloc::size_type size_type;
-
-    STLCountingAllocator() : bytes_used_(NULL) {}
-    STLCountingAllocator(int64* b) : bytes_used_(b) {} // TODO(user): explicit?
-
-    // Constructor used for rebinding
-    template <class U>
-    STLCountingAllocator(const STLCountingAllocator<U>& x)
-            : Alloc(x), bytes_used_(x.bytes_used()) {}
-
-    pointer allocate(size_type n, std::allocator<void>::const_pointer hint = 0) {
-        assert(bytes_used_ != NULL);
-        *bytes_used_ += n * sizeof(T);
-        return Alloc::allocate(n, hint);
-    }
-
-    void deallocate(pointer p, size_type n) {
-        Alloc::deallocate(p, n);
-        assert(bytes_used_ != NULL);
-        *bytes_used_ -= n * sizeof(T);
-    }
-
-    // Rebind allows an allocator<T> to be used for a different type
-    template <class U>
-    struct rebind {
-        typedef STLCountingAllocator<U, typename Alloc::template rebind<U>::other> other;
-    };
-
-    int64* bytes_used() const { return bytes_used_; }
-
-private:
-    int64* bytes_used_;
-};
 
 // Even though a struct has no data members, it cannot have zero size
 // according to the standard.  However, "empty base-class
@@ -899,5 +850,3 @@ T* release_ptr(T** ptr) {
     *ptr = NULL;
     return tmp;
 }
-
-#endif // UTIL_GTL_STL_UTIL_H_

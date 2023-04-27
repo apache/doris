@@ -18,17 +18,24 @@
 #include "http/utils.h"
 
 #include <fcntl.h>
+#include <stdint.h>
 #include <sys/stat.h>
+#include <unistd.h>
+
+#include <memory>
+#include <ostream>
+#include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
-#include "env/env.h"
 #include "http/http_channel.h"
-#include "http/http_common.h"
 #include "http/http_headers.h"
+#include "http/http_method.h"
 #include "http/http_request.h"
-#include "util/file_utils.h"
+#include "http/http_status.h"
+#include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
 #include "util/path_util.h"
 #include "util/url_coding.h"
 
@@ -64,16 +71,21 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 }
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
-    std::string full_user;
-    if (!parse_basic_auth(req, &full_user, &auth->passwd)) {
-        return false;
-    }
-    auto pos = full_user.find('@');
-    if (pos != std::string::npos) {
-        auth->user.assign(full_user.data(), pos);
-        auth->cluster.assign(full_user.data() + pos + 1);
+    auto& token = req.header("token");
+    if (token.empty()) {
+        std::string full_user;
+        if (!parse_basic_auth(req, &full_user, &auth->passwd)) {
+            return false;
+        }
+        auto pos = full_user.find('@');
+        if (pos != std::string::npos) {
+            auth->user.assign(full_user.data(), pos);
+            auth->cluster.assign(full_user.data() + pos + 1);
+        } else {
+            auth->user = full_user;
+        }
     } else {
-        auth->user = full_user;
+        auth->token = token;
     }
 
     // set user ip
@@ -153,23 +165,23 @@ void do_file_response(const std::string& file_path, HttpRequest* req) {
 }
 
 void do_dir_response(const std::string& dir_path, HttpRequest* req) {
-    std::vector<std::string> files;
-    Status status = FileUtils::list_files(Env::Default(), dir_path, &files);
-    if (!status.ok()) {
-        LOG(WARNING) << "Failed to scan dir. dir=" << dir_path;
+    bool exists = true;
+    std::vector<io::FileInfo> files;
+    Status st = io::global_local_filesystem()->list(dir_path, true, &files, &exists);
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to scan dir. " << st;
         HttpChannel::send_error(req, HttpStatus::INTERNAL_SERVER_ERROR);
     }
 
     const std::string FILE_DELIMITER_IN_DIR_RESPONSE = "\n";
 
     std::stringstream result;
-    for (const std::string& file_name : files) {
-        result << file_name << FILE_DELIMITER_IN_DIR_RESPONSE;
+    for (auto& file : files) {
+        result << file.file_name << FILE_DELIMITER_IN_DIR_RESPONSE;
     }
 
     std::string result_str = result.str();
     HttpChannel::send_reply(req, result_str);
-    return;
 }
 
 } // namespace doris

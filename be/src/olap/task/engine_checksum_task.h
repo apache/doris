@@ -18,33 +18,38 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_CHECKSUM_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_CHECKSUM_TASK_H
 
-#include "gen_cpp/AgentService_types.h"
-#include "olap/olap_define.h"
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <memory>
+
+#include "common/status.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
+class MemTrackerLimiter;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineChecksumTask : public EngineTask {
 public:
-    virtual OLAPStatus execute();
+    virtual Status execute();
 
 public:
     EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, TVersion version,
-                       TVersionHash version_hash, uint32_t* checksum);
+                       uint32_t* checksum);
 
     ~EngineChecksumTask() {}
 
 private:
-    OLAPStatus _compute_checksum();
+    Status _compute_checksum();
 
 private:
     TTabletId _tablet_id;
     TSchemaHash _schema_hash;
     TVersion _version;
-    TVersionHash _version_hash;
     uint32_t* _checksum;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

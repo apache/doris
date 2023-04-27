@@ -29,6 +29,7 @@ struct TTabletInfo {
     3: required Types.TVersion version
     4: required Types.TVersionHash version_hash
     5: required Types.TCount row_count
+    // data size on local disk
     6: required Types.TSize data_size
     7: optional Types.TStorageMedium storage_medium
     8: optional list<Types.TTransactionId> transaction_ids
@@ -38,6 +39,13 @@ struct TTabletInfo {
     12: optional bool used
     13: optional Types.TPartitionId partition_id
     14: optional bool is_in_memory
+    15: optional Types.TReplicaId replica_id
+    // data size on remote storage
+    16: optional Types.TSize remote_data_size
+    // 17: optional Types.TReplicaId cooldown_replica_id
+    // 18: optional bool is_cooldown
+    19: optional i64 cooldown_term
+    20: optional Types.TUniqueId cooldown_meta_id
 }
 
 struct TFinishTaskRequest {
@@ -66,11 +74,13 @@ struct TTablet {
 struct TDisk {
     1: required string root_path
     2: required Types.TSize disk_total_capacity
+    // local used capacity
     3: required Types.TSize data_used_capacity
     4: required bool used
     5: optional Types.TSize disk_available_capacity
     6: optional i64 path_hash
     7: optional Types.TStorageMedium storage_medium
+    8: optional Types.TSize remote_used_capacity
 }
 
 struct TPluginInfo {
@@ -89,6 +99,8 @@ struct TReportRequest {
     // the max compaction score of all tablets on a backend,
     // this field should be set along with tablet report
     8: optional i64 tablet_max_compaction_score
+    9: optional list<AgentService.TStoragePolicy> storage_policy // only id and version
+    10: optional list<AgentService.TStorageResource> resource // only id and version
 }
 
 struct TMasterResult {
@@ -96,7 +108,7 @@ struct TMasterResult {
     1: required Status.TStatus status
 }
 
-// Now we only support CPU share.
+// Deprecated
 enum TResourceType {
     TRESOURCE_CPU_SHARE
     TRESOURCE_IO_SHARE
@@ -110,11 +122,12 @@ enum TResourceType {
     TRESOURCE_HDD_WRITE_MBPS
 }
 
+// Deprecated
 struct TResourceGroup {
     1: required map<TResourceType, i32> resourceByType
 }
 
-// Resource per user
+// Deprecated
 struct TUserResource {
     1: required TResourceGroup resource
 
@@ -122,6 +135,7 @@ struct TUserResource {
     2: required map<string, i32> shareByGroup
 }
 
+// Deprecated
 struct TFetchResourceResult {
     // Master service not find protocol version, so using agent service version
     1: required AgentService.TAgentServiceVersion protocolVersion

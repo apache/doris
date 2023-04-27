@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_HTTP_ACTION_PPROF_ACTIONS_H
-#define DORIS_BE_SRC_HTTP_ACTION_PPROF_ACTIONS_H
+#pragma once
 
 #include "common/status.h"
 
@@ -32,5 +31,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

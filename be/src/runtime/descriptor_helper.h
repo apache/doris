@@ -17,10 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+
 #include <vector>
 
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/Types_types.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 
 namespace doris {
 
@@ -115,17 +118,11 @@ public:
             }
         }
         int null_bytes = (num_nullables + 7) / 8;
-        int offset = null_bytes;
         int null_offset = 0;
         for (int i = 0; i < _slot_descs.size(); ++i) {
             auto& slot_desc = _slot_descs[i];
-            int size = get_slot_size(thrift_to_type(slot_desc.slotType.types[0].scalar_type.type));
-            int align = (size > 16) ? 16 : size;
-            offset = ((offset + align - 1) / align) * align;
             slot_desc.id = tb->next_slot_id();
             slot_desc.parent = _tuple_id;
-            slot_desc.byteOffset = offset;
-            offset += size;
             if (slot_desc.nullIndicatorByte >= 0) {
                 slot_desc.nullIndicatorBit = null_offset % 8;
                 slot_desc.nullIndicatorByte = null_offset / 8;
@@ -138,7 +135,8 @@ public:
         }
 
         _tuple_desc.id = _tuple_id;
-        _tuple_desc.byteSize = offset;
+        // Useless not set it.
+        _tuple_desc.byteSize = 0;
         _tuple_desc.numNullBytes = null_bytes;
         _tuple_desc.numNullSlots = _slot_descs.size();
 

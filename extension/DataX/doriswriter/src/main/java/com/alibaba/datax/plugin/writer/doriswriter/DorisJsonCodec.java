@@ -1,22 +1,20 @@
-/*
-  Licensed to the Apache Software Foundation (ASF) under one
-  or more contributor license agreements.  See the NOTICE file
-  distributed with this work for additional information
-  regarding copyright ownership.  The ASF licenses this file
-  to you under the Apache License, Version 2.0 (the
-  "License"); you may not use this file except in compliance
-  with the License.  You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
-    http://www.apache.org/licenses/LICENSE-2.0
-
-  Unless required by applicable law or agreed to in writing,
-  software distributed under the License is distributed on an
-  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-  KIND, either express or implied.  See the License for the
-  specific language governing permissions and limitations
-  under the License.
-  -->
- */
 package com.alibaba.datax.plugin.writer.doriswriter;
 
 import com.alibaba.datax.common.element.Record;
@@ -26,25 +24,27 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-// Convert DataX data to json
-public class DorisJsonCodec extends DorisCodec {
+public class DorisJsonCodec extends DorisBaseCodec implements DorisCodec {
 
-    public DorisJsonCodec(final List<String> fieldNames) {
-        super(fieldNames);
+    private static final long serialVersionUID = 1L;
+
+    private final List<String> fieldNames;
+
+    public DorisJsonCodec ( List<String> fieldNames) {
+        this.fieldNames = fieldNames;
     }
 
     @Override
-    public String serialize(final Record row) {
-        if (null == this.fieldNames) {
+    public String codec( Record row) {
+        if (null == fieldNames) {
             return "";
         }
-        final Map<String, Object> rowMap = new HashMap<String, Object>(this.fieldNames.size());
+        Map<String, Object> rowMap = new HashMap<> (fieldNames.size());
         int idx = 0;
-        for (final String fieldName : this.fieldNames) {
-            rowMap.put(fieldName, this.convertColumn(row.getColumn(idx)));
-            ++idx;
+        for (String fieldName : fieldNames) {
+            rowMap.put(fieldName, convertionField(row.getColumn(idx)));
+            idx++;
         }
         return JSON.toJSONString(rowMap);
     }
-
 }

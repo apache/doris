@@ -2,9 +2,12 @@
 
 #include "gutil/strings/substitute.h"
 
-#include <common/logging.h>
+#include "common/logging.h"
+#include <stdint.h>
+#include <ostream>
 
-#include "gutil/macros.h"
+// IWYU pragma: no_include <butil/macros.h>
+#include "gutil/macros.h" // IWYU pragma: keep
 #include "gutil/stl_util.h"
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/escaping.h"

@@ -38,7 +38,7 @@ public class CountingDataOutputStream extends DataOutputStream {
     }
 
     public long getCount() {
-        return ((CountingOutputStream)this.out).getCount();
+        return ((CountingOutputStream) this.out).getCount();
     }
 
     public void close() throws IOException {
@@ -59,7 +59,7 @@ public class CountingDataOutputStream extends DataOutputStream {
 
         public void write(byte[] b, int off, int len) throws IOException {
             this.out.write(b, off, len);
-            this.count += (long)len;
+            this.count += len;
         }
 
         public void write(int b) throws IOException {

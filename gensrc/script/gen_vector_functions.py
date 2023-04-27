@@ -34,6 +34,7 @@
 
 import string
 import os
+import errno
 
 filter_binary_op = string.Template("\
 bool VectorComputeFunctions::${fn_signature}(\n\
@@ -392,7 +393,7 @@ cc_preamble = '\
 #include "exprs/case_expr.h"\n\
 #include "exprs/expr.h"\n\
 #include "exprs/in_predicate.h"\n\
-#include "runtime/string_value.hpp"\n\
+#include "vec/common/string_tmp.h"\n\
 #include "runtime/vectorized_row_batch.h"\n\
 #include "util/string_parser.hpp"\n\
 #include <boost/lexical_cast.hpp>\n\
@@ -458,8 +459,6 @@ header_template = string.Template("\
         Expr* e, VectorizedRowBatch* batch);\n")
 
 BE_PATH = "../gen_cpp/opcode/"
-if not os.path.exists(BE_PATH):
-    os.makedirs(BE_PATH)
 
 def initialize_sub(op, return_type, arg_types):
     """
@@ -481,6 +480,15 @@ def initialize_sub(op, return_type, arg_types):
     return sub
 
 if __name__ == "__main__":
+
+    try:
+        os.makedirs(BE_PATH)
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            pass
+        else:
+            raise
+
     h_file = open(BE_PATH + 'vector-functions.h', 'w')
     cc_file = open(BE_PATH + 'vector-functions.cc', 'w')
     python_file = open('generated_vector_functions.py', 'w')

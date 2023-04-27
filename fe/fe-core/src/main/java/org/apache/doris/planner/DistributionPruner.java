@@ -25,4 +25,3 @@ public interface DistributionPruner {
     // return partition after pruning
     public Collection<Long> prune() throws AnalysisException;
 }
-

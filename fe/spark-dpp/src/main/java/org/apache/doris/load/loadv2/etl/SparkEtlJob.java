@@ -20,12 +20,16 @@ package org.apache.doris.load.loadv2.etl;
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.dpp.GlobalDictBuilder;
 import org.apache.doris.load.loadv2.dpp.SparkDpp;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumn;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumnMapping;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
+import org.apache.doris.sparkdpp.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumn;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumnMapping;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlFileGroup;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlIndex;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlTable;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.map.MultiValueMap;
 import org.apache.spark.SparkConf;
 import org.apache.spark.sql.Dataset;
@@ -33,10 +37,6 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -91,12 +91,12 @@ public class SparkEtlJob {
     }
 
     private void initConfig() {
-        LOG.info("job config file path: " + jobConfigFilePath);
+        LOG.debug("job config file path: " + jobConfigFilePath);
         Dataset<String> ds = spark.read().textFile(jobConfigFilePath);
         String jsonConfig = ds.first();
-        LOG.info("rdd read json config: " + jsonConfig);
+        LOG.debug("rdd read json config: " + jsonConfig);
         etlJobConfig = EtlJobConfig.configFromJson(jsonConfig);
-        LOG.info("etl job config: " + etlJobConfig);
+        LOG.debug("etl job config: " + etlJobConfig);
     }
 
     /*
@@ -122,9 +122,9 @@ public class SparkEtlJob {
                     if (funcName.equalsIgnoreCase(BITMAP_HASH)) {
                         throw new SparkDppException("spark load not support bitmap_hash now");
                     }
-                    if(funcName.equalsIgnoreCase(BINARY_BITMAP)){
+                    if (funcName.equalsIgnoreCase(BINARY_BITMAP)) {
                         binaryBitmapColumns.add(columnName.toLowerCase());
-                    }else if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
+                    } else if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
                         bitmapDictColumns.add(columnName.toLowerCase());
                     } else if (!funcName.equalsIgnoreCase(TO_BITMAP_FUNC)) {
                         newColumnMappings.put(mappingEntry.getKey(), mappingEntry.getValue());
@@ -139,14 +139,17 @@ public class SparkEtlJob {
             if (!bitmapDictColumns.isEmpty()) {
                 tableToBitmapDictColumns.put(entry.getKey(), bitmapDictColumns);
             }
-            if(!binaryBitmapColumns.isEmpty()){
+            if (!binaryBitmapColumns.isEmpty()) {
                 tableToBinaryBitmapColumns.put(entry.getKey(), binaryBitmapColumns);
             }
         }
-        LOG.info("init hiveSourceTables: " + hiveSourceTables + ", tableToBitmapDictColumns: " + tableToBitmapDictColumns);
+        LOG.info("init hiveSourceTables: " + hiveSourceTables
+                + ",tableToBitmapDictColumns: " + tableToBitmapDictColumns);
 
         // spark etl must have only one table with bitmap type column to process.
-        if (hiveSourceTables.size() > 1 || tableToBitmapDictColumns.size() > 1 || tableToBinaryBitmapColumns.size() > 1) {
+        if (hiveSourceTables.size() > 1
+                || tableToBitmapDictColumns.size() > 1
+                || tableToBinaryBitmapColumns.size() > 1) {
             throw new Exception("spark etl job must have only one hive table with bitmap type column to process");
         }
     }
@@ -181,7 +184,8 @@ public class SparkEtlJob {
         String taskId = etlJobConfig.outputPath.substring(etlJobConfig.outputPath.lastIndexOf("/") + 1);
         String globalDictTableName = String.format(EtlJobConfig.GLOBAL_DICT_TABLE_NAME, tableId);
         String distinctKeyTableName = String.format(EtlJobConfig.DISTINCT_KEY_TABLE_NAME, tableId, taskId);
-        String dorisIntermediateHiveTable = String.format(EtlJobConfig.DORIS_INTERMEDIATE_HIVE_TABLE_NAME, tableId, taskId);
+        String dorisIntermediateHiveTable = String.format(
+                EtlJobConfig.DORIS_INTERMEDIATE_HIVE_TABLE_NAME, tableId, taskId);
         String sourceHiveFilter = fileGroup.where;
 
         // others
@@ -193,15 +197,15 @@ public class SparkEtlJob {
         LOG.info("global dict builder args, dictColumnMap: " + dictColumnMap
                          + ", dorisOlapTableColumnList: " + dorisOlapTableColumnList
                          + ", sourceHiveDBTableName: " + sourceHiveDBTableName
-                         + ", sourceHiveFilter: "+ sourceHiveFilter
+                         + ", sourceHiveFilter: " + sourceHiveFilter
                          + ", distinctKeyTableName: " + distinctKeyTableName
                          + ", globalDictTableName: " + globalDictTableName
                          + ", dorisIntermediateHiveTable: " + dorisIntermediateHiveTable);
         try {
-            GlobalDictBuilder globalDictBuilder = new GlobalDictBuilder(
-                    dictColumnMap, dorisOlapTableColumnList, mapSideJoinColumns, sourceHiveDBTableName,
-                    sourceHiveFilter, dorisHiveDB, distinctKeyTableName, globalDictTableName, dorisIntermediateHiveTable,
-                    buildConcurrency, veryHighCardinalityColumn, veryHighCardinalityColumnSplitNum, spark);
+            GlobalDictBuilder globalDictBuilder = new GlobalDictBuilder(dictColumnMap, dorisOlapTableColumnList,
+                    mapSideJoinColumns, sourceHiveDBTableName, sourceHiveFilter, dorisHiveDB, distinctKeyTableName,
+                    globalDictTableName, dorisIntermediateHiveTable, buildConcurrency, veryHighCardinalityColumn,
+                    veryHighCardinalityColumnSplitNum, spark);
             globalDictBuilder.createHiveIntermediateTable();
             globalDictBuilder.extractDistinctColumn();
             globalDictBuilder.buildGlobalDict();
@@ -258,7 +262,7 @@ public class SparkEtlJob {
             new SparkEtlJob(args[0]).run();
         } catch (Exception e) {
             System.err.println("spark etl job run failed");
-            e.printStackTrace();
+            LOG.warn("", e);
             System.exit(-1);
         }
     }

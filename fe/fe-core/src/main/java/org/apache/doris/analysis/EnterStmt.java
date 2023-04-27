@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+
 import com.google.common.base.Strings;
 
 public class EnterStmt extends DdlStmt {
@@ -37,7 +38,7 @@ public class EnterStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
         }
 
-        if (analyzer.getCatalog().getCluster(name) == null) {
+        if (analyzer.getEnv().getCluster(name) == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_UNKNOWN_ERROR, name);
         }
     }
@@ -61,10 +62,10 @@ public class EnterStmt extends DdlStmt {
     public void setClusterName(String name) {
         this.name = name;
     }
-    
+
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.NO_FORWARD;
     }
-    
+
 }

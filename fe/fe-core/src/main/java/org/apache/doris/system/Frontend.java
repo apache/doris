@@ -17,24 +17,38 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.system.SystemInfoService.HostInfo;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class Frontend implements Writable {
+    @SerializedName("role")
     private FrontendNodeType role;
+    // nodeName = ip:port_timestamp
+    @SerializedName("nodeName")
     private String nodeName;
-    private String host;
+    @SerializedName("ip")
+    private volatile String ip;
+    // used for getIpByHostname
+    @SerializedName("hostName")
+    private String hostName;
+    @SerializedName("editLogPort")
     private int editLogPort;
     private String version;
-    
+
     private int queryPort;
     private int rpcPort;
 
@@ -44,28 +58,40 @@ public class Frontend implements Writable {
 
     private boolean isAlive = false;
 
-    public Frontend() {
+    public Frontend() {}
+
+    public Frontend(FrontendNodeType role, String nodeName, String ip, int editLogPort) {
+        this(role, nodeName, ip, "", editLogPort);
     }
-    
-    public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
+
+    public Frontend(FrontendNodeType role, String nodeName, String ip, String hostName, int editLogPort) {
         this.role = role;
         this.nodeName = nodeName;
-        this.host = host;
+        this.ip = ip;
+        this.hostName = hostName;
         this.editLogPort = editLogPort;
     }
 
     public FrontendNodeType getRole() {
         return this.role;
     }
-    
-    public String getHost() {
-        return this.host;
+
+    public String getIp() {
+        return this.ip;
     }
 
     public String getVersion() {
         return version;
     }
-    
+
+    public String getHostName() {
+        return hostName;
+    }
+
+    public void setHostName(String hostName) {
+        this.hostName = hostName;
+    }
+
     public String getNodeName() {
         return nodeName;
     }
@@ -81,7 +107,7 @@ public class Frontend implements Writable {
     public boolean isAlive() {
         return isAlive;
     }
-    
+
     public int getEditLogPort() {
         return this.editLogPort;
     }
@@ -99,14 +125,18 @@ public class Frontend implements Writable {
     }
 
     /**
-     * handle Frontend's heartbeat response.
-     * Because the replayed journal id is very likely to be changed at each heartbeat response,
-     * so we simple return true if the heartbeat status is OK.
-     * But if heartbeat status is BAD, only return true if it is the first time to transfer from alive to dead.
+     * handle Frontend's heartbeat response. Because the replayed journal id is very likely to be
+     * changed at each heartbeat response, so we simple return true if the heartbeat status is OK.
+     * But if heartbeat status is BAD, only return true if it is the first time to transfer from
+     * alive to dead.
      */
-    public boolean handleHbResponse(FrontendHbResponse hbResponse) {
+    public boolean handleHbResponse(FrontendHbResponse hbResponse, boolean isReplay) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
+            if (!isAlive && !isReplay && Config.edit_log_type.equalsIgnoreCase("bdb")) {
+                BDBHA bdbha = (BDBHA) Env.getCurrentEnv().getHaProtocol();
+                bdbha.removeUnReadyElectableNode(nodeName, Env.getCurrentEnv().getFollowerCount());
+            }
             isAlive = true;
             version = hbResponse.getVersion();
             queryPort = hbResponse.getQueryPort();
@@ -127,39 +157,47 @@ public class Frontend implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, role.name());
-        Text.writeString(out, host);
-        out.writeInt(editLogPort);
-        Text.writeString(out, nodeName);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         role = FrontendNodeType.valueOf(Text.readString(in));
         if (role == FrontendNodeType.REPLICA) {
             // this is for compatibility.
             // we changed REPLICA to FOLLOWER
             role = FrontendNodeType.FOLLOWER;
         }
-        host = Text.readString(in);
+        ip = Text.readString(in);
         editLogPort = in.readInt();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_41) {
-            nodeName = Text.readString(in);
-        } else {
-            nodeName = Catalog.genFeNodeName(host, editLogPort, true /* old style */);
-        }
+        nodeName = Text.readString(in);
     }
-    
+
     public static Frontend read(DataInput in) throws IOException {
-        Frontend frontend = new Frontend();
-        frontend.readFields(in);
-        return frontend;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_118) {
+            Frontend frontend = new Frontend();
+            frontend.readFields(in);
+            return frontend;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Frontend.class);
     }
-    
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("name: ").append(nodeName).append(", role: ").append(role.name());
-        sb.append(", ").append(host).append(":").append(editLogPort);
+        sb.append(", hostname: ").append(hostName);
+        sb.append(", ").append(ip).append(":").append(editLogPort);
         return sb.toString();
+    }
+
+    public void setIp(String ip) {
+        this.ip = ip;
+    }
+
+    public HostInfo toHostInfo() {
+        return new HostInfo(ip, hostName, editLogPort);
     }
 }

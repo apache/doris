@@ -21,19 +21,50 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.EsResource;
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OdbcCatalogResource;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.EsExternalDatabase;
+import org.apache.doris.catalog.external.EsExternalTable;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.IcebergExternalDatabase;
+import org.apache.doris.catalog.external.IcebergExternalTable;
+import org.apache.doris.catalog.external.JdbcExternalDatabase;
+import org.apache.doris.catalog.external.JdbcExternalTable;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.EsExternalCatalog;
+import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.JdbcExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergDLFExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.RowPolicy;
+import org.apache.doris.policy.StoragePolicy;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
@@ -61,7 +92,6 @@ import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-
 import org.apache.commons.lang3.reflect.TypeUtils;
 
 import java.io.IOException;
@@ -76,14 +106,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /*
  * Some utilities about Gson.
  * User should get GSON instance from this class to do the serialization.
- * 
+ *
  *      GsonUtils.GSON.toJson(...)
  *      GsonUtils.GSON.fromJson(...)
- * 
+ *
  * More example can be seen in unit test case: "org.apache.doris.common.util.GsonSerializationTest.java".
- * 
+ *
  * For inherited class serialization, see "org.apache.doris.common.util.GsonDerivedClassSerializationTest.java"
- * 
+ *
  * And developers may need to add other serialization adapters for custom complex java classes.
  * You need implement a class to implements JsonSerializer and JsonDeserializer, and register it to GSON_BUILDER.
  * See the following "GuavaTableAdapter" and "GuavaMultimapAdapter" for example.
@@ -91,7 +121,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class GsonUtils {
 
     // runtime adapter for class "Type"
-    private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory = RuntimeTypeAdapterFactory
+    private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory
+            = RuntimeTypeAdapterFactory
             .of(org.apache.doris.catalog.Type.class, "clazz")
             // TODO: register other sub type after Doris support more types.
             .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName())
@@ -100,7 +131,8 @@ public class GsonUtils {
             .registerSubtype(StructType.class, StructType.class.getSimpleName());
 
     // runtime adapter for class "DistributionInfo"
-    private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory = RuntimeTypeAdapterFactory
+    private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory
+            = RuntimeTypeAdapterFactory
             .of(DistributionInfo.class, "clazz")
             .registerSubtype(HashDistributionInfo.class, HashDistributionInfo.class.getSimpleName())
             .registerSubtype(RandomDistributionInfo.class, RandomDistributionInfo.class.getSimpleName());
@@ -109,7 +141,12 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<Resource> resourceTypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(Resource.class, "clazz")
             .registerSubtype(SparkResource.class, SparkResource.class.getSimpleName())
-            .registerSubtype(OdbcCatalogResource.class, OdbcCatalogResource.class.getSimpleName());
+            .registerSubtype(OdbcCatalogResource.class, OdbcCatalogResource.class.getSimpleName())
+            .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName())
+            .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
+            .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
+            .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName())
+            .registerSubtype(EsResource.class, EsResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory
@@ -124,15 +161,46 @@ public class GsonUtils {
 
     // runtime adapter for class "LoadJobStateUpdateInfo"
     private static RuntimeTypeAdapterFactory<LoadJobStateUpdateInfo> loadJobStateUpdateInfoTypeAdapterFactory
-            = RuntimeTypeAdapterFactory
-            .of(LoadJobStateUpdateInfo.class, "clazz")
+            = RuntimeTypeAdapterFactory.of(LoadJobStateUpdateInfo.class, "clazz")
             .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName());
+
+    // runtime adapter for class "Policy"
+    private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    Policy.class, "clazz").registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName())
+            .registerSubtype(StoragePolicy.class, StoragePolicy.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<CatalogIf> dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    CatalogIf.class, "clazz")
+            .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
+            .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
+            .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName())
+            .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergExternalCatalog.class, IcebergExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergHMSExternalCatalog.class, IcebergHMSExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergGlueExternalCatalog.class, IcebergGlueExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    DatabaseIf.class, "clazz")
+            .registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
+            .registerSubtype(EsExternalDatabase.class, EsExternalDatabase.class.getSimpleName())
+            .registerSubtype(HMSExternalDatabase.class, HMSExternalDatabase.class.getSimpleName())
+            .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName())
+            .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    TableIf.class, "clazz")
+            .registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
+            .registerSubtype(EsExternalTable.class, EsExternalTable.class.getSimpleName())
+            .registerSubtype(HMSExternalTable.class, HMSExternalTable.class.getSimpleName())
+            .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName())
+            .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
-    private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
-            .addSerializationExclusionStrategy(new HiddenAnnotationExclusionStrategy())
-            .enableComplexMapKeySerialization()
+    private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
+                    new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
@@ -142,6 +210,10 @@ public class GsonUtils {
             .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory)
             .registerTypeAdapterFactory(syncJobTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
+            .registerTypeAdapterFactory(policyTypeAdapterFactory)
+            .registerTypeAdapterFactory(dsTypeAdapterFactory)
+            .registerTypeAdapterFactory(dbTypeAdapterFactory)
+            .registerTypeAdapterFactory(tblTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
 
@@ -169,17 +241,17 @@ public class GsonUtils {
     }
 
     /*
-     * 
+     *
      * The json adapter for Guava Table.
      * Current support:
      * 1. HashBasedTable
-     * 
+     *
      * The RowKey, ColumnKey and Value classes in Table should also be serializable.
-     * 
+     *
      * What is Adapter and Why we should implement it?
-     * 
+     *
      * Adapter is mainly used to provide serialization and deserialization methods for some complex classes.
-     * Complex classes here usually refer to classes that are complex and cannot be modified. 
+     * Complex classes here usually refer to classes that are complex and cannot be modified.
      * These classes mainly include third-party library classes or some inherited classes.
      */
     private static class GuavaTableAdapter<R, C, V>
@@ -191,7 +263,7 @@ public class GsonUtils {
          * "columnKeys": [ "colKey1", "colKey2", ...],
          * "cells" : [[0, 0, value1], [0, 1, value2], ...]
          * }
-         * 
+         *
          * the [0, 0] .. in cells are the indexes of rowKeys array and columnKeys array.
          * This serialization method can reduce the size of json string because it
          * replace the same row key
@@ -232,13 +304,13 @@ public class GsonUtils {
             Type typeOfR;
             Type typeOfC;
             Type typeOfV;
-            {
+            { // CHECKSTYLE IGNORE THIS LINE
                 ParameterizedType parameterizedType = (ParameterizedType) typeOfT;
                 Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();
                 typeOfR = actualTypeArguments[0];
                 typeOfC = actualTypeArguments[1];
                 typeOfV = actualTypeArguments[2];
-            }
+            } // CHECKSTYLE IGNORE THIS LINE
             JsonObject tableJsonObject = json.getAsJsonObject();
             String tableClazz = tableJsonObject.get("clazz").getAsString();
             JsonArray rowKeysJsonArray = tableJsonObject.getAsJsonArray("rowKeys");
@@ -283,7 +355,7 @@ public class GsonUtils {
      * 2. HashMultimap
      * 3. LinkedListMultimap
      * 4. LinkedHashMultimap
-     * 
+     *
      * The key and value classes of multi map should also be json serializable.
      */
     private static class GuavaMultimapAdapter<K, V>
@@ -302,7 +374,7 @@ public class GsonUtils {
                 throw new AssertionError(e);
             }
         }
-    
+
         @Override
         public JsonElement serialize(Multimap<K, V> map, Type typeOfSrc, JsonSerializationContext context) {
             JsonObject jsonObject = new JsonObject();
@@ -313,7 +385,7 @@ public class GsonUtils {
             jsonObject.add("map", jsonElement);
             return jsonObject;
         }
-    
+
         @Override
         public Multimap<K, V> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
                 throws JsonParseException {
@@ -370,14 +442,12 @@ public class GsonUtils {
         }
     }
 
-    public final static class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?,?>> {
+    public static final class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
         @Override
-        public ImmutableMap<?,?> deserialize(final JsonElement json, final Type type,
-                                             final JsonDeserializationContext context) throws JsonParseException
-        {
-            final Type type2 =
-                    TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
-            final Map<?,?> map = context.deserialize(json, type2);
+        public ImmutableMap<?, ?> deserialize(final JsonElement json, final Type type,
+                final JsonDeserializationContext context) throws JsonParseException {
+            final Type type2 = TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
+            final Map<?, ?> map = context.deserialize(json, type2);
             return ImmutableMap.copyOf(map);
         }
     }
@@ -408,3 +478,4 @@ public class GsonUtils {
     }
 
 }
+

@@ -17,24 +17,30 @@
 
 #include "schema_dummy_scanner.h"
 
-#include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include <vector>
+
+namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
+
+namespace {
+std::vector<doris::SchemaScanner::ColumnDesc> DUMMY_COLUMN;
+}
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaDummyScanner::_s_dummy_columns[] = {};
-
-SchemaDummyScanner::SchemaDummyScanner()
-        : SchemaScanner(_s_dummy_columns,
-                        sizeof(_s_dummy_columns) / sizeof(SchemaScanner::ColumnDesc)) {}
+SchemaDummyScanner::SchemaDummyScanner() : SchemaScanner(DUMMY_COLUMN) {}
 
 SchemaDummyScanner::~SchemaDummyScanner() {}
 
-Status SchemaDummyScanner::start() {
+Status SchemaDummyScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaDummyScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaDummyScanner::get_next_block(vectorized::Block* block, bool* eos) {
     *eos = true;
     return Status::OK();
 }

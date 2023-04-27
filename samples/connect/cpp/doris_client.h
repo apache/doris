@@ -38,7 +38,7 @@ private:
     // mysql handle
     MYSQL* _client;
     // doris result
-    MYSQL_RES* _result;
+    MYSQL_RES* _result = nullptr;
     //doris result as row
     MYSQL_ROW _row;
 };

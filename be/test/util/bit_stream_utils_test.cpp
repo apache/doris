@@ -15,25 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <algorithm>
+#include "util/bit_stream_utils.h"
+
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+#include <boost/utility/binary.hpp>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <limits>
-#include <ostream>
 #include <string>
 #include <vector>
 
-// Must come before gtest.h.
-#include <glog/logging.h>
-#include <gtest/gtest.h>
-
-#include <boost/utility/binary.hpp>
-
-#include "util/bit_stream_utils.h"
+#include "gtest/gtest_pred_impl.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/bit_util.h"
-#include "util/debug_util.h"
 #include "util/faststring.h"
 
 using std::string;
@@ -185,16 +179,16 @@ TEST(TestBitStreamUtil, TestSeekToBit) {
     reader.SeekToBit(buffer.size() * 8 - 8 * 8);
     uint32_t second_value;
     reader.GetValue(32, &second_value);
-    ASSERT_EQ(second_value, 2020);
+    EXPECT_EQ(second_value, 2020);
 
     uint32_t third_value;
     reader.GetValue(32, &third_value);
-    ASSERT_EQ(third_value, 2021);
+    EXPECT_EQ(third_value, 2021);
 
     reader.SeekToBit(0);
     uint32_t first_value;
     reader.GetValue(32, &first_value);
-    ASSERT_EQ(first_value, 2019);
+    EXPECT_EQ(first_value, 2019);
 }
 
 TEST(TestBitStreamUtil, TestUint64) {
@@ -210,23 +204,18 @@ TEST(TestBitStreamUtil, TestUint64) {
 
     uint64_t v1;
     reader.GetValue(64, &v1);
-    ASSERT_EQ(v1, 18446744073709551614U);
+    EXPECT_EQ(v1, 18446744073709551614U);
 
     uint64_t v2;
     reader.GetValue(64, &v2);
-    ASSERT_EQ(v2, 18446744073709551613U);
+    EXPECT_EQ(v2, 18446744073709551613U);
 
     uint64_t v3;
     reader.GetValue(32, &v3);
-    ASSERT_EQ(v3, 128);
+    EXPECT_EQ(v3, 128);
 
     uint64_t v4;
     reader.GetValue(16, &v4);
-    ASSERT_EQ(v4, 126);
+    EXPECT_EQ(v4, 126);
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

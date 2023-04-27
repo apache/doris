@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/os-util.cpp
+// and modified by Doris
 
 #include "util/os_util.h"
 
@@ -22,20 +25,16 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
-#include <cstddef>
-#include <ostream>
+#include <algorithm>
 #include <string>
-#include <utility>
 #include <vector>
 
-#include "env/env_util.h"
 #include "gutil/macros.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
-#include "gutil/strings/util.h"
-#include "util/faststring.h"
+#include "io/fs/fs_utils.h"
+#include "io/fs/local_file_system.h"
 
 using std::string;
 using std::vector;
@@ -104,11 +103,11 @@ Status get_thread_stats(int64_t tid, ThreadStats* stats) {
     if (kTicksPerSec <= 0) {
         return Status::NotSupported("ThreadStats not supported");
     }
-    faststring buf;
-    RETURN_IF_ERROR(env_util::read_file_to_string(
-            Env::Default(), strings::Substitute("/proc/self/task/$0/stat", tid), &buf));
-
-    return parse_stat(buf.ToString(), nullptr, stats);
+    std::string buf;
+    RETURN_IF_ERROR(io::read_file_to_string(io::global_local_filesystem(),
+                                            strings::Substitute("/proc/self/task/$0/stat", tid),
+                                            &buf));
+    return parse_stat(buf, nullptr, stats);
 }
 void disable_core_dumps() {
     struct rlimit lim;
@@ -129,36 +128,6 @@ void disable_core_dumps() {
         int close_ret;
         RETRY_ON_EINTR(close_ret, close(f));
     }
-}
-
-bool is_being_debugged() {
-#ifndef __linux__
-    return false;
-#else
-    // Look for the TracerPid line in /proc/self/status.
-    // If this is non-zero, we are being ptraced, which is indicative of gdb or strace
-    // being attached.
-    faststring buf;
-    Status s = env_util::read_file_to_string(Env::Default(), "/proc/self/status", &buf);
-    if (!s.ok()) {
-        LOG(WARNING) << "could not read /proc/self/status: " << s.to_string();
-        return false;
-    }
-    StringPiece buf_sp(reinterpret_cast<const char*>(buf.data()), buf.size());
-    std::vector<StringPiece> lines = Split(buf_sp, "\n");
-    for (const auto& l : lines) {
-        if (!HasPrefixString(l, "TracerPid:")) continue;
-        std::pair<StringPiece, StringPiece> key_val = Split(l, "\t");
-        int64_t tracer_pid = -1;
-        if (!safe_strto64(key_val.second.data(), key_val.second.size(), &tracer_pid)) {
-            LOG(WARNING) << "Invalid line in /proc/self/status: " << l;
-            return false;
-        }
-        return tracer_pid != 0;
-    }
-    LOG(WARNING) << "Could not find TracerPid line in /proc/self/status";
-    return false;
-#endif // __linux__
 }
 
 } // namespace doris

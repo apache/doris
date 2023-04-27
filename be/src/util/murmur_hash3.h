@@ -2,8 +2,7 @@
 // MurmurHash3 was written by Austin Appleby, and is placed in the public
 // domain. The author hereby disclaims copyright to this source code.
 
-#ifndef DORIS_BE_SRC_UTIL_MURMUR_HASH3_H
-#define DORIS_BE_SRC_UTIL_MURMUR_HASH3_H
+#pragma once
 
 //-----------------------------------------------------------------------------
 // Platform-specific functions and macros
@@ -35,5 +34,3 @@ void murmur_hash3_x64_128(const void* key, int len, uint32_t seed, void* out);
 void murmur_hash3_x64_64(const void* key, int len, uint64_t seed, void* out);
 
 //-----------------------------------------------------------------------------
-
-#endif // DORIS_BE_SRC_UTIL_MURMUR_HASH3_H

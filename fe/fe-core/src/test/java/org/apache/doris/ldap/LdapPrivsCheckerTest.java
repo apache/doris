@@ -17,18 +17,23 @@
 
 package org.apache.doris.ldap;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
-import org.apache.doris.mysql.privilege.PaloRole;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,6 +42,7 @@ import java.util.Map;
 
 public class LdapPrivsCheckerTest {
     private static final String CLUSTER = "default_cluster";
+    private static final String INTERNAL = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static final String DB = "palodb";
     private static final String TABLE_DB = "tabledb";
     private static final String TABLE1 = "table1";
@@ -50,6 +56,18 @@ public class LdapPrivsCheckerTest {
     @Mocked
     private ConnectContext context;
 
+    @Mocked
+    private SessionVariable sessionVariable;
+
+    @Mocked
+    private Env env;
+
+    @Mocked
+    private Auth auth;
+
+    @Mocked
+    private LdapManager ldapManager;
+
     @Before
     public void setUp() {
         LdapConfig.ldap_authentication_enabled = true;
@@ -59,25 +77,37 @@ public class LdapPrivsCheckerTest {
                 minTimes = 0;
                 result = context;
 
-                PaloRole role = new PaloRole("");
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getAuth();
+                minTimes = 0;
+                result = auth;
+
+                auth.getLdapManager();
+                minTimes = 0;
+                result = ldapManager;
+
+                Role role = new Role("");
                 Map<TablePattern, PrivBitSet> tblPatternToPrivs = role.getTblPatternToPrivs();
 
-                TablePattern global = new TablePattern("*", "*");
-                tblPatternToPrivs.put(global, PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.CREATE_PRIV));
-                TablePattern db = new TablePattern(DB, "*");
-                tblPatternToPrivs.put(db, PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.LOAD_PRIV));
-                TablePattern tbl1 = new TablePattern(TABLE_DB, TABLE1);
-                tblPatternToPrivs.put(tbl1, PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.ALTER_PRIV));
-                TablePattern tbl2 = new TablePattern(TABLE_DB, TABLE2);
-                tblPatternToPrivs.put(tbl2, PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.DROP_PRIV));
+                TablePattern global = new TablePattern("*", "*", "*");
+                tblPatternToPrivs.put(global, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.CREATE_PRIV));
+                TablePattern db = new TablePattern(INTERNAL, DB, "*");
+                tblPatternToPrivs.put(db, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.LOAD_PRIV));
+                TablePattern tbl1 = new TablePattern(INTERNAL, TABLE_DB, TABLE1);
+                tblPatternToPrivs.put(tbl1, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.ALTER_PRIV));
+                TablePattern tbl2 = new TablePattern(INTERNAL, TABLE_DB, TABLE2);
+                tblPatternToPrivs.put(tbl2, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.DROP_PRIV));
 
                 Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs = role.getResourcePatternToPrivs();
                 ResourcePattern globalResource = new ResourcePattern("*");
-                resourcePatternToPrivs.put(globalResource, PrivBitSet.of(PaloPrivilege.USAGE_PRIV));
+                resourcePatternToPrivs.put(globalResource, PrivBitSet.of(Privilege.USAGE_PRIV));
                 ResourcePattern resource1 = new ResourcePattern(RESOURCE1);
-                resourcePatternToPrivs.put(resource1, PrivBitSet.of(PaloPrivilege.USAGE_PRIV));
+                resourcePatternToPrivs.put(resource1, PrivBitSet.of(Privilege.USAGE_PRIV));
                 ResourcePattern resource2 = new ResourcePattern(RESOURCE1);
-                resourcePatternToPrivs.put(resource2, PrivBitSet.of(PaloPrivilege.USAGE_PRIV));
+                resourcePatternToPrivs.put(resource2, PrivBitSet.of(Privilege.USAGE_PRIV));
                 try {
                     global.analyze(CLUSTER);
                     db.analyze(CLUSTER);
@@ -88,15 +118,29 @@ public class LdapPrivsCheckerTest {
                 } catch (AnalysisException e) {
                     e.printStackTrace();
                 }
-                context.getLdapGroupsPrivs();
+
+                UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(USER, IP);
+
+                ldapManager.getUserInfo(userIdentity.getQualifiedUser());
                 minTimes = 0;
-                result = role;
+                result = new LdapUserInfo(userIdentity.getQualifiedUser(), false, "", role);
+
+                ldapManager.doesUserExist(userIdentity.getQualifiedUser());
+                minTimes = 0;
+                result = true;
 
                 context.getCurrentUserIdentity();
                 minTimes = 0;
-                result = UserIdentity.createAnalyzedUserIdentWithIp(USER, IP);
+                result = userIdentity;
+
+                context.getSessionVariable();
+                minTimes = 0;
+                result = sessionVariable;
             }
         };
+        // call the mocked method before replay
+        // for there is exception in tests: Missing 1 invocation to: org.apache.doris.qe.ConnectContext#get()
+        ConnectContext.get().getSessionVariable().isEnableUnicodeNameSupport();
     }
 
     @Test
@@ -137,25 +181,27 @@ public class LdapPrivsCheckerTest {
 
     @Test
     public void testGetGlobalPrivFromLdap() {
-        Assert.assertEquals(PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.CREATE_PRIV, PaloPrivilege.USAGE_PRIV).toString(),
+        Assert.assertEquals(
+                PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.CREATE_PRIV, Privilege.USAGE_PRIV)
+                        .toString(),
                 LdapPrivsChecker.getGlobalPrivFromLdap(userIdent).toString());
     }
 
     @Test
     public void testGetDbPrivFromLdap() {
-        Assert.assertEquals(PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.LOAD_PRIV).toString(),
+        Assert.assertEquals(PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.LOAD_PRIV).toString(),
                 LdapPrivsChecker.getDbPrivFromLdap(userIdent, CLUSTER + ":" + DB).toString());
     }
 
     @Test
     public void testGetTblPrivFromLdap() {
-        Assert.assertEquals(PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.ALTER_PRIV).toString(),
+        Assert.assertEquals(PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.ALTER_PRIV).toString(),
                 LdapPrivsChecker.getTblPrivFromLdap(userIdent, CLUSTER + ":" + TABLE_DB, TABLE1).toString());
     }
 
     @Test
     public void testGetResourcePrivFromLdap() {
-        Assert.assertEquals(PrivBitSet.of(PaloPrivilege.USAGE_PRIV).toString(),
+        Assert.assertEquals(PrivBitSet.of(Privilege.USAGE_PRIV).toString(),
                 LdapPrivsChecker.getResourcePrivFromLdap(userIdent, RESOURCE1).toString());
     }
 
@@ -165,20 +211,11 @@ public class LdapPrivsCheckerTest {
     }
 
     @Test
-    public void testIsCurrentUser() {
-        Assert.assertTrue(LdapPrivsChecker.isCurrentUser(userIdent));
-        Assert.assertFalse(LdapPrivsChecker.isCurrentUser(UserIdentity.
-                createAnalyzedUserIdentWithIp("default_cluster:lisi", IP)));
-        Assert.assertFalse(LdapPrivsChecker.isCurrentUser(UserIdentity.
-                createAnalyzedUserIdentWithIp(USER, "127.0.0.1")));
-    }
-
-    @Test
     public void testGetLdapAllDbPrivs() throws AnalysisException {
         Map<TablePattern, PrivBitSet> allDb = LdapPrivsChecker.getLdapAllDbPrivs(userIdent);
         TablePattern db = new TablePattern(DB, "*");
         db.analyze(CLUSTER);
-        Assert.assertEquals(PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.LOAD_PRIV).toString(),
+        Assert.assertEquals(PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.LOAD_PRIV).toString(),
                 allDb.get(db).toString());
     }
 
@@ -189,9 +226,9 @@ public class LdapPrivsCheckerTest {
         TablePattern tbl2 = new TablePattern(TABLE_DB, TABLE2);
         tbl1.analyze(CLUSTER);
         tbl2.analyze(CLUSTER);
-        Assert.assertEquals(PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.ALTER_PRIV).toString(),
+        Assert.assertEquals(PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.ALTER_PRIV).toString(),
                 allTbl.get(tbl1).toString());
-        Assert.assertEquals(PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.DROP_PRIV).toString(),
+        Assert.assertEquals(PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.DROP_PRIV).toString(),
                 allTbl.get(tbl2).toString());
     }
 
@@ -200,7 +237,7 @@ public class LdapPrivsCheckerTest {
         Map<ResourcePattern, PrivBitSet> allResource = LdapPrivsChecker.getLdapAllResourcePrivs(userIdent);
         ResourcePattern resource1 = new ResourcePattern(RESOURCE1);
         ResourcePattern resource2 = new ResourcePattern(RESOURCE1);
-        Assert.assertEquals(PrivBitSet.of(PaloPrivilege.USAGE_PRIV).toString(), allResource.get(resource1).toString());
-        Assert.assertEquals(PrivBitSet.of(PaloPrivilege.USAGE_PRIV).toString(), allResource.get(resource2).toString());
+        Assert.assertEquals(PrivBitSet.of(Privilege.USAGE_PRIV).toString(), allResource.get(resource1).toString());
+        Assert.assertEquals(PrivBitSet.of(Privilege.USAGE_PRIV).toString(), allResource.get(resource2).toString());
     }
 }

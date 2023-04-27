@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_EXPORT_TASK_MGR_H
-#define DORIS_BE_SRC_RUNTIME_EXPORT_TASK_MGR_H
+#pragma once
+
+#include <gen_cpp/Types_types.h>
 
 #include <mutex>
 #include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
-#include "util/hash_util.hpp"
+#include "runtime/runtime_state.h"
 #include "util/lru_cache.hpp"
 
 namespace doris {
@@ -51,7 +51,7 @@ class ExportTaskMgr {
 public:
     ExportTaskMgr(ExecEnv* exec_env);
 
-    virtual ~ExportTaskMgr();
+    virtual ~ExportTaskMgr() = default;
 
     Status init();
 
@@ -65,10 +65,10 @@ public:
 
     Status get_task_state(const TUniqueId& id, TExportStatusResult* status_result);
 
-    void finalize_task(PlanFragmentExecutor* executor);
+    void finalize_task(RuntimeState* state, Status* status);
 
 private:
-    void report_to_master(PlanFragmentExecutor* executor);
+    void report_to_master(RuntimeState* state);
 
     ExecEnv* _exec_env;
 
@@ -79,5 +79,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_EXPORT_TASK_MGR_H

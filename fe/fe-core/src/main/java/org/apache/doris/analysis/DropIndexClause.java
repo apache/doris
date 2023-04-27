@@ -21,18 +21,21 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
 public class DropIndexClause extends AlterTableClause {
     private final String indexName;
     private final TableName tableName;
+    private boolean ifExists;
+
     private boolean alter;
 
-    public DropIndexClause(String indexName, TableName tableName, boolean alter) {
+    public DropIndexClause(String indexName, boolean ifExists, TableName tableName, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.indexName = indexName;
+        this.ifExists = ifExists;
         this.tableName = tableName;
         this.alter = alter;
     }
@@ -43,6 +46,10 @@ public class DropIndexClause extends AlterTableClause {
 
     public TableName getTableName() {
         return tableName;
+    }
+
+    public boolean isSetIfExists() {
+        return ifExists;
     }
 
     public boolean isAlter() {

@@ -24,7 +24,6 @@
 #include <iostream>
 
 #include "gen_cpp/Descriptors_types.h"
-#include "util/compress.h"
 
 using namespace std;
 
@@ -50,10 +49,10 @@ protected:
     void RunTest(THdfsCompression::type format) {
         std::unique_ptr<Codec> compressor;
         std::unique_ptr<Codec> decompressor;
-        MemPool* mem_pool = new MemPool;
+        vectorized::Arena* arena = new vectorized::Arena;
 
-        EXPECT_TRUE(Codec::create_compressor(nullptr, mem_pool, true, format, &compressor).ok());
-        EXPECT_TRUE(Codec::create_compressor(nullptr, mem_pool, true, format, &decompressor).ok());
+        EXPECT_TRUE(Codec::create_compressor(nullptr, arena, true, format, &compressor).ok());
+        EXPECT_TRUE(Codec::create_compressor(nullptr, arena, true, format, &decompressor).ok());
 
         uint8_t* compressed = nullptr;
         int compressed_length = 0;
@@ -69,7 +68,7 @@ protected:
 
         // Try again specifying the output buffer and length.
         out_len = sizeof(_input);
-        output = mem_pool->allocate(out_len);
+        output = arena->alloc(out_len);
         EXPECT_TRUE(
                 decompressor->process_block(compressed_length, compressed, &out_len, &output).ok());
 
@@ -105,14 +104,3 @@ TEST_F(DecompressorTest, SnappyBlocked) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

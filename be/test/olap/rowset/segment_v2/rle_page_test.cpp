@@ -24,9 +24,6 @@
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
-#include "util/logging.h"
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;
@@ -39,8 +36,7 @@ public:
 
     template <FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        vectorized::Arena pool;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(1, true, get_scalar_type_info(type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
@@ -48,7 +44,7 @@ public:
 
         size_t n = 1;
         decoder->next_batch(&n, &column_block_view);
-        ASSERT_EQ(1, n);
+        EXPECT_EQ(1, n);
         *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(block.cell_ptr(0));
     }
 
@@ -60,33 +56,32 @@ public:
         PageBuilderType rle_page_builder(builder_options);
         rle_page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
         OwnedSlice s = rle_page_builder.finish();
-        ASSERT_EQ(size, rle_page_builder.count());
+        EXPECT_EQ(size, rle_page_builder.count());
 
         //check first value and last value
         CppType first_value;
         rle_page_builder.get_first_value(&first_value);
-        ASSERT_EQ(src[0], first_value);
+        EXPECT_EQ(src[0], first_value);
         CppType last_value;
         rle_page_builder.get_last_value(&last_value);
-        ASSERT_EQ(src[size - 1], last_value);
+        EXPECT_EQ(src[size - 1], last_value);
 
         PageDecoderOptions decodeder_options;
         PageDecoderType rle_page_decoder(s.slice(), decodeder_options);
         Status status = rle_page_decoder.init();
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(0, rle_page_decoder.current_index());
-        ASSERT_EQ(size, rle_page_decoder.count());
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(0, rle_page_decoder.current_index());
+        EXPECT_EQ(size, rle_page_decoder.count());
 
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        vectorized::Arena pool;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, true, get_scalar_type_info(Type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
         size_t size_to_fetch = size;
         status = rle_page_decoder.next_batch(&size_to_fetch, &column_block_view);
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(size, size_to_fetch);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(size, size_to_fetch);
 
         CppType* values = reinterpret_cast<CppType*>(block.data());
         for (uint i = 0; i < size; i++) {
@@ -116,10 +111,10 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderRandom) {
         ints.get()[i] = random();
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-                                     segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
-                                     segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(),
-                                                                                      size);
+    test_encode_decode_page_template<FieldType::OLAP_FIELD_TYPE_INT,
+                                     segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>,
+                                     segment_v2::RlePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(
+            ints.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderEqual) {
@@ -130,10 +125,10 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderEqual) {
         ints.get()[i] = 12345;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-                                     segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
-                                     segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(),
-                                                                                      size);
+    test_encode_decode_page_template<FieldType::OLAP_FIELD_TYPE_INT,
+                                     segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>,
+                                     segment_v2::RlePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(
+            ints.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderSequence) {
@@ -144,10 +139,10 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSequence) {
         ints.get()[i] = 12345 + i;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-                                     segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
-                                     segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(),
-                                                                                      size);
+    test_encode_decode_page_template<FieldType::OLAP_FIELD_TYPE_INT,
+                                     segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>,
+                                     segment_v2::RlePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(
+            ints.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
@@ -159,13 +154,13 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
     }
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
-    segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT> rle_page_builder(builder_options);
+    segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_INT> rle_page_builder(builder_options);
     rle_page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = rle_page_builder.finish();
     // 4 bytes header
     // 2 bytes indicate_value(): 0x64 << 1 | 1 = 201
     // 4 bytes values
-    ASSERT_EQ(10, s.slice().size);
+    EXPECT_EQ(10, s.slice().size);
 }
 
 TEST_F(RlePageTest, TestRleBoolBlockEncoderRandom) {
@@ -180,10 +175,10 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderRandom) {
         }
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_BOOL,
-                                     segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_BOOL>,
-                                     segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_BOOL>>(bools.get(),
-                                                                                       size);
+    test_encode_decode_page_template<FieldType::OLAP_FIELD_TYPE_BOOL,
+                                     segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>,
+                                     segment_v2::RlePageDecoder<FieldType::OLAP_FIELD_TYPE_BOOL>>(
+            bools.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {
@@ -195,18 +190,13 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {
     }
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
-    segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_BOOL> rle_page_builder(builder_options);
+    segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL> rle_page_builder(builder_options);
     rle_page_builder.add(reinterpret_cast<const uint8_t*>(bools.get()), &size);
     OwnedSlice s = rle_page_builder.finish();
     // 4 bytes header
     // 2 bytes indicate_value(): 0x64 << 1 | 1 = 201
     // 1 bytes values
-    ASSERT_EQ(7, s.slice().size);
+    EXPECT_EQ(7, s.slice().size);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

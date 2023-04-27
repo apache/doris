@@ -17,6 +17,8 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.common.util.SymmetricEncryption;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -31,7 +33,9 @@ public class LdapInfoTest {
 
     @Test
     public void test() throws IOException {
-        LdapInfo ldapInfo = new LdapInfo("123456");
+        String passwd = "123456";
+
+        LdapInfo ldapInfo = new LdapInfo(passwd);
 
         // 1. Write objects to file
         File file = new File("./ldapInfo");
@@ -43,7 +47,10 @@ public class LdapInfoTest {
 
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        Assert.assertEquals("123456", LdapInfo.read(dis).getLdapPasswd());
+        LdapInfo ldapInfo2 = LdapInfo.read(dis);
+        Assert.assertEquals(passwd,
+                SymmetricEncryption.decrypt(ldapInfo2.getLdapPasswdEncrypted(),
+                        ldapInfo2.getSecretKey(), ldapInfo2.getIv()));
 
         // 3. delete files
         dis.close();

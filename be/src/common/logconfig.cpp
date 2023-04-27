@@ -15,18 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <glog/logging.h>
-#include <glog/vlog_is_on.h>
+#include <ctype.h>
+#include <stdint.h>
 
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "common/config.h"
-#include "gutil/stringprintf.h"
-#include "util/logging.h"
+#include "common/logging.h"
 
 namespace doris {
 
@@ -47,19 +48,20 @@ static bool iequals(const std::string& a, const std::string& b) {
     return true;
 }
 
-bool init_glog(const char* basename, bool install_signal_handler) {
+bool init_glog(const char* basename) {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
 
     if (logging_initialized) {
         return true;
     }
 
-    if (install_signal_handler) {
-        google::InstallFailureSignalHandler();
+    if (getenv("DORIS_LOG_TO_STDERR") != nullptr) {
+        FLAGS_alsologtostderr = true;
     }
 
-    // don't log to stderr
-    FLAGS_stderrthreshold = 5;
+    // don't log to stderr except fatal level
+    // so fatal log can output to be.out .
+    FLAGS_stderrthreshold = google::FATAL;
     // set glog log dir
     FLAGS_log_dir = config::sys_log_dir;
     // 0 means buffer INFO only
@@ -85,7 +87,7 @@ bool init_glog(const char* basename, bool install_signal_handler) {
     }
 
     // set log buffer level
-    // defalut is 0
+    // default is 0
     std::string& logbuflevel = config::log_buffer_level;
     if (iequals(logbuflevel, "-1")) {
         FLAGS_logbuflevel = -1;
@@ -148,32 +150,5 @@ void shutdown_logging() {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
     google::ShutdownGoogleLogging();
 }
-
-std::string FormatTimestampForLog(MicrosecondsInt64 micros_since_epoch) {
-    time_t secs_since_epoch = micros_since_epoch / 1000000;
-    int usecs = micros_since_epoch % 1000000;
-    struct tm tm_time;
-    localtime_r(&secs_since_epoch, &tm_time);
-
-    return StringPrintf("%02d%02d %02d:%02d:%02d.%06d", 1 + tm_time.tm_mon, tm_time.tm_mday,
-                        tm_time.tm_hour, tm_time.tm_min, tm_time.tm_sec, usecs);
-}
-
-/// Custom your log format here
-void TaggableLogger::flush() {
-    _stream << _message;
-    Tags* head = _tags;
-    Tags* next;
-    while (head) {
-        next = head->next;
-        _stream << "|" << head->key << "=" << head->value;
-        delete head;
-        head = next;
-    }
-}
-
-/// Modify these tag names to suit your log format and collector.
-const std::string TaggableLogger::QUERY_ID = "query_id";
-const std::string TaggableLogger::INSTANCE_ID = "instance_id";
 
 } // namespace doris

@@ -17,18 +17,28 @@
 
 #include "runtime/routine_load/data_consumer.h"
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <librdkafka/rdkafkacpp.h>
+
 #include <algorithm>
-#include <functional>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "gutil/strings/split.h"
+#include "runtime/exec_env.h"
 #include "runtime/small_file_mgr.h"
 #include "service/backend_options.h"
+#include "util/blocking_queue.hpp"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
+#include "util/string_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -36,7 +46,7 @@ namespace doris {
 static const std::string PROP_GROUP_ID = "group.id";
 // init kafka consumer will only set common configs such as
 // brokers, groupid
-Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
+Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     std::unique_lock<std::mutex> l(_lock);
     if (_init) {
         // this consumer has already been initialized.
@@ -75,8 +85,12 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     // TODO: set it larger than 0 after we set rd_kafka_conf_set_stats_cb()
     RETURN_IF_ERROR(set_conf("statistics.interval.ms", "0"));
     RETURN_IF_ERROR(set_conf("auto.offset.reset", "error"));
-    RETURN_IF_ERROR(set_conf("api.version.request", "true"));
+    RETURN_IF_ERROR(set_conf("socket.keepalive.enable", "true"));
+    RETURN_IF_ERROR(set_conf("reconnect.backoff.ms", "100"));
+    RETURN_IF_ERROR(set_conf("reconnect.backoff.max.ms", "10000"));
+    RETURN_IF_ERROR(set_conf("api.version.request", config::kafka_api_version_request));
     RETURN_IF_ERROR(set_conf("api.version.fallback.ms", "0"));
+    RETURN_IF_ERROR(set_conf("broker.version.fallback", config::kafka_broker_version_fallback));
 
     for (auto& item : ctx->kafka_info->properties) {
         if (starts_with(item.second, "FILE:")) {
@@ -91,10 +105,8 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
             std::string file_path;
             Status st = ctx->exec_env()->small_file_mgr()->get_file(file_id, parts[2], &file_path);
             if (!st.ok()) {
-                std::stringstream ss;
-                ss << "PAUSE: failed to get file for config: " << item.first
-                   << ", error: " << st.get_error_msg();
-                return Status::InternalError(ss.str());
+                return Status::InternalError("PAUSE: failed to get file for config: {}, error: {}",
+                                             item.first, st.to_string());
             }
             RETURN_IF_ERROR(set_conf(item.first, file_path));
         } else {
@@ -137,7 +149,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
 
 Status KafkaDataConsumer::assign_topic_partitions(
         const std::map<int32_t, int64_t>& begin_partition_offset, const std::string& topic,
-        StreamLoadContext* ctx) {
+        std::shared_ptr<StreamLoadContext> ctx) {
     DCHECK(_k_consumer);
     // create TopicPartitions
     std::stringstream ss;
@@ -163,6 +175,7 @@ Status KafkaDataConsumer::assign_topic_partitions(
     if (err) {
         LOG(WARNING) << "failed to assign topic partitions: " << ctx->brief(true)
                      << ", err: " << RdKafka::err2str(err);
+        _k_consumer->unassign();
         return Status::InternalError("failed to assign topic partitions");
     }
 
@@ -171,12 +184,14 @@ Status KafkaDataConsumer::assign_topic_partitions(
 
 Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                                         int64_t max_running_time_ms) {
+    static constexpr int MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE = 3;
     int64_t left_time = max_running_time_ms;
     LOG(INFO) << "start kafka consumer: " << _id << ", grp: " << _grp_id
               << ", max running time(ms): " << left_time;
 
     int64_t received_rows = 0;
     int64_t put_rows = 0;
+    int32_t retry_times = 0;
     Status st = Status::OK();
     MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
@@ -218,6 +233,14 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             // if there is no data in kafka.
             LOG(INFO) << "kafka consume timeout: " << _id;
             break;
+        case RdKafka::ERR__TRANSPORT:
+            LOG(INFO) << "kafka consume Disconnected: " << _id
+                      << ", retry times: " << retry_times++;
+            if (retry_times <= MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                break;
+            }
+            [[fallthrough]];
         default:
             LOG(WARNING) << "kafka consume failed: " << _id << ", msg: " << msg->errstr();
             done = true;
@@ -367,7 +390,7 @@ Status KafkaDataConsumer::get_latest_offsets_for_partitions(
     return Status::OK();
 }
 
-Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
+Status KafkaDataConsumer::cancel(std::shared_ptr<StreamLoadContext> ctx) {
     std::unique_lock<std::mutex> l(_lock);
     if (!_init) {
         return Status::InternalError("consumer is not initialized");
@@ -381,6 +404,7 @@ Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
 Status KafkaDataConsumer::reset() {
     std::unique_lock<std::mutex> l(_lock);
     _cancelled = false;
+    _k_consumer->unassign();
     // reset will be called before this consumer being returned to the pool.
     // so update _last_visit_time is reasonable.
     _last_visit_time = time(nullptr);
@@ -392,16 +416,14 @@ Status KafkaDataConsumer::commit(std::vector<RdKafka::TopicPartition*>& offset) 
     // Commit failure has no effect on Doris, subsequent tasks will continue to commit the new offset
     RdKafka::ErrorCode err = _k_consumer->commitAsync(offset);
     if (err != RdKafka::ERR_NO_ERROR) {
-        std::stringstream ss;
-        ss << "failed to commit kafka offset : " << RdKafka::err2str(err);
-        return Status::InternalError(ss.str());
+        return Status::InternalError("failed to commit kafka offset : {}", RdKafka::err2str(err));
     }
     return Status::OK();
 }
 
 // if the kafka brokers and topic are same,
 // we considered this consumer as matched, thus can be reused.
-bool KafkaDataConsumer::match(StreamLoadContext* ctx) {
+bool KafkaDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
     if (ctx->load_src_type != TLoadSourceType::KAFKA) {
         return false;
     }

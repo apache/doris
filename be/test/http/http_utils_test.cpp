@@ -15,13 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <event2/http.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include "common/logging.h"
+#include <string>
+
+#include "gtest/gtest_pred_impl.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/utils.h"
+#include "util/string_util.h"
 #include "util/url_coding.h"
+
+struct evhttp_request;
 
 namespace doris {
 
@@ -48,9 +55,9 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         std::string user;
         std::string passwd;
         auto res = parse_basic_auth(req, &user, &passwd);
-        ASSERT_TRUE(res);
-        ASSERT_STREQ("doris", user.data());
-        ASSERT_STREQ("passwd", passwd.data());
+        EXPECT_TRUE(res);
+        EXPECT_STREQ("doris", user.data());
+        EXPECT_STREQ("passwd", passwd.data());
     }
     {
         HttpRequest req(_evhttp_req);
@@ -61,7 +68,7 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         std::string user;
         std::string passwd;
         auto res = parse_basic_auth(req, &user, &passwd);
-        ASSERT_FALSE(res);
+        EXPECT_FALSE(res);
     }
     {
         HttpRequest req(_evhttp_req);
@@ -73,7 +80,7 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         std::string user;
         std::string passwd;
         auto res = parse_basic_auth(req, &user, &passwd);
-        ASSERT_FALSE(res);
+        EXPECT_FALSE(res);
     }
     {
         HttpRequest req(_evhttp_req);
@@ -85,13 +92,8 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         std::string user;
         std::string passwd;
         auto res = parse_basic_auth(req, &user, &passwd);
-        ASSERT_FALSE(res);
+        EXPECT_FALSE(res);
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

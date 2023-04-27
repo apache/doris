@@ -88,7 +88,7 @@ public class ListComparatorTest {
         list2.add(new Long(200));
         list2.add("abc");
         listCollection.add(list2);
-        
+
         printCollection();
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(1, false),

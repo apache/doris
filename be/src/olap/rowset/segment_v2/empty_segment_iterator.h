@@ -19,10 +19,13 @@
 
 #include "common/status.h"
 #include "olap/iterators.h"
-#include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace segment_v2 {
 
 class EmptySegmentIterator : public RowwiseIterator {
@@ -31,10 +34,11 @@ public:
     ~EmptySegmentIterator() override {}
     Status init(const StorageReadOptions& opts) override { return Status::OK(); }
     const Schema& schema() const override { return _schema; }
-    Status next_batch(RowBlockV2* row_block) override;
+    Status next_batch(vectorized::Block* block) override;
+    bool empty() const override { return true; }
 
 private:
-    Schema _schema;
+    const Schema& _schema;
 };
 
 } // namespace segment_v2

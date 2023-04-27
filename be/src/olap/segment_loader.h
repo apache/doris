@@ -17,20 +17,28 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <atomic>
 #include <memory>
+#include <ostream>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
+#include "common/status.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h" // for rowset id
-#include "olap/rowset/beta_rowset.h"
-#include "runtime/mem_tracker.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "util/time.h"
 
 namespace doris {
 
 class SegmentCacheHandle;
+class BetaRowset;
 
 // SegmentLoader is used to load the Segment of BetaRowset.
 // An LRUCache is encapsulated inside it, which is used to cache the opened segments.
@@ -47,16 +55,13 @@ class SegmentCacheHandle;
 using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 class SegmentLoader {
 public:
-
     // The cache key or segment lru cache
     struct CacheKey {
         CacheKey(RowsetId rowset_id_) : rowset_id(rowset_id_) {}
         RowsetId rowset_id;
 
         // Encode to a flat binary which can be used as LRUCache's key
-        std::string encode() const {
-            return rowset_id.to_string();
-        }
+        std::string encode() const { return rowset_id.to_string(); }
     };
 
     // The cache value of segment lru cache.
@@ -85,10 +90,19 @@ public:
 
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
-    OLAPStatus load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle, bool use_cache = false);
+    Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
+                         bool use_cache = false);
 
     // Try to prune the segment cache if expired.
-    OLAPStatus prune();
+    Status prune();
+    int64_t prune_all() { return _cache->prune(); };
+    int64_t segment_cache_mem_consumption() { return _cache->mem_consumption(); }
+    int64_t segment_cache_get_usage() { return _cache->get_usage(); }
+    double segment_cache_get_usage_ratio() {
+        return _cache->get_total_capacity() == 0
+                       ? 0
+                       : ((double)_cache->get_usage() / _cache->get_total_capacity());
+    }
 
 private:
     SegmentLoader();
@@ -107,7 +121,6 @@ private:
     static SegmentLoader* _s_instance;
     // A LRU cache to cache all opened segments
     std::unique_ptr<Cache> _cache = nullptr;
-    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
 };
 
 // A handle for a single rowset from segment lru cache.
@@ -127,7 +140,7 @@ public:
             CHECK(!owned);
             // last_visit_time is set when release.
             // because it only be needed when pruning.
-            ((SegmentLoader::CacheValue*) _cache->value(_handle))->last_visit_time = UnixMillis();
+            ((SegmentLoader::CacheValue*)_cache->value(_handle))->last_visit_time = UnixMillis();
             _cache->release(_handle);
         }
     }
@@ -149,9 +162,9 @@ public:
 
     std::vector<segment_v2::SegmentSharedPtr>& get_segments() {
         if (owned) {
-            return segments; 
+            return segments;
         } else {
-            return ((SegmentLoader::CacheValue*) _cache->value(_handle))->segments;
+            return ((SegmentLoader::CacheValue*)_cache->value(_handle))->segments;
         }
     }
 

@@ -27,6 +27,7 @@ import java.util.List;
 public class ShowResultSetTest {
     @Mocked
     ShowResultSetMetaData metaData;
+
     @Test
     public void testNormal() {
         List<List<String>> rows = Lists.newArrayList();

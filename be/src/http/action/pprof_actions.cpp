@@ -17,29 +17,27 @@
 
 #include "http/action/pprof_actions.h"
 
-#include <gperftools/heap-profiler.h>
-#include <gperftools/malloc_extension.h>
-#include <gperftools/profiler.h>
+#include <gperftools/heap-profiler.h>    // IWYU pragma: keep
+#include <gperftools/malloc_extension.h> // IWYU pragma: keep
+#include <gperftools/profiler.h>         // IWYU pragma: keep
+#include <stdio.h>
 
 #include <fstream>
-#include <iostream>
+#include <memory>
 #include <mutex>
-#include <sstream>
+#include <string>
 
-#include "agent/utils.h"
 #include "common/config.h"
 #include "common/object_pool.h"
-#include "gutil/strings/substitute.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
-#include "http/http_headers.h"
+#include "http/http_method.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "util/bfd_parser.h"
-#include "util/file_utils.h"
-#include "util/pprof_utils.h"
+#include "util/pprof_utils.h" // IWYU pragma: keep
 
 namespace doris {
 
@@ -59,15 +57,15 @@ public:
 };
 
 void HeapAction::handle(HttpRequest* req) {
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+    std::lock_guard<std::mutex> lock(kPprofActionMutex);
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(USE_JEMALLOC)
     (void)kPprofDefaultSampleSecs; // Avoid unused variable warning.
 
-    std::string str = "Heap profiling is not available with address sanitizer builds.";
+    std::string str = "Heap profiling is not available with address sanitizer or jemalloc builds.";
 
     HttpChannel::send_reply(req, str);
 #else
-    std::lock_guard<std::mutex> lock(kPprofActionMutex);
-
     int seconds = kPprofDefaultSampleSecs;
     const std::string& seconds_str = req->param(SECOND_KEY);
     if (!seconds_str.empty()) {
@@ -111,8 +109,10 @@ public:
 };
 
 void GrowthAction::handle(HttpRequest* req) {
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
-    std::string str = "Growth profiling is not available with address sanitizer builds.";
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(USE_JEMALLOC)
+    std::string str =
+            "Growth profiling is not available with address sanitizer or jemalloc builds.";
     HttpChannel::send_reply(req, str);
 #else
     std::lock_guard<std::mutex> lock(kPprofActionMutex);
@@ -133,8 +133,9 @@ public:
 };
 
 void ProfileAction::handle(HttpRequest* req) {
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
-    std::string str = "CPU profiling is not available with address sanitizer builds.";
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(USE_JEMALLOC)
+    std::string str = "CPU profiling is not available with address sanitizer or jemalloc builds.";
     HttpChannel::send_reply(req, str);
 #else
     std::lock_guard<std::mutex> lock(kPprofActionMutex);
@@ -224,10 +225,16 @@ void CmdlineAction::handle(HttpRequest* req) {
         HttpChannel::send_reply(req, str);
         return;
     }
+
+    std::string str;
     char buf[1024];
-    fscanf(fp, "%s ", buf);
+    if (fscanf(fp, "%1023s ", buf) == 1) {
+        str = buf;
+    } else {
+        str = "Unable to read file: /proc/self/cmdline";
+    }
+
     fclose(fp);
-    std::string str = buf;
 
     HttpChannel::send_reply(req, str);
 }
@@ -284,14 +291,16 @@ void SymbolAction::handle(HttpRequest* req) {
 
 Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server, ObjectPool& pool) {
     if (!config::pprof_profile_dir.empty()) {
-        FileUtils::create_dir(config::pprof_profile_dir);
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(config::pprof_profile_dir));
     }
 
     http_server->register_handler(HttpMethod::GET, "/pprof/heap", pool.add(new HeapAction()));
     http_server->register_handler(HttpMethod::GET, "/pprof/growth", pool.add(new GrowthAction()));
     http_server->register_handler(HttpMethod::GET, "/pprof/profile", pool.add(new ProfileAction()));
-    http_server->register_handler(HttpMethod::GET, "/pprof/pmuprofile", pool.add(new PmuProfileAction()));
-    http_server->register_handler(HttpMethod::GET, "/pprof/contention", pool.add(new ContentionAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/pmuprofile",
+                                  pool.add(new PmuProfileAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/contention",
+                                  pool.add(new ContentionAction()));
     http_server->register_handler(HttpMethod::GET, "/pprof/cmdline", pool.add(new CmdlineAction()));
     auto action = pool.add(new SymbolAction(exec_env->bfd_parser()));
     http_server->register_handler(HttpMethod::GET, "/pprof/symbol", action);

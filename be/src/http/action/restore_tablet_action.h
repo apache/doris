@@ -15,19 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
-#define DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
+#pragma once
+
+#include <stdint.h>
 
 #include <map>
 #include <mutex>
+#include <string>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
 #include "http/http_handler.h"
 
 namespace doris {
 
 class ExecEnv;
+class HttpRequest;
 
 class RestoreTabletAction : public HttpHandler {
 public:
@@ -65,4 +67,3 @@ private:
 }; // end class RestoreTabletAction
 
 } // end namespace doris
-#endif // DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H

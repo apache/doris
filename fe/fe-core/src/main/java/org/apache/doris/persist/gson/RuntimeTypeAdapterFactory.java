@@ -39,7 +39,7 @@ import java.util.Map;
  * Adapts values whose runtime type may differ from their declaration type. This
  * is necessary when a field's type is not the same type that GSON should create
  * when deserializing that field. For example, consider these types:
- * 
+ *
  * <pre>
  * {
  *     &#64;code
@@ -67,7 +67,7 @@ import java.util.Map;
  * <p>
  * Without additional type information, the serialized JSON is ambiguous. Is
  * the bottom shape in this drawing a rectangle or a diamond?
- * 
+ *
  * <pre>
  *    {@code
  *   {
@@ -84,11 +84,11 @@ import java.util.Map;
  *     }
  *   }}
  * </pre>
- * 
+ *
  * This class addresses this problem by adding type information to the
  * serialized JSON and honoring that type information when the JSON is
  * deserialized:
- * 
+ *
  * <pre>
  *    {@code
  *   {
@@ -107,7 +107,7 @@ import java.util.Map;
  *     }
  *   }}
  * </pre>
- * 
+ *
  * Both the type field name ({@code "type"}) and the type labels ({@code
  * "Rectangle"}) are configurable.
  *
@@ -116,18 +116,18 @@ import java.util.Map;
  * field
  * name to the {@link #of} factory method. If you don't supply an explicit type
  * field name, {@code "type"} will be used.
- * 
+ *
  * <pre>
  * {
  *     &#64;code
  *     RuntimeTypeAdapterFactory<Shape> shapeAdapterFactory = RuntimeTypeAdapterFactory.of(Shape.class, "type");
  * }
  * </pre>
- * 
+ *
  * Next register all of your subtypes. Every subtype must be explicitly
  * registered. This protects your application from injection attacks. If you
  * don't supply an explicit type label, the type's simple name will be used.
- * 
+ *
  * <pre>
  *    {@code
  *   shapeAdapterFactory.registerSubtype(Rectangle.class, "Rectangle");
@@ -135,19 +135,19 @@ import java.util.Map;
  *   shapeAdapterFactory.registerSubtype(Diamond.class, "Diamond");
  * }
  * </pre>
- * 
+ *
  * Finally, register the type adapter factory in your application's GSON
  * builder:
- * 
+ *
  * <pre>
  * {
  *     &#64;code
  *     Gson gson = new GsonBuilder().registerTypeAdapterFactory(shapeAdapterFactory).create();
  * }
  * </pre>
- * 
+ *
  * Like {@code GsonBuilder}, this API supports chaining:
- * 
+ *
  * <pre>
  * {
  *     &#64;code
@@ -159,7 +159,7 @@ import java.util.Map;
  * <h3>Serialization and deserialization</h3>
  * In order to serialize and deserialize a polymorphic object,
  * you must specify the base type explicitly.
- * 
+ *
  * <pre>
  * {
  *     &#64;code
@@ -167,9 +167,9 @@ import java.util.Map;
  *     String json = gson.toJson(diamond, Shape.class);
  * }
  * </pre>
- * 
+ *
  * And then:
- * 
+ *
  * <pre>
  * {
  *     &#64;code

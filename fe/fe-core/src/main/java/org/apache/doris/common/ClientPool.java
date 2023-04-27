@@ -30,7 +30,6 @@ public class ClientPool {
     static int heartbeatTimeoutMs = FeConstants.heartbeat_interval_second * 1000;
 
     static GenericKeyedObjectPoolConfig backendConfig = new GenericKeyedObjectPoolConfig();
-    static int backendTimeoutMs = 60000; // 1min
 
     static {
         heartbeatConfig.setLifo(true);            // set Last In First Out strategy
@@ -40,7 +39,7 @@ public class ClientPool {
         heartbeatConfig.setMaxTotal(-1);          // (default -1)
         heartbeatConfig.setMaxWaitMillis(500);    //  wait for the connection
     }
-    
+
     static {
         backendConfig.setLifo(true);            // set Last In First Out strategy
         backendConfig.setMaxIdlePerKey(128);      // (default 8)
@@ -51,7 +50,7 @@ public class ClientPool {
     }
 
     static GenericKeyedObjectPoolConfig brokerPoolConfig = new GenericKeyedObjectPoolConfig();
-    static int brokerTimeoutMs = 10000;
+    static int brokerTimeoutMs = Config.broker_timeout_ms;
 
     static {
         brokerPoolConfig.setLifo(true);            // set Last In First Out strategy
@@ -68,10 +67,10 @@ public class ClientPool {
             new GenericPool<>("FrontendService", heartbeatConfig, heartbeatTimeoutMs,
                     Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
     public static GenericPool<FrontendService.Client> frontendPool =
-            new GenericPool("FrontendService", backendConfig, backendTimeoutMs,
+            new GenericPool("FrontendService", backendConfig, Config.backend_rpc_timeout_ms,
                     Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
     public static GenericPool<BackendService.Client> backendPool =
-            new GenericPool("BackendService", backendConfig, backendTimeoutMs);
+            new GenericPool("BackendService", backendConfig, Config.backend_rpc_timeout_ms);
     public static GenericPool<TPaloBrokerService.Client> brokerPool =
             new GenericPool("TPaloBrokerService", brokerPoolConfig, brokerTimeoutMs);
 }

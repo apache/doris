@@ -17,20 +17,22 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.sync.DataSyncJobType;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -39,10 +41,6 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class CreateDataSyncJobStmtTest {
     private static final Logger LOG = LogManager.getLogger(CreateDataSyncJobStmtTest.class);
@@ -53,11 +51,13 @@ public class CreateDataSyncJobStmtTest {
     private Map<String, String> properties;
 
     @Mocked
-    Catalog catalog;
+    Env env;
+    @Mocked
+    InternalCatalog catalog;
     @Mocked
     Analyzer analyzer;
     @Mocked
-    PaloAuth auth;
+    AccessControllerManager accessManager;
     @Injectable
     Database database;
     @Injectable
@@ -68,19 +68,23 @@ public class CreateDataSyncJobStmtTest {
         properties = Maps.newHashMap();
         new Expectations() {
             {
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
+
                 catalog.getDbNullable("testCluster:testDb");
                 minTimes = 0;
                 result = database;
 
-                catalog.getAuth();
+                env.getAccessManager();
                 minTimes = 0;
-                result = auth;
+                result = accessManager;
 
                 analyzer.getClusterName();
                 minTimes = 0;
                 result = "testCluster";
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
@@ -88,14 +92,13 @@ public class CreateDataSyncJobStmtTest {
                 minTimes = 0;
                 result = table;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
-
-        Config.enable_create_sync_job = true;
     }
+
     @Test
     public void testNoDb() {
         CreateDataSyncJobStmt stmt = new CreateDataSyncJobStmt(
@@ -178,6 +181,7 @@ public class CreateDataSyncJobStmtTest {
             Assert.assertEquals("testCluster:testDb", stmt.getDbName());
             Assert.assertEquals(DataSyncJobType.CANAL, stmt.getDataSyncJobType());
         } catch (UserException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
     }
 }

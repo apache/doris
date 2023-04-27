@@ -17,9 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-
+import org.junit.Assert;
 import org.junit.Test;
 
 public class ShowVariablesStmtTest {
@@ -27,20 +25,20 @@ public class ShowVariablesStmtTest {
     public void testNormal() {
         ShowVariablesStmt stmt = new ShowVariablesStmt(null, null);
         stmt.analyze(null);
-        assertEquals("SHOW DEFAULT VARIABLES", stmt.toString());
-        assertEquals(2, stmt.getMetaData().getColumnCount());
-        assertEquals("Variable_name", stmt.getMetaData().getColumn(0).getName());
-        assertEquals("Value", stmt.getMetaData().getColumn(1).getName());
-        assertNull(stmt.getPattern());
-        assertEquals(SetType.DEFAULT, stmt.getType());
+        Assert.assertEquals("SHOW DEFAULT VARIABLES", stmt.toString());
+        Assert.assertEquals(2, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals("Variable_name", stmt.getMetaData().getColumn(0).getName());
+        Assert.assertEquals("Value", stmt.getMetaData().getColumn(1).getName());
+        Assert.assertNull(stmt.getPattern());
+        Assert.assertEquals(SetType.DEFAULT, stmt.getType());
 
         stmt = new ShowVariablesStmt(SetType.GLOBAL, "abc");
         stmt.analyze(null);
-        assertEquals("SHOW GLOBAL VARIABLES LIKE 'abc'", stmt.toString());
-        assertEquals(2, stmt.getMetaData().getColumnCount());
-        assertEquals("Variable_name", stmt.getMetaData().getColumn(0).getName());
-        assertEquals("Value", stmt.getMetaData().getColumn(1).getName());
-        assertEquals("abc", stmt.getPattern());
-        assertEquals(SetType.GLOBAL, stmt.getType());
+        Assert.assertEquals("SHOW GLOBAL VARIABLES LIKE 'abc'", stmt.toString());
+        Assert.assertEquals(2, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals("Variable_name", stmt.getMetaData().getColumn(0).getName());
+        Assert.assertEquals("Value", stmt.getMetaData().getColumn(1).getName());
+        Assert.assertEquals("abc", stmt.getPattern());
+        Assert.assertEquals(SetType.GLOBAL, stmt.getType());
     }
 }

@@ -25,10 +25,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TExprNode;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class EncryptKeyRef extends Expr {
     private static final Logger LOG = LogManager.getLogger(EncryptKeyRef.class);
@@ -60,7 +60,7 @@ public class EncryptKeyRef extends Expr {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         } else {
             dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
-            Database database = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+            Database database = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
 
             EncryptKey encryptKey = database.getEncryptKey(encryptKeyName.getKeyName());
             if (encryptKey != null) {

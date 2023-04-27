@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -16,39 +16,38 @@
  * specific language governing permissions and limitations
  * under the License.
  */
- 
-import React, {useState, useEffect} from 'react';
-import {Typography, Button, Row, Col} from 'antd';
-const {Title} = Typography;
+
+import React, {useEffect, useState} from 'react';
+import {Typography} from 'antd';
 import {getConfig} from 'Src/api/api';
 import Table from 'Src/components/table';
+
+const {Title} = Typography;
 export default function Configuration(params: any) {
-    const [allTableData, setAllTableData] = useState({});
-    const getConfigData = function(){
-        getConfig({}).then(res=>{
+    const [allTableData, setAllTableData] = useState<any>({column_names: [], rows: []});
+    const getConfigData = function (ac?: AbortController) {
+        getConfig({signal: ac?.signal}).then(res => {
             if (res && res.msg === 'success') {
                 setAllTableData(res.data);
             }
-        })
-            .catch(err=>{
-                setAllTableData({
-                    column_names:[],
-                    rows:[],
-                });
-            });
+        }).catch(err => {
+        });
     };
     useEffect(() => {
-        getConfigData();
+        const ac = new AbortController();
+        getConfigData(ac);
+        return () => ac.abort();
     }, []);
 
-    return(
-        <Typography style={{padding:'30px'}}>
+    return (
+        <Typography style={{padding: '30px'}}>
             <Title level={2}>Configure Info</Title>
             <Table
                 isSort={true}
                 isFilter={true}
                 // isInner={true}
                 allTableData={allTableData}
+                rowKey={record => record.Name}
             />
         </Typography>
     );

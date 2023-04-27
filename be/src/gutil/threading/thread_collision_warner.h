@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef BASE_THREADING_THREAD_COLLISION_WARNER_H_
-#define BASE_THREADING_THREAD_COLLISION_WARNER_H_
+#pragma once
 
 #include <cstdint>
 
 #include "gutil/atomicops.h"
-#include "gutil/macros.h"
+// IWYU pragma: no_include <butil/macros.h>
+#include "gutil/macros.h" // IWYU pragma: keep
 
 #ifndef BASE_EXPORT
 #define BASE_EXPORT
@@ -224,5 +224,3 @@ private:
 };
 
 } // namespace base
-
-#endif // BASE_THREADING_THREAD_COLLISION_WARNER_H_

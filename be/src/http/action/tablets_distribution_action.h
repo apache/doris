@@ -17,17 +17,21 @@
 
 #pragma once
 
-#include "http/http_handler.h"
-#include "util/easy_json.h"
+#include <stdint.h>
+
 #include <string>
 
+#include "http/http_handler.h"
+#include "util/easy_json.h"
+
 namespace doris {
+class HttpRequest;
 
 // Get BE tablets distribution info from http API.
 class TabletsDistributionAction : public HttpHandler {
 public:
     TabletsDistributionAction();
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
     EasyJson get_tablets_distribution_group_by_partition(uint64_t partition_id);
     std::string host() { return _host; }
 
@@ -35,4 +39,3 @@ private:
     std::string _host;
 };
 } // namespace doris
-

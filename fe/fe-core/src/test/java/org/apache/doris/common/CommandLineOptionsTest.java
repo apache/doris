@@ -26,13 +26,20 @@ public class CommandLineOptionsTest {
 
     @Test
     public void test() {
-        CommandLineOptions options = new CommandLineOptions(true, "", null);
+        CommandLineOptions options = new CommandLineOptions(true, "", null, "");
         Assert.assertTrue(options.isVersion());
         Assert.assertFalse(options.runBdbTools());
+        Assert.assertFalse(options.runImageTool());
 
-        options = new CommandLineOptions(false, "", new BDBToolOptions(true, "", false, "", "", 0));
+        options = new CommandLineOptions(false, "", new BDBToolOptions(true, "", false, "", "", 0), "");
         Assert.assertFalse(options.isVersion());
         Assert.assertTrue(options.runBdbTools());
+        Assert.assertFalse(options.runImageTool());
+
+        options = new CommandLineOptions(false, "", null, "image.0");
+        Assert.assertFalse(options.isVersion());
+        Assert.assertFalse(options.runBdbTools());
+        Assert.assertTrue(options.runImageTool());
     }
 
 }

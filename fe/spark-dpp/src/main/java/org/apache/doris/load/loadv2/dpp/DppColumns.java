@@ -20,21 +20,20 @@ package org.apache.doris.load.loadv2.dpp;
 import com.google.common.base.Preconditions;
 
 import java.io.Serializable;
-import java.util.List;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Objects;
-import java.util.Comparator;
 
 // DppColumns is used to store the
 class DppColumns implements Comparable<DppColumns>, Serializable {
-    public List<Object> columns = new ArrayList<Object>();;
+    public List<Object> columns = new ArrayList<Object>();
 
-    public DppColumns(List<Object> keys){
+    public DppColumns(List<Object> keys) {
         this.columns = keys;
     }
 
-    public DppColumns(DppColumns key, List<Integer> indexes){
+    public DppColumns(DppColumns key, List<Integer> indexes) {
         for (int i = 0; i < indexes.size(); ++i) {
             columns.add(key.columns.get(indexes.get(i)));
         }
@@ -58,23 +57,23 @@ class DppColumns implements Comparable<DppColumns>, Serializable {
                 }
             }
             if (columns.get(i) instanceof Integer) {
-                cmp = ((Integer)(columns.get(i))).compareTo((Integer)(other.columns.get(i)));
+                cmp = ((Integer) (columns.get(i))).compareTo((Integer) (other.columns.get(i)));
             } else if (columns.get(i) instanceof Long) {
-                cmp = ((Long)(columns.get(i))).compareTo((Long)(other.columns.get(i)));
+                cmp = ((Long) (columns.get(i))).compareTo((Long) (other.columns.get(i)));
             }  else if (columns.get(i) instanceof  Boolean) {
-                cmp = ((Boolean)(columns.get(i))).compareTo((Boolean) (other.columns.get(i)));
+                cmp = ((Boolean) (columns.get(i))).compareTo((Boolean) (other.columns.get(i)));
             } else if (columns.get(i) instanceof  Short) {
-                cmp = ((Short)(columns.get(i))).compareTo((Short)(other.columns.get(i)));
+                cmp = ((Short) (columns.get(i))).compareTo((Short) (other.columns.get(i)));
             } else if (columns.get(i) instanceof  Float) {
-                cmp = ((Float)(columns.get(i))).compareTo((Float) (other.columns.get(i)));
+                cmp = ((Float) (columns.get(i))).compareTo((Float) (other.columns.get(i)));
             } else if (columns.get(i) instanceof Double) {
-                cmp = ((Double)(columns.get(i))).compareTo((Double) (other.columns.get(i)));
+                cmp = ((Double) (columns.get(i))).compareTo((Double) (other.columns.get(i)));
             } else if (columns.get(i) instanceof Date) {
-                cmp = ((Date)(columns.get(i))).compareTo((Date) (other.columns.get(i)));
+                cmp = ((Date) (columns.get(i))).compareTo((Date) (other.columns.get(i)));
             } else if (columns.get(i) instanceof java.sql.Timestamp) {
-                cmp = ((java.sql.Timestamp)columns.get(i)).compareTo((java.sql.Timestamp)other.columns.get(i));
+                cmp = ((java.sql.Timestamp) columns.get(i)).compareTo((java.sql.Timestamp) other.columns.get(i));
             } else {
-                cmp = ((String)(columns.get(i))).compareTo((String) (other.columns.get(i)));
+                cmp = ((String) (columns.get(i))).compareTo((String) (other.columns.get(i)));
             }
             if (cmp != 0) {
                 return cmp;
@@ -85,8 +84,12 @@ class DppColumns implements Comparable<DppColumns>, Serializable {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         DppColumns dppColumns = (DppColumns) o;
         return Objects.equals(columns, dppColumns.columns);
     }
@@ -98,15 +101,8 @@ class DppColumns implements Comparable<DppColumns>, Serializable {
 
     @Override
     public String toString() {
-        return "dppColumns{" +
-                "columns=" + columns +
-                '}';
-    }
-}
-
-class DppColumnsComparator implements Comparator<DppColumns> {
-    @Override
-    public int compare(DppColumns left, DppColumns right) {
-        return left.compareTo(right);
+        return "dppColumns{"
+                + "columns=" + columns
+                + '}';
     }
 }

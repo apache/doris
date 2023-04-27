@@ -15,39 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_RESULT_NODE_H
-#define DORIS_BE_SRC_RUNTIME_RESULT_NODE_H
+#pragma once
 
-#include <sys/time.h>
+#include <gen_cpp/internal_service.pb.h>
 
-#include <algorithm>
-#include <cassert>
 #include <cstdio>
-#include <cstdlib>
-#include <exception>
-#include <iostream>
 #include <list>
-#include <map>
-#include <string>
+#include <shared_mutex>
+#include <unordered_map>
 
-#include "common/config.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "olap/olap_define.h"
+#include "gutil/integral_types.h"
 #include "runtime/cache/cache_utils.h"
-#include "runtime/mem_pool.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 #include "util/uid_util.h"
 
 namespace doris {
-
-class PCacheParam;
-class PCacheValue;
-class PCacheResponse;
-class PFetchCacheRequest;
-class PFetchCacheResult;
-class PUpdateCacheRequest;
-class PClearCacheRequest;
 
 /**
 * Cache one partition data, request param must match version and time of cache
@@ -190,4 +171,3 @@ private:
 };
 
 } // namespace doris
-#endif

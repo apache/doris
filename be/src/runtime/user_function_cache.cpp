@@ -17,19 +17,31 @@
 
 #include "runtime/user_function_cache.h"
 
-#include <boost/algorithm/string/classification.hpp> // boost::is_any_of
-#include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::ends_with
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <glog/logging.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+
 #include <atomic>
+#include <memory>
+#include <ostream>
 #include <regex>
+#include <utility>
 #include <vector>
 
-#include "env/env.h"
+#include "common/config.h"
+#include "common/factory_creator.h"
+#include "common/status.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
+#include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
 #include "util/dynamic_util.h"
-#include "util/file_utils.h"
 #include "util/md5.h"
 #include "util/spinlock.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -37,14 +49,11 @@ static const int kLibShardNum = 128;
 
 // function cache entry, store information for
 struct UserFunctionCacheEntry {
-    UserFunctionCacheEntry(int64_t fid_, const std::string& checksum_, const std::string& lib_file_)
-            : function_id(fid_), checksum(checksum_), lib_file(lib_file_) {}
+    ENABLE_FACTORY_CREATOR(UserFunctionCacheEntry);
+    UserFunctionCacheEntry(int64_t fid_, const std::string& checksum_, const std::string& lib_file_,
+                           LibType type)
+            : function_id(fid_), checksum(checksum_), lib_file(lib_file_), type(type) {}
     ~UserFunctionCacheEntry();
-
-    void ref() { _refs.fetch_add(1); }
-
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1) == 1; }
 
     int64_t function_id = 0;
     // used to check if this library is valid.
@@ -54,11 +63,11 @@ struct UserFunctionCacheEntry {
     std::string lib_file;
 
     // make it atomic variable instead of holding a lock
-    std::atomic<bool> is_loaded{false};
+    std::atomic<bool> is_loaded {false};
 
     // Set to true when this library is not needed.
     // e.g. deleting some unused library to re
-    std::atomic<bool> should_delete_library{false};
+    std::atomic<bool> should_delete_library {false};
 
     // lock to make sure only one can load this cache
     std::mutex load_lock;
@@ -75,8 +84,7 @@ struct UserFunctionCacheEntry {
     // from symbol_name to function pointer
     std::unordered_map<std::string, void*> fptr_map;
 
-private:
-    std::atomic<int> _refs{0};
+    LibType type;
 };
 
 UserFunctionCacheEntry::~UserFunctionCacheEntry() {
@@ -92,7 +100,7 @@ UserFunctionCacheEntry::~UserFunctionCacheEntry() {
     }
 }
 
-UserFunctionCache::UserFunctionCache() {}
+UserFunctionCache::UserFunctionCache() = default;
 
 UserFunctionCache::~UserFunctionCache() {
     std::lock_guard<std::mutex> l(_cache_lock);
@@ -100,9 +108,6 @@ UserFunctionCache::~UserFunctionCache() {
     while (it != _entry_map.end()) {
         auto entry = it->second;
         it = _entry_map.erase(it);
-        if (entry->unref()) {
-            delete entry;
-        }
     }
 }
 
@@ -112,7 +117,10 @@ UserFunctionCache* UserFunctionCache::instance() {
 }
 
 Status UserFunctionCache::init(const std::string& lib_dir) {
-    DCHECK(_lib_dir.empty());
+#ifndef BE_TEST
+    // _lib_dir may be reused between unit tests
+    DCHECK(_lib_dir.empty()) << _lib_dir;
+#endif
     _lib_dir = lib_dir;
     // 1. dynamic open current process
     RETURN_IF_ERROR(dynamic_open(nullptr, &_current_process_handle));
@@ -122,8 +130,13 @@ Status UserFunctionCache::init(const std::string& lib_dir) {
 }
 
 Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std::string& file) {
-    if (!boost::algorithm::ends_with(file, ".so")) {
-        return Status::InternalError("unknown library file format");
+    LibType lib_type;
+    if (ends_with(file, ".so")) {
+        lib_type = LibType::SO;
+    } else if (ends_with(file, ".jar")) {
+        lib_type = LibType::JAR;
+    } else {
+        return Status::InternalError("unknown library file format: " + file);
     }
 
     std::vector<std::string> split_parts = strings::Split(file, ".");
@@ -140,11 +153,9 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
         return Status::InternalError("duplicate function id");
     }
     // create a cache entry and put it into entry map
-    UserFunctionCacheEntry* entry =
-            new UserFunctionCacheEntry(function_id, checksum, dir + "/" + file);
+    std::shared_ptr<UserFunctionCacheEntry> entry = UserFunctionCacheEntry::create_shared(
+            function_id, checksum, dir + "/" + file, lib_type);
     entry->is_downloaded = true;
-
-    entry->ref();
     _entry_map[function_id] = entry;
 
     return Status::OK();
@@ -152,23 +163,24 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
 
 Status UserFunctionCache::_load_cached_lib() {
     // create library directory if not exist
-    RETURN_IF_ERROR(FileUtils::create_dir(_lib_dir));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(_lib_dir));
 
     for (int i = 0; i < kLibShardNum; ++i) {
         std::string sub_dir = _lib_dir + "/" + std::to_string(i);
-        RETURN_IF_ERROR(FileUtils::create_dir(sub_dir));
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(sub_dir));
 
-        auto scan_cb = [this, &sub_dir](const char* file) {
-            if (is_dot_or_dotdot(file)) {
+        auto scan_cb = [this, &sub_dir](const io::FileInfo& file) {
+            if (!file.is_file) {
                 return true;
             }
-            auto st = _load_entry_from_lib(sub_dir, file);
+            auto st = _load_entry_from_lib(sub_dir, file.file_name);
             if (!st.ok()) {
-                LOG(WARNING) << "load a library failed, dir=" << sub_dir << ", file=" << file;
+                LOG(WARNING) << "load a library failed, dir=" << sub_dir
+                             << ", file=" << file.file_name;
             }
             return true;
         };
-        RETURN_IF_ERROR(Env::Default()->iterate_dir(sub_dir, scan_cb));
+        RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(sub_dir, scan_cb));
     }
     return Status::OK();
 }
@@ -181,108 +193,47 @@ std::string get_real_symbol(const std::string& symbol) {
     return str2;
 }
 
-Status UserFunctionCache::get_function_ptr(int64_t fid, const std::string& orig_symbol,
-                                           const std::string& url, const std::string& checksum,
-                                           void** fn_ptr, UserFunctionCacheEntry** output_entry) {
-    auto symbol = get_real_symbol(orig_symbol);
-    if (fid == 0) {
-        // Just loading a function ptr in the current process. No need to take any locks.
-        RETURN_IF_ERROR(dynamic_lookup(_current_process_handle, symbol.c_str(), fn_ptr));
-        return Status::OK();
-    }
-
-    // if we need to unref entry
-    bool need_unref_entry = false;
-    UserFunctionCacheEntry* entry = nullptr;
-    // find the library entry for this function. If *output_entry is not null
-    // find symbol in it without to get other entry
-    if (output_entry != nullptr && *output_entry != nullptr) {
-        entry = *output_entry;
-    } else {
-        RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, &entry));
-        need_unref_entry = true;
-    }
-
-    Status status;
-    {
-        std::lock_guard<SpinLock> l(entry->map_lock);
-        // now, we have the library entry, we need to lock it to find symbol
-        auto it = entry->fptr_map.find(symbol);
-        if (it != entry->fptr_map.end()) {
-            *fn_ptr = it->second;
-        } else {
-            status = dynamic_lookup(entry->lib_handle, symbol.c_str(), fn_ptr);
-            if (status.ok()) {
-                entry->fptr_map.emplace(symbol, *fn_ptr);
-            } else {
-                LOG(WARNING) << "fail to lookup symbol in library, symbol=" << symbol
-                             << ", file=" << entry->lib_file;
-            }
-        }
-    }
-
-    if (status.ok() && output_entry != nullptr && *output_entry == nullptr) {
-        *output_entry = entry;
-        need_unref_entry = false;
-    }
-
-    if (need_unref_entry) {
-        if (entry->unref()) {
-            delete entry;
-        }
-    }
-
-    return status;
-}
-
 Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
                                            const std::string& checksum,
-                                           UserFunctionCacheEntry** output_entry) {
-    UserFunctionCacheEntry* entry = nullptr;
+                                           std::shared_ptr<UserFunctionCacheEntry>& output_entry,
+                                           LibType type) {
+    std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
+    std::string file_name = _get_file_name_from_url(url);
     {
         std::lock_guard<std::mutex> l(_cache_lock);
         auto it = _entry_map.find(fid);
         if (it != _entry_map.end()) {
             entry = it->second;
         } else {
-            entry = new UserFunctionCacheEntry(fid, checksum, _make_lib_file(fid, checksum));
-
-            entry->ref();
+            entry = UserFunctionCacheEntry::create_shared(
+                    fid, checksum, _make_lib_file(fid, checksum, type, file_name), type);
             _entry_map.emplace(fid, entry);
         }
-        entry->ref();
     }
     auto st = _load_cache_entry(url, entry);
     if (!st.ok()) {
         LOG(WARNING) << "fail to load cache entry, fid=" << fid;
         // if we load a cache entry failed, I think we should delete this entry cache
-        // evenif this cache was valid before.
+        // even if this cache was valid before.
         _destroy_cache_entry(entry);
         return st;
     }
 
-    *output_entry = entry;
+    output_entry = entry;
     return Status::OK();
 }
 
-void UserFunctionCache::_destroy_cache_entry(UserFunctionCacheEntry* entry) {
+void UserFunctionCache::_destroy_cache_entry(std::shared_ptr<UserFunctionCacheEntry> entry) {
     // 1. we remove cache entry from entry map
-    size_t num_removed = 0;
-    {
-        std::lock_guard<std::mutex> l(_cache_lock);
-        num_removed = _entry_map.erase(entry->function_id);
-    }
-    if (num_removed > 0) {
-        entry->unref();
-    }
+    std::lock_guard<std::mutex> l(_cache_lock);
+    // set should delete flag to true, so that the jar file will be removed when
+    // the entry is removed from map, and deconstruct method is called.
     entry->should_delete_library.store(true);
-    // now we need to drop
-    if (entry->unref()) {
-        delete entry;
-    }
+    _entry_map.erase(entry->function_id);
 }
 
-Status UserFunctionCache::_load_cache_entry(const std::string& url, UserFunctionCacheEntry* entry) {
+Status UserFunctionCache::_load_cache_entry(const std::string& url,
+                                            std::shared_ptr<UserFunctionCacheEntry> entry) {
     if (entry->is_loaded.load()) {
         return Status::OK();
     }
@@ -292,12 +243,18 @@ Status UserFunctionCache::_load_cache_entry(const std::string& url, UserFunction
         RETURN_IF_ERROR(_download_lib(url, entry));
     }
 
-    RETURN_IF_ERROR(_load_cache_entry_internal(entry));
+    if (entry->type == LibType::SO) {
+        RETURN_IF_ERROR(_load_cache_entry_internal(entry));
+    } else if (entry->type != LibType::JAR) {
+        return Status::InvalidArgument(
+                "Unsupported lib type! Make sure your lib type is one of 'so' and 'jar'!");
+    }
     return Status::OK();
 }
 
 // entry's lock must be held
-Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCacheEntry* entry) {
+Status UserFunctionCache::_download_lib(const std::string& url,
+                                        std::shared_ptr<UserFunctionCacheEntry> entry) {
     DCHECK(!entry->is_downloaded);
 
     // get local path to save library
@@ -309,9 +266,11 @@ Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCach
         return Status::InternalError("fail to open file");
     }
 
+    std::string real_url = _get_real_url(url);
+
     Md5Digest digest;
     HttpClient client;
-    RETURN_IF_ERROR(client.init(url));
+    RETURN_IF_ERROR(client.init(real_url));
     Status status;
     auto download_cb = [&status, &tmp_file, &fp, &digest](const void* data, size_t length) {
         digest.update(data, length);
@@ -327,7 +286,7 @@ Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCach
     RETURN_IF_ERROR(client.execute(download_cb));
     RETURN_IF_ERROR(status);
     digest.digest();
-    if (!boost::iequals(digest.hex(), entry->checksum)) {
+    if (!iequal(digest.hex(), entry->checksum)) {
         LOG(WARNING) << "UDF's checksum is not equal, one=" << digest.hex()
                      << ", other=" << entry->checksum;
         return Status::InternalError("UDF's library checksum is not match");
@@ -349,27 +308,51 @@ Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCach
     return Status::OK();
 }
 
+std::string UserFunctionCache::_get_real_url(const std::string& url) {
+    if (url.find(":/") == std::string::npos) {
+        return "file://" + config::jdbc_drivers_dir + "/" + url;
+    }
+    return url;
+}
+
+std::string UserFunctionCache::_get_file_name_from_url(const std::string& url) const {
+    std::string file_name;
+    size_t last_slash_pos = url.find_last_of('/');
+    if (last_slash_pos != std::string::npos) {
+        file_name = url.substr(last_slash_pos + 1, url.size());
+    } else {
+        file_name = url;
+    }
+    return file_name;
+}
+
 // entry's lock must be held
-Status UserFunctionCache::_load_cache_entry_internal(UserFunctionCacheEntry* entry) {
+Status UserFunctionCache::_load_cache_entry_internal(
+        std::shared_ptr<UserFunctionCacheEntry> entry) {
     RETURN_IF_ERROR(dynamic_open(entry->lib_file.c_str(), &entry->lib_handle));
     entry->is_loaded.store(true);
     return Status::OK();
 }
 
-std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::string& checksum) {
+std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::string& checksum,
+                                              LibType type, const std::string& file_name) {
     int shard = function_id % kLibShardNum;
     std::stringstream ss;
-    ss << _lib_dir << '/' << shard << '/' << function_id << '.' << checksum << ".so";
+    ss << _lib_dir << '/' << shard << '/' << function_id << '.' << checksum;
+    if (type == LibType::JAR) {
+        ss << '.' << file_name;
+    } else {
+        ss << ".so";
+    }
     return ss.str();
 }
 
-void UserFunctionCache::release_entry(UserFunctionCacheEntry* entry) {
-    if (entry == nullptr) {
-        return;
-    }
-    if (entry->unref()) {
-        delete entry;
-    }
+Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
+                                      const std::string& checksum, std::string* libpath) {
+    std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
+    RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, entry, LibType::JAR));
+    *libpath = entry->lib_file;
+    return Status::OK();
 }
 
 } // namespace doris

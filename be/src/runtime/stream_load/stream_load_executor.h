@@ -19,33 +19,41 @@
 
 #include <memory>
 
+#include "common/factory_creator.h"
+
 namespace doris {
 
 class ExecEnv;
 class StreamLoadContext;
 class Status;
 class TTxnCommitAttachment;
-class StreamLoadPipe;
+class TLoadTxnCommitRequest;
 
 class StreamLoadExecutor {
+    ENABLE_FACTORY_CREATOR(StreamLoadExecutor);
+
 public:
     StreamLoadExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {}
 
     Status begin_txn(StreamLoadContext* ctx);
 
+    Status pre_commit_txn(StreamLoadContext* ctx);
+
+    Status operate_txn_2pc(StreamLoadContext* ctx);
+
     Status commit_txn(StreamLoadContext* ctx);
+
+    void get_commit_request(StreamLoadContext* ctx, TLoadTxnCommitRequest& request);
 
     void rollback_txn(StreamLoadContext* ctx);
 
-    Status execute_plan_fragment(StreamLoadContext* ctx);
+    Status execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx);
 
-    Status execute_plan_fragment(StreamLoadContext* ctx, std::shared_ptr<StreamLoadPipe> pipe);
 private:
     // collect the load statistics from context and set them to stat
     // return true if stat is set, otherwise, return false
     bool collect_load_stat(StreamLoadContext* ctx, TTxnCommitAttachment* attachment);
 
-private:
     ExecEnv* _exec_env;
 };
 

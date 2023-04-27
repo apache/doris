@@ -17,8 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.io.Text;
@@ -32,12 +34,16 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -59,6 +65,16 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     private KeysType keysType;
     @SerializedName(value = "defineStmt")
     private OriginStatement defineStmt;
+    //for light schema change
+    @SerializedName(value = "maxColUniqueId")
+    private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+
+    private Expr whereClause;
+    private Map<String, Column> nameToColumn;
+    private Map<String, Column> definedNameToColumn;
+
+    private static final Logger LOG = LogManager.getLogger(MaterializedIndexMeta.class);
+
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt) {
@@ -74,6 +90,15 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         Preconditions.checkState(keysType != null);
         this.keysType = keysType;
         this.defineStmt = defineStmt;
+        initColumnNameMap();
+    }
+
+    public void setWhereClause(Expr whereClause) {
+        this.whereClause = whereClause;
+    }
+
+    public Expr getWhereClause() {
+        return whereClause;
     }
 
     public long getIndexId() {
@@ -104,6 +129,16 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         }
     }
 
+    public void setSchema(List<Column> newSchema) throws IOException {
+        this.schema = newSchema;
+        parseStmt(null);
+        initColumnNameMap();
+    }
+
+    public void setSchemaHash(int newSchemaHash) {
+        this.schemaHash = newSchemaHash;
+    }
+
     public int getSchemaHash() {
         return schemaHash;
     }
@@ -112,28 +147,94 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return shortKeyColumnCount;
     }
 
+    public void setSchemaVersion(int newSchemaVersion) {
+        this.schemaVersion = newSchemaVersion;
+    }
+
     public int getSchemaVersion() {
         return schemaVersion;
     }
 
-    private void setColumnsDefineExpr(Map<String, Expr> columnNameToDefineExpr) {
+    private void setColumnsDefineExpr(Map<String, Expr> columnNameToDefineExpr) throws IOException {
         for (Map.Entry<String, Expr> entry : columnNameToDefineExpr.entrySet()) {
+            boolean match = false;
             for (Column column : schema) {
                 if (column.getName().equals(entry.getKey())) {
                     column.setDefineExpr(entry.getValue());
+                    match = true;
                     break;
+                }
+            }
+
+            if (!match) {
+                // Compatibility code for older versions of mv
+                // store_id -> mv_store_id
+                // sale_amt -> mva_SUM__`sale_amt`
+                // mv_count_sale_amt -> mva_SUM__CASE WHEN `sale_amt` IS NULL THEN 0 ELSE 1 END
+                List<SlotRef> slots = new ArrayList<>();
+                entry.getValue().collect(SlotRef.class, slots);
+                if (slots.size() > 1) {
+                    throw new IOException("DefineExpr have multiple slot in MaterializedIndex, Expr=" + entry.getKey());
+                }
+
+                String name = MaterializedIndexMeta.normalizeName(slots.get(0).toSqlWithoutTbl());
+                Column matchedColumn = null;
+
+                String columnList = "[";
+                for (Column column : schema) {
+                    if (columnList.length() != 1) {
+                        columnList += ", ";
+                    }
+                    columnList += column.getName();
+                }
+                columnList += "]";
+
+                for (Column column : schema) {
+                    if (CreateMaterializedViewStmt.oldmvColumnBreaker(column.getName()).equalsIgnoreCase(name)) {
+                        if (matchedColumn == null) {
+                            matchedColumn = column;
+                        } else {
+                            LOG.warn("DefineExpr match multiple column in MaterializedIndex, ExprName=" + entry.getKey()
+                                    + ", Expr=" + entry.getValue().toSqlWithoutTbl() + ", Slot=" + name
+                                    + ", Columns=" + columnList);
+                        }
+                    }
+                }
+
+                if (matchedColumn != null) {
+                    LOG.debug("trans old MV, MV: {},  DefineExpr:{}, DefineName:{}",
+                            matchedColumn.getName(), entry.getValue().toSqlWithoutTbl(), entry.getKey());
+                    matchedColumn.setDefineExpr(entry.getValue());
+                    matchedColumn.setDefineName(entry.getKey());
+                } else {
+                    LOG.warn("DefineExpr does not match any column in MaterializedIndex, ExprName=" + entry.getKey()
+                            + ", Expr=" + entry.getValue().toSqlWithoutTbl() + ", Slot=" + name
+                            + ", Columns=" + columnList);
                 }
             }
         }
     }
 
+    public static String normalizeName(String name) {
+        return name.replace("`", "");
+    }
+
+    public static boolean matchColumnName(String lhs, String rhs) {
+        return normalizeName(lhs).equalsIgnoreCase(normalizeName(rhs));
+    }
+
+    public Column getColumnByDefineName(String colDefineName) {
+        String normalizedName = normalizeName(colDefineName);
+        return definedNameToColumn.getOrDefault(normalizedName, null);
+    }
+
     public Column getColumnByName(String columnName) {
-        for (Column column : schema) {
-            if (column.getName().equalsIgnoreCase(columnName)) {
-                return column;
-            }
-        }
-        return null;
+        String normalizedName = normalizeName(columnName);
+        return nameToColumn.getOrDefault(normalizedName, null);
+    }
+
+    public OriginStatement getDefineStmt() {
+        return defineStmt;
     }
 
     @Override
@@ -141,29 +242,17 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         if (!(obj instanceof MaterializedIndexMeta)) {
             return false;
         }
-        MaterializedIndexMeta indexMeta = (MaterializedIndexMeta) obj;
-        if (indexMeta.indexId != this.indexId) {
-            return false;
-        }
-        if (indexMeta.schema.size() != this.schema.size() || !indexMeta.schema.containsAll(this.schema)) {
-            return false;
-        }
-        if (indexMeta.schemaVersion != this.schemaVersion) {
-            return false;
-        }
-        if (indexMeta.schemaHash != this.schemaHash) {
-            return false;
-        }
-        if (indexMeta.shortKeyColumnCount != this.shortKeyColumnCount) {
-            return false;
-        }
-        if (indexMeta.storageType != this.storageType) {
-            return false;
-        }
-        if (indexMeta.keysType != this.keysType) {
-            return false;
-        }
-        return true;
+        MaterializedIndexMeta other = (MaterializedIndexMeta) obj;
+
+        return indexId == other.indexId
+                && schema.size() == other.schema.size()
+                && schema.equals(other.schema)
+                && schemaVersion == other.schemaVersion
+                && schemaHash == other.schemaHash
+                && shortKeyColumnCount == other.shortKeyColumnCount
+                && storageType == other.storageType
+                && keysType == other.keysType
+                && maxColUniqueId == other.maxColUniqueId;
     }
 
     @Override
@@ -178,6 +267,11 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        initColumnNameMap();
+        parseStmt(null);
+    }
+
+    public void parseStmt(Analyzer analyzer) throws IOException {
         // analyze define stmt
         if (defineStmt == null) {
             return;
@@ -188,11 +282,51 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
-            Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
+            if (analyzer != null) {
+                stmt.analyze(analyzer);
+            }
+
+            stmt.setIsReplay(true);
+            setWhereClause(stmt.getWhereClause());
+            stmt.rewriteToBitmapWithCheck();
+            Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
             setColumnsDefineExpr(columnNameToDefineExpr);
+
         } catch (Exception e) {
             throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
         }
     }
 
+    //take care: only use when creating MaterializedIndexMeta's schema.
+    public int incAndGetMaxColUniqueId() {
+        this.maxColUniqueId++;
+        return this.maxColUniqueId;
+    }
+
+    public int getMaxColUniqueId() {
+        return this.maxColUniqueId;
+    }
+
+    public void setMaxColUniqueId(int maxColUniqueId) {
+        this.maxColUniqueId = maxColUniqueId;
+    }
+
+    public void initSchemaColumnUniqueId() {
+        maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+        this.schema.forEach(column -> {
+            column.setUniqueId(incAndGetMaxColUniqueId());
+            LOG.debug("indexId: {},  column:{}, uniqueId:{}",
+                    indexId, column, column.getUniqueId());
+        });
+    }
+
+    public void initColumnNameMap() {
+        // case insensitive
+        nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        definedNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (Column column : schema) {
+            nameToColumn.put(normalizeName(column.getName()), column);
+            definedNameToColumn.put(normalizeName(column.getDefineName()), column);
+        }
+    }
 }

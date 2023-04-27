@@ -17,7 +17,7 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.PaloFe;
+import org.apache.doris.DorisFE;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
@@ -32,8 +32,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
-
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,12 +52,12 @@ import java.util.concurrent.ConcurrentMap;
 
 public class DppScheduler {
     private static final Logger LOG = LogManager.getLogger(DppScheduler.class);
-    
-    private static final String HADOOP_CLIENT = PaloFe.DORIS_HOME_DIR + Config.dpp_hadoop_client_path;
+
+    private static final String HADOOP_CLIENT = DorisFE.DORIS_HOME_DIR + Config.dpp_hadoop_client_path;
     private static final String DPP_OUTPUT_DIR = "export";
-    private static final String JOB_CONFIG_DIR = PaloFe.DORIS_HOME_DIR + "/temp/job_conf";
+    private static final String JOB_CONFIG_DIR = DorisFE.DORIS_HOME_DIR + "/temp/job_conf";
     private static final String JOB_CONFIG_FILE = "jobconfig.json";
-    private static final String LOCAL_DPP_DIR = PaloFe.DORIS_HOME_DIR + "/lib/dpp/" + FeConstants.dpp_version;
+    private static final String LOCAL_DPP_DIR = DorisFE.DORIS_HOME_DIR + "/lib/dpp/" + FeConstants.dpp_version;
     private static final int DEFAULT_REDUCE_NUM = 1000;
     private static final long GB = 1024 * 1024 * 1024L;
 
@@ -74,7 +73,7 @@ public class DppScheduler {
             + "-partitioner com.baidu.sos.mapred.lib.MapIntPartitioner "
             + "-cacheArchive %s/dpp/x86_64-scm-linux-gnu.tar.gz#tc "
             + "-cacheArchive %s/dpp/pypy.tar.gz#pypy "
-            + "-cacheArchive %s/dpp/palo_dpp_mr.tar.gz#mapred " 
+            + "-cacheArchive %s/dpp/palo_dpp_mr.tar.gz#mapred "
             + "-numReduceTasks %d -file \"%s\" ";
     private static final String HADOOP_STATUS_CMD = "%s job %s -status %s";
     private static final String HADOOP_KILL_CMD = "%s job %s -kill %s";
@@ -90,7 +89,7 @@ public class DppScheduler {
 
     private String hadoopConfig;
     private String applicationsPath;
-    
+
     public DppScheduler(DppConfig dppConfig) {
         hadoopConfig = getHadoopConfigsStr(dppConfig.getHadoopConfigs());
         applicationsPath = dppConfig.getFsDefaultName() + dppConfig.getApplicationsPath();
@@ -103,7 +102,7 @@ public class DppScheduler {
         }
         return String.format("-D %s", StringUtils.join(configs, " -D "));
     }
-   
+
     public EtlSubmitResult submitEtlJob(long jobId, String loadLabel, String clusterName,
                                         String dbName, Map<String, Object> jobConf, int retry) {
         String etlJobId = null;
@@ -129,7 +128,7 @@ public class DppScheduler {
                 }
             }
         }
-        
+
         // create job config file
         String configDirPath = JOB_CONFIG_DIR + "/" + jobId;
         File configDir = new File(configDirPath);
@@ -178,7 +177,7 @@ public class DppScheduler {
         // create input path
         Set<String> inputPaths = getInputPaths(jobConf);
         String inputPath = StringUtils.join(inputPaths, " -input ");
-        
+
         // reduce num
         int reduceNumByInputSize = 0;
         try {
@@ -251,7 +250,7 @@ public class DppScheduler {
                 }
             }
         }
-         
+
         if (etlJobId == null) {
             status.setStatusCode(TStatusCode.CANCELLED);
         }
@@ -349,7 +348,7 @@ public class DppScheduler {
             }
         }
     }
-    
+
     private Set<String> getInputPaths(Map<String, Object> jobConf) {
         Set<String> inputPaths = new HashSet<String>();
         Map<String, Map> tables = (Map<String, Map>) jobConf.get("tables");
@@ -362,7 +361,7 @@ public class DppScheduler {
         }
         return inputPaths;
     }
-    
+
     private int calcReduceNumByInputSize(Set<String> inputPaths) throws InputSizeInvalidException {
         String[] envp = { "LC_ALL=" + Config.locale };
         int reduceNum = 0;
@@ -401,7 +400,7 @@ public class DppScheduler {
         }
         return reduceNum;
     }
-    
+
     private int calcReduceNumByTablet(Map<String, Object> jobConf) {
         int reduceNum = 0;
         Map<String, Map> tables = (Map<String, Map>) jobConf.get("tables");
@@ -415,12 +414,12 @@ public class DppScheduler {
                     // key range
                     List<Object> rangeList = (List<Object>) view.get("key_ranges");
                     reduceNum += rangeList.size();
-                } 
+                }
             }
         }
         return reduceNum;
     }
-    
+
     public EtlStatus getEtlJobStatus(String etlJobId) {
         EtlStatus status = new EtlStatus();
         status.setState(TEtlState.RUNNING);
@@ -501,7 +500,7 @@ public class DppScheduler {
                 LOG.info("hadoop dir does not exist. dir: {}", outputPath);
                 return null;
             }
-            
+
             // check outputPath + DPP_OUTPUT_DIR exist
             hadoopTestCmd = String.format(HADOOP_TEST_CMD, HADOOP_CLIENT, hadoopConfig, "-d", fileDir);
             LOG.info(hadoopTestCmd);
@@ -533,21 +532,21 @@ public class DppScheduler {
         }
         return fileMap;
     }
-    
+
     public void killEtlJob(String etlJobId) {
         String[] envp = { "LC_ALL=" + Config.locale };
         String hadoopKillCmd = String.format(HADOOP_KILL_CMD, HADOOP_CLIENT, hadoopConfig, etlJobId);
         LOG.info(hadoopKillCmd);
         Util.executeCommand(hadoopKillCmd, envp);
     }
-    
+
     public void deleteEtlOutputPath(String outputPath) {
         String[] envp = { "LC_ALL=" + Config.locale };
         String hadoopRmCmd = String.format(HADOOP_RMR_CMD, HADOOP_CLIENT, hadoopConfig, outputPath);
         LOG.info(hadoopRmCmd);
         Util.executeCommand(hadoopRmCmd, envp);
     }
-    
+
     public static String getEtlOutputPath(String fsDefaultName, String outputPath, long dbId, String loadLabel,
                                           String etlOutputDir) {
         return String.format(ETL_OUTPUT_PATH, fsDefaultName, outputPath, dbId, loadLabel, etlOutputDir);

@@ -17,86 +17,86 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.Lists;
-
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
 
-import mockit.Expectations;
-import mockit.Injectable;
-
 public class MVColumnOneChildPatternTest {
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Test
-    public void testCorrectSum() {
-        TableName tableName = new TableName("db", "table");
+    public void testCorrectSum(@Injectable AggregateFunction aggregateFunction) {
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.SUM.name(), params);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
                 AggregateType.SUM.name().toLowerCase());
         Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
     @Test
-    public void testCorrectMin(@Injectable CastExpr castExpr) {
-        TableName tableName = new TableName("db", "table");
+    public void testCorrectMin(@Injectable CastExpr castExpr, @Injectable AggregateFunction aggregateFunction) {
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
-        new Expectations() {
-            {
-                castExpr.unwrapSlotRef();
-                result = slotRef;
-            }
-        };
         List<Expr> params = Lists.newArrayList();
         params.add(castExpr);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.MIN.name(), params);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
                 AggregateType.MIN.name().toLowerCase());
         Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
     @Test
-    public void testCorrectCountField() {
-        TableName tableName = new TableName("db", "table");
+    public void testCorrectCountField(@Injectable AggregateFunction aggregateFunction) {
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(FunctionSet.COUNT, params);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(FunctionSet.COUNT.toLowerCase());
         Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
     @Test
-    public void testIncorrectLiteral() {
+    public void testIncorrectLiteral(@Injectable AggregateFunction aggregateFunction) {
         IntLiteral intLiteral = new IntLiteral(1);
         List<Expr> params = Lists.newArrayList();
         params.add(intLiteral);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.SUM.name(), params);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
                 AggregateType.SUM.name().toLowerCase());
-        Assert.assertFalse(mvColumnOneChildPattern.match(functionCallExpr));
+        Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
     @Test
-    public void testIncorrectArithmeticExpr() {
-        TableName tableName = new TableName("db", "table");
+    public void testIncorrectArithmeticExpr(@Injectable AggregateFunction aggregateFunction) {
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         SlotRef slotRef2 = new SlotRef(tableName, "c2");
         ArithmeticExpr arithmeticExpr = new ArithmeticExpr(ArithmeticExpr.Operator.ADD, slotRef1, slotRef2);
         List<Expr> params = Lists.newArrayList();
         params.add(arithmeticExpr);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.SUM.name(), params);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
                 AggregateType.SUM.name().toLowerCase());
-        Assert.assertFalse(mvColumnOneChildPattern.match(functionCallExpr));
+        Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 }

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <openssl/md5.h>
+#include <stddef.h>
 
 #include <string>
 

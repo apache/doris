@@ -17,9 +17,9 @@
 
 package org.apache.doris.rewrite.mvrewrite;
 
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.AnalysisException;
 
-public class MVSelectFailedException extends UserException {
+public class MVSelectFailedException extends AnalysisException {
 
     public MVSelectFailedException(String msg) {
         super(msg);

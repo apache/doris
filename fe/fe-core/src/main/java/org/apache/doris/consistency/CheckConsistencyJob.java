@@ -17,8 +17,8 @@
 
 package org.apache.doris.consistency;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -30,18 +30,15 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.persist.ConsistencyCheckInfo;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CheckConsistencyTask;
-import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,14 +57,13 @@ public class CheckConsistencyJob {
 
     private JobState state;
     private long tabletId;
-    
+
     // backend id -> check sum
     // add backend id to this map only after sending task
     private Map<Long, Long> checksumMap;
 
     private int checkedSchemaHash;
     private long checkedVersion;
-    private long checkedVersionHash;
 
     private long createTime;
     private long timeoutMs;
@@ -80,7 +76,6 @@ public class CheckConsistencyJob {
 
         this.checkedSchemaHash = -1;
         this.checkedVersion = -1L;
-        this.checkedVersionHash = -1L;
 
         this.createTime = System.currentTimeMillis();
         this.timeoutMs = 0L;
@@ -108,25 +103,19 @@ public class CheckConsistencyJob {
      *  false: cancel
      */
     public boolean sendTasks() {
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
         if (tabletMeta == null) {
             LOG.debug("tablet[{}] has been removed", tabletId);
             return false;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.debug("db[{}] does not exist", tabletMeta.getDbId());
             return false;
         }
 
-        // get user resource info
-        TResourceInfo resourceInfo = null;
-        if (ConnectContext.get() != null) {
-            resourceInfo = ConnectContext.get().toResourceCtx();
-        }
-        
         Tablet tablet = null;
 
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -147,7 +136,8 @@ public class CheckConsistencyJob {
             }
 
             // check partition's replication num. if 1 replication. skip
-            short replicaNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+            short replicaNum = olapTable.getPartitionInfo()
+                    .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
             if (replicaNum == (short) 1) {
                 LOG.debug("partition[{}]'s replication num is 1. skip consistency check", partition.getId());
                 return false;
@@ -166,7 +156,6 @@ public class CheckConsistencyJob {
             }
 
             checkedVersion = partition.getVisibleVersion();
-            checkedVersionHash = partition.getVisibleVersionHash();
             checkedSchemaHash = olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId());
 
             int sentTaskReplicaNum = 0;
@@ -182,13 +171,13 @@ public class CheckConsistencyJob {
                     maxDataSize = replica.getDataSize();
                 }
 
-                CheckConsistencyTask task = new CheckConsistencyTask(resourceInfo, replica.getBackendId(),
+                CheckConsistencyTask task = new CheckConsistencyTask(null, replica.getBackendId(),
                                                                      tabletMeta.getDbId(),
                                                                      tabletMeta.getTableId(),
                                                                      tabletMeta.getPartitionId(),
                                                                      tabletMeta.getIndexId(),
                                                                      tabletId, checkedSchemaHash,
-                                                                     checkedVersion, checkedVersionHash);
+                                                                     checkedVersion);
 
                 // add task to send
                 batchTask.addTask(task);
@@ -215,9 +204,12 @@ public class CheckConsistencyJob {
 
         if (state != JobState.RUNNING) {
             // failed to send task. set tablet's checked version and version hash to avoid choosing it again
-            table.writeLock();
+            if (!table.writeLockIfExist()) {
+                LOG.debug("table[{}] does not exist", tabletMeta.getTableId());
+                return false;
+            }
             try {
-                tablet.setCheckedVersion(checkedVersion, checkedVersionHash);
+                tablet.setCheckedVersion(checkedVersion);
             } finally {
                 table.writeUnlock();
             }
@@ -247,13 +239,13 @@ public class CheckConsistencyJob {
         }
 
         // check again. in case tablet has already been removed
-        TabletMeta tabletMeta = Catalog.getCurrentInvertedIndex().getTabletMeta(tabletId);
+        TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tabletId);
         if (tabletMeta == null) {
             LOG.warn("tablet[{}] has been removed", tabletId);
             return -1;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.warn("db[{}] does not exist", tabletMeta.getDbId());
             return -1;
@@ -261,11 +253,10 @@ public class CheckConsistencyJob {
 
         boolean isConsistent = true;
         Table table = db.getTableNullable(tabletMeta.getTableId());
-        if (table == null) {
+        if (table == null || !table.writeLockIfExist()) {
             LOG.warn("table[{}] does not exist", tabletMeta.getTableId());
             return -1;
         }
-        table.writeLock();
         try {
             OlapTable olapTable = (OlapTable) table;
 
@@ -359,13 +350,13 @@ public class CheckConsistencyJob {
             tablet.setIsConsistent(isConsistent);
 
             // set checked version
-            tablet.setCheckedVersion(checkedVersion, checkedVersionHash);
+            tablet.setCheckedVersion(checkedVersion);
 
             // log
             ConsistencyCheckInfo info = new ConsistencyCheckInfo(db.getId(), table.getId(), partition.getId(),
                                                                  index.getId(), tabletId, lastCheckTime,
-                                                                 checkedVersion, checkedVersionHash, isConsistent);
-            Catalog.getCurrentCatalog().getEditLog().logFinishConsistencyCheck(info);
+                                                                 checkedVersion, isConsistent);
+            Env.getCurrentEnv().getEditLog().logFinishConsistencyCheck(info);
             return 1;
 
         } finally {
@@ -384,7 +375,7 @@ public class CheckConsistencyJob {
         if (this.checksumMap.containsKey(backendId)) {
             checksumMap.put(backendId, checksum);
         } else {
-            // should not happened. add log to observe
+            // should not happen. add log to observe
             LOG.warn("can not find backend[{}] in tablet[{}]'s consistency check job", backendId, tabletId);
         }
     }
@@ -396,4 +387,3 @@ public class CheckConsistencyJob {
         }
     }
 }
-

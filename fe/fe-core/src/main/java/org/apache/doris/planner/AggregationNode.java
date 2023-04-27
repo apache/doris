@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AggregationNode.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -22,30 +25,36 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-
-//import org.apache.doris.thrift.TAggregateFunctionCall;
+import java.util.Set;
 
 /**
  * Aggregation computation.
  */
 public class AggregationNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(AggregationNode.class);
+    private static final Logger LOG = LogManager.getLogger(AggregationNode.class);
     private final AggregateInfo aggInfo;
 
     // Set to true if this aggregation node needs to run the Finalize step. This
@@ -60,7 +69,7 @@ public class AggregationNode extends PlanNode {
      * isIntermediate is true if it is a slave node in a 2-part agg plan.
      */
     public AggregationNode(PlanNodeId id, PlanNode input, AggregateInfo aggInfo) {
-        super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE");
+        super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE", StatisticalType.AGG_NODE);
         this.aggInfo = aggInfo;
         this.children.add(input);
         this.needsFinalize = true;
@@ -71,7 +80,7 @@ public class AggregationNode extends PlanNode {
      * Copy c'tor used in clone().
      */
     private AggregationNode(PlanNodeId id, AggregationNode src) {
-        super(id, src, "AGGREGATE");
+        super(id, src, "AGGREGATE", StatisticalType.AGG_NODE);
         aggInfo = src.aggInfo;
         needsFinalize = src.needsFinalize;
     }
@@ -92,10 +101,20 @@ public class AggregationNode extends PlanNode {
      * Sets this node as a preaggregation. Only valid to call this if it is not marked
      * as a preaggregation
      */
-    public void setIsPreagg(PlannerContext ctx_) {
-        useStreamingPreagg =  ctx_.getQueryOptions().isSetDisableStreamPreaggregations()
-                && !ctx_.getQueryOptions().disable_stream_preaggregations
+    public void setIsPreagg(PlannerContext ctx) {
+        useStreamingPreagg =  ctx.getQueryOptions().isSetDisableStreamPreaggregations()
+                && !ctx.getQueryOptions().disable_stream_preaggregations
                 && aggInfo.getGroupingExprs().size() > 0;
+    }
+
+    // Used by new optimizer
+    public void setNeedsFinalize(boolean needsFinalize) {
+        this.needsFinalize = needsFinalize;
+    }
+
+    // Used by new optimizer
+    public void setUseStreamingPreagg(boolean useStreamingPreagg) {
+        this.useStreamingPreagg = useStreamingPreagg;
     }
 
     @Override
@@ -165,46 +184,14 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
         }
-        List<Expr> groupingExprs = aggInfo.getGroupingExprs();
-        cardinality = 1;
-        // cardinality: product of # of distinct values produced by grouping exprs
-        for (Expr groupingExpr : groupingExprs) {
-            long numDistinct = groupingExpr.getNumDistinctValues();
-            LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
-                    numDistinct));
-            if (numDistinct == -1) {
-                cardinality = -1;
-                break;
-            }
-            // This is prone to overflow, because we keep multiplying cardinalities,
-            // even if the grouping exprs are functionally dependent (example:
-            // group by the primary key of a table plus a number of other columns from that
-            // same table)
-            // TODO: try to recognize functional dependencies
-            // TODO: as a shortcut, instead of recognizing functional dependencies,
-            // limit the contribution of a single table to the number of rows
-            // of that table (so that when we're grouping by the primary key col plus
-            // some others, the estimate doesn't overshoot dramatically)
-            cardinality *= numDistinct;
-        }
-        if (cardinality > 0) {
-            LOG.debug("sel=" + Double.toString(computeSelectivity()));
-            applyConjunctsSelectivity();
-        }
-        // if we ended up with an overflow, the estimate is certain to be wrong
-        if (cardinality < 0) {
-            cardinality = -1;
-        }
 
-        capCardinalityAtLimit();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Agg: cardinality={}", cardinality);
-        }
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override
@@ -238,7 +225,7 @@ public class AggregationNode extends PlanNode {
 
     private void updateplanNodeName() {
         StringBuilder sb = new StringBuilder();
-        sb.append("AGGREGATE");
+        sb.append(VectorizedUtil.isVectorized() ? "VAGGREGATE" : "AGGREGATE");
         sb.append(" (");
         if (aggInfo.isMerge()) {
             sb.append("merge");
@@ -262,18 +249,33 @@ public class AggregationNode extends PlanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
+        aggInfo.updateMaterializedSlots();
         msg.node_type = TPlanNodeType.AGGREGATION_NODE;
         List<TExpr> aggregateFunctions = Lists.newArrayList();
+        List<TSortInfo> aggSortInfos = Lists.newArrayList();
         // only serialize agg exprs that are being materialized
-        for (FunctionCallExpr e: aggInfo.getMaterializedAggregateExprs()) {
+        for (FunctionCallExpr e : aggInfo.getMaterializedAggregateExprs()) {
             aggregateFunctions.add(e.treeToThrift());
+            List<TExpr> orderingExpr = Lists.newArrayList();
+            List<Boolean> isAscs = Lists.newArrayList();
+            List<Boolean> nullFirsts = Lists.newArrayList();
+
+            e.getOrderByElements().forEach(o -> {
+                orderingExpr.add(o.getExpr().treeToThrift());
+                isAscs.add(o.getIsAsc());
+                nullFirsts.add(o.getNullsFirstParam());
+            });
+            aggSortInfos.add(new TSortInfo(orderingExpr, isAscs, nullFirsts));
         }
-        msg.agg_node =
-          new TAggregationNode(
-                  aggregateFunctions,
-                  aggInfo.getIntermediateTupleId().asInt(),
-                  aggInfo.getOutputTupleId().asInt(), needsFinalize);
+
+        msg.agg_node = new TAggregationNode(
+                aggregateFunctions,
+                aggInfo.getIntermediateTupleId().asInt(),
+                aggInfo.getOutputTupleId().asInt(), needsFinalize);
+        msg.agg_node.setAggSortInfos(aggSortInfos);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
+        msg.agg_node.setIsFirstPhase(aggInfo.isFirstPhase());
+        msg.agg_node.setUseFixedLengthSerializationOpt(true);
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
@@ -289,28 +291,38 @@ public class AggregationNode extends PlanNode {
 
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+        aggInfo.updateMaterializedSlots();
         StringBuilder output = new StringBuilder();
         String nameDetail = getDisplayLabelDetail();
         if (nameDetail != null) {
-            output.append(detailPrefix + nameDetail + "\n");
+            output.append(detailPrefix).append(nameDetail).append("\n");
         }
 
         if (detailLevel == TExplainLevel.BRIEF) {
+            output.append(detailPrefix).append(String.format(
+                    "cardinality=%,d",  cardinality)).append("\n");
             return output.toString();
         }
 
         if (aggInfo.getAggregateExprs() != null && aggInfo.getMaterializedAggregateExprs().size() > 0) {
-            output.append(detailPrefix + "output: ").append(
-                    getExplainString(aggInfo.getAggregateExprs()) + "\n");
+            List<String> labels = aggInfo.getMaterializedAggregateExprLabels();
+            if (labels.isEmpty()) {
+                output.append(detailPrefix).append("output: ")
+                        .append(getExplainString(aggInfo.getMaterializedAggregateExprs())).append("\n");
+            } else {
+                output.append(detailPrefix).append("output: ")
+                        .append(StringUtils.join(labels, ", ")).append("\n");
+            }
         }
         // TODO: group by can be very long. Break it into multiple lines
-        output.append(detailPrefix + "group by: ").append(
-          getExplainString(aggInfo.getGroupingExprs()) + "\n");
+        output.append(detailPrefix).append("group by: ")
+                .append(getExplainString(aggInfo.getGroupingExprs()))
+                .append("\n");
         if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix + "having: ").append(getExplainString(conjuncts) + "\n");
+            output.append(detailPrefix).append("having: ").append(getExplainString(conjuncts)).append("\n");
         }
         output.append(detailPrefix).append(String.format(
-                "cardinality=%s", cardinality)).append("\n");
+                "cardinality=%,d", cardinality)).append("\n");
         return output.toString();
     }
 
@@ -326,5 +338,45 @@ public class AggregationNode extends PlanNode {
     @Override
     public int getNumInstances() {
         return children.get(0).getNumInstances();
+    }
+
+    @Override
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
+        Set<SlotId> result = Sets.newHashSet();
+        // compute group by slot
+        ArrayList<Expr> groupingExprs = aggInfo.getGroupingExprs();
+        List<SlotId> groupingSlotIds = Lists.newArrayList();
+        Expr.getIds(groupingExprs, null, groupingSlotIds);
+        result.addAll(groupingSlotIds);
+
+        // compute agg function slot
+        ArrayList<FunctionCallExpr> aggregateExprs = aggInfo.getAggregateExprs();
+        List<SlotId> aggregateSlotIds = Lists.newArrayList();
+        Expr.getIds(aggregateExprs, null, aggregateSlotIds);
+        result.addAll(aggregateSlotIds);
+
+        // case: select count(*) from test
+        // result is empty
+        // Actually need to take a column as the input column of the agg operator
+        if (result.isEmpty()) {
+            TupleDescriptor tupleDesc = analyzer.getTupleDesc(getChild(0).getOutputTupleIds().get(0));
+            // If the query result is empty set such as: select count(*) from table where 1=2
+            // then the materialized slot will be empty
+            // So the result should be empty also.
+            if (!tupleDesc.getMaterializedSlots().isEmpty()) {
+                result.add(tupleDesc.getMaterializedSlots().get(0).getId());
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public void finalize(Analyzer analyzer) throws UserException {
+        super.finalize(analyzer);
+        List<Expr> groupingExprs = aggInfo.getGroupingExprs();
+        for (int i = 0; i < groupingExprs.size(); i++) {
+            aggInfo.getOutputTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
+            aggInfo.getOutputTupleDesc().computeMemLayout();
+        }
     }
 }

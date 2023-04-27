@@ -25,7 +25,7 @@ import java.io.IOException;
 
 public class EditLogTest {
     private String meta = "editLogTestDir/";
-    
+
     public void mkdir() {
         File dir = new File(meta);
         if (!dir.exists()) {
@@ -39,7 +39,7 @@ public class EditLogTest {
             }
         }
     }
-    
+
     public void addFiles(int image, int edit) {
         File imageFile = new File(meta + "image." + image);
         try {
@@ -47,7 +47,7 @@ public class EditLogTest {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        
+
         for (int i = 1; i <= edit; i++) {
             File editFile = new File(meta + "edits." + i);
             try {
@@ -56,14 +56,14 @@ public class EditLogTest {
                 e.printStackTrace();
             }
         }
-        
+
         File current = new File(meta + "edits");
         try {
             current.createNewFile();
         } catch (IOException e) {
             e.printStackTrace();
         }
-        
+
         File version = new File(meta + "VERSION");
         try {
             version.createNewFile();
@@ -78,7 +78,7 @@ public class EditLogTest {
             e.printStackTrace();
         }
     }
-    
+
     public void deleteDir() {
         File dir = new File(meta);
         if (dir.exists()) {
@@ -88,16 +88,16 @@ public class EditLogTest {
                     file.delete();
                 }
             }
-            
+
             dir.delete();
         }
     }
-    
+
     @Test
     public void testWriteLog() throws IOException {
 
     }
-    
+
     @Test
     public void test() {
 

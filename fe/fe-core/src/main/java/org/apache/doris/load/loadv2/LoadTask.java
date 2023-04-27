@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
@@ -51,7 +51,7 @@ public abstract class LoadTask extends MasterTask {
 
     public LoadTask(LoadTaskCallback callback, TaskType taskType) {
         this.taskType = taskType;
-        this.signature = Catalog.getCurrentCatalog().getNextId();
+        this.signature = Env.getCurrentEnv().getNextId();
         this.callback = callback;
     }
 
@@ -101,7 +101,7 @@ public abstract class LoadTask extends MasterTask {
     // Derived class may need to override this.
     public void updateRetryInfo() {
         this.retryTime--;
-        this.signature = Catalog.getCurrentCatalog().getNextId();
+        this.signature = Env.getCurrentEnv().getNextId();
     }
 
     public TaskType getTaskType() {

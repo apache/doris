@@ -1,10 +1,6 @@
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-#ifndef BASE_MOVE_H_
-#define BASE_MOVE_H_
-
 // Macro with the boilerplate that makes a type move-only in C++03.
 //
 // USAGE
@@ -201,6 +197,9 @@
 //
 // The workaround is to explicitly declare your copy constructor.
 //
+
+#pragma once
+
 #define MOVE_ONLY_TYPE_FOR_CPP_03(type, rvalue_type)           \
 private:                                                       \
     struct rvalue_type {                                       \
@@ -216,5 +215,3 @@ public:                                                        \
     typedef void MoveOnlyTypeForCPP03;                         \
                                                                \
 private:
-
-#endif // BASE_MOVE_H_

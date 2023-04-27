@@ -18,10 +18,17 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_MANAGER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_MANAGER_H
 
+#include <functional>
 #include <string>
 
-#include "olap/olap_meta.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
+
+namespace doris {
+class OlapMeta;
+class RowsetMetaPB;
+} // namespace doris
 
 using std::string;
 
@@ -31,24 +38,24 @@ namespace doris {
 class RowsetMetaManager {
 public:
     static bool check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
+    static Status exists(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
 
-    static OLAPStatus get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
-                                      const RowsetId& rowset_id, RowsetMetaSharedPtr rowset_meta);
+    static Status get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
+                                  RowsetMetaSharedPtr rowset_meta);
 
-    static OLAPStatus get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
-                                           const RowsetId& rowset_id,
-                                           std::string* json_rowset_meta);
+    static Status get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
+                                       const RowsetId& rowset_id, std::string* json_rowset_meta);
 
-    static OLAPStatus save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                           const RowsetMetaPB& rowset_meta_pb);
+    static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
+                       const RowsetMetaPB& rowset_meta_pb);
 
-    static OLAPStatus remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
+    static Status remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
 
-    static OLAPStatus traverse_rowset_metas(
+    static Status traverse_rowset_metas(
             OlapMeta* meta,
             std::function<bool(const TabletUid&, const RowsetId&, const std::string&)> const& func);
 
-    static OLAPStatus load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path);
+    static Status load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path);
 };
 
 } // namespace doris

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_BFD_PARSER_H
-#define DORIS_BE_SRC_UTIL_BFD_PARSER_H
+#pragma once
 
 #ifndef PACKAGE
 #define PACKAGE
@@ -74,5 +73,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

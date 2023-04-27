@@ -40,7 +40,7 @@ public class LimitInputStream extends InputStream {
 
     /**
      * An input stream that reads the limited bytes to the given stream.
-     * 
+     *
      * @param in
      *            The stream to be limited
      * @param limitspeed

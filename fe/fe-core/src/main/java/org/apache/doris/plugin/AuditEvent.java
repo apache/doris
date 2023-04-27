@@ -24,7 +24,7 @@ import java.lang.annotation.RetentionPolicy;
 /*
  * AuditEvent contains all information about audit log info.
  * It should be created by AuditEventBuilder. For example:
- * 
+ *
  *      AuditEvent event = new AuditEventBuilder()
  *          .setEventType(AFTER_QUERY)
  *          .setClientIp(xxx)
@@ -60,7 +60,11 @@ public class AuditEvent {
     public String db = "";
     @AuditField(value = "State")
     public String state = "";
-    @AuditField(value = "Time")
+    @AuditField(value = "ErrorCode")
+    public int errorCode = 0;
+    @AuditField(value = "ErrorMessage")
+    public String errorMessage = "";
+    @AuditField(value = "Time(ms)")
     public long queryTime = -1;
     @AuditField(value = "ScanBytes")
     public long scanBytes = -1;
@@ -74,6 +78,8 @@ public class AuditEvent {
     public String queryId = "";
     @AuditField(value = "IsQuery")
     public boolean isQuery = false;
+    @AuditField(value = "isNereids")
+    public boolean isNereids = false;
     @AuditField(value = "feIp")
     public String feIp = "";
     @AuditField(value = "Stmt")
@@ -84,6 +90,12 @@ public class AuditEvent {
     public String sqlHash = "";
     @AuditField(value = "peakMemoryBytes")
     public long peakMemoryBytes = -1;
+    @AuditField(value = "SqlDigest")
+    public String sqlDigest = "";
+    @AuditField(value = "TraceId")
+    public String traceId = "";
+    @AuditField(value = "FuzzyVariables")
+    public String fuzzyVariables = "";
 
     public static class AuditEventBuilder {
 
@@ -123,6 +135,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setState(String state) {
             auditEvent.state = state;
+            return this;
+        }
+
+        public AuditEventBuilder setErrorCode(int errorCode) {
+            auditEvent.errorCode = errorCode;
+            return this;
+        }
+
+        public AuditEventBuilder setErrorMessage(String errorMessage) {
+            auditEvent.errorMessage = errorMessage;
             return this;
         }
 
@@ -171,6 +193,11 @@ public class AuditEvent {
             return this;
         }
 
+        public AuditEventBuilder setIsNereids(boolean isNereids) {
+            auditEvent.isNereids = isNereids;
+            return this;
+        }
+
         public AuditEventBuilder setFeIp(String feIp) {
             auditEvent.feIp = feIp;
             return this;
@@ -183,6 +210,21 @@ public class AuditEvent {
 
         public AuditEventBuilder setSqlHash(String sqlHash) {
             auditEvent.sqlHash = sqlHash;
+            return this;
+        }
+
+        public AuditEventBuilder setSqlDigest(String sqlDigest) {
+            auditEvent.sqlDigest = sqlDigest;
+            return this;
+        }
+
+        public AuditEventBuilder setTraceId(String traceId) {
+            auditEvent.traceId = traceId;
+            return this;
+        }
+
+        public AuditEventBuilder setFuzzyVariables(String variables) {
+            auditEvent.fuzzyVariables = variables;
             return this;
         }
 

@@ -14,14 +14,35 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/string-parser.cc
+// and modified by Doris
 
 #include "string_parser.hpp"
+
+#include "runtime/large_int_value.h"
+#include "vec/common/int_exp.h"
 
 namespace doris {
 
 template <>
 __int128 StringParser::numeric_limits<__int128>(bool negative) {
     return negative ? MIN_INT128 : MAX_INT128;
+}
+
+template <>
+int32_t StringParser::get_scale_multiplier(int scale) {
+    return common::exp10_i32(scale);
+}
+
+template <>
+int64_t StringParser::get_scale_multiplier(int scale) {
+    return common::exp10_i64(scale);
+}
+
+template <>
+__int128 StringParser::get_scale_multiplier(int scale) {
+    return common::exp10_i128(scale);
 }
 
 } // namespace doris

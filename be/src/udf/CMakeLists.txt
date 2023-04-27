@@ -26,8 +26,8 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/udf")
 # Build this library twice. Once to be linked into the main Doris. This version
 # can have dependencies on our other libs. The second version is shipped as part
 # of the UDF sdk, which can't use other libs.
-add_library(Udf udf.cpp udf_ir.cpp)
-add_library(DorisUdf udf.cpp udf_ir.cpp)
+add_library(Udf udf.cpp)
+add_library(DorisUdf udf.cpp)
 set_target_properties(DorisUdf PROPERTIES COMPILE_FLAGS "-DDORIS_UDF_SDK_BUILD")
 
 # We can't use the normal link list since we want to pick up libDorisUdf (the external
@@ -47,11 +47,8 @@ set (UDF_TEST_LINK_LIBS
   -lboost_date_time
   gtest)
   
-set_target_properties(DorisUdf PROPERTIES PUBLIC_HEADER "udf.h;uda_test_harness.h")
+set_target_properties(DorisUdf PROPERTIES PUBLIC_HEADER "udf.h")
 INSTALL(TARGETS DorisUdf
         ARCHIVE DESTINATION ${OUTPUT_DIR}/udf
         LIBRARY DESTINATION ${OUTPUT_DIR}/udf/lib
         PUBLIC_HEADER DESTINATION ${OUTPUT_DIR}/udf/include)
-
-#ADD_BE_TEST(udf_test)
-#ADD_BE_TEST(uda_test)

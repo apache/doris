@@ -26,7 +26,6 @@ import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,11 +40,11 @@ import java.util.Set;
  * For example:
  *      where a = 1 and b in (2,3,4) and c in (5,6,7)
  *      a/b/c are distribution columns
- * 
+ *
  * the config 'max_distribution_pruner_recursion_depth' will limit the max recursion depth of pruning.
  * the recursion depth is calculated by the product of element number of all predicates.
  * The above example's depth is 9(= 1 * 3 * 3)
- * 
+ *
  * If depth is larger than 'max_distribution_pruner_recursion_depth', all buckets will be return without pruning.
  */
 public class HashDistributionPruner implements DistributionPruner {
@@ -59,7 +58,7 @@ public class HashDistributionPruner implements DistributionPruner {
     private Map<String, PartitionColumnFilter> distributionColumnFilters;
     private int                                hashMod;
 
-    HashDistributionPruner(List<Long> bucketsList, List<Column> columns,
+    public HashDistributionPruner(List<Long> bucketsList, List<Column> columns,
                            Map<String, PartitionColumnFilter> filters, int hashMod) {
         this.bucketsList = bucketsList;
         this.distributionColumns = columns;
@@ -83,7 +82,8 @@ public class HashDistributionPruner implements DistributionPruner {
             return Lists.newArrayList(bucketsList);
         }
         InPredicate inPredicate = filter.getInPredicate();
-        if (null == inPredicate || inPredicate.getInElementNum() * complex > Config.max_distribution_pruner_recursion_depth) {
+        if (null == inPredicate
+                || inPredicate.getInElementNum() * complex > Config.max_distribution_pruner_recursion_depth) {
             // equal one value
             if (filter.lowerBoundInclusive && filter.upperBoundInclusive
                     && filter.lowerBound != null && filter.upperBound != null

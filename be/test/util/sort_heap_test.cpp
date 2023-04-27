@@ -17,11 +17,15 @@
 
 #include "util/sort_heap.h"
 
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
 #include <algorithm>
 #include <queue>
 #include <random>
+#include <vector>
 
-#include "gtest/gtest.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 
@@ -88,8 +92,3 @@ TEST_F(SortHeapTest, IntReplaceTest) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

@@ -18,8 +18,7 @@
 //                         - see RE2::QuoteMeta).
 // And probably many more places, as well.
 
-#ifndef STRINGS_ESCAPING_H_
-#define STRINGS_ESCAPING_H_
+#pragma once
 
 #include <stddef.h>
 
@@ -28,7 +27,7 @@ using std::string;
 #include <vector>
 using std::vector;
 
-#include <common/logging.h>
+#include "common/logging.h"
 
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/charset.h"
@@ -650,5 +649,3 @@ using strings::ShellEscapeCommandLine;
 using strings::ByteStringFromAscii;
 using strings::ByteStringToAscii;
 using strings::CleanStringLineEndings;
-
-#endif // STRINGS_ESCAPING_H_

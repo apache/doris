@@ -17,20 +17,28 @@
 
 #include "util/thrift_util.h"
 
-#include <thrift/Thrift.h>
-#include <thrift/concurrency/ThreadFactory.h>
-#include <thrift/concurrency/ThreadManager.h>
-#include <thrift/server/TNonblockingServer.h>
-#include <thrift/transport/TServerSocket.h>
+#include <gen_cpp/Types_types.h>
+#include <thrift/TOutput.h>
+#include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/transport/TSocket.h>
+#include <thrift/transport/TTransportException.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 
-#include "gen_cpp/Data_types.h"
-#include "gen_cpp/Types_types.h"
-#include "util/hash_util.hpp"
-#include "util/monotime.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
 #include "util/thrift_server.h"
 
-// TCompactProtocol requires some #defines to work right.  They also define UNLIKLEY
+namespace apache {
+namespace thrift {
+namespace protocol {
+class TProtocol;
+} // namespace protocol
+} // namespace thrift
+} // namespace apache
+
+// TCompactProtocol requires some #defines to work right.  They also define UNLIKELY
 // so we need to undef this.
 // TODO: is there a better include to use?
 #ifdef UNLIKELY
@@ -39,6 +47,9 @@
 #define SIGNED_RIGHT_SHIFT_IS 1
 #define ARITHMETIC_RIGHT_SHIFT 1
 #include <thrift/protocol/TCompactProtocol.h>
+
+#include <sstream>
+#include <thread>
 
 namespace doris {
 
@@ -111,7 +122,7 @@ Status wait_for_server(const std::string& host, int port, int num_retries, int r
         VLOG_QUERY << "Waiting " << retry_interval_ms << "ms for Thrift server at " << host << ":"
                    << port << " to come up, failed attempt " << retry_count << " of "
                    << num_retries;
-        SleepFor(MonoDelta::FromMilliseconds(retry_interval_ms));
+        std::this_thread::sleep_for(std::chrono::milliseconds(retry_interval_ms));
     }
 
     return Status::InternalError("Server did not come up");

@@ -1,0 +1,11 @@
+--- a/util/channel.h 2022-01-10 03:06:56.580066258 +0800
++++ b/util/channel.h 2022-01-10 03:06:46.337071094 +0800
+@@ -60,7 +60,7 @@
+
+  private:
+   std::condition_variable cv_;
+-  std::mutex lock_;
++  mutable std::mutex lock_;
+   std::queue<T> buffer_;
+   bool eof_;
+ };

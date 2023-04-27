@@ -33,12 +33,13 @@
 #include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/comparison_predicate.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
+#include "olap/data_dir.h"
 #include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
-#include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
@@ -49,11 +50,8 @@
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/debug_util.h"
-#include "util/file_utils.h"
 
 DEFINE_string(operation, "Custom",
               "valid operation: Custom, BinaryDictPageEncode, BinaryDictPageDecode, SegmentScan, "
@@ -102,10 +100,10 @@ static int seg_id = 0;
 namespace doris {
 class BaseBenchmark {
 public:
-    BaseBenchmark(std::string name, int iterations) : _name(name), _iterations(iterations) {}
-    virtual ~BaseBenchmark() {}
+    BaseBenchmark(const std::string& name, int iterations) : _name(name), _iterations(iterations) {}
+    virtual ~BaseBenchmark() = default;
 
-    void add_name(std::string str) { _name += str; }
+    void add_name(const std::string& str) { _name += str; }
 
     virtual void init() {}
     virtual void run() {}
@@ -135,7 +133,8 @@ private:
 
 class BinaryDictPageBenchmark : public BaseBenchmark {
 public:
-    BinaryDictPageBenchmark(std::string name, int iterations) : BaseBenchmark(name, iterations) {}
+    BinaryDictPageBenchmark(const std::string& name, int iterations)
+            : BaseBenchmark(name, iterations) {}
     virtual ~BinaryDictPageBenchmark() override {}
 
     virtual void init() override {}
@@ -151,7 +150,7 @@ public:
         for (size_t i = 0; i < contents.size(); i++) {
             const Slice* ptr = &contents[i];
             size_t add_num = 1;
-            Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
+            page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
             if (page_builder.is_page_full()) {
                 OwnedSlice s = page_builder.finish();
                 results.emplace_back(std::move(s));
@@ -163,38 +162,11 @@ public:
         results.emplace_back(std::move(s));
         page_start_ids.push_back(contents.size());
 
-        Status status = page_builder.get_dictionary_page(&dict_slice);
+        page_builder.get_dictionary_page(&dict_slice);
     }
+
     void decode_pages() {
-        int slice_index = 0;
-        for (auto& src : results) {
-            PageDecoderOptions dict_decoder_options;
-            std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                    new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
-            dict_page_decoder->init();
-
-            // decode
-            PageDecoderOptions decoder_options;
-            BinaryDictPageDecoder page_decoder(src.slice(), decoder_options);
-            page_decoder.init();
-            page_decoder.set_dict_decoder(dict_page_decoder.get());
-
-            //check values
-
-            size_t num = page_start_ids[slice_index + 1] - page_start_ids[slice_index];
-
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
-            TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
-            std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(num, false, type_info, nullptr, &cvb);
-            ColumnBlock column_block(cvb.get(), &pool);
-            ColumnBlockView block_view(&column_block);
-
-            page_decoder.next_batch(&num, &block_view);
-
-            slice_index++;
-        }
+        // TODO should rewrite this method by using vectorized next batch method
     }
 
 private:
@@ -205,7 +177,7 @@ private:
 
 class BinaryDictPageEncodeBenchmark : public BinaryDictPageBenchmark {
 public:
-    BinaryDictPageEncodeBenchmark(std::string name, int iterations, int rows_number)
+    BinaryDictPageEncodeBenchmark(const std::string& name, int iterations, int rows_number)
             : BinaryDictPageBenchmark(name + "/rows_number:" + std::to_string(rows_number),
                                       iterations),
               _rows_number(rows_number) {}
@@ -232,7 +204,7 @@ private:
 
 class BinaryDictPageDecodeBenchmark : public BinaryDictPageBenchmark {
 public:
-    BinaryDictPageDecodeBenchmark(std::string name, int iterations, int rows_number)
+    BinaryDictPageDecodeBenchmark(const std::string& name, int iterations, int rows_number)
             : BinaryDictPageBenchmark(name + "/rows_number:" + std::to_string(rows_number),
                                       iterations),
               _rows_number(rows_number) {}
@@ -261,38 +233,25 @@ private:
 
 class SegmentBenchmark : public BaseBenchmark {
 public:
-    SegmentBenchmark(std::string name, int iterations, std::string column_type)
-            : BaseBenchmark(name, iterations),
-              _tracker(std::make_shared<MemTracker>()),
-              _pool(_tracker.get()) {
-        if (FileUtils::check_exist(kSegmentDir)) {
-            FileUtils::remove_all(kSegmentDir);
-        }
-        FileUtils::create_dir(kSegmentDir);
-
+    SegmentBenchmark(const std::string& name, int iterations, const std::string& column_type)
+            : BaseBenchmark(name, iterations), _pool() {
+        io::global_local_filesystem()->delete_and_create_directory(kSegmentDir);
         init_schema(column_type);
     }
-    SegmentBenchmark(std::string name, int iterations)
-            : BaseBenchmark(name, iterations),
-              _tracker(std::make_shared<MemTracker>()),
-              _pool(_tracker.get()) {
-        if (FileUtils::check_exist(kSegmentDir)) {
-            FileUtils::remove_all(kSegmentDir);
-        }
-        FileUtils::create_dir(kSegmentDir);
+    SegmentBenchmark(const std::string& name, int iterations)
+            : BaseBenchmark(name, iterations), _pool() {
+        io::global_local_filesystem()->delete_and_create_directory(kSegmentDir);
     }
     virtual ~SegmentBenchmark() override {
-        if (FileUtils::check_exist(kSegmentDir)) {
-            FileUtils::remove_all(kSegmentDir);
-        }
+        io::global_local_filesystem()->delete_directory(kSegmentDir);
     }
 
-    const Schema& get_schema() { return *_schema.get(); }
+    const Schema& get_schema() { return *_schema; }
 
     virtual void init() override {}
     virtual void run() override {}
 
-    void init_schema(std::string column_type) {
+    void init_schema(const std::string& column_type) {
         std::string column_valid = "/column_type:";
 
         std::vector<std::string> tokens = strings::Split(column_type, ",");
@@ -334,12 +293,16 @@ public:
                        std::shared_ptr<Segment>* res) {
         // must use unique filename for each segment, otherwise page cache kicks in and produces
         // the wrong answer (it use (filename,offset) as cache key)
-        std::string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, ++seg_id);
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions block_opts({filename});
-        fs::fs_util::block_manager()->create_block(block_opts, &wblock);
+        std::string filename = fmt::format("seg_{}.dat", seg_id++);
+        std::string path = fmt::format("{}/{}", kSegmentDir, filename);
+        auto fs = io::global_local_filesystem();
+
+        io::FileWriterPtr file_writer;
+        fs->create_file(path, &file_writer);
         SegmentWriterOptions opts;
-        SegmentWriter writer(wblock.get(), 0, &_tablet_schema, opts);
+        DataDir data_dir(kSegmentDir);
+        data_dir.init();
+        SegmentWriter writer(file_writer.get(), 0, &_tablet_schema, &data_dir, INT32_MAX, opts);
         writer.init(1024);
 
         RowCursor row;
@@ -357,9 +320,11 @@ public:
 
         uint64_t file_size, index_size;
         writer.finalize(&file_size, &index_size);
-        wblock->close();
+        file_writer->close();
 
-        Segment::open(filename, seg_id, &_tablet_schema, res);
+        io::FileReaderOptions reader_options(io::FileCachePolicy::NO_CACHE,
+                                             io::SegmentCachePathPolicy());
+        Segment::open(fs, path, seg_id, {}, &_tablet_schema, reader_options, res);
     }
 
     std::vector<std::vector<std::string>> generate_dataset(int rows_number) {
@@ -393,15 +358,15 @@ private:
         return res;
     }
 
-    std::shared_ptr<MemTracker> _tracker;
-    MemPool _pool;
+private:
+    vectorized::Arena _pool;
     TabletSchema _tablet_schema;
     std::shared_ptr<Schema> _schema;
 }; // namespace doris
 
 class SegmentWriteBenchmark : public SegmentBenchmark {
 public:
-    SegmentWriteBenchmark(std::string name, int iterations, std::string column_type,
+    SegmentWriteBenchmark(const std::string& name, int iterations, const std::string& column_type,
                           int rows_number)
             : SegmentBenchmark(name + "/rows_number:" + std::to_string(rows_number), iterations,
                                column_type),
@@ -418,7 +383,8 @@ private:
 
 class SegmentWriteByFileBenchmark : public SegmentBenchmark {
 public:
-    SegmentWriteByFileBenchmark(std::string name, int iterations, std::string file_str)
+    SegmentWriteByFileBenchmark(const std::string& name, int iterations,
+                                const std::string& file_str)
             : SegmentBenchmark(name + "/file_path:" + file_str, iterations) {
         std::ifstream file(file_str);
         assert(file.is_open());
@@ -448,7 +414,8 @@ private:
 
 class SegmentScanBenchmark : public SegmentBenchmark {
 public:
-    SegmentScanBenchmark(std::string name, int iterations, std::string column_type, int rows_number)
+    SegmentScanBenchmark(const std::string& name, int iterations, const std::string& column_type,
+                         int rows_number)
             : SegmentBenchmark(name + "/rows_number:" + std::to_string(rows_number), iterations,
                                column_type),
               _dataset(generate_dataset(rows_number)) {}
@@ -459,18 +426,19 @@ public:
         StorageReadOptions read_opts;
         read_opts.stats = &stats;
         std::unique_ptr<RowwiseIterator> iter;
-        _segment->new_iterator(get_schema(), read_opts, nullptr, &iter);
+        _segment->new_iterator(get_schema(), read_opts, &iter);
+        // Need modify this case
+        /*
         RowBlockV2 block(get_schema(), 1024);
 
         int left = _dataset.size();
-        int rowid = 0;
         while (left > 0) {
             int rows_read = std::min(left, 1024);
             block.clear();
             iter->next_batch(&block);
             left -= rows_read;
-            rowid += rows_read;
         }
+        */
     }
 
 private:
@@ -481,7 +449,7 @@ private:
 
 class SegmentScanByFileBenchmark : public SegmentBenchmark {
 public:
-    SegmentScanByFileBenchmark(std::string name, int iterations, std::string file_str)
+    SegmentScanByFileBenchmark(const std::string& name, int iterations, const std::string& file_str)
             : SegmentBenchmark(name, iterations) {
         std::ifstream file(file_str);
         assert(file.is_open());
@@ -506,18 +474,19 @@ public:
         StorageReadOptions read_opts;
         read_opts.stats = &stats;
         std::unique_ptr<RowwiseIterator> iter;
-        _segment->new_iterator(get_schema(), read_opts, nullptr, &iter);
+        _segment->new_iterator(get_schema(), read_opts, &iter);
+        // Need modify this case
+        /*
         RowBlockV2 block(get_schema(), 1024);
 
         int left = _dataset.size();
-        int rowid = 0;
         while (left > 0) {
             int rows_read = std::min(left, 1024);
             block.clear();
             iter->next_batch(&block);
             left -= rows_read;
-            rowid += rows_read;
         }
+        */
     }
 
 private:
@@ -530,7 +499,7 @@ private:
 // Call method: ./benchmark_tool --operation=Custom
 class CustomBenchmark : public BaseBenchmark {
 public:
-    CustomBenchmark(std::string name, int iterations, std::function<void()> init_func,
+    CustomBenchmark(const std::string& name, int iterations, std::function<void()> init_func,
                     std::function<void()> run_func)
             : BaseBenchmark(name, iterations), _init_func(init_func), _run_func(run_func) {}
     virtual ~CustomBenchmark() override {}
@@ -612,13 +581,12 @@ private:
 };
 
 } //namespace doris
-
 int main(int argc, char** argv) {
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
 
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
 
     doris::MultiBenchmark multi_bm;
     multi_bm.add_bm();

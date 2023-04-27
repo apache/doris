@@ -15,16 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TABLET_META_MANAGER_H
-#define DORIS_BE_SRC_OLAP_TABLET_META_MANAGER_H
+#pragma once
 
+#include <gen_cpp/Types_types.h>
+
+#include <functional>
 #include <string>
 
-#include "olap/data_dir.h"
-#include "olap/olap_define.h"
+#include "common/status.h"
+#include "gutil/stringprintf.h"
 #include "olap/tablet_meta.h"
 
 namespace doris {
+class DataDir;
+class OlapMeta;
 
 const std::string OLD_HEADER_PREFIX = "hdr_";
 
@@ -33,29 +37,26 @@ const std::string HEADER_PREFIX = "tabletmeta_";
 // Helper Class for managing tablet headers of one root path.
 class TabletMetaManager {
 public:
-    static OLAPStatus get_meta(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                               TabletMetaSharedPtr tablet_meta);
+    static Status get_meta(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                           TabletMetaSharedPtr tablet_meta);
 
-    static OLAPStatus get_json_meta(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                                    std::string* json_meta);
+    static Status get_json_meta(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                                std::string* json_meta);
 
-    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                           TabletMetaSharedPtr tablet_meta,
-                           const string& header_prefix = "tabletmeta_");
-    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                           const std::string& meta_binary,
-                           const string& header_prefix = "tabletmeta_");
+    static Status save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                       TabletMetaSharedPtr tablet_meta,
+                       const string& header_prefix = "tabletmeta_");
+    static Status save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                       const std::string& meta_binary, const string& header_prefix = "tabletmeta_");
 
-    static OLAPStatus remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                             const string& header_prefix = "tabletmeta_");
+    static Status remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                         const string& header_prefix = "tabletmeta_");
 
-    static OLAPStatus traverse_headers(
-            OlapMeta* meta, std::function<bool(long, long, const std::string&)> const& func,
-            const string& header_prefix = "tabletmeta_");
+    static Status traverse_headers(OlapMeta* meta,
+                                   std::function<bool(long, long, const std::string&)> const& func,
+                                   const string& header_prefix = "tabletmeta_");
 
-    static OLAPStatus load_json_meta(DataDir* store, const std::string& meta_path);
+    static Status load_json_meta(DataDir* store, const std::string& meta_path);
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_TABLET_META_MANAGER_H

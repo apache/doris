@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_UTIL_DEFER_OP_H
-#define DORIS_BE_UTIL_DEFER_OP_H
+#pragma once
 
 #include <functional>
 
@@ -41,6 +40,9 @@ private:
     T _closure;
 };
 
-} // namespace doris
+// Nested use Defer, variable name concat line number
+#define DEFER_CONCAT(n, ...) const auto defer##n = Defer([&]() { __VA_ARGS__; })
+#define DEFER_FWD(n, ...) DEFER_CONCAT(n, __VA_ARGS__)
+#define DEFER(...) DEFER_FWD(__LINE__, __VA_ARGS__)
 
-#endif
+} // namespace doris

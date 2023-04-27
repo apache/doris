@@ -21,7 +21,6 @@ package org.apache.doris.resource;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Sets;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -95,8 +94,10 @@ public class TagSerializationTest {
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
         TagManager tagManager = new TagManager();
-        tagManager.addResourceTag(1L, Tag.create(Tag.TYPE_LOCATION, "rack1"));
-        tagManager.addResourceTags(2L, TagSet.create( Tag.create(Tag.TYPE_LOCATION, "rack1"),  Tag.create(Tag.TYPE_LOCATION, "rack2")));
+        tagManager.addResourceTag(1L,
+                Tag.create(Tag.TYPE_LOCATION, "rack1"));
+        tagManager.addResourceTags(2L,
+                TagSet.create(Tag.create(Tag.TYPE_LOCATION, "rack1"),  Tag.create(Tag.TYPE_LOCATION, "rack2")));
         tagManager.write(out);
         out.flush();
         out.close();
@@ -105,8 +106,10 @@ public class TagSerializationTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
         TagManager readTagManager = TagManager.read(in);
-        Assert.assertEquals(Sets.newHashSet(1L, 2L), readTagManager.getResourceIdsByTag(Tag.create(Tag.TYPE_LOCATION, "rack1")));
-        Assert.assertEquals(Sets.newHashSet(2L), readTagManager.getResourceIdsByTags(TagSet.create(Tag.create(Tag.TYPE_LOCATION, "rack2"))));
+        Assert.assertEquals(Sets.newHashSet(1L, 2L),
+                readTagManager.getResourceIdsByTag(Tag.create(Tag.TYPE_LOCATION, "rack1")));
+        Assert.assertEquals(Sets.newHashSet(2L),
+                readTagManager.getResourceIdsByTags(TagSet.create(Tag.create(Tag.TYPE_LOCATION, "rack2"))));
 
         in.close();
     }

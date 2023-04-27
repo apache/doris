@@ -21,11 +21,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
+import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -39,6 +39,7 @@ public class ResourcePattern implements Writable {
     private String resourceName;
 
     public static ResourcePattern ALL;
+
     static {
         ALL = new ResourcePattern("*");
         try {
@@ -105,4 +106,3 @@ public class ResourcePattern implements Writable {
         return GsonUtils.GSON.fromJson(json, ResourcePattern.class);
     }
 }
-

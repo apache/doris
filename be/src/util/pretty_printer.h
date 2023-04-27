@@ -14,16 +14,19 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/pretty-printer.h
+// and modified by Doris
 
-#ifndef IMPALA_UTIL_PRETTY_PRINTER_H
-#define IMPALA_UTIL_PRETTY_PRINTER_H
+#pragma once
+
+#include <gen_cpp/RuntimeProfile_types.h>
 
 #include <boost/algorithm/string.hpp>
 #include <cmath>
 #include <iomanip>
 #include <sstream>
 
-#include "gen_cpp/RuntimeProfile_types.h"
 #include "util/binary_cast.hpp"
 #include "util/cpu_info.h"
 
@@ -281,5 +284,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

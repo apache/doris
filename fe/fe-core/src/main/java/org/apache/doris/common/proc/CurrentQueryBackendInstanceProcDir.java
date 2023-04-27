@@ -19,8 +19,9 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.qe.QueryStatisticsItem;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.QueryStatisticsItem;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;

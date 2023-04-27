@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/ExprRewriteRule.java
+// and modified by Doris
 
 package org.apache.doris.rewrite;
 
@@ -40,5 +43,5 @@ public interface ExprRewriteRule {
      * changes were made, the transformed Expr is guaranteed to be a different Expr object,
      * so callers can rely on object reference comparison for change detection.
      */
-    Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException;
+    Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException;
 }

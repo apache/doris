@@ -20,12 +20,14 @@ package org.apache.doris.common.profile;
 import hu.webarticum.treeprinter.BorderTreeNodeDecorator;
 import hu.webarticum.treeprinter.SimpleTreeNode;
 import hu.webarticum.treeprinter.TraditionalTreePrinter;
+import org.apache.commons.lang3.StringUtils;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
 
 public class ProfileTreePrinter {
 
-    public static enum PrintLevel {
-        FRAGMENT,
-        INSTANCE
+    public enum PrintLevel {
+        FRAGMENT, INSTANCE
     }
 
     // Fragment tree only print the entire query plan tree with node name
@@ -33,6 +35,7 @@ public class ProfileTreePrinter {
     public static String printFragmentTree(ProfileTreeNode root) {
         SimpleTreeNode rootNode = buildNode(root, PrintLevel.FRAGMENT);
         StringBuilder sb = new StringBuilder();
+        sb.append("\n");
         new TraditionalTreePrinter().print(new BorderTreeNodeDecorator(rootNode), sb);
         return sb.toString();
     }
@@ -41,6 +44,7 @@ public class ProfileTreePrinter {
     public static String printInstanceTree(ProfileTreeNode root) {
         SimpleTreeNode rootNode = buildNode(root, PrintLevel.INSTANCE);
         StringBuilder sb = new StringBuilder();
+        sb.append("\n");
         new TraditionalTreePrinter().print(new BorderTreeNodeDecorator(rootNode), sb);
         return sb.toString();
     }
@@ -51,5 +55,36 @@ public class ProfileTreePrinter {
             node.addChild(buildNode(child, level));
         }
         return node;
+    }
+
+    public static JSONObject printFragmentTreeInJson(ProfileTreeNode root, ProfileTreePrinter.PrintLevel level) {
+        JSONObject object = new JSONObject();
+        JSONArray jsonNodes = new JSONArray();
+        JSONArray edges = new JSONArray();
+        object.put("nodes", jsonNodes);
+        object.put("edges", edges);
+        buildNodeInJson(root, level, "", "", jsonNodes, edges);
+        return object;
+    }
+
+    private static void buildNodeInJson(ProfileTreeNode profileNode, PrintLevel level, String sourceNodeId,
+            String targetNodeId, JSONArray jsonNodes, JSONArray edges) {
+        boolean isFrist = false;
+        if (StringUtils.isBlank(sourceNodeId)) {
+            isFrist = true;
+            targetNodeId = "1";
+        }
+        jsonNodes.add(profileNode.debugStringInJson(level, targetNodeId));
+        int i = 0;
+        for (ProfileTreeNode child : profileNode.getChildren()) {
+            buildNodeInJson(child, level, targetNodeId, targetNodeId + i++, jsonNodes, edges);
+        }
+        if (!isFrist) {
+            JSONObject edge = new JSONObject();
+            edge.put("id", "e" + targetNodeId);
+            edge.put("source", sourceNodeId);
+            edge.put("target", targetNodeId);
+            edges.add(edge);
+        }
     }
 }

@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.ListPartitionDesc;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -25,6 +28,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ListUtil;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -33,8 +38,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
-public class ListPartitionInfo extends PartitionInfo{
+public class ListPartitionInfo extends PartitionInfo {
 
     public ListPartitionInfo() {
         // for persist
@@ -58,36 +65,46 @@ public class ListPartitionInfo extends PartitionInfo{
         // get partition key
         PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();
 
+        // we might receive one whole empty values list, we should add default partition value for
+        // such occasion
         for (List<PartitionValue> values : partitionKeyDesc.getInValues()) {
+            if (values.isEmpty()) {
+                continue;
+            }
             Preconditions.checkArgument(values.size() == partitionColumns.size(),
-                    "partition key desc list size[" + values.size() + "] is not equal to " +
-                            "partition column size[" + partitionColumns.size() + "]");
+                    "partition key desc list size[" + values.size() + "] is not equal to "
+                            + "partition column size[" + partitionColumns.size() + "]");
         }
         List<PartitionKey> partitionKeys = new ArrayList<>();
+        boolean isDefaultListPartition = false;
         try {
             for (List<PartitionValue> values : partitionKeyDesc.getInValues()) {
                 PartitionKey partitionKey = PartitionKey.createListPartitionKey(values, partitionColumns);
                 checkNewPartitionKey(partitionKey, partitionKeyDesc, isTemp);
                 if (partitionKeys.contains(partitionKey)) {
-                    throw new AnalysisException("The partition key[" + partitionKeyDesc.toSql() + "] has duplicate item ["
-                            + partitionKey.toSql() + "].");
+                    throw new AnalysisException("The partition key["
+                            + partitionKeyDesc.toSql() + "] has duplicate item [" + partitionKey.toSql() + "].");
                 }
                 partitionKeys.add(partitionKey);
+                isDefaultListPartition = partitionKey.isDefaultListPartitionKey();
             }
         } catch (AnalysisException e) {
             throw new DdlException("Invalid list value format: " + e.getMessage());
         }
-        return new ListPartitionItem(partitionKeys);
+        ListPartitionItem item = new ListPartitionItem(partitionKeys);
+        item.setDefaultPartition(isDefaultListPartition);
+        return item;
     }
 
-    private void checkNewPartitionKey(PartitionKey newKey, PartitionKeyDesc keyDesc, boolean isTemp) throws AnalysisException {
+    private void checkNewPartitionKey(PartitionKey newKey, PartitionKeyDesc keyDesc,
+            boolean isTemp) throws AnalysisException {
         Map<Long, PartitionItem> id2Item = idToItem;
         if (isTemp) {
-             id2Item = idToTempItem;
+            id2Item = idToTempItem;
         }
         // check new partition key not exists.
         for (Map.Entry<Long, PartitionItem> entry : id2Item.entrySet()) {
-            if (((ListPartitionItem)entry.getValue()).getItems().contains(newKey)) {
+            if (((ListPartitionItem) entry.getValue()).getItems().contains(newKey)) {
                 StringBuilder sb = new StringBuilder();
                 sb.append("The partition key[").append(newKey.toSql()).append("] in partition item[")
                         .append(keyDesc.toSql()).append("] is conflict with current partitionKeys[")
@@ -103,7 +120,8 @@ public class ListPartitionInfo extends PartitionInfo{
     }
 
     @Override
-    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    public void checkPartitionItemListsConflict(List<PartitionItem> list1,
+            List<PartitionItem> list2) throws DdlException {
         ListUtil.checkListsConflict(list1, list2);
     }
 
@@ -204,6 +222,13 @@ public class ListPartitionInfo extends PartitionInfo{
             }
             sb.append(")");
 
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
+                    sb.append(p).append("\")");
+                }
+            });
+
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
                 break;
@@ -216,5 +241,34 @@ public class ListPartitionInfo extends PartitionInfo{
         }
         sb.append(")");
         return sb.toString();
+    }
+
+    @Override
+    public PartitionDesc toPartitionDesc(OlapTable table) throws AnalysisException {
+        List<String> partitionColumnNames = partitionColumns.stream().map(Column::getName).collect(Collectors.toList());
+        List<AllPartitionDesc> allPartitionDescs = Lists.newArrayListWithCapacity(this.idToItem.size());
+
+        // sort list
+        List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
+        Collections.sort(entries, ListUtil.LIST_MAP_ENTRY_COMPARATOR);
+        for (Map.Entry<Long, PartitionItem> entry : entries) {
+            Partition partition = table.getPartition(entry.getKey());
+            String partitionName = partition.getName();
+
+            List<PartitionKey> partitionKeys = entry.getValue().getItems();
+            List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
+                    .collect(Collectors.toList());
+            PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createIn(inValues);
+
+            Map<String, String> properties = Maps.newHashMap();
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    properties.put("STORAGE POLICY", p);
+                }
+            });
+
+            allPartitionDescs.add(new SinglePartitionDesc(false, partitionName, partitionKeyDesc, properties));
+        }
+        return new ListPartitionDesc(partitionColumnNames, allPartitionDescs);
     }
 }

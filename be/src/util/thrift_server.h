@@ -15,18 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_THRIFT_SERVER_H
-#define DORIS_BE_SRC_COMMON_UTIL_THRIFT_SERVER_H
+#pragma once
 
-#include <thrift/TProcessor.h>
 #include <thrift/server/TServer.h>
 
+#include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <unordered_map>
 
 #include "common/status.h"
 #include "util/metrics.h"
+
+namespace apache {
+namespace thrift {
+class TProcessor;
+} // namespace thrift
+} // namespace apache
 
 namespace doris {
 // Utility class for all Thrift servers. Runs a TNonblockingServer(default) or a
@@ -138,6 +144,7 @@ private:
     // Helper class which monitors starting servers. Needs access to internal members, and
     // is not used outside of this class.
     class ThriftServerEventProcessor;
+
     friend class ThriftServerEventProcessor;
 
     std::shared_ptr<MetricEntity> _thrift_server_metric_entity;
@@ -148,5 +155,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

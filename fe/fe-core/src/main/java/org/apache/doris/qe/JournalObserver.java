@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 
 import org.apache.logging.log4j.LogManager;
@@ -35,13 +35,13 @@ public class JournalObserver implements Comparable<JournalObserver> {
     private Long id;
     private Long targetJournalVersion;
     private CountDownLatch latch;
-    
+
     public JournalObserver(Long targetJournalVersion) {
         this.id = idGen.getAndIncrement();
         this.targetJournalVersion = targetJournalVersion;
         this.latch = new CountDownLatch(1);
     }
-    
+
     public void update() {
         latch.countDown();
     }
@@ -49,15 +49,15 @@ public class JournalObserver implements Comparable<JournalObserver> {
     public Long getTargetJournalVersion() {
         return targetJournalVersion;
     }
-    
+
     /*
      * We are waiting for this FE to replay journal to 'expectedJournalVersion' using JournalObserver.
      * Each time a journal is replayed, JournalObserver will be notified and check if the replayed
      * journal version >= 'expectedJournalVersion'. If satisfy, latch is counted down.
-     * But this is not a atomic operation, the replayed journal version may already larger than expected 
-     * version before waiting the latch. 
+     * But this is not a atomic operation, the replayed journal version may already larger than expected
+     * version before waiting the latch.
      * So, we wait for the latch with a small timeout in a loop until the total timeout, to avoid
-     * waiting unnecessary long time. 
+     * waiting unnecessary long time.
      */
     public void waitForReplay(int timeoutMs) throws DdlException {
         long leftTimeoutMs = timeoutMs;
@@ -67,7 +67,7 @@ public class JournalObserver implements Comparable<JournalObserver> {
             boolean ok = false;
             do {
                 // check if the replayed journal version is already larger than the expected version
-                long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
+                long replayedJournalId = Env.getCurrentEnv().getReplayedJournalId();
                 if (replayedJournalId >= targetJournalVersion || timeoutMs <= 0) {
                     LOG.debug("the replayed journal version {} already large than expected version: {}",
                               replayedJournalId, targetJournalVersion);

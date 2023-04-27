@@ -17,89 +17,94 @@
 
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 
-#include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include <gen_cpp/Descriptors_types.h>
+#include <string.h>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-SchemaScanner::ColumnDesc SchemaCharsetsScanner::_s_css_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaCharsetsScanner::_s_css_columns = {
         //   name,       type,          size
-        {"CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"DEFAULT_COLLATE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"DESCRIPTION", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"DEFAULT_COLLATE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"DESCRIPTION", TYPE_VARCHAR, sizeof(StringRef), false},
         {"MAXLEN", TYPE_BIGINT, sizeof(int64_t), false},
 };
 
 SchemaCharsetsScanner::CharsetStruct SchemaCharsetsScanner::_s_charsets[] = {
         {"utf8", "utf8_general_ci", "UTF-8 Unicode", 3},
-        {nullptr, nullptr, 0},
+        {nullptr, nullptr, nullptr, 0},
 };
 
 SchemaCharsetsScanner::SchemaCharsetsScanner()
-        : SchemaScanner(_s_css_columns, sizeof(_s_css_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          _index(0) {}
+        : SchemaScanner(_s_css_columns, TSchemaTableType::SCH_CHARSETS) {}
 
 SchemaCharsetsScanner::~SchemaCharsetsScanner() {}
 
-Status SchemaCharsetsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
-    // variables names
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        int len = strlen(_s_charsets[_index].charset);
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(str_slot->ptr, _s_charsets[_index].charset, len + 1);
-        str_slot->len = len;
-    }
-    // DEFAULT_COLLATE_NAME
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        int len = strlen(_s_charsets[_index].default_collation);
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(str_slot->ptr, _s_charsets[_index].default_collation, len + 1);
-        str_slot->len = len;
-    }
-    // DESCRIPTION
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        int len = strlen(_s_charsets[_index].description);
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(str_slot->ptr, _s_charsets[_index].description, len + 1);
-        str_slot->len = len;
-    }
-    // maxlen
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        *(int64_t*)slot = _s_charsets[_index].maxlen;
-    }
-    _index++;
-    return Status::OK();
-}
-
-Status SchemaCharsetsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaCharsetsScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+    if (nullptr == block || nullptr == eos) {
         return Status::InternalError("invalid parameter.");
     }
-    if (nullptr == _s_charsets[_index].charset) {
-        *eos = true;
-        return Status::OK();
+    *eos = true;
+    return _fill_block_impl(block);
+}
+
+Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto row_num = 0;
+    while (nullptr != _s_charsets[row_num].charset) {
+        ++row_num;
     }
-    *eos = false;
-    return fill_one_row(tuple, pool);
+    std::vector<void*> datas(row_num);
+
+    // variables names
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_charsets[i].charset, strlen(_s_charsets[i].charset));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 0, datas);
+    }
+    // DEFAULT_COLLATE_NAME
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_charsets[i].default_collation,
+                                strlen(_s_charsets[i].default_collation));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 1, datas);
+    }
+    // DESCRIPTION
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_charsets[i].description, strlen(_s_charsets[i].description));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 2, datas);
+    }
+    // maxlen
+    {
+        int64_t srcs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            srcs[i] = _s_charsets[i].maxlen;
+            datas[i] = srcs + i;
+        }
+        fill_dest_column_for_range(block, 3, datas);
+    }
+    return Status::OK();
 }
 
 } // namespace doris

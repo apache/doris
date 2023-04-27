@@ -17,14 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Mocked;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -44,9 +43,9 @@ public class MysqlTableTest {
     private Map<String, String> properties;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
 
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Before
     public void setUp() {
@@ -63,9 +62,9 @@ public class MysqlTableTest {
         properties.put("database", "db");
         properties.put("table", "tbl");
 
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setCatalog(catalog);
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        fakeEnv = new FakeEnv();
+        FakeEnv.setEnv(env);
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test

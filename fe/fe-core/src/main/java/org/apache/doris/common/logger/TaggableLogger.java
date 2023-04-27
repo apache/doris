@@ -20,6 +20,7 @@ package org.apache.doris.common.logger;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TUniqueId;
+
 import org.apache.logging.log4j.Logger;
 
 import java.util.UUID;

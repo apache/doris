@@ -17,18 +17,18 @@
 
 #include "http/action/reload_tablet_action.h"
 
+#include <gen_cpp/AgentService_types.h>
+
+#include <boost/lexical_cast/bad_lexical_cast.hpp>
 #include <sstream>
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "boost/lexical_cast.hpp"
 #include "common/logging.h"
+#include "common/status.h"
 #include "http/http_channel.h"
-#include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
-#include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 
@@ -42,10 +42,6 @@ ReloadTabletAction::ReloadTabletAction(ExecEnv* exec_env) : _exec_env(exec_env) 
 
 void ReloadTabletAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
-
-    // add tid to cgroup in order to limit read bandwidth
-    CgroupsMgr::apply_system_cgroup();
-
     // Get path
     const std::string& path = req->param(PATH);
     if (path.empty()) {
@@ -95,9 +91,9 @@ void ReloadTabletAction::reload(const std::string& path, int64_t tablet_id, int3
     clone_req.__set_tablet_id(tablet_id);
     clone_req.__set_schema_hash(schema_hash);
 
-    OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
+    Status res = Status::OK();
     res = _exec_env->storage_engine()->load_header(path, clone_req);
-    if (res != OLAPStatus::OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "load header failed. status: " << res << ", signature: " << tablet_id;
         std::string error_msg = std::string("load header failed");
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, error_msg);

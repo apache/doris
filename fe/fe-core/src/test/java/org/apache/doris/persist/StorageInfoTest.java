@@ -27,16 +27,16 @@ public class StorageInfoTest {
         Assert.assertEquals(-1, info.getClusterID());
         Assert.assertEquals(0, info.getImageSeq());
         Assert.assertEquals(0, info.getEditsSeq());
-        
+
         info = new StorageInfo(10, 20, 30);
         Assert.assertEquals(10, info.getClusterID());
         Assert.assertEquals(20, info.getImageSeq());
         Assert.assertEquals(30, info.getEditsSeq());
-        
+
         info.setClusterID(100);
         info.setImageSeq(200);
         info.setEditsSeq(300);
-        
+
         Assert.assertEquals(100, info.getClusterID());
         Assert.assertEquals(200, info.getImageSeq());
         Assert.assertEquals(300, info.getEditsSeq());

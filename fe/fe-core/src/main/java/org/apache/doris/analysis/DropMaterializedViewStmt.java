@@ -17,11 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -40,6 +41,8 @@ public class DropMaterializedViewStmt extends DdlStmt {
 
     private String mvName;
     private TableName tableName;
+
+    private TableName mtmvName;
     private boolean ifExists;
 
     public DropMaterializedViewStmt(boolean ifExists, String mvName, TableName tableName) {
@@ -48,29 +51,59 @@ public class DropMaterializedViewStmt extends DdlStmt {
         this.ifExists = ifExists;
     }
 
+    public DropMaterializedViewStmt(boolean ifExists, TableName mvName) {
+        this.mtmvName = mvName;
+        this.ifExists = ifExists;
+        this.tableName = null;
+    }
+
     public String getMvName() {
-        return mvName;
+        if (tableName != null) {
+            return mvName;
+        } else if (mtmvName != null) {
+            return mtmvName.toString();
+        } else {
+            return null;
+        }
     }
 
     public TableName getTableName() {
         return tableName;
     }
 
+    public TableName getMTMVName() {
+        return mtmvName;
+    }
+
     public boolean isIfExists() {
         return ifExists;
     }
 
+    public boolean isForMTMV() {
+        return mtmvName != null;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (Strings.isNullOrEmpty(mvName)) {
-            throw new AnalysisException("The materialized name could not be empty or null.");
-        }
-        tableName.analyze(analyzer);
+        if (!isForMTMV()) {
+            if (Strings.isNullOrEmpty(mvName)) {
+                throw new AnalysisException("The materialized name could not be empty or null.");
+            }
+            tableName.analyze(analyzer);
+            // disallow external catalog
+            Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
-        // check access
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.DROP)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
+            // check access
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+                    tableName.getTbl(), PrivPredicate.DROP)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
+            }
+        } else {
+            mtmvName.analyze(analyzer);
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mtmvName.getDb(),
+                    mtmvName.getTbl(), PrivPredicate.DROP)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
+            }
         }
     }
 
@@ -81,8 +114,12 @@ public class DropMaterializedViewStmt extends DdlStmt {
         if (ifExists) {
             stringBuilder.append("IF EXISTS ");
         }
-        stringBuilder.append("`").append(mvName).append("` ");
-        stringBuilder.append("ON ").append(tableName.toSql());
+        if (mtmvName != null) {
+            stringBuilder.append(mtmvName.toSql());
+        } else {
+            stringBuilder.append("`").append(mvName).append("` ");
+            stringBuilder.append("ON ").append(tableName.toSql());
+        }
         return stringBuilder.toString();
     }
 }

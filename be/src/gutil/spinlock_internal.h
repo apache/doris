@@ -33,11 +33,10 @@
  * It may not be used directly by code outside of //base.
  */
 
-#ifndef BASE_SPINLOCK_INTERNAL_H_
-#define BASE_SPINLOCK_INTERNAL_H_
+#pragma once
 
 #include "gutil/atomicops.h"
-#include "gutil/basictypes.h"
+#include "gutil/integral_types.h"
 
 namespace base {
 namespace internal {
@@ -60,4 +59,3 @@ void SpinLockDelay(volatile Atomic32* w, int32 value, int loop);
 
 } // namespace internal
 } // namespace base
-#endif

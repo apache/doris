@@ -17,9 +17,10 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -46,11 +47,11 @@ public class CreateRepositoryStmt extends DdlStmt {
     }
 
     public String getBrokerName() {
-        return storage.getStorageName();
+        return storage.getStorageDesc().getName();
     }
 
     public StorageBackend.StorageType getStorageType() {
-        return storage.getStorageType();
+        return storage.getStorageDesc().getStorageType();
     }
 
     public String getLocation() {
@@ -58,7 +59,7 @@ public class CreateRepositoryStmt extends DdlStmt {
     }
 
     public Map<String, String> getProperties() {
-        return storage.getProperties();
+        return storage.getStorageDesc().getProperties();
     }
 
     @Override
@@ -66,9 +67,10 @@ public class CreateRepositoryStmt extends DdlStmt {
         super.analyze(analyzer);
         storage.analyze(analyzer);
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
+        FeNameFormat.checkCommonName("repository", name);
     }
 
     @Override

@@ -17,10 +17,8 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
 
@@ -131,9 +129,6 @@ public class BackupMeta implements Writable {
             Table tbl = Table.read(in);
             tblNameMap.put(tbl.getName(), tbl);
             tblIdMap.put(tbl.getId(), tbl);
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_95) {
-            return;
         }
         size = in.readInt();
         for (int i = 0; i < size; i++) {

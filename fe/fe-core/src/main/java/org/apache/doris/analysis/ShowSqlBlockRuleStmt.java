@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -43,6 +43,9 @@ public class ShowSqlBlockRuleStmt extends ShowStmt {
                     .addColumn(new Column("Name", ScalarType.createVarchar(50)))
                     .addColumn(new Column("Sql", ScalarType.createVarchar(65535)))
                     .addColumn(new Column("SqlHash", ScalarType.createVarchar(65535)))
+                    .addColumn(new Column("PartitionNum", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("TabletNum", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Cardinality", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Global", ScalarType.createVarchar(4)))
                     .addColumn(new Column("Enable", ScalarType.createVarchar(4)))
                     .build();
@@ -61,7 +64,7 @@ public class ShowSqlBlockRuleStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }

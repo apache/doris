@@ -137,4 +137,3 @@ public abstract class PluginLoader {
         return Objects.hash(pluginInfo);
     }
 }
-

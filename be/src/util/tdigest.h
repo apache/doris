@@ -40,8 +40,7 @@
 // https://github.com/tdunning/t-digest/blob/07b8f2ca2be8d0a9f04df2feadad5ddc1bb73c88/docs/t-digest-paper/histo.pdf.
 // https://github.com/derrickburns/tdigest
 
-#ifndef TDIGEST2_TDIGEST_H_
-#define TDIGEST2_TDIGEST_H_
+#pragma once
 
 #include <algorithm>
 #include <cfloat>
@@ -71,15 +70,15 @@ public:
 
     Centroid(Value mean, Weight weight) : _mean(mean), _weight(weight) {}
 
-    inline Value mean() const noexcept { return _mean; }
+    Value mean() const noexcept { return _mean; }
 
-    inline Weight weight() const noexcept { return _weight; }
+    Weight weight() const noexcept { return _weight; }
 
-    inline Value& mean() noexcept { return _mean; }
+    Value& mean() noexcept { return _mean; }
 
-    inline Weight& weight() noexcept { return _weight; }
+    Weight& weight() noexcept { return _weight; }
 
-    inline void add(const Centroid& c) {
+    void add(const Centroid& c) {
         DCHECK_GT(c._weight, 0);
         if (_weight != 0.0) {
             _weight += c._weight;
@@ -210,8 +209,8 @@ public:
     }
 
     // merge in another t-digest
-    inline void merge(const TDigest* other) {
-        std::vector<const TDigest*> others{other};
+    void merge(const TDigest* other) {
+        std::vector<const TDigest*> others {other};
         add(others.cbegin(), others.cend());
     }
 
@@ -223,7 +222,7 @@ public:
 
     Index maxProcessed() const { return _max_processed; }
 
-    inline void add(std::vector<const TDigest*> digests) { add(digests.cbegin(), digests.cend()); }
+    void add(std::vector<const TDigest*> digests) { add(digests.cbegin(), digests.cend()); }
 
     // merge in a vector of tdigests in the most efficient manner possible
     // in constant space
@@ -232,7 +231,7 @@ public:
              std::vector<const TDigest*>::const_iterator end) {
         if (iter != end) {
             auto size = std::distance(iter, end);
-            TDigestQueue pq(TDigestComparator{});
+            TDigestQueue pq(TDigestComparator {});
             for (; iter != end; iter++) {
                 pq.push((*iter));
             }
@@ -288,7 +287,7 @@ public:
             return 0.0;
         } else if (_processed.size() == 1) {
             VLOG_CRITICAL << "one processed value "
-                    << " _min " << _min << " _max " << _max;
+                          << " _min " << _min << " _max " << _max;
             // exactly one centroid, should have _max==_min
             auto width = _max - _min;
             if (x < _min) {
@@ -306,20 +305,20 @@ public:
             auto n = _processed.size();
             if (x <= _min) {
                 VLOG_CRITICAL << "below _min "
-                        << " _min " << _min << " x " << x;
+                              << " _min " << _min << " x " << x;
                 return 0;
             }
 
             if (x >= _max) {
                 VLOG_CRITICAL << "above _max "
-                        << " _max " << _max << " x " << x;
+                              << " _max " << _max << " x " << x;
                 return 1;
             }
 
             // check for the left tail
             if (x <= mean(0)) {
                 VLOG_CRITICAL << "left tail "
-                        << " _min " << _min << " mean(0) " << mean(0) << " x " << x;
+                              << " _min " << _min << " mean(0) " << mean(0) << " x " << x;
 
                 // note that this is different than mean(0) > _min ... this guarantees interpolation works
                 if (mean(0) - _min > 0) {
@@ -332,7 +331,7 @@ public:
             // and the right tail
             if (x >= mean(n - 1)) {
                 VLOG_CRITICAL << "right tail"
-                        << " _max " << _max << " mean(n - 1) " << mean(n - 1) << " x " << x;
+                              << " _max " << _max << " mean(n - 1) " << mean(n - 1) << " x " << x;
 
                 if (_max - mean(n - 1) > 0) {
                     return 1.0 - (_max - x) / (_max - mean(n - 1)) * weight(n - 1) /
@@ -352,7 +351,7 @@ public:
             DCHECK_LE(0.0, z1);
             DCHECK_LE(0.0, z2);
             VLOG_CRITICAL << "middle "
-                    << " z1 " << z1 << " z2 " << z2 << " x " << x;
+                          << " z1 " << z1 << " z2 " << z2 << " x " << x;
 
             return weightedAverage(_cumulative[i - 1], z2, _cumulative[i], z1) / _processed_weight;
         }
@@ -415,11 +414,11 @@ public:
 
     void add(Value x) { add(x, 1); }
 
-    inline void compress() { process(); }
+    void compress() { process(); }
 
     // add a single centroid to the unprocessed vector, processing previously unprocessed sorted if our limit has
     // been reached.
-    inline bool add(Value x, Weight w) {
+    bool add(Value x, Weight w) {
         if (std::isnan(x)) {
             return false;
         }
@@ -429,8 +428,8 @@ public:
         return true;
     }
 
-    inline void add(std::vector<Centroid>::const_iterator iter,
-                    std::vector<Centroid>::const_iterator end) {
+    void add(std::vector<Centroid>::const_iterator iter,
+             std::vector<Centroid>::const_iterator end) {
         while (iter != end) {
             const size_t diff = std::distance(iter, end);
             const size_t room = _max_unprocessed - _unprocessed.size();
@@ -443,12 +442,16 @@ public:
     }
 
     uint32_t serialized_size() {
-        return sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(size_t) * 3 +
+        return sizeof(uint32_t) + sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(uint32_t) * 3 +
                _processed.size() * sizeof(Centroid) + _unprocessed.size() * sizeof(Centroid) +
                _cumulative.size() * sizeof(Weight);
     }
 
-    void serialize(uint8_t* writer) {
+    size_t serialize(uint8_t* writer) {
+        uint8_t* dst = writer;
+        uint32_t total_size = serialized_size();
+        memcpy(writer, &total_size, sizeof(uint32_t));
+        writer += sizeof(uint32_t);
         memcpy(writer, &_compression, sizeof(Value));
         writer += sizeof(Value);
         memcpy(writer, &_min, sizeof(Value));
@@ -475,6 +478,7 @@ public:
         size = _unprocessed.size();
         memcpy(writer, &size, sizeof(uint32_t));
         writer += sizeof(uint32_t);
+        //TODO(weixiang): may be once memcpy is enough!
         for (int i = 0; i < size; i++) {
             memcpy(writer, &_unprocessed[i], sizeof(Centroid));
             writer += sizeof(Centroid);
@@ -487,9 +491,13 @@ public:
             memcpy(writer, &_cumulative[i], sizeof(Weight));
             writer += sizeof(Weight);
         }
+        return writer - dst;
     }
 
     void unserialize(const uint8_t* type_reader) {
+        uint32_t total_length = 0;
+        memcpy(&total_length, type_reader, sizeof(uint32_t));
+        type_reader += sizeof(uint32_t);
         memcpy(&_compression, type_reader, sizeof(Value));
         type_reader += sizeof(Value);
         memcpy(&_min, type_reader, sizeof(Value));
@@ -552,10 +560,10 @@ private:
     std::vector<Weight> _cumulative;
 
     // return mean of i-th centroid
-    inline Value mean(int i) const noexcept { return _processed[i].mean(); }
+    Value mean(int i) const noexcept { return _processed[i].mean(); }
 
     // return weight of i-th centroid
-    inline Weight weight(int i) const noexcept { return _processed[i].weight(); }
+    Weight weight(int i) const noexcept { return _processed[i].weight(); }
 
     // append all unprocessed centroids into current unprocessed vector
     void mergeUnprocessed(const std::vector<const TDigest*>& tdigests) {
@@ -579,7 +587,7 @@ private:
         if (tdigests.size() == 0) return;
 
         size_t total = 0;
-        CentroidListQueue pq(CentroidListComparator{});
+        CentroidListQueue pq(CentroidListComparator {});
         for (auto& td : tdigests) {
             auto& sorted = td->_processed;
             auto size = sorted.size();
@@ -613,7 +621,7 @@ private:
         }
     }
 
-    inline void processIfNecessary() {
+    void processIfNecessary() {
         if (isDirty()) {
             process();
         }
@@ -635,7 +643,7 @@ private:
 
     // merges _unprocessed centroids and _processed centroids together and processes them
     // when complete, _unprocessed will be empty and _processed will have at most _max_processed centroids
-    inline void process() {
+    void process() {
         CentroidComparator cc;
         RadixSort<TDigestRadixSortTraits>::executeLSD(_unprocessed.data(), _unprocessed.size());
         auto count = _unprocessed.size();
@@ -673,7 +681,7 @@ private:
         updateCumulative();
     }
 
-    inline int checkWeights() { return checkWeights(_processed, _processed_weight); }
+    int checkWeights() { return checkWeights(_processed, _processed_weight); }
 
     size_t checkWeights(const std::vector<Centroid>& sorted, Value total) {
         size_t badWeight = 0;
@@ -684,14 +692,15 @@ private:
             auto dq = w / total;
             auto k2 = integratedLocation(q + dq);
             if (k2 - k1 > 1 && w != 1) {
-                VLOG_CRITICAL << "Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 "
-                        << k1 << " k2 " << k2 << " dk " << (k2 - k1) << " w " << w << " q " << q;
+                VLOG_CRITICAL << "Oversize centroid at " << std::distance(sorted.cbegin(), iter)
+                              << " k1 " << k1 << " k2 " << k2 << " dk " << (k2 - k1) << " w " << w
+                              << " q " << q;
                 badWeight++;
             }
             if (k2 - k1 > 1.5 && w != 1) {
                 VLOG_CRITICAL << "Egregiously Oversize centroid at "
-                        << std::distance(sorted.cbegin(), iter) << " k1 " << k1 << " k2 " << k2
-                        << " dk " << (k2 - k1) << " w " << w << " q " << q;
+                              << std::distance(sorted.cbegin(), iter) << " k1 " << k1 << " k2 "
+                              << k2 << " dk " << (k2 - k1) << " w " << w << " q " << q;
                 badWeight++;
             }
             q += dq;
@@ -718,11 +727,11 @@ private:
     * @param q The quantile scale value to be mapped.
     * @return The centroid scale value corresponding to q.
     */
-    inline Value integratedLocation(Value q) const {
+    Value integratedLocation(Value q) const {
         return _compression * (std::asin(2.0 * q - 1.0) + M_PI / 2) / M_PI;
     }
 
-    inline Value integratedQ(Value k) const {
+    Value integratedQ(Value k) const {
         return (std::sin(std::min(k, _compression) * M_PI / _compression - M_PI / 2) + 1) / 2;
     }
 
@@ -773,5 +782,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // TDIGEST2_TDIGEST_H_

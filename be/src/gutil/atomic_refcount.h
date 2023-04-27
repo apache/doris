@@ -1,5 +1,3 @@
-#ifndef BASE_ATOMIC_REFCOUNT_H_
-#define BASE_ATOMIC_REFCOUNT_H_
 // Copyright 2008 Google Inc.
 // All rights reserved.
 
@@ -33,6 +31,8 @@
 // "volatile" in the signatures below is for backwards compatibility.
 //
 // If you need to do something very different from this, use a Mutex.
+
+#pragma once
 
 #include <glog/logging.h>
 
@@ -79,9 +79,9 @@ inline bool RefCountDec(volatile Atomic32* ptr) {
 
 // Return whether the reference count is one.
 // If the reference count is used in the conventional way, a
-// refrerence count of 1 implies that the current thread owns the
+// reference count of 1 implies that the current thread owns the
 // reference and no other thread shares it.
-// This call performs the test for a referenece count of one, and
+// This call performs the test for a reference count of one, and
 // performs the memory barrier needed for the owning thread
 // to act on the object, knowing that it has exclusive access to the
 // object.
@@ -145,5 +145,3 @@ inline bool RefCountIsZero(const volatile AtomicWord* ptr) {
 #endif
 
 } // namespace base
-
-#endif // BASE_ATOMIC_REFCOUNT_H_

@@ -19,7 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.BrokerMgr;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.GenericPool;
@@ -45,7 +45,11 @@ import org.apache.doris.thrift.TPaloBrokerService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.thrift.TException;
 import org.junit.Assert;
 import org.junit.Test;
@@ -54,14 +58,6 @@ import java.io.UnsupportedEncodingException;
 import java.util.Collections;
 import java.util.List;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
-
 public class BrokerUtilTest {
 
     @Test
@@ -69,87 +65,92 @@ public class BrokerUtilTest {
         String path = "/path/to/dir/k1=v1/xxx.csv";
         try {
             List<String> columns = BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            assertEquals(1, columns.size());
-            assertEquals(Collections.singletonList("v1"), columns);
+            Assert.assertEquals(1, columns.size());
+            Assert.assertEquals(Collections.singletonList("v1"), columns);
         } catch (UserException e) {
-            fail();
+            Assert.fail();
         }
 
         path = "/path/to/dir/k1/xxx.csv";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            fail();
+            BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
+            Assert.fail();
         } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         path = "/path/to/dir/k1=v1/xxx.csv";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k2"));
-            fail();
+            BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k2"));
+            Assert.fail();
         } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         path = "/path/to/dir/k1=v2/k1=v1/xxx.csv";
         try {
             List<String> columns = BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            assertEquals(1, columns.size());
-            assertEquals(Collections.singletonList("v1"), columns);
+            Assert.assertEquals(1, columns.size());
+            Assert.assertEquals(Collections.singletonList("v1"), columns);
         } catch (UserException e) {
-            fail();
+            Assert.fail();
         }
 
         path = "/path/to/dir/k2=v2/k1=v1/xxx.csv";
         try {
             List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            assertEquals(2, columns.size());
-            assertEquals(Lists.newArrayList("v1", "v2"), columns);
+            Assert.assertEquals(2, columns.size());
+            Assert.assertEquals(Lists.newArrayList("v1", "v2"), columns);
         } catch (UserException e) {
-            fail();
+            Assert.fail();
         }
 
         path = "/path/to/dir/k2=v2/a/k1=v1/xxx.csv";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            fail();
+            BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
+            Assert.fail();
         } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         path = "/path/to/dir/k2=v2/k1=v1/xxx.csv";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2", "k3"));
-            fail();
+            BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2", "k3"));
+            Assert.fail();
         } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         path = "/path/to/dir/k2=v2//k1=v1//xxx.csv";
         try {
             List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            assertEquals(2, columns.size());
-            assertEquals(Lists.newArrayList("v1", "v2"), columns);
+            Assert.assertEquals(2, columns.size());
+            Assert.assertEquals(Lists.newArrayList("v1", "v2"), columns);
         } catch (UserException e) {
-            fail();
+            Assert.fail();
         }
 
         path = "/path/to/dir/k2==v2=//k1=v1//xxx.csv";
         try {
             List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            assertEquals(2, columns.size());
-            assertEquals(Lists.newArrayList("v1", "=v2="), columns);
+            Assert.assertEquals(2, columns.size());
+            Assert.assertEquals(Lists.newArrayList("v1", "=v2="), columns);
         } catch (UserException e) {
-            fail();
+            Assert.fail();
         }
 
         path = "/path/to/dir/k2==v2=//k1=v1/";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            fail();
+            BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
+            Assert.fail();
         } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         path = "/path/to/dir/k1=2/a/xxx.csv";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            fail();
+            BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
+            Assert.fail();
         } catch (UserException ignored) {
             ignored.printStackTrace();
         }
@@ -157,7 +158,7 @@ public class BrokerUtilTest {
     }
 
     @Test
-    public void testReadFile(@Mocked TPaloBrokerService.Client client, @Mocked Catalog catalog,
+    public void testReadFile(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
                              @Injectable BrokerMgr brokerMgr)
             throws TException, UserException, UnsupportedEncodingException {
         // list response
@@ -202,7 +203,7 @@ public class BrokerUtilTest {
 
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.getBroker(anyString, anyString);
                 result = fsBroker;
@@ -225,7 +226,7 @@ public class BrokerUtilTest {
     }
 
     @Test
-    public void testWriteFile(@Mocked TPaloBrokerService.Client client, @Mocked Catalog catalog,
+    public void testWriteFile(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
                               @Injectable BrokerMgr brokerMgr)
             throws TException, UserException, UnsupportedEncodingException {
         // open writer response
@@ -255,7 +256,7 @@ public class BrokerUtilTest {
 
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.getBroker(anyString, anyString);
                 result = fsBroker;
@@ -280,7 +281,7 @@ public class BrokerUtilTest {
     }
 
     @Test
-    public void testDeletePath(@Mocked TPaloBrokerService.Client client, @Mocked Catalog catalog,
+    public void testDeletePath(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
                                @Injectable BrokerMgr brokerMgr) throws AnalysisException, TException {
         // delete response
         TBrokerOperationStatus status = new TBrokerOperationStatus();
@@ -306,7 +307,7 @@ public class BrokerUtilTest {
 
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.getBroker(anyString, anyString);
                 result = fsBroker;

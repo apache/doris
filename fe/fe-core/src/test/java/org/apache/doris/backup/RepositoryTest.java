@@ -22,14 +22,19 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.fs.obj.BlobStorage;
 import org.apache.doris.service.FrontendOptions;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -44,12 +49,6 @@ import java.net.URISyntaxException;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 
 public class RepositoryTest {
@@ -170,7 +169,7 @@ public class RepositoryTest {
                 result = Status.OK;
             }
         };
-        
+
         repo = new Repository(10000, "repo", false, location, storage);
         Assert.assertTrue(repo.ping());
         Assert.assertTrue(repo.getErrorMsg() == null);
@@ -184,8 +183,8 @@ public class RepositoryTest {
                 minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
-                        result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "a", false, 100));
-                        result.add(new RemoteFile("_ss_b", true, 100));
+                        result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "a", false, 100, 0));
+                        result.add(new RemoteFile("_ss_b", true, 100, 0));
                         return Status.OK;
                     }
                 };
@@ -254,7 +253,7 @@ public class RepositoryTest {
                     minTimes = 0;
                     result = new Delegate() {
                         public Status list(String remotePath, List<RemoteFile> result) {
-                            result.add(new RemoteFile("remote_file.0cc175b9c0f1b6a831c399e269772661", true, 100));
+                            result.add(new RemoteFile("remote_file.0cc175b9c0f1b6a831c399e269772661", true, 100, 0));
                             return Status.OK;
                         }
                     };
@@ -292,10 +291,11 @@ public class RepositoryTest {
                         if (remotePath.contains(Repository.PREFIX_JOB_INFO)) {
                             result.add(new RemoteFile(" __info_2018-04-18-20-11-00.12345678123456781234567812345678",
                                     true,
-                                    100));
+                                    100,
+                                    0));
                         } else {
-                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100));
-                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100));
+                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100, 0));
+                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100, 0));
                         }
                         return Status.OK;
                     }
@@ -331,15 +331,15 @@ public class RepositoryTest {
             repo.write(out);
             out.flush();
             out.close();
-            
+
             DataInputStream in = new DataInputStream(new FileInputStream(file));
             Repository newRepo = Repository.read(in);
             in.close();
-            
+
             Assert.assertEquals(repo.getName(), newRepo.getName());
             Assert.assertEquals(repo.getId(), newRepo.getId());
             Assert.assertEquals(repo.getLocation(), newRepo.getLocation());
-            
+
         } catch (IOException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();

@@ -22,6 +22,8 @@
 #include <iostream>
 #include <string>
 
+#include "olap/olap_common.h"
+
 namespace doris {
 
 // 24bit int type, used to store date type in storage
@@ -62,7 +64,7 @@ public:
     }
 
     uint24_t& operator>>=(const int bits) {
-        *this = static_cast<uint>(*this) >> bits;
+        *this = static_cast<unsigned int>(*this) >> bits;
         return *this;
     }
 
@@ -137,6 +139,8 @@ public:
         strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
         return std::string(buf);
     }
+
+    const uint8_t* get_data() const { return data; }
 
 private:
     uint8_t data[3];

@@ -20,6 +20,7 @@ package org.apache.doris.persist;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;

@@ -17,14 +17,15 @@
 
 package org.apache.doris.ldap;
 
-import static org.springframework.ldap.query.LdapQueryBuilder.query;
-
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.util.SymmetricEncryption;
+import org.apache.doris.persist.LdapInfo;
 
 import com.google.common.collect.Lists;
+import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.ldap.core.DirContextOperations;
@@ -42,57 +43,87 @@ import java.util.List;
 public class LdapClient {
     private static final Logger LOG = LogManager.getLogger(LdapClient.class);
 
-    // Checking the user password requires creating a new connection with the user dn and password.
-    // Due to this, these connections cannot be pooled.
-    private volatile static LdapTemplate ldapTemplateNoPool;
-    // Use ldap connection pool, connect to bind ldap admin dn and admin password.
-    private volatile static LdapTemplate ldapTemplatePool;
+    private volatile ClientInfo clientInfo;
 
-    public static void init(String ldapPassword) {
-        LOG.info("Init ldap client.");
-        setLdapTemplateNoPool(ldapPassword);
-        setLdapTemplatePool(ldapPassword);
+    @Data
+    private static class ClientInfo {
+        // Checking the user password requires creating a new connection with the user dn and password.
+        // Due to this, these connections cannot be pooled.
+        private LdapTemplate ldapTemplateNoPool;
+        // Use ldap connection pool, connect to bind ldap admin dn and admin password.
+        private LdapTemplate ldapTemplatePool;
+
+        private String ldapPassword;
+
+        public ClientInfo(String ldapPassword) {
+            this.ldapPassword = ldapPassword;
+            setLdapTemplateNoPool(ldapPassword);
+            setLdapTemplatePool(ldapPassword);
+        }
+
+        private void setLdapTemplateNoPool(String ldapPassword) {
+            LdapContextSource contextSource = new LdapContextSource();
+            String url = "ldap://" + LdapConfig.ldap_host + ":" + LdapConfig.ldap_port;
+
+            contextSource.setUrl(url);
+            contextSource.setUserDn(LdapConfig.ldap_admin_name);
+            contextSource.setPassword(ldapPassword);
+            contextSource.afterPropertiesSet();
+            ldapTemplateNoPool = new LdapTemplate(contextSource);
+        }
+
+        private void setLdapTemplatePool(String ldapPassword) {
+            LdapContextSource contextSource = new LdapContextSource();
+            String url = "ldap://" + LdapConfig.ldap_host + ":" + LdapConfig.ldap_port;
+
+            contextSource.setUrl(url);
+            contextSource.setUserDn(LdapConfig.ldap_admin_name);
+            contextSource.setPassword(ldapPassword);
+            contextSource.setPooled(true);
+            contextSource.afterPropertiesSet();
+
+            PoolingContextSource poolingContextSource = new PoolingContextSource();
+            poolingContextSource.setDirContextValidator(new DefaultDirContextValidator());
+            poolingContextSource.setContextSource(contextSource);
+            poolingContextSource.setMaxActive(LdapConfig.ldap_pool_max_active);
+            poolingContextSource.setMaxTotal(LdapConfig.ldap_pool_max_total);
+            poolingContextSource.setMaxIdle(LdapConfig.ldap_pool_max_idle);
+            poolingContextSource.setMaxWait(LdapConfig.ldap_pool_max_wait);
+            poolingContextSource.setMinIdle(LdapConfig.ldap_pool_min_idle);
+            poolingContextSource.setWhenExhaustedAction(LdapConfig.ldap_pool_when_exhausted);
+            poolingContextSource.setTestOnBorrow(LdapConfig.ldap_pool_test_on_borrow);
+            poolingContextSource.setTestOnReturn(LdapConfig.ldap_pool_test_on_return);
+            poolingContextSource.setTestWhileIdle(LdapConfig.ldap_pool_test_while_idle);
+
+            TransactionAwareContextSourceProxy proxy = new TransactionAwareContextSourceProxy(poolingContextSource);
+            ldapTemplatePool = new LdapTemplate(proxy);
+        }
+
+        public boolean checkUpdate(String ldapPassword) {
+            return this.ldapPassword == null || !this.ldapPassword.equals(ldapPassword);
+        }
     }
 
-    private static void setLdapTemplateNoPool(String ldapPassword) {
-        LdapContextSource contextSource = new LdapContextSource();
-        String url = "ldap://" + LdapConfig.ldap_host + ":" + LdapConfig.ldap_port;
+    private void init() {
+        LdapInfo ldapInfo = Env.getCurrentEnv().getAuth().getLdapInfo();
+        if (ldapInfo == null || !ldapInfo.isValid()) {
+            LOG.error("info is null, maybe no ldap admin password is set.");
+            ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
+            throw new RuntimeException("ldapTemplate is not initialized");
+        }
 
-        contextSource.setUrl(url);
-        contextSource.setUserDn(LdapConfig.ldap_admin_name);
-        contextSource.setPassword(SymmetricEncryption.decrypt(ldapPassword));
-        contextSource.afterPropertiesSet();
-        ldapTemplateNoPool = new LdapTemplate(contextSource);
+        String ldapPassword = SymmetricEncryption.decrypt(ldapInfo.getLdapPasswdEncrypted(),
+                ldapInfo.getSecretKey(), ldapInfo.getIv());
+        if (clientInfo == null || clientInfo.checkUpdate(ldapPassword)) {
+            synchronized (LdapClient.class) {
+                if (clientInfo == null || clientInfo.checkUpdate(ldapPassword)) {
+                    clientInfo = new ClientInfo(ldapPassword);
+                }
+            }
+        }
     }
 
-    private static void setLdapTemplatePool(String ldapPassword) {
-        LdapContextSource contextSource = new LdapContextSource();
-        String url = "ldap://" + LdapConfig.ldap_host + ":" + LdapConfig.ldap_port;
-
-        contextSource.setUrl(url);
-        contextSource.setUserDn(LdapConfig.ldap_admin_name);
-        contextSource.setPassword(SymmetricEncryption.decrypt(ldapPassword));
-        contextSource.setPooled(true);
-        contextSource.afterPropertiesSet();
-
-        PoolingContextSource poolingContextSource = new PoolingContextSource();
-        poolingContextSource.setDirContextValidator(new DefaultDirContextValidator());
-        poolingContextSource.setContextSource(contextSource);
-        poolingContextSource.setMaxActive(LdapConfig.max_active);
-        poolingContextSource.setMaxTotal(LdapConfig.max_total);
-        poolingContextSource.setMaxIdle(LdapConfig.max_idle);
-        poolingContextSource.setMaxWait(LdapConfig.max_wait);
-        poolingContextSource.setMinIdle(LdapConfig.min_idle);
-        poolingContextSource.setWhenExhaustedAction(LdapConfig.when_exhausted);
-        poolingContextSource.setTestOnBorrow(LdapConfig.test_on_borrow);
-        poolingContextSource.setTestOnReturn(LdapConfig.test_on_return);
-        poolingContextSource.setTestWhileIdle(LdapConfig.test_while_idle);
-
-        TransactionAwareContextSourceProxy proxy = new TransactionAwareContextSourceProxy(poolingContextSource);
-        ldapTemplatePool = new LdapTemplate(proxy);
-    }
-
-    public static boolean doesUserExist(String userName) {
+    boolean doesUserExist(String userName) {
         String user = getUserDn(userName);
         if (user == null) {
             LOG.debug("User:{} does not exist in LDAP.", userName);
@@ -101,10 +132,11 @@ public class LdapClient {
         return true;
     }
 
-    public static boolean checkPassword(String userName, String password) {
-        checkLdapTemplate();
+    boolean checkPassword(String userName, String password) {
+        init();
         try {
-            ldapTemplateNoPool.authenticate(query().base(LdapConfig.ldap_user_basedn)
+            clientInfo.getLdapTemplateNoPool().authenticate(org.springframework.ldap.query.LdapQueryBuilder.query()
+                    .base(LdapConfig.ldap_user_basedn)
                     .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)), password);
             return true;
         } catch (Exception e) {
@@ -113,16 +145,17 @@ public class LdapClient {
     }
 
     // Search group DNs by 'member' attribution.
-    public static List<String> getGroups(String userName) {
+    List<String> getGroups(String userName) {
         List<String> groups = Lists.newArrayList();
-        if (LdapConfig.ldap_group_basedn.isEmpty()){
+        if (LdapConfig.ldap_group_basedn.isEmpty()) {
             return groups;
         }
         String userDn = getUserDn(userName);
         if (userDn == null) {
             return groups;
         }
-        List<String> groupDns = getDn(query().base(LdapConfig.ldap_group_basedn)
+        List<String> groupDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
+                .base(LdapConfig.ldap_group_basedn)
                 .where("member").is(userDn));
         if (groupDns == null) {
             return groups;
@@ -138,24 +171,25 @@ public class LdapClient {
         return groups;
     }
 
-    private static String getUserDn(String userName) {
-        List<String> userDns = getDn(query().base(LdapConfig.ldap_user_basedn)
-                .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)));
+    private String getUserDn(String userName) {
+        List<String> userDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
+                .base(LdapConfig.ldap_user_basedn).filter(getUserFilter(LdapConfig.ldap_user_filter, userName)));
         if (userDns == null || userDns.isEmpty()) {
             return null;
         }
         if (userDns.size() > 1) {
-            LOG.error("{} not unique in LDAP server:{}", getUserFilter(LdapConfig.ldap_user_filter, userName), userDns);
+            LOG.error("{} not unique in LDAP server:{}",
+                    getUserFilter(LdapConfig.ldap_user_filter, userName), userDns);
             ErrorReport.report(ErrorCode.ERROR_LDAP_USER_NOT_UNIQUE_ERR, userName);
             throw new RuntimeException("User is not unique");
         }
         return userDns.get(0);
     }
 
-    private static List<String> getDn(LdapQuery query) {
-        checkLdapTemplate();
+    private List<String> getDn(LdapQuery query) {
+        init();
         try {
-            return ldapTemplatePool.search(query, new AbstractContextMapper() {
+            return clientInfo.getLdapTemplatePool().search(query, new AbstractContextMapper<String>() {
                 protected String doMapFromContext(DirContextOperations ctx) {
                     return ctx.getNameInNamespace();
                 }
@@ -167,16 +201,7 @@ public class LdapClient {
         }
     }
 
-    private static String getUserFilter(String userFilter, String userName) {
+    private String getUserFilter(String userFilter, String userName) {
         return userFilter.replaceAll("\\{login}", userName);
-    }
-
-    private static boolean checkLdapTemplate() {
-        if (ldapTemplatePool == null || ldapTemplateNoPool == null) {
-            LOG.error("ldapTemplate is not initialized.");
-            ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
-            throw new RuntimeException("ldapTemplate is not initialized");
-        }
-        return true;
     }
 }

@@ -30,7 +30,6 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,6 +58,7 @@ public class BrokerLoadPendingTask extends LoadTask {
     void executeTask() throws UserException {
         LOG.info("begin to execute broker pending task. job: {}", callback.getCallbackId());
         getAllFileStatus();
+        ((BrokerLoadJob) callback).beginTxn();
     }
 
     private void getAllFileStatus() throws UserException {
@@ -122,8 +122,8 @@ public class BrokerLoadPendingTask extends LoadTask {
                     LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
                             filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
                             callback.getCallbackId(),
-                        brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER ?
-                            BrokerUtil.getAddress(brokerDesc): brokerDesc.getStorageType());
+                            brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
+                                    ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
                     groupNum++;
                 }
             }
@@ -132,7 +132,8 @@ public class BrokerLoadPendingTask extends LoadTask {
             totalFileNum += tableTotalFileNum;
             ((BrokerPendingTaskAttachment) attachment).addFileStatus(aggKey, fileStatusList);
             LOG.info("get {} files to be loaded. total size: {}. cost: {} ms, job: {}",
-                    tableTotalFileNum, tableTotalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());
+                    tableTotalFileNum, tableTotalFileSize, (System.currentTimeMillis() - start),
+                    callback.getCallbackId());
         }
 
         ((BrokerLoadJob) callback).setLoadFileInfo(totalFileNum, totalFileSize);

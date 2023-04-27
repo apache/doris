@@ -17,15 +17,9 @@
 
 package org.apache.doris.load.loadv2;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.BrokerMgr;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.Config;
@@ -37,7 +31,7 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.CommandResult;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlStatus;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerListPathRequest;
 import org.apache.doris.thrift.TBrokerListResponse;
@@ -47,13 +41,17 @@ import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.spark.launcher.SparkLauncher;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.io.IOException;
 import java.util.List;
@@ -72,50 +70,50 @@ public class SparkEtlJobHandlerTest {
     private String remoteArchivePath;
     private SparkRepository.SparkArchive archive;
 
-    private final String runningReport = "Application Report :\n" +
-            "Application-Id : application_15888888888_0088\n" +
-            "Application-Name : label0\n" +
-            "Application-Type : SPARK-2.4.1\n" +
-            "User : test\n" +
-            "Queue : test-queue\n" +
-            "Start-Time : 1597654469958\n" +
-            "Finish-Time : 0\n" +
-            "Progress : 50%\n" +
-            "State : RUNNING\n" +
-            "Final-State : UNDEFINED\n" +
-            "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
-            "RPC Port : 40236\n" +
-            "AM Host : host-name";
+    private final String runningReport = "Application Report :\n"
+            + "Application-Id : application_15888888888_0088\n"
+            + "Application-Name : label0\n"
+            + "Application-Type : SPARK-2.4.1\n"
+            + "User : test\n"
+            + "Queue : test-queue\n"
+            + "Start-Time : 1597654469958\n"
+            + "Finish-Time : 0\n"
+            + "Progress : 50%\n"
+            + "State : RUNNING\n"
+            + "Final-State : UNDEFINED\n"
+            + "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n"
+            + "RPC Port : 40236\n"
+            + "AM Host : host-name";
 
-    private final String failedReport = "Application Report :\n" +
-            "Application-Id : application_15888888888_0088\n" +
-            "Application-Name : label0\n" +
-            "Application-Type : SPARK-2.4.1\n" +
-            "User : test\n" +
-            "Queue : test-queue\n" +
-            "Start-Time : 1597654469958\n" +
-            "Finish-Time : 1597654801939\n" +
-            "Progress : 100%\n" +
-            "State : FINISHED\n" +
-            "Final-State : FAILED\n" +
-            "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
-            "RPC Port : 40236\n" +
-            "AM Host : host-name";
+    private final String failedReport = "Application Report :\n"
+            + "Application-Id : application_15888888888_0088\n"
+            + "Application-Name : label0\n"
+            + "Application-Type : SPARK-2.4.1\n"
+            + "User : test\n"
+            + "Queue : test-queue\n"
+            + "Start-Time : 1597654469958\n"
+            + "Finish-Time : 1597654801939\n"
+            + "Progress : 100%\n"
+            + "State : FINISHED\n"
+            + "Final-State : FAILED\n"
+            + "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n"
+            + "RPC Port : 40236\n"
+            + "AM Host : host-name";
 
-    private final String finishReport = "Application Report :\n" +
-            "Application-Id : application_15888888888_0088\n" +
-            "Application-Name : label0\n" +
-            "Application-Type : SPARK-2.4.1\n" +
-            "User : test\n" +
-            "Queue : test-queue\n" +
-            "Start-Time : 1597654469958\n" +
-            "Finish-Time : 1597654801939\n" +
-            "Progress : 100%\n" +
-            "State : FINISHED\n" +
-            "Final-State : SUCCEEDED\n" +
-            "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
-            "RPC Port : 40236\n" +
-            "AM Host : host-name";
+    private final String finishReport = "Application Report :\n"
+            + "Application-Id : application_15888888888_0088\n"
+            + "Application-Name : label0\n"
+            + "Application-Type : SPARK-2.4.1\n"
+            + "User : test\n"
+            + "Queue : test-queue\n"
+            + "Start-Time : 1597654469958\n"
+            + "Finish-Time : 1597654801939\n"
+            + "Progress : 100%\n"
+            + "State : FINISHED\n"
+            + "Final-State : SUCCEEDED\n"
+            + "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n"
+            + "RPC Port : 40236\n"
+            + "AM Host : host-name";
 
 
     @Before
@@ -139,8 +137,11 @@ public class SparkEtlJobHandlerTest {
     }
 
     @Test
-    public void testSubmitEtlJob(@Mocked BrokerUtil brokerUtil, @Mocked SparkLauncher launcher, @Injectable Process process,
-                                 @Mocked SparkLoadAppHandle handle ) throws IOException, LoadException {
+    public void testSubmitEtlJob(
+            @Mocked BrokerUtil brokerUtil,
+            @Mocked SparkLauncher launcher,
+            @Injectable Process process,
+            @Mocked SparkLoadAppHandle handle) throws IOException, LoadException {
         new Expectations() {
             {
                 launcher.launch();
@@ -366,7 +367,7 @@ public class SparkEtlJobHandlerTest {
     }
 
     @Test
-    public void testGetEtlFilePaths(@Mocked TPaloBrokerService.Client client, @Mocked Catalog catalog,
+    public void testGetEtlFilePaths(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
                                     @Injectable BrokerMgr brokerMgr) throws Exception {
         // list response
         TBrokerListResponse response = new TBrokerListResponse();
@@ -399,7 +400,7 @@ public class SparkEtlJobHandlerTest {
             {
                 client.listPath((TBrokerListPathRequest) any);
                 result = response;
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.getBroker(anyString, anyString);
                 result = fsBroker;

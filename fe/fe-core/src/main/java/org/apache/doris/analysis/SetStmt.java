@@ -35,6 +35,17 @@ public class SetStmt extends StatementBase {
         return setVars;
     }
 
+    // remove setvar of non-set-session-var,
+    // change type global to session avoid to write in non-master node.
+    public void modifySetVarsForExecute() {
+        setVars.removeIf(setVar -> setVar.getVarType() != SetVar.SetVarType.SET_SESSION_VAR);
+        for (SetVar var : setVars) {
+            if (var.getType() == SetType.GLOBAL) {
+                var.setType(SetType.SESSION);
+            }
+        }
+    }
+
     @Override
     public boolean needAuditEncryption() {
         for (SetVar var : setVars) {
@@ -75,7 +86,7 @@ public class SetStmt extends StatementBase {
     public String toString() {
         return toSql();
     }
-    
+
     @Override
     public RedirectStatus getRedirectStatus() {
         if (setVars != null) {
@@ -90,4 +101,3 @@ public class SetStmt extends StatementBase {
         return RedirectStatus.NO_FORWARD;
     }
 }
-

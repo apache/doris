@@ -17,30 +17,20 @@
 
 #include "util/trace.h"
 
-#include <glog/logging.h>
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 #include <rapidjson/document.h>
-#include <rapidjson/rapidjson.h>
 
 #include <cctype>
-#include <cstdint>
-#include <cstring>
-#include <functional>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <map>
-#include <ostream>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include "gutil/macros.h"
-#include "gutil/port.h"
+#include "gtest/gtest_pred_impl.h"
 #include "gutil/ref_counted.h"
-#include "gutil/walltime.h"
-#include "util/countdown_latch.h"
-#include "util/monotime.h"
-#include "util/scoped_cleanup.h"
-#include "util/stopwatch.hpp"
-#include "util/thread.h"
 #include "util/trace_metrics.h"
 
 using rapidjson::Document;
@@ -73,7 +63,7 @@ TEST_F(TraceTest, TestBasic) {
     TRACE_TO(t, "goodbye $0, $1", "cruel world", 54321);
 
     std::string result = XOutDigits(t->DumpToString(Trace::NO_FLAGS));
-    ASSERT_EQ(
+    EXPECT_EQ(
             "XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] hello world, XXXXX\n"
             "XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] goodbye cruel world, XXXXX\n",
             result);
@@ -131,15 +121,10 @@ TEST_F(TraceTest, TestTraceMetrics) {
     {
         ADOPT_TRACE(trace.get());
         TRACE_COUNTER_SCOPE_LATENCY_US("test_scope_us");
-        SleepFor(MonoDelta::FromMilliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     auto m = trace->metrics()->Get();
     EXPECT_GE(m["test_scope_us"], 80 * 1000);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

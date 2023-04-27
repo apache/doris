@@ -17,11 +17,11 @@
 
 package org.apache.doris.analysis;
 
-import org.junit.Assert;
-import org.junit.Test;
-
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+
+import org.junit.Assert;
+import org.junit.Test;
 
 public class ShowDbStmtTest {
     @Test
@@ -38,6 +38,14 @@ public class ShowDbStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("abc", stmt.getPattern());
         Assert.assertEquals("SHOW DATABASES LIKE 'abc'", stmt.toString());
+        Assert.assertEquals(1, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals("Database", stmt.getMetaData().getColumn(0).getName());
+
+        stmt = new ShowDbStmt(null, null, "cn");
+        stmt.analyze(analyzer);
+        Assert.assertEquals("cn", stmt.getCatalogName());
+        Assert.assertNull(stmt.getPattern());
+        Assert.assertEquals("SHOW DATABASES FROM cn", stmt.toString());
         Assert.assertEquals(1, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Database", stmt.getMetaData().getColumn(0).getName());
     }

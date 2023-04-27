@@ -35,9 +35,8 @@ public class TabletQuorumFailedException extends TransactionException {
                                        int successReplicaNum, int quorumReplicaNum,
                                        Set<Long> errorBackendIdsForTablet) {
         super(String.format(TABLET_QUORUM_FAILED_MSG, transactionId, tabletId,
-                            successReplicaNum, quorumReplicaNum,
-                            Joiner.on(",").join(errorBackendIdsForTablet)),
-              transactionId);
+                successReplicaNum, quorumReplicaNum,
+                Joiner.on(",").join(errorBackendIdsForTablet)), transactionId);
         this.tabletId = tabletId;
         this.errorBackendIdsForTablet = errorBackendIdsForTablet;
     }

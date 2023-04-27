@@ -17,11 +17,11 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -41,14 +41,13 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 
 import java.util.List;
 import java.util.Map;
@@ -68,6 +67,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
     }
 
     private static volatile ColocateTableCheckerAndBalancer INSTANCE = null;
+
     public static ColocateTableCheckerAndBalancer getInstance() {
         if (INSTANCE == null) {
             synchronized (ColocateTableCheckerAndBalancer.class) {
@@ -87,7 +87,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *      and after all unavailable has been replaced, balance the group
      *
      * 2. Match group:
-     *      If replica mismatch backends in a group, that group will be marked as unstable, and pass that 
+     *      If replica mismatch backends in a group, that group will be marked as unstable, and pass that
      *      tablet to TabletScheduler.
      *      Otherwise, mark the group as stable
      */
@@ -139,19 +139,14 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             return;
         }
 
-        Catalog catalog = Catalog.getCurrentCatalog();
-        ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Env env = Env.getCurrentEnv();
+        ColocateTableIndex colocateIndex = env.getColocateTableIndex();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
 
         // get all groups
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
-            Database db = catalog.getDbNullable(groupId.dbId);
-            if (db == null) {
-                continue;
-            }
-
-            Table<String, Tag, ClusterLoadStatistic> statisticMap = catalog.getTabletScheduler().getStatisticMap();
+            Table<String, Tag, ClusterLoadStatistic> statisticMap = env.getTabletScheduler().getStatisticMap();
             if (statisticMap == null) {
                 continue;
             }
@@ -159,7 +154,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             try {
-                Catalog.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
+                Env.getCurrentSystemInfo().checkReplicaAllocation(SystemInfoService.DEFAULT_CLUSTER, replicaAlloc);
             } catch (DdlException e) {
                 colocateIndex.setErrMsgForGroup(groupId, e.getMessage());
                 continue;
@@ -168,7 +163,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
             for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
                 Tag tag = entry.getKey();
-                ClusterLoadStatistic statistic = statisticMap.get(db.getClusterName(), tag);
+                ClusterLoadStatistic statistic = statisticMap.get(SystemInfoService.DEFAULT_CLUSTER, tag);
                 if (statistic == null) {
                     continue;
                 }
@@ -178,10 +173,12 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 }
 
                 // get all unavailable backends in the backend bucket sequence of this group
-                Set<Long> unavailableBeIdsInGroup = getUnavailableBeIdsInGroup(infoService, colocateIndex, groupId, tag);
+                Set<Long> unavailableBeIdsInGroup = getUnavailableBeIdsInGroup(
+                        infoService, colocateIndex, groupId, tag);
                 // get all available backends for this group
                 Set<Long> beIdsInOtherTag = colocateIndex.getBackendIdsExceptForTag(groupId, tag);
-                List<Long> availableBeIds = getAvailableBeIds(db.getClusterName(), tag, beIdsInOtherTag, infoService);
+                List<Long> availableBeIds = getAvailableBeIds(SystemInfoService.DEFAULT_CLUSTER, tag, beIdsInOtherTag,
+                        infoService);
                 // try relocate or balance this group for specified tag
                 List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
                 if (relocateAndBalance(groupId, tag, unavailableBeIdsInGroup, availableBeIds, colocateIndex,
@@ -189,8 +186,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     colocateIndex.addBackendsPerBucketSeqByTag(groupId, tag, balancedBackendsPerBucketSeq);
                     Map<Tag, List<List<Long>>> balancedBackendsPerBucketSeqMap = Maps.newHashMap();
                     balancedBackendsPerBucketSeqMap.put(tag, balancedBackendsPerBucketSeq);
-                    ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeqMap);
-                    catalog.getEditLog().logColocateBackendsPerBucketSeq(info);
+                    ColocatePersistInfo info = ColocatePersistInfo
+                            .createForBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeqMap);
+                    env.getEditLog().logColocateBackendsPerBucketSeq(info);
                     LOG.info("balance group {}. now backends per bucket sequence for tag {} is: {}",
                             groupId, tag, balancedBackendsPerBucketSeq);
                 }
@@ -204,26 +202,30 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      * If every replicas match the backends in group, mark that group as stable.
      */
     private void matchGroup() {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
-        TabletScheduler tabletScheduler = catalog.getTabletScheduler();
+        Env env = Env.getCurrentEnv();
+        ColocateTableIndex colocateIndex = env.getColocateTableIndex();
+        TabletScheduler tabletScheduler = env.getTabletScheduler();
 
         // check each group
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
-            Database db = catalog.getDbNullable(groupId.dbId);
-            if (db == null) {
-                continue;
-            }
-
             List<Set<Long>> backendBucketsSeq = colocateIndex.getBackendsPerBucketSeqSet(groupId);
             if (backendBucketsSeq.isEmpty()) {
                 continue;
             }
 
             String unstableReason = null;
-            OUT: for (Long tableId : tableIds) {
+            OUT:
+            for (Long tableId : tableIds) {
+                long dbId = groupId.dbId;
+                if (dbId == 0) {
+                    dbId = groupId.getDbIdByTblId(tableId);
+                }
+                Database db = env.getInternalCatalog().getDbNullable(dbId);
+                if (db == null) {
+                    continue;
+                }
                 OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
                     continue;
@@ -231,7 +233,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getPartitions()) {
-                        ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
+                        ReplicaAllocation replicaAlloc
+                                = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
                         short replicationNum = replicaAlloc.getTotalReplicaNum();
                         long visibleVersion = partition.getVisibleVersion();
                         // Here we only get VISIBLE indexes. All other indexes are not queryable.
@@ -242,14 +245,17 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                             int idx = 0;
                             for (Long tabletId : index.getTabletIdsInOrder()) {
                                 Set<Long> bucketsSeq = backendBucketsSeq.get(idx);
-                                Preconditions.checkState(bucketsSeq.size() == replicationNum, bucketsSeq.size() + " vs. " + replicationNum);
+                                Preconditions.checkState(bucketsSeq.size() == replicationNum,
+                                        bucketsSeq.size() + " vs. " + replicationNum);
                                 Tablet tablet = index.getTablet(tabletId);
-                                TabletStatus st = tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, bucketsSeq);
+                                TabletStatus st = tablet.getColocateHealthStatus(
+                                        visibleVersion, replicaAlloc, bucketsSeq);
                                 if (st != TabletStatus.HEALTHY) {
-                                    unstableReason = String.format("get unhealthy tablet %d in colocate table. status: %s", tablet.getId(), st);
+                                    unstableReason = String.format("get unhealthy tablet %d in colocate table."
+                                            + " status: %s", tablet.getId(), st);
                                     LOG.debug(unstableReason);
 
-                                    if (!tablet.readyToBeRepaired(Priority.HIGH)) {
+                                    if (!tablet.readyToBeRepaired(Priority.NORMAL)) {
                                         continue;
                                     }
 
@@ -260,13 +266,13 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                             System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
                                     tabletCtx.setTabletStatus(st);
-                                    // using HIGH priority, cause we want to stabilize the colocate group as soon as possible
-                                    tabletCtx.setOrigPriority(Priority.HIGH);
+                                    tabletCtx.setOrigPriority(Priority.NORMAL);
                                     tabletCtx.setTabletOrderIdx(idx);
 
                                     AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
                                     if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
-                                        // tablet in scheduler exceed limit, or scheduler is disabled, skip this group and check next one.
+                                        // tablet in scheduler exceed limit, or scheduler is disabled,
+                                        // skip this group and check next one.
                                         LOG.info("tablet scheduler return: {}. stop colocate table check", res.name());
                                         break OUT;
                                     }
@@ -299,7 +305,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      * TagA  B  C  A  B
      * TagB  D  D  D  D
      *
-     * First, we will hanlde resource group of TagA, then TagB.
+     * First, we will handle resource group of TagA, then TagB.
      *
      * For a single resource group, the balance logic is as follow
      * (Suppose there is only one resource group with 3 replicas):
@@ -347,13 +353,15 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *  Return false if nothing changed.
      */
     private boolean relocateAndBalance(GroupId groupId, Tag tag, Set<Long> unavailableBeIds, List<Long> availableBeIds,
-                                       ColocateTableIndex colocateIndex, SystemInfoService infoService,
-                                       ClusterLoadStatistic statistic, List<List<Long>> balancedBackendsPerBucketSeq) {
+            ColocateTableIndex colocateIndex, SystemInfoService infoService,
+            ClusterLoadStatistic statistic, List<List<Long>> balancedBackendsPerBucketSeq) {
         ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
         short replicaNum = groupSchema.getReplicaAlloc().getReplicaNumByTag(tag);
-        List<List<Long>> backendsPerBucketSeq = Lists.newArrayList(colocateIndex.getBackendsPerBucketSeqByTag(groupId, tag));
+        List<List<Long>> backendsPerBucketSeq = Lists.newArrayList(
+                colocateIndex.getBackendsPerBucketSeqByTag(groupId, tag));
         // [[A,B,C],[B,C,D]] -> [A,B,C,B,C,D]
-        List<Long> flatBackendsPerBucketSeq = backendsPerBucketSeq.stream().flatMap(List::stream).collect(Collectors.toList());
+        List<Long> flatBackendsPerBucketSeq = backendsPerBucketSeq.stream()
+                .flatMap(List::stream).collect(Collectors.toList());
 
         boolean isChanged = false;
         OUT:
@@ -376,15 +384,17 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 if (!seqIndexes.isEmpty()) {
                     srcBeId = beId;
                     hasUnavailableBe = true;
+                    LOG.info("find unavailable backend {} in colocate group: {}", beId, groupId);
                     break;
                 }
             }
             // sort backends with replica num in desc order
             List<Map.Entry<Long, Long>> backendWithReplicaNum =
-                    getSortedBackendReplicaNumPairs(availableBeIds, unavailableBeIds, statistic, flatBackendsPerBucketSeq);
+                    getSortedBackendReplicaNumPairs(availableBeIds,
+                            unavailableBeIds, statistic, flatBackendsPerBucketSeq);
 
             // if there is only one available backend and no unavailable bucketId to relocate, end the outer loop
-            if (backendWithReplicaNum.size() <= 1) {
+            if (backendWithReplicaNum.size() <= 1 && !hasUnavailableBe) {
                 break;
             }
 
@@ -417,6 +427,17 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     continue;
                 }
 
+                // Unavailable be has been removed from backendWithReplicaNum,
+                // but the conditions for judging unavailable be by
+                // getUnavailableBeIdsInGroup may be too loose. Under the
+                // default configuration (colocate_group_relocate_delay_second =
+                // 1800), a be that has been out of contact for 20 minutes can
+                // still be selected as the dest be.
+                if (!destBe.isAlive()) {
+                    LOG.info("{} is not alive, not suitable as a dest be", destBe);
+                    continue;
+                }
+
                 for (int seqIndex : seqIndexes) {
                     // the bucket index.
                     // eg: 0 / 3 = 0, so that the bucket index of the 4th backend id in flatBackendsPerBucketSeq is 0.
@@ -424,7 +445,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     List<Long> backendsSet = backendsPerBucketSeq.get(bucketIndex);
                     List<String> hostsSet = hostsPerBucketSeq.get(bucketIndex);
                     // the replicas of a tablet can not locate in same Backend or same host
-                    if (!backendsSet.contains(destBeId) && !hostsSet.contains(destBe.getHost())) {
+                    if (!backendsSet.contains(destBeId) && !hostsSet.contains(destBe.getIp())) {
                         Preconditions.checkState(backendsSet.contains(srcBeId), srcBeId);
                         flatBackendsPerBucketSeq.set(seqIndex, destBeId);
                         LOG.info("replace backend {} with backend {} in colocate group {}, idx: {}",
@@ -449,8 +470,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             if (!isThisRoundChanged) {
                 // if all backends are checked but this round is not changed,
                 // we should end the loop
-                LOG.info("all backends are checked but this round is not changed, " +
-                        "end outer loop in colocate group {}", groupId);
+                LOG.info("all backends are checked but this round is not changed, "
+                        + "end outer loop in colocate group {}", groupId);
                 break;
             }
             // end inner loop
@@ -476,7 +497,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     // And the following logic will handle the non-exist host.
                     hosts.add(Backend.DUMMY_IP);
                 } else {
-                    hosts.add(be.getHost());
+                    hosts.add(be.getIp());
                 }
             }
             hostsPerBucketSeq.add(hosts);
@@ -484,8 +505,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         return hostsPerBucketSeq;
     }
 
-    private List<Map.Entry<Long, Long>> getSortedBackendReplicaNumPairs(List<Long> allAvailBackendIds, Set<Long> unavailBackendIds,
-                                                                        ClusterLoadStatistic statistic, List<Long> flatBackendsPerBucketSeq) {
+    private List<Map.Entry<Long, Long>> getSortedBackendReplicaNumPairs(List<Long> allAvailBackendIds,
+            Set<Long> unavailBackendIds, ClusterLoadStatistic statistic, List<Long> flatBackendsPerBucketSeq) {
         // backend id -> replica num, and sorted by replica num, descending.
         Map<Long, Long> backendToReplicaNum = flatBackendsPerBucketSeq.stream()
                 .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
@@ -505,7 +526,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 .stream()
                 .sorted((entry1, entry2) -> {
                     if (!entry1.getValue().equals(entry2.getValue())) {
-                        return (int)(entry2.getValue() - entry1.getValue());
+                        return (int) (entry2.getValue() - entry1.getValue());
                     }
                     BackendLoadStatistic beStat1 = statistic.getBackendLoadStatistic(entry1.getKey());
                     BackendLoadStatistic beStat2 = statistic.getBackendLoadStatistic(entry2.getKey());
@@ -544,20 +565,23 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         Set<Long> backends = colocateIndex.getBackendsByGroup(groupId, tag);
         Set<Long> unavailableBeIds = Sets.newHashSet();
         for (Long backendId : backends) {
-            if (!checkBackendAvailable(backendId, tag, Sets.newHashSet(), infoService)) {
+            if (!checkBackendAvailable(backendId, tag, Sets.newHashSet(), infoService,
+                    Config.colocate_group_relocate_delay_second)) {
                 unavailableBeIds.add(backendId);
             }
         }
         return unavailableBeIds;
     }
 
-    private List<Long> getAvailableBeIds(String cluster, Tag tag, Set<Long> excludedBeIds, SystemInfoService infoService) {
+    private List<Long> getAvailableBeIds(String cluster, Tag tag, Set<Long> excludedBeIds,
+            SystemInfoService infoService) {
         // get all backends to allBackendIds, and check be availability using checkBackendAvailable
         // backend stopped for a short period of time is still considered available
         List<Long> allBackendIds = infoService.getClusterBackendIds(cluster, false);
         List<Long> availableBeIds = Lists.newArrayList();
         for (Long backendId : allBackendIds) {
-            if (checkBackendAvailable(backendId, tag, excludedBeIds, infoService)) {
+            if (checkBackendAvailable(backendId, tag, excludedBeIds, infoService,
+                    Config.colocate_group_relocate_delay_second)) {
                 availableBeIds.add(backendId);
             }
         }
@@ -566,20 +590,22 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
     /**
      * check backend available
-     * backend stopped for a short period of time is still considered available
+     * backend stopped within "delaySecond" is still considered available
      */
-    private boolean checkBackendAvailable(Long backendId, Tag tag, Set<Long> excludedBeIds, SystemInfoService infoService) {
+    private boolean checkBackendAvailable(Long backendId, Tag tag, Set<Long> excludedBeIds,
+                                          SystemInfoService infoService, long delaySecond) {
         long currTime = System.currentTimeMillis();
         Backend be = infoService.getBackend(backendId);
         if (be == null) {
             return false;
-        } else if (!be.getTag().equals(tag) || excludedBeIds.contains(be.getId())) {
+        } else if (!be.isMixNode()) {
+            return false;
+        } else if (!be.getLocationTag().equals(tag) || excludedBeIds.contains(be.getId())) {
             return false;
         } else if (!be.isScheduleAvailable()) {
-            // 1. BE is dead for a long time
+            // 1. BE is dead longer than "delaySecond"
             // 2. BE is under decommission
-            if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > Config.tablet_repair_delay_factor_second * 1000 * 2)
-                    || be.isDecommissioned()) {
+            if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > delaySecond * 1000L) || be.isDecommissioned()) {
                 return false;
             }
         }

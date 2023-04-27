@@ -18,6 +18,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -26,7 +28,11 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OdbcTable;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -34,12 +40,11 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,7 +57,7 @@ public class OdbcScanNode extends ScanNode {
 
     // Now some database have different function call like doris, now doris do not
     // push down the function call except MYSQL
-    private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+    public static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
         if (!tableType.equals(TOdbcTableType.MYSQL)) {
             List<FunctionCallExpr> fnExprList = Lists.newArrayList();
             expr.collect(FunctionCallExpr.class, fnExprList);
@@ -60,7 +65,24 @@ public class OdbcScanNode extends ScanNode {
                 return false;
             }
         }
-        return true;
+        return Config.enable_func_pushdown;
+    }
+
+    public static String conjunctExprToString(TOdbcTableType tableType, Expr expr) {
+        if (tableType.equals(TOdbcTableType.ORACLE) && expr.contains(DateLiteral.class)
+                && (expr instanceof BinaryPredicate)) {
+            ArrayList<Expr> children = expr.getChildren();
+            // k1 OP '2022-12-10 20:55:59'  changTo ---> k1 OP to_date('{}','yyyy-mm-dd hh24:mi:ss')
+            // oracle datetime push down is different: https://github.com/apache/doris/discussions/15069
+            if (children.get(1).isConstant() && (children.get(1).getType().equals(Type.DATETIME) || children
+                    .get(1).getType().equals(Type.DATETIMEV2))) {
+                String filter = children.get(0).toSql();
+                filter += ((BinaryPredicate) expr).getOp().toString();
+                filter += "to_date('" + children.get(1).getStringValue() + "','yyyy-mm-dd hh24:mi:ss')";
+                return filter;
+            }
+        }
+        return expr.toMySql();
     }
 
     private final List<String> columns = new ArrayList<String>();
@@ -73,7 +95,7 @@ public class OdbcScanNode extends ScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl) {
-        super(id, desc, "SCAN ODBC");
+        super(id, desc, "SCAN ODBC", StatisticalType.ODBC_SCAN_NODE);
         connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
         tblName = OdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());
@@ -139,10 +161,13 @@ public class OdbcScanNode extends ScanNode {
         }
 
         // Other DataBase use limit do top n
-        if (shouldPushDownLimit() && (odbcType == TOdbcTableType.MYSQL || odbcType == TOdbcTableType.POSTGRESQL || odbcType == TOdbcTableType.MONGODB) ) {
-            sql.append(" LIMIT " + limit);
+        if (shouldPushDownLimit()
+                && (odbcType == TOdbcTableType.MYSQL
+                || odbcType == TOdbcTableType.POSTGRESQL
+                || odbcType == TOdbcTableType.MONGODB)) {
+            sql.append(" LIMIT ").append(limit);
         }
-        
+
         return sql.toString();
     }
 
@@ -178,7 +203,7 @@ public class OdbcScanNode extends ScanNode {
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : odbcConjuncts) {
             if (shouldPushDownConjunct(odbcType, p)) {
-                String filter = p.toMySql();
+                String filter = conjunctExprToString(odbcType, p);
                 filters.add(filter);
                 conjuncts.remove(p);
             }
@@ -213,13 +238,12 @@ public class OdbcScanNode extends ScanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
         numNodes = numNodes <= 0 ? 1 : numNodes;
-        // this is just to avoid odbc scan node's cardinality being -1. So that we can calculate the join cost
-        // normally.
-        // We assume that the data volume of all odbc tables is very small, so set cardinality directly to 1.
-        cardinality = cardinality == -1 ? 1 : cardinality;
+
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 }

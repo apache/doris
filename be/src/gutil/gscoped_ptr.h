@@ -91,23 +91,22 @@
 // some of the older compilers we have to support.
 // -------------------------------------------------------------------------
 
-#ifndef GUTIL_GSCOPED_PTR_H_
-#define GUTIL_GSCOPED_PTR_H_
-
 // This is an implementation designed to match the anticipated future TR2
 // implementation of the scoped_ptr class, and its closely-related brethren,
 // scoped_array, scoped_ptr_malloc.
+
+#pragma once
 
 #include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
 
 #include <algorithm> // For std::swap().
+#include <type_traits>
 
 #include "gutil/basictypes.h"
 #include "gutil/move.h"
 #include "gutil/template_util.h"
-#include "gutil/type_traits.h"
 
 namespace doris {
 
@@ -138,7 +137,7 @@ struct DefaultDeleter {
         // cannot convert to T*.
         enum { T_must_be_complete = sizeof(T) };
         enum { U_must_be_complete = sizeof(U) };
-        COMPILE_ASSERT((base::is_convertible<U*, T*>::value),
+        COMPILE_ASSERT((std::is_convertible<U*, T*>::value),
                        U_ptr_must_implicitly_convert_to_T_ptr);
     }
     inline void operator()(T* ptr) const {
@@ -187,8 +186,8 @@ namespace internal {
 template <typename T>
 struct IsNotRefCounted {
     enum {
-        value = !base::is_convertible<T*, doris::subtle::RefCountedBase*>::value &&
-                !base::is_convertible<T*, doris::subtle::RefCountedThreadSafeBase*>::value
+        value = !std::is_convertible<T*, doris::subtle::RefCountedBase*>::value &&
+                !std::is_convertible<T*, doris::subtle::RefCountedThreadSafeBase*>::value
     };
 };
 
@@ -346,7 +345,7 @@ public:
     // implementation of gscoped_ptr.
     template <typename U, typename V>
     gscoped_ptr(gscoped_ptr<U, V> other) : impl_(&other.impl_) {
-        COMPILE_ASSERT(!base::is_array<U>::value, U_cannot_be_an_array);
+        COMPILE_ASSERT(!std::is_array<U>::value, U_cannot_be_an_array);
     }
 
     // Constructor.  Move constructor for C++03 move emulation of this type.
@@ -364,7 +363,7 @@ public:
     // gscoped_ptr.
     template <typename U, typename V>
     gscoped_ptr& operator=(gscoped_ptr<U, V> rhs) {
-        COMPILE_ASSERT(!base::is_array<U>::value, U_cannot_be_an_array);
+        COMPILE_ASSERT(!std::is_array<U>::value, U_cannot_be_an_array);
         impl_.TakeState(&rhs.impl_);
         return *this;
     }
@@ -787,17 +786,17 @@ private:
 };
 
 template <class C, class FP>
-inline void swap(gscoped_ptr_malloc<C, FP>& a, gscoped_ptr_malloc<C, FP>& b) {
+void swap(gscoped_ptr_malloc<C, FP>& a, gscoped_ptr_malloc<C, FP>& b) {
     a.swap(b);
 }
 
 template <class C, class FP>
-inline bool operator==(C* p, const gscoped_ptr_malloc<C, FP>& b) {
+bool operator==(C* p, const gscoped_ptr_malloc<C, FP>& b) {
     return p == b.get();
 }
 
 template <class C, class FP>
-inline bool operator!=(C* p, const gscoped_ptr_malloc<C, FP>& b) {
+bool operator!=(C* p, const gscoped_ptr_malloc<C, FP>& b) {
     return p != b.get();
 }
 
@@ -808,5 +807,3 @@ template <typename T>
 gscoped_ptr<T> make_gscoped_ptr(T* ptr) {
     return gscoped_ptr<T>(ptr);
 }
-
-#endif // GUTIL_GSCOPED_PTR_H_

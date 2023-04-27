@@ -18,8 +18,8 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 
 import org.junit.Assert;
 import org.junit.Test;

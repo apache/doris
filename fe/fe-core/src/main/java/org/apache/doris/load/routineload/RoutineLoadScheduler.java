@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -28,7 +28,6 @@ import org.apache.doris.common.util.MasterDaemon;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,7 +42,7 @@ public class RoutineLoadScheduler extends MasterDaemon {
     @VisibleForTesting
     public RoutineLoadScheduler() {
         super();
-        routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+        routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
     }
 
     public RoutineLoadScheduler(RoutineLoadManager routineLoadManager) {
@@ -71,7 +70,9 @@ public class RoutineLoadScheduler extends MasterDaemon {
             LOG.warn("failed to get need schedule routine jobs", e);
         }
 
-        LOG.info("there are {} job need schedule", routineLoadJobList.size());
+        if (!routineLoadJobList.isEmpty()) {
+            LOG.info("there are {} job need schedule", routineLoadJobList.size());
+        }
         for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
             RoutineLoadJob.JobState errorJobState = null;
             UserException userException = null;
@@ -101,10 +102,11 @@ public class RoutineLoadScheduler extends MasterDaemon {
 
             if (errorJobState != null) {
                 LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                 .add("current_state", routineLoadJob.getState())
-                                 .add("desired_state", errorJobState)
-                                 .add("warn_msg", "failed to scheduler job, change job state to desired_state with error reason " + userException.getMessage())
-                                 .build(), userException);
+                        .add("current_state", routineLoadJob.getState())
+                        .add("desired_state", errorJobState)
+                        .add("warn_msg", "failed to scheduler job,"
+                                + " change job state to desired_state with error reason " + userException.getMessage())
+                        .build(), userException);
                 try {
                     ErrorReason reason = new ErrorReason(userException.getErrorCode(), userException.getMessage());
                     routineLoadJob.updateState(errorJobState, reason, false);

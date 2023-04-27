@@ -15,8 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <algorithm>
+#include <vector>
+
+#include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 
 namespace doris {
@@ -36,15 +41,10 @@ TEST(DataDirInfo, DataDirInfoLessAvailability) {
     data_dir_infos.push_back(a);
     data_dir_infos.push_back(b);
     std::sort(data_dir_infos.begin(), data_dir_infos.end(), DataDirInfoLessAvailability());
-    ASSERT_EQ(data_dir_infos[0].available, 100);
-    ASSERT_EQ(data_dir_infos[1].available, 200);
-    ASSERT_EQ(data_dir_infos[2].available, 300);
-    ASSERT_EQ(data_dir_infos[3].available, 400);
+    EXPECT_EQ(data_dir_infos[0].available, 100);
+    EXPECT_EQ(data_dir_infos[1].available, 200);
+    EXPECT_EQ(data_dir_infos[2].available, 300);
+    EXPECT_EQ(data_dir_infos[3].available, 400);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

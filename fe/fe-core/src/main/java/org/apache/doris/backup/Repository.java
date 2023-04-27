@@ -19,25 +19,30 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.fs.obj.BlobStorage;
+import org.apache.doris.fs.obj.BrokerStorage;
+import org.apache.doris.fs.obj.HdfsStorage;
+import org.apache.doris.fs.obj.S3Storage;
 import org.apache.doris.system.Backend;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -159,7 +164,7 @@ public class Repository implements Writable {
             return null;
         }
 
-        return Pair.create(fileName, md5sum);
+        return Pair.of(fileName, md5sum);
     }
 
     // in: /path/to/orig_file
@@ -204,6 +209,9 @@ public class Repository implements Writable {
 
     // create repository dir and repo info file
     public Status initRepository() {
+        if (FeConstants.runningUnitTest) {
+            return Status.OK;
+        }
         String repoInfoFilePath = assembleRepoInfoFilePath();
         // check if the repo is already exist in remote
         List<RemoteFile> remoteFiles = Lists.newArrayList();
@@ -227,7 +235,7 @@ public class Repository implements Writable {
 
                 byte[] bytes = Files.readAllBytes(Paths.get(localFilePath));
                 String json = new String(bytes, StandardCharsets.UTF_8);
-                JSONObject root = new JSONObject(json);
+                JSONObject root = (JSONObject) JSONValue.parse(json);
                 name = (String) root.get("name");
                 createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
                 if (createTime == -1) {
@@ -366,7 +374,8 @@ public class Repository implements Writable {
 
     // create remote tablet snapshot path
     // eg:
-    // /location/__palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10032/__10023/__3481721
+    // /location/__palo_repository_repo_name/__ss_my_ss1/__ss_content/
+    // __db_10001/__tbl_10020/__part_10031/__idx_10032/__10023/__3481721
     public String assembleRemoteSnapshotPath(String label, SnapshotInfo info) {
         String path = Joiner.on(PATH_DELIMITER).join(location,
                 joinPrefix(PREFIX_REPO, name),
@@ -422,6 +431,9 @@ public class Repository implements Writable {
             LOG.warn("failed to read backup meta from file", e);
             return new Status(ErrCode.COMMON_ERROR, "Failed create backup meta from file: "
                     + localMetaFile.getAbsolutePath() + ", msg: " + e.getMessage());
+        } catch (IllegalArgumentException e) {
+            LOG.warn("failed to set meta version", e);
+            return new Status(ErrCode.COMMON_ERROR, e.getMessage());
         } finally {
             localMetaFile.delete();
         }
@@ -450,7 +462,8 @@ public class Repository implements Writable {
         if (storage instanceof BrokerStorage) {
             // this may be a retry, so we should first delete remote file
             String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
-            LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}", localFilePath, tmpRemotePath, finalRemotePath);
+            LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}",
+                    localFilePath, tmpRemotePath, finalRemotePath);
             st = storage.delete(tmpRemotePath);
             if (!st.ok()) {
                 return st;
@@ -474,6 +487,18 @@ public class Repository implements Writable {
             }
         } else if (storage instanceof S3Storage) {
             LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            st = storage.delete(finalRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
+
+            // upload final file
+            st = storage.upload(localFilePath, finalRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
+        } else if (storage instanceof HdfsStorage) {
+            LOG.debug("hdfs get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
             st = storage.delete(finalRemotePath);
             if (!st.ok()) {
                 return st;
@@ -545,9 +570,9 @@ public class Repository implements Writable {
         return Status.OK;
     }
 
-    public Status getBrokerAddress(Long beId, Catalog catalog, List<FsBroker> brokerAddrs) {
+    public Status getBrokerAddress(Long beId, Env env, List<FsBroker> brokerAddrs) {
         // get backend
-        Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+        Backend be = Env.getCurrentSystemInfo().getBackend(beId);
         if (be == null) {
             return new Status(ErrCode.COMMON_ERROR, "backend " + beId + " is missing. "
                     + "failed to send upload snapshot task");
@@ -561,7 +586,7 @@ public class Repository implements Writable {
         // get proper broker for this backend
         FsBroker brokerAddr = null;
         try {
-            brokerAddr = catalog.getBrokerMgr().getBroker(((BrokerStorage) storage).getBrokerName(), be.getHost());
+            brokerAddr = env.getBrokerMgr().getBroker(((BrokerStorage) storage).getBrokerName(), be.getIp());
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
                     + ((BrokerStorage) storage).getBrokerName() + " when try to send upload snapshot task: "
@@ -613,6 +638,38 @@ public class Repository implements Writable {
         return snapshotInfos;
     }
 
+    public String getCreateStatement() {
+        StringBuilder stmtBuilder = new StringBuilder();
+        stmtBuilder.append("CREATE ");
+        if (this.isReadOnly) {
+            stmtBuilder.append("READ ONLY ");
+        }
+        stmtBuilder.append("REPOSITORY ");
+        stmtBuilder.append(this.name);
+        stmtBuilder.append(" \nWITH ");
+        StorageBackend.StorageType storageType = this.storage.getStorageType();
+        if (storageType == StorageBackend.StorageType.S3) {
+            stmtBuilder.append(" S3 ");
+        } else if (storageType == StorageBackend.StorageType.HDFS) {
+            stmtBuilder.append(" HDFS ");
+        } else if (storageType == StorageBackend.StorageType.BROKER) {
+            stmtBuilder.append(" BROKER ");
+            stmtBuilder.append(this.storage.getName());
+        } else {
+            // should never reach here
+            throw new UnsupportedOperationException(storageType.toString() + " backend is not implemented");
+        }
+        stmtBuilder.append(" \nON LOCATION \"");
+        stmtBuilder.append(this.location);
+        stmtBuilder.append("\"");
+
+        stmtBuilder.append("\nPROPERTIES\n(");
+        stmtBuilder.append(new PrintableMap<>(this.getStorage().getProperties(), " = ",
+                true, true));
+        stmtBuilder.append("\n)");
+        return stmtBuilder.toString();
+    }
+
     private List<String> getSnapshotInfo(String snapshotName, String timestamp) {
         List<String> info = Lists.newArrayList();
         if (Strings.isNullOrEmpty(timestamp)) {
@@ -627,8 +684,6 @@ public class Repository implements Writable {
                 info.add(FeConstants.null_string);
                 info.add("ERROR: Failed to get info: " + st.getErrMsg());
             } else {
-                info.add(snapshotName);
-
                 List<String> tmp = Lists.newArrayList();
                 for (RemoteFile file : results) {
                     // __info_2018-04-18-20-11-00.Jdwnd9312sfdn1294343
@@ -640,8 +695,11 @@ public class Repository implements Writable {
                     }
                     tmp.add(disjoinPrefix(PREFIX_JOB_INFO, pureFileName.first));
                 }
-                info.add(Joiner.on("\n").join(tmp));
-                info.add(tmp.isEmpty() ? "ERROR: no snapshot" : "OK");
+                if (!tmp.isEmpty()) {
+                    info.add(snapshotName);
+                    info.add(Joiner.on("\n").join(tmp));
+                    info.add("OK");
+                }
             }
         } else {
             // get specified timestamp

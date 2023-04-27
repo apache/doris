@@ -15,171 +15,251 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_READER_H
-#define DORIS_BE_SRC_OLAP_READER_H
+#pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <list>
 #include <memory>
-#include <queue>
-#include <sstream>
-#include <stack>
+#include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "exprs/bloomfilter_predicate.h"
-#include "olap/column_predicate.h"
+#include "common/status.h"
+#include "exprs/function_filter.h"
+#include "gutil/strings/substitute.h"
+#include "io/io_common.h"
 #include "olap/delete_handler.h"
-#include "olap/olap_cond.h"
-#include "olap/olap_define.h"
+#include "olap/iterators.h"
+#include "olap/olap_common.h"
+#include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/rowset_reader_context.h"
 #include "olap/tablet.h"
-#include "util/runtime_profile.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
-class Tablet;
-class RowCursor;
-class RowBlock;
-class CollectIterator;
 class RuntimeState;
+class BitmapFilterFuncBase;
+class BloomFilterFuncBase;
+class ColumnPredicate;
+class DeleteBitmap;
+class HybridSetBase;
+class RuntimeProfile;
 
-// Params for Reader,
-// mainly include tablet, data version and fetch range.
-struct ReaderParams {
-    TabletSharedPtr tablet;
-    ReaderType reader_type = READER_QUERY;
-    bool aggregation = false;
-    bool need_agg_finalize = true;
-    // 1. when read column data page:
-    //     for compaction, schema_change, check_sum: we don't use page cache
-    //     for query and config::disable_storage_page_cache is false, we use page cache
-    // 2. when read column index page
-    //     if config::disable_storage_page_cache is false, we use page cache
-    bool use_page_cache = false;
-    Version version = Version(-1, 0);
+namespace vectorized {
+class VCollectIterator;
+class Block;
+class VExpr;
+class Arena;
+class VExprContext;
+} // namespace vectorized
 
-    std::vector<OlapTuple> start_key;
-    std::vector<OlapTuple> end_key;
-    bool start_key_include = false;
-    bool end_key_include = false;
+// Used to compare row with input scan key. Scan key only contains key columns,
+// row contains all key columns, which is superset of key columns.
+// So we should compare the common prefix columns of lhs and rhs.
+//
+// NOTE: if you are not sure if you can use it, please don't use this function.
+template <typename LhsRowType, typename RhsRowType>
+int compare_row_key(const LhsRowType& lhs, const RhsRowType& rhs) {
+    auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
+    for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
+        auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
+        if (res != 0) {
+            return res;
+        }
+    }
+    return 0;
+}
 
-    std::vector<TCondition> conditions;
-    std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
+class TabletReader {
+    struct KeysParam {
+        std::string to_string() const;
 
-    // The ColumnData will be set when using Merger, eg Cumulative, BE.
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    std::vector<uint32_t> return_columns;
-    RuntimeProfile* profile = nullptr;
-    RuntimeState* runtime_state = nullptr;
+        std::vector<RowCursor> start_keys;
+        std::vector<RowCursor> end_keys;
+        bool start_key_include = false;
+        bool end_key_include = false;
+    };
 
-    void check_validation() const;
-
-    std::string to_string() const;
-};
-
-struct KeysParam {
-    ~KeysParam();
-
-    std::string to_string() const;
-
-    std::vector<RowCursor*> start_keys;
-    std::vector<RowCursor*> end_keys;
-    bool start_key_include = false;
-    bool end_key_include = false;
-};
-
-class Reader {
 public:
-    Reader();
-    virtual ~Reader();
+    // Params for Reader,
+    // mainly include tablet, data version and fetch range.
+    struct ReaderParams {
+        TabletSharedPtr tablet;
+        TabletSchemaSPtr tablet_schema;
+        ReaderType reader_type = READER_QUERY;
+        bool direct_mode = false;
+        bool aggregation = false;
+        bool need_agg_finalize = true;
+        // for compaction, schema_change, check_sum: we don't use page cache
+        // for query and config::disable_storage_page_cache is false, we use page cache
+        bool use_page_cache = false;
+        Version version = Version(-1, 0);
 
-    // Initialize Reader with tablet, data version and fetch range.
-    virtual OLAPStatus init(const ReaderParams& read_params);
+        std::vector<OlapTuple> start_key;
+        std::vector<OlapTuple> end_key;
+        bool start_key_include = false;
+        bool end_key_include = false;
 
-    // Read next row with aggregation.
-    // Return OLAP_SUCCESS and set `*eof` to false when next row is read into `row_cursor`.
-    // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
+        std::vector<TCondition> conditions;
+        std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+        std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
+        std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
+        std::vector<TCondition> conditions_except_leafnode_of_andnode;
+        std::vector<FunctionFilter> function_filters;
+        std::vector<RowsetMetaSharedPtr> delete_predicates;
+
+        // For unique key table with merge-on-write
+        DeleteBitmap* delete_bitmap {nullptr};
+
+        std::vector<RowsetReaderSharedPtr> rs_readers;
+        // if rs_readers_segment_offsets is not empty, means we only scan
+        // [pair.first, pair.second) segment in rs_reader, only effective in dup key
+        // and pipeline
+        std::vector<std::pair<int, int>> rs_readers_segment_offsets;
+
+        // return_columns is init from query schema
+        std::vector<uint32_t> return_columns;
+        // output_columns only contain columns in OrderByExprs and outputExprs
+        std::set<int32_t> output_columns;
+        RuntimeProfile* profile = nullptr;
+        RuntimeState* runtime_state = nullptr;
+
+        // use only in vec exec engine
+        std::vector<uint32_t>* origin_return_columns = nullptr;
+        std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
+        TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
+        vectorized::VExpr* remaining_vconjunct_root = nullptr;
+        vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
+
+        // used for compaction to record row ids
+        bool record_rowids = false;
+        // flag for enable topn opt
+        bool use_topn_opt = false;
+        // used for special optimization for query : ORDER BY key LIMIT n
+        bool read_orderby_key = false;
+        // used for special optimization for query : ORDER BY key DESC LIMIT n
+        bool read_orderby_key_reverse = false;
+        // num of columns for orderby key
+        size_t read_orderby_key_num_prefix_columns = 0;
+        // limit of rows for read_orderby_key
+        size_t read_orderby_key_limit = 0;
+        // filter_block arguments
+        vectorized::VExprContext** filter_block_vconjunct_ctx_ptr = nullptr;
+
+        // for vertical compaction
+        bool is_key_column_group = false;
+
+        bool is_segcompaction = false;
+
+        std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = nullptr;
+
+        void check_validation() const;
+
+        std::string to_string() const;
+    };
+
+    TabletReader() = default;
+
+    virtual ~TabletReader();
+
+    TabletReader(const TabletReader&) = delete;
+    void operator=(const TabletReader&) = delete;
+
+    // Initialize TabletReader with tablet, data version and fetch range.
+    virtual Status init(const ReaderParams& read_params);
+
+    // Read next block with aggregation.
+    // Return OK and set `*eof` to false when next block is read
+    // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
-    virtual OLAPStatus next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
-                                         ObjectPool* agg_pool, bool* eof) = 0;
+    virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
+        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
+    }
 
-    uint64_t merged_rows() const { return _merged_rows; }
+    virtual uint64_t merged_rows() const { return _merged_rows; }
 
     uint64_t filtered_rows() const {
-        return _stats.rows_del_filtered + _stats.rows_conditions_filtered +
-               _stats.rows_vec_del_cond_filtered;
+        return _stats.rows_del_filtered + _stats.rows_del_by_bitmap +
+               _stats.rows_conditions_filtered + _stats.rows_vec_del_cond_filtered +
+               _stats.rows_vec_cond_filtered + _stats.rows_short_circuit_cond_filtered;
     }
+
+    void set_batch_size(int batch_size) { _reader_context.batch_size = batch_size; }
+
+    int batch_size() const { return _reader_context.batch_size; }
 
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
 
+    virtual bool update_profile(RuntimeProfile* profile) { return false; }
+    static Status init_reader_params_and_create_block(
+            TabletSharedPtr tablet, ReaderType reader_type,
+            const std::vector<RowsetSharedPtr>& input_rowsets,
+            TabletReader::ReaderParams* reader_params, vectorized::Block* block);
+
 protected:
-    friend class CollectIterator;
+    friend class vectorized::VCollectIterator;
     friend class DeleteHandler;
 
-    OLAPStatus _init_params(const ReaderParams& read_params);
+    Status _init_params(const ReaderParams& read_params);
 
-    OLAPStatus _capture_rs_readers(const ReaderParams& read_params,
-                                   std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+    Status _capture_rs_readers(const ReaderParams& read_params);
 
     bool _optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
-    OLAPStatus _init_keys_param(const ReaderParams& read_params);
+    Status _init_keys_param(const ReaderParams& read_params);
 
-    void _init_conditions_param(const ReaderParams& read_params);
+    Status _init_orderby_keys_param(const ReaderParams& read_params);
 
-    ColumnPredicate* _new_eq_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
-    ColumnPredicate* _new_ne_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
-    ColumnPredicate* _new_lt_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
-    ColumnPredicate* _new_le_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
-    ColumnPredicate* _new_gt_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
-    ColumnPredicate* _new_ge_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
+    Status _init_conditions_param(const ReaderParams& read_params);
 
-    ColumnPredicate* _parse_to_predicate(const TCondition& condition, bool opposite = false) const;
+    void _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
 
     ColumnPredicate* _parse_to_predicate(
-            const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter);
+            const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
 
-    OLAPStatus _init_delete_condition(const ReaderParams& read_params);
+    ColumnPredicate* _parse_to_predicate(
+            const std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>& bitmap_filter);
 
-    OLAPStatus _init_return_columns(const ReaderParams& read_params);
-    void _init_seek_columns();
+    ColumnPredicate* _parse_to_predicate(
+            const std::pair<std::string, std::shared_ptr<HybridSetBase>>& in_filter);
 
-    void _init_load_bf_columns(const ReaderParams& read_params);
-    void _init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
-                               std::set<uint32_t>* load_bf_columns);
+    virtual ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter);
+
+    Status _init_delete_condition(const ReaderParams& read_params);
+
+    Status _init_return_columns(const ReaderParams& read_params);
 
     TabletSharedPtr tablet() { return _tablet; }
+    const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
-    std::shared_ptr<MemTracker> _tracker;
-    std::unique_ptr<MemPool> _predicate_mem_pool;
-    std::set<uint32_t> _load_bf_columns;
-    std::set<uint32_t> _load_bf_all_columns;
+    std::unique_ptr<vectorized::Arena> _predicate_arena;
     std::vector<uint32_t> _return_columns;
-    std::vector<uint32_t> _seek_columns;
+    // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
+    // columns for orderby keys
+    std::vector<uint32_t> _orderby_key_columns;
+    // only use in outer join which change the column nullable which must keep same in
+    // vec query engine
+    std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;
 
     TabletSharedPtr _tablet;
     RowsetReaderContext _reader_context;
+    TabletSchemaSPtr _tablet_schema;
     KeysParam _keys_param;
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
-    // contains condition on key columns in agg or unique table or all column in dup tables
-    Conditions _conditions;
-    // contains _conditions and condition on value columns, used for push down
-    // conditions to base rowset of unique table
-    Conditions _all_conditions;
     std::vector<ColumnPredicate*> _col_predicates;
+    std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 
@@ -189,19 +269,14 @@ protected:
     ReaderType _reader_type = READER_QUERY;
     bool _next_delete_flag = false;
     bool _filter_delete = false;
-    bool _has_sequence_col = false;
     int32_t _sequence_col_idx = -1;
+    bool _direct_mode = false;
 
-    std::unique_ptr<CollectIterator> _collect_iter;
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;
 
     uint64_t _merged_rows = 0;
     OlapReaderStatistics _stats;
-
-    DISALLOW_COPY_AND_ASSIGN(Reader);
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_READER_H

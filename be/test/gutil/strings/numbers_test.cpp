@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "gutil/strings/numbers.h"
+
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <limits>
 
-#include <gtest/gtest.h>
-#include "gutil/strings/numbers.h"
+#include "gtest/gtest_pred_impl.h"
 #include "util/mysql_global.h"
 
 namespace doris {
@@ -47,7 +50,7 @@ TEST_F(NumbersTest, test_float_to_buffer) {
     EXPECT_EQ(std::string("20001230"), std::string(buffer1, len1));
     EXPECT_EQ(std::string("20001230"), std::string(buffer2, len2));
 
-    float v4 = 200012303131;
+    float v4 = static_cast<float>(200012303131);
     len1 = FloatToBuffer(v4, MAX_FLOAT_STR_LENGTH, buffer1);
     len2 = FastFloatToBuffer(v4, buffer2);
     EXPECT_EQ(std::string("2.000123e+11"), std::string(buffer1, len1));
@@ -131,10 +134,3 @@ TEST_F(NumbersTest, test_double_to_buffer) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
-
-

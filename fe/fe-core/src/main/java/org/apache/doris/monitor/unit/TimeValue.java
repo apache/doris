@@ -300,7 +300,8 @@ public class TimeValue implements Comparable<TimeValue> {
         } else if (normalized.endsWith("s")) {
             return new TimeValue(parse(sValue, normalized, "s"), TimeUnit.SECONDS);
         } else if (sValue.endsWith("m")) {
-            // parsing minutes should be case-sensitive as 'M' means "months", not "minutes"; this is the only special case.
+            // parsing minutes should be case-sensitive as 'M' means "months", not "minutes";
+            // this is the only special case.
             return new TimeValue(parse(sValue, normalized, "m"), TimeUnit.MINUTES);
         } else if (normalized.endsWith("h")) {
             return new TimeValue(parse(sValue, normalized, "h"), TimeUnit.HOURS);
@@ -323,7 +324,7 @@ public class TimeValue implements Comparable<TimeValue> {
             return Long.parseLong(s);
         } catch (final NumberFormatException e) {
             try {
-                @SuppressWarnings("unused") final double ignored = Double.parseDouble(s);
+                @SuppressWarnings("unused") final double ignored = Double.parseDouble(s); // CHECKSTYLE IGNORE THIS LINE
                 throw new NumberFormatException("failed to parse, fractional time values are not supported");
             } catch (final NumberFormatException ignored) {
                 throw new NumberFormatException("failed to parse");
@@ -341,8 +342,12 @@ public class TimeValue implements Comparable<TimeValue> {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
 
         return this.compareTo(((TimeValue) o)) == 0;
     }

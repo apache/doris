@@ -23,11 +23,11 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
@@ -49,17 +49,17 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumn;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumnMapping;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlJobProperty;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartition;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartitionInfo;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.FilePatternVersion;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.SourceType;
+import org.apache.doris.sparkdpp.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumn;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumnMapping;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlFileGroup;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlIndex;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlJobProperty;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlPartition;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlPartitionInfo;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlTable;
+import org.apache.doris.sparkdpp.EtlJobConfig.FilePatternVersion;
+import org.apache.doris.sparkdpp.EtlJobConfig.SourceType;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
@@ -67,7 +67,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -108,7 +107,7 @@ public class SparkLoadPendingTask extends LoadTask {
     }
 
     @Override
-    void executeTask() throws LoadException {
+    void executeTask() throws UserException {
         LOG.info("begin to execute spark pending task. load job id: {}", loadJobId);
         submitEtlJob();
     }
@@ -121,7 +120,8 @@ public class SparkLoadPendingTask extends LoadTask {
 
         // handler submit etl job
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
-        handler.submitEtlJob(loadJobId, loadLabel, etlJobConfig, resource, brokerDesc, sparkLoadAppHandle, sparkAttachment);
+        handler.submitEtlJob(loadJobId, loadLabel, etlJobConfig, resource,
+                brokerDesc, sparkLoadAppHandle, sparkAttachment);
         LOG.info("submit spark etl job success. load job id: {}, attachment: {}", loadJobId, sparkAttachment);
     }
 
@@ -131,7 +131,8 @@ public class SparkLoadPendingTask extends LoadTask {
     }
 
     private void createEtlJobConf() throws LoadException {
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new LoadException("db does not exist. id: " + s));
+        Database db = Env.getCurrentInternalCatalog()
+                .getDbOrException(dbId, s -> new LoadException("db does not exist. id: " + s));
 
         Map<Long, EtlTable> tables = Maps.newHashMap();
         Map<Long, Set<Long>> tableIdToPartitionIds = Maps.newHashMap();
@@ -150,7 +151,8 @@ public class SparkLoadPendingTask extends LoadTask {
                 FileGroupAggKey aggKey = entry.getKey();
                 long tableId = aggKey.getTableId();
 
-                OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
+                OlapTable table = (OlapTable) db.getTableOrException(
+                        tableId, s -> new LoadException("table does not exist. id: " + s));
 
                 EtlTable etlTable = null;
                 if (tables.containsKey(tableId)) {
@@ -160,12 +162,12 @@ public class SparkLoadPendingTask extends LoadTask {
                     List<EtlIndex> etlIndexes = createEtlIndexes(table);
                     // partition info
                     EtlPartitionInfo etlPartitionInfo = createEtlPartitionInfo(table,
-                                                                               tableIdToPartitionIds.get(tableId));
+                            tableIdToPartitionIds.get(tableId));
                     etlTable = new EtlTable(etlIndexes, etlPartitionInfo);
                     tables.put(tableId, etlTable);
 
                     // add table indexes to transaction state
-                    TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr()
+                    TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                             .getTransactionState(dbId, transactionId);
                     if (txnState == null) {
                         throw new LoadException("txn does not exist. id: " + transactionId);
@@ -198,7 +200,8 @@ public class SparkLoadPendingTask extends LoadTask {
                 continue;
             }
 
-            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
+            OlapTable table = (OlapTable) db.getTableOrException(
+                    tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
                 Set<Long> partitionIds;
@@ -311,13 +314,13 @@ public class SparkLoadPendingTask extends LoadTask {
         // decimal precision scale
         int precision = 0;
         int scale = 0;
-        if (type.isDecimalV2Type()) {
+        if (type.isDecimalV2Type() || type.isDecimalV3Type()) {
             precision = column.getPrecision();
             scale = column.getScale();
         }
 
         return new EtlColumn(name, columnType, isAllowNull, isKey, aggregationType, defaultValue,
-                             stringLength, precision, scale);
+                stringLength, precision, scale);
     }
 
     private EtlPartitionInfo createEtlPartitionInfo(OlapTable table, Set<Long> partitionIds) throws LoadException {
@@ -331,7 +334,7 @@ public class SparkLoadPendingTask extends LoadTask {
                 partitionColumnRefs.add(column.getName());
             }
 
-            for (Map.Entry<Long, PartitionItem> entry : rangePartitionInfo.getPartitionItemEntryList(false, true)) {
+            for (Map.Entry<Long, PartitionItem> entry : rangePartitionInfo.getAllPartitionItemEntryList(true)) {
                 long partitionId = entry.getKey();
                 if (!partitionIds.contains(partitionId)) {
                     continue;
@@ -448,7 +451,7 @@ public class SparkLoadPendingTask extends LoadTask {
         if (columnToHadoopFunction != null) {
             for (Map.Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
                 columnMappings.put(entry.getKey(),
-                                   new EtlColumnMapping(entry.getValue().first, entry.getValue().second));
+                        new EtlColumnMapping(entry.getValue().first, entry.getValue().second));
             }
         }
         for (ImportColumnDesc columnDesc : copiedColumnExprList) {
@@ -477,7 +480,8 @@ public class SparkLoadPendingTask extends LoadTask {
         Map<String, String> hiveTableProperties = Maps.newHashMap();
         if (fileGroup.isLoadFromTable()) {
             long srcTableId = fileGroup.getSrcTableId();
-            HiveTable srcHiveTable = (HiveTable) db.getTableOrException(srcTableId, s -> new LoadException("table does not exist. id: " + s));
+            HiveTable srcHiveTable = (HiveTable) db.getTableOrException(
+                    srcTableId, s -> new LoadException("table does not exist. id: " + s));
             hiveDbTableName = srcHiveTable.getHiveDbTable();
             hiveTableProperties.putAll(srcHiveTable.getHiveProperties());
         }
@@ -499,13 +503,11 @@ public class SparkLoadPendingTask extends LoadTask {
         EtlFileGroup etlFileGroup = null;
         if (fileGroup.isLoadFromTable()) {
             etlFileGroup = new EtlFileGroup(SourceType.HIVE, hiveDbTableName, hiveTableProperties,
-                                            fileGroup.isNegative(), columnMappings, where, partitionIds);
+                    fileGroup.isNegative(), columnMappings, where, partitionIds);
         } else {
             etlFileGroup = new EtlFileGroup(SourceType.FILE, fileGroup.getFilePaths(), fileFieldNames,
-                                            fileGroup.getColumnsFromPath(), fileGroup.getValueSeparator(),
-                                            fileGroup.getLineDelimiter(), fileGroup.isNegative(),
-                                            fileGroup.getFileFormat(), columnMappings,
-                                            where, partitionIds);
+                    fileGroup.getColumnNamesFromPath(), fileGroup.getColumnSeparator(), fileGroup.getLineDelimiter(),
+                    fileGroup.isNegative(), fileGroup.getFileFormat(), columnMappings, where, partitionIds);
         }
 
         return etlFileGroup;

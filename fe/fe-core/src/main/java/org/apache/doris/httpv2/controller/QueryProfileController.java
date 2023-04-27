@@ -22,9 +22,9 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.http.ResponseEntity;
@@ -36,19 +36,22 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/rest/v1")
 public class QueryProfileController extends BaseController {
     private static final Logger LOG = LogManager.getLogger(QueryProfileController.class);
 
-    private static final String QUERY_ID = "query_id";
+    private static final String ID = "id";
+    private static final String DETAIL_COL = "Detail";
+    private static final Set<String> QUERY_ID_TYPES = ImmutableSet.of("Query", "Load");
 
-    @RequestMapping(path = "/query_profile/{" + QUERY_ID + "}", method = RequestMethod.GET)
-    public Object profile(@PathVariable(value = QUERY_ID) String queryId) {
-        String profile = ProfileManager.getInstance().getProfile(queryId);
+    @RequestMapping(path = "/query_profile/{" + ID + "}", method = RequestMethod.GET)
+    public Object profile(@PathVariable(value = ID) String id) {
+        String profile = ProfileManager.getInstance().getProfile(id);
         if (profile == null) {
-            return ResponseEntityBuilder.okWithCommonError("Query " + queryId + " does not exist");
+            return ResponseEntityBuilder.okWithCommonError("ID " + id + " does not exist");
         }
         profile = profile.replaceAll("\n", "</br>");
         profile = profile.replaceAll(" ", "&nbsp;&nbsp;");
@@ -66,33 +69,53 @@ public class QueryProfileController extends BaseController {
 
     private void addFinishedQueryInfo(Map<String, Object> result) {
         List<List<String>> finishedQueries = ProfileManager.getInstance().getAllQueries();
-        List<String> columnHeaders = ProfileManager.PROFILE_HEADERS;
-        int queryIdIndex = 0; // the first column is 'Query ID' by default
+        List<String> columnHeaders = Lists.newLinkedList();
+        columnHeaders.addAll(ProfileManager.PROFILE_HEADERS);
+        columnHeaders.addAll(ProfileManager.EXECUTION_HEADERS);
+        int jobIdIndex = -1;
+        int queryIdIndex = -1;
+        int queryTypeIndex = -1;
         for (int i = 0; i < columnHeaders.size(); ++i) {
+            if (columnHeaders.get(i).equals(ProfileManager.JOB_ID)) {
+                jobIdIndex = i;
+                continue;
+            }
             if (columnHeaders.get(i).equals(ProfileManager.QUERY_ID)) {
                 queryIdIndex = i;
-                break;
+                continue;
+            }
+            if (columnHeaders.get(i).equals(ProfileManager.QUERY_TYPE)) {
+                queryTypeIndex = i;
+                continue;
             }
         }
+        // set href as the first column
+        columnHeaders.add(0, DETAIL_COL);
 
         result.put("column_names", columnHeaders);
-        result.put("href_column", Lists.newArrayList(ProfileManager.QUERY_ID));
+        result.put("href_column", Lists.newArrayList(DETAIL_COL));
         List<Map<String, Object>> list = Lists.newArrayList();
         result.put("rows", list);
 
         for (List<String> row : finishedQueries) {
-            String queryId = row.get(queryIdIndex);
+            List<String> realRow = Lists.newLinkedList(row);
+
+            String queryType = realRow.get(queryTypeIndex);
+            String id = (QUERY_ID_TYPES.contains(queryType)) ? realRow.get(queryIdIndex) : realRow.get(jobIdIndex);
+
+            realRow.add(0, id);
             Map<String, Object> rowMap = new HashMap<>();
-            for (int i = 0; i < row.size(); ++i) {
-                rowMap.put(columnHeaders.get(i), row.get(i));
+            for (int i = 0; i < realRow.size(); ++i) {
+                rowMap.put(columnHeaders.get(i), realRow.get(i));
             }
 
             // add hyper link
-            if (Strings.isNullOrEmpty(queryId)) {
+            if (Strings.isNullOrEmpty(id)) {
                 rowMap.put("__hrefPaths", Lists.newArrayList("/query_profile/-1"));
             } else {
-                rowMap.put("__hrefPaths", Lists.newArrayList("/query_profile/" + queryId));
+                rowMap.put("__hrefPaths", Lists.newArrayList("/query_profile/" + id));
             }
+
             list.add(rowMap);
         }
     }

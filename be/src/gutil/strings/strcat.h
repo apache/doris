@@ -4,15 +4,18 @@
 // #category: operations on strings
 // #summary: Merges strings or numbers with no delimiter.
 //
-#ifndef STRINGS_STRCAT_H_
-#define STRINGS_STRCAT_H_
+#pragma once
 
+#include <string.h>
 #include <string>
+#include <utility>
+
 using std::string;
 
 #include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/stringpiece.h"
+#include "gutil/stringprintf.h"
 
 // The AlphaNum type was designed to be used as the parameter type for StrCat().
 // I suppose that any routine accepting either a string or a number could accept
@@ -332,5 +335,3 @@ void StrAppend(string* dest, const AlphaNum& a, const AlphaNum& b, const AlphaNu
                const AlphaNum& d, const AlphaNum& e, const AlphaNum& f = gEmptyAlphaNum,
                const AlphaNum& g = gEmptyAlphaNum, const AlphaNum& h = gEmptyAlphaNum,
                const AlphaNum& i = gEmptyAlphaNum);
-
-#endif // STRINGS_STRCAT_H_

@@ -18,7 +18,6 @@
 package org.apache.doris.transaction;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

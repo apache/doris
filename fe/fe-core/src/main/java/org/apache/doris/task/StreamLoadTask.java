@@ -17,11 +17,11 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.AnalysisException;
@@ -30,18 +30,20 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-
 import java.io.StringReader;
+import java.util.Arrays;
+import java.util.List;
 
 public class StreamLoadTask implements LoadTaskInfo {
 
@@ -51,6 +53,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private long txnId;
     private TFileType fileType;
     private TFileFormatType formatType;
+    private TFileCompressType compressType = TFileCompressType.UNKNOWN;
     private boolean stripOuterArray;
     private boolean numAsString;
     private String jsonPaths;
@@ -65,6 +68,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private Separator lineDelimiter;
     private PartitionNames partitions;
     private String path;
+    private long fileSize = 0;
     private boolean negative;
     private boolean strictMode = false; // default is false
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
@@ -74,12 +78,21 @@ public class StreamLoadTask implements LoadTaskInfo {
     private Expr deleteCondition;
     private String sequenceCol;
     private int sendBatchParallelism = 1;
+    private double maxFilterRatio = 0.0;
+    private boolean loadToSingleTablet = false;
+    private String headerType = "";
+    private List<String> hiddenColumns;
+    private boolean trimDoubleQuotes = false;
+    private int skipLines = 0;
+    private boolean enableProfile = false;
 
-    public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
+    public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
+            TFileCompressType compressType) {
         this.id = id;
         this.txnId = txnId;
         this.fileType = fileType;
         this.formatType = formatType;
+        this.compressType = compressType;
         this.jsonPaths = "";
         this.jsonRoot = "";
         this.stripOuterArray = false;
@@ -104,6 +117,10 @@ public class StreamLoadTask implements LoadTaskInfo {
         return formatType;
     }
 
+    public TFileCompressType getCompressType() {
+        return compressType;
+    }
+
     public ImportColumnDescs getColumnExprDescs() {
         return columnExprDescs;
     }
@@ -120,6 +137,10 @@ public class StreamLoadTask implements LoadTaskInfo {
         return columnSeparator;
     }
 
+    public String getHeaderType() {
+        return headerType;
+    }
+
     public Separator getLineDelimiter() {
         return lineDelimiter;
     }
@@ -129,12 +150,22 @@ public class StreamLoadTask implements LoadTaskInfo {
         return sendBatchParallelism;
     }
 
+    @Override
+    public boolean isLoadToSingleTablet() {
+        return loadToSingleTablet;
+    }
+
     public PartitionNames getPartitions() {
         return partitions;
     }
 
     public String getPath() {
         return path;
+    }
+
+    @Override
+    public long getFileSize() {
+        return fileSize;
     }
 
     public boolean getNegative() {
@@ -199,6 +230,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     public void setJsonRoot(String jsonRoot) {
         this.jsonRoot = jsonRoot;
     }
+
     public LoadTask.MergeType getMergeType() {
         return mergeType;
     }
@@ -211,15 +243,39 @@ public class StreamLoadTask implements LoadTaskInfo {
         return !Strings.isNullOrEmpty(sequenceCol);
     }
 
+
     @Override
     public String getSequenceCol() {
         return sequenceCol;
     }
 
+    @Override
+    public List<String> getHiddenColumns() {
+        return hiddenColumns;
+    }
+
+    @Override
+    public boolean getTrimDoubleQuotes() {
+        return trimDoubleQuotes;
+    }
+
+    public int getSkipLines() {
+        return skipLines;
+    }
+
+    @Override
+    public boolean getEnableProfile() {
+        return enableProfile;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
-                                                           request.getFileType(), request.getFormatType());
+                request.getFileType(), request.getFormatType(),
+                request.getCompressType());
         streamLoadTask.setOptionalFromTSLPutRequest(request);
+        if (request.isSetFileSize()) {
+            streamLoadTask.fileSize = request.getFileSize();
+        }
         return streamLoadTask;
     }
 
@@ -236,6 +292,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (request.isSetLineDelimiter()) {
             setLineDelimiter(request.getLineDelimiter());
         }
+        if (request.isSetHeaderType()) {
+            headerType = request.getHeaderType();
+        }
         if (request.isSetPartitions()) {
             String[] partNames = request.getPartitions().trim().split("\\s*,\\s*");
             if (request.isSetIsTempPartition()) {
@@ -246,6 +305,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         switch (request.getFileType()) {
             case FILE_STREAM:
+            // fall through to case FILE_LOCAL
+            case FILE_LOCAL:
                 path = request.getPath();
                 break;
             default:
@@ -296,6 +357,24 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetSendBatchParallelism()) {
             sendBatchParallelism = request.getSendBatchParallelism();
+        }
+        if (request.isSetMaxFilterRatio()) {
+            maxFilterRatio = request.getMaxFilterRatio();
+        }
+        if (request.isSetLoadToSingleTablet()) {
+            loadToSingleTablet = request.isLoadToSingleTablet();
+        }
+        if (request.isSetHiddenColumns()) {
+            hiddenColumns = Arrays.asList(request.getHiddenColumns().replaceAll("\\s+", "").split(","));
+        }
+        if (request.isSetTrimDoubleQuotes()) {
+            trimDoubleQuotes = request.isTrimDoubleQuotes();
+        }
+        if (request.isSetSkipLines()) {
+            skipLines = request.getSkipLines();
+        }
+        if (request.isSetEnableProfile()) {
+            enableProfile = request.isEnableProfile();
         }
     }
 
@@ -367,4 +446,10 @@ public class StreamLoadTask implements LoadTaskInfo {
     public long getMemLimit() {
         return execMemLimit;
     }
+
+    @Override
+    public double getMaxFilterRatio() {
+        return maxFilterRatio;
+    }
 }
+

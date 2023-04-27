@@ -47,7 +47,8 @@ public class ModifyCommentOperationLog implements Writable {
     @SerializedName(value = "tblComment")
     private String tblComment;
 
-    private ModifyCommentOperationLog(Type type, long dbId, long tblId, Map<String, String> colToComment, String tblComment) {
+    private ModifyCommentOperationLog(Type type, long dbId, long tblId,
+            Map<String, String> colToComment, String tblComment) {
         this.type = type;
         this.dbId = dbId;
         this.tblId = tblId;

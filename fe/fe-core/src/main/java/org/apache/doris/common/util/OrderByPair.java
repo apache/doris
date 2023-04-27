@@ -39,4 +39,3 @@ public class OrderByPair {
         return isDesc;
     }
 }
-

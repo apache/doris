@@ -69,6 +69,7 @@ public class SerialExecutorServiceTest {
         try {
             Thread.sleep(1000);
         } catch (InterruptedException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         // The submission order of the same signature should be equal to the execution order
@@ -121,6 +122,7 @@ public class SerialExecutorServiceTest {
                     @Override
                     public void onFinished(long channelId) {
                     }
+
                     @Override
                     public void onFailed(String errMsg) {
                     }

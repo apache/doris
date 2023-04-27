@@ -62,10 +62,10 @@ public class CreateEncryptKeyTest {
         // create database db1
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+        Env.getCurrentEnv().createDb(createDbStmt);
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
 
         String createFuncStr = "create encryptkey db1.my_key as \"beijing\";";
@@ -86,8 +86,8 @@ public class CreateEncryptKeyTest {
         Assert.assertEquals(1, planner.getFragments().size());
         PlanFragment fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        UnionNode unionNode =  (UnionNode)fragment.getPlanRoot();
-        List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists_");
+        UnionNode unionNode =  (UnionNode) fragment.getPlanRoot();
+        List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);

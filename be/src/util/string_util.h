@@ -20,6 +20,10 @@
 #include <strings.h>
 
 #include <algorithm>
+#include <boost/token_functions.hpp>
+#include <boost/tokenizer.hpp>
+#include <cctype>
+#include <cstddef>
 #include <map>
 #include <set>
 #include <sstream>
@@ -78,7 +82,7 @@ inline std::vector<std::string> split(const std::string& s, const std::string& d
 }
 
 template <typename T>
-inline std::string join(const std::vector<T>& elems, const std::string& delim) {
+std::string join(const std::vector<T>& elems, const std::string& delim) {
     std::stringstream ss;
     for (size_t i = 0; i < elems.size(); ++i) {
         if (i != 0) {
@@ -103,7 +107,7 @@ public:
         if (lhs.size() != rhs.size()) {
             return false;
         }
-        return strncasecmp(lhs.c_str(), rhs.c_str(), 0) == 0;
+        return strncasecmp(lhs.c_str(), rhs.c_str(), lhs.size()) == 0;
     }
 };
 
@@ -128,5 +132,16 @@ using StringCaseMap = std::map<std::string, T, StringCaseLess>;
 template <class T>
 using StringCaseUnorderedMap =
         std::unordered_map<std::string, T, StringCaseHasher, StringCaseEqual>;
+
+template <typename T>
+auto get_json_token(T& path_string) {
+    return boost::tokenizer<boost::escaped_list_separator<char>>(
+            path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+}
+
+#ifdef USE_LIBCPP
+template <>
+auto get_json_token(std::string_view& path_string) = delete;
+#endif
 
 } // namespace doris

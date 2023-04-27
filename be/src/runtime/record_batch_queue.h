@@ -15,10 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_RECORD_BATCH_QUEUE_H
-#define DORIS_RECORD_BATCH_QUEUE_H
+#pragma once
 
+#include <sys/types.h>
 #include <util/spinlock.h>
+
+#include <memory>
+#include <mutex>
 
 #include "common/status.h"
 #include "util/blocking_queue.hpp"
@@ -63,5 +66,3 @@ private:
 };
 
 } // namespace doris
-
-#endif //DORIS_RECORD_BATCH_QUEUE_H

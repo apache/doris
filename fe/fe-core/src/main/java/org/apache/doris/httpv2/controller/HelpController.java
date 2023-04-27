@@ -22,7 +22,6 @@ import org.apache.doris.qe.HelpModule;
 import org.apache.doris.qe.HelpTopic;
 
 import com.google.common.base.Strings;
-
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,7 +30,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import javax.servlet.http.HttpServletRequest;
 
 @RestController
@@ -99,14 +97,14 @@ public class HelpController {
             List<String> topics = module.listTopicByCategory(categories.get(0));
 
             if (topics.size() > 0) {
-                List<Map<String, String>> topic_list = new ArrayList<>();
+                List<Map<String, String>> topicList = new ArrayList<>();
                 result.put("topicSize", topics.size());
                 for (String topic : topics) {
                     Map<String, String> top = new HashMap<>();
                     top.put("name", topic);
-                    topic_list.add(top);
+                    topicList.add(top);
                 }
-                result.put("topicdatas", topic_list);
+                result.put("topicdatas", topicList);
             }
 
             List<String> subCategories = module.listCategoryByCategory(categories.get(0));
@@ -121,15 +119,15 @@ public class HelpController {
                 result.put("subdatas", subCate);
             }
         } else {
-            List<Map<String, String>> category_list = new ArrayList<>();
+            List<Map<String, String>> categoryList = new ArrayList<>();
             if (categories.size() > 0) {
                 result.put("categoriesSize", categories.size());
                 for (String cate : categories) {
                     Map<String, String> subMap = new HashMap<>();
                     subMap.put("name", cate);
-                    category_list.add(subMap);
+                    categoryList.add(subMap);
                 }
-                result.put("categoryDatas", category_list);
+                result.put("categoryDatas", categoryList);
             }
         }
     }

@@ -19,19 +19,19 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.persist.EditLog;
 
+import mockit.Mock;
+import mockit.MockUp;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-
-import mockit.Mock;
-import mockit.MockUp;
 
 public final class FakeTransactionIDGenerator extends MockUp<TransactionIdGenerator> {
 
     private long currentId = 1000L;
 
     @Mock
-    public void $init() {
+    public void $init() { // CHECKSTYLE IGNORE THIS LINE
         // do nothing
     }
 

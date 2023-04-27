@@ -15,17 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <brpc/controller.h>
+#include <butil/iobuf.h>
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "exprs/runtime_filter.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-
 // for rpc
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include <gen_cpp/internal_service.pb.h>
+
+#include "common/logging.h"
+#include "util/brpc_client_cache.h"
 
 namespace doris {
 
@@ -36,11 +45,12 @@ struct IRuntimeFilter::rpc_context {
     brpc::CallId cid;
 };
 
-Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress* addr) {
+Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress* addr,
+                                      bool opt_remote_rf) {
     DCHECK(is_producer());
     DCHECK(_rpc_context == nullptr);
     std::shared_ptr<PBackendService_Stub> stub(
-            state->exec_env()->brpc_stub_cache()->get_stub(*addr));
+            state->exec_env()->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
         std::string msg =
                 fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port);
@@ -60,6 +70,8 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     pfragment_instance_id->set_lo(state->fragment_instance_id().lo);
 
     _rpc_context->request.set_filter_id(_filter_id);
+    _rpc_context->request.set_opt_remote_rf(opt_remote_rf);
+    _rpc_context->request.set_is_pipeline(state->enable_pipeline_exec());
     _rpc_context->cntl.set_timeout_ms(1000);
     _rpc_context->cid = _rpc_context->cntl.call_id();
 
@@ -94,7 +106,8 @@ Status IRuntimeFilter::join_rpc() {
         if (_rpc_context->cntl.Failed()) {
             LOG(WARNING) << "runtimefilter rpc err:" << _rpc_context->cntl.ErrorText();
             // reset stub cache
-            ExecEnv::GetInstance()->brpc_stub_cache()->erase(_rpc_context->cntl.remote_side());
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    _rpc_context->cntl.remote_side());
         }
     }
     return Status::OK();

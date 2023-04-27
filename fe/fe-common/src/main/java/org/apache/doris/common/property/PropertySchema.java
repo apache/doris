@@ -17,9 +17,10 @@
 
 package org.apache.doris.common.property;
 
-import com.google.common.collect.ImmutableMap;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TPropertyVal;
+
+import com.google.common.collect.ImmutableMap;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -30,7 +31,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.Optional;
 
-@SuppressWarnings({"unchecked","rawtypes"})
+@SuppressWarnings({"unchecked", "rawtypes"})
 public abstract class PropertySchema<T> {
     private final String name;
     private final boolean required;
@@ -189,8 +190,8 @@ public abstract class PropertySchema<T> {
 
         @Override
         public Boolean read(String rawVal) {
-            if (rawVal == null ||
-                    (!rawVal.equalsIgnoreCase("true") && !rawVal.equalsIgnoreCase("false"))) {
+            if (rawVal == null || (!rawVal.equalsIgnoreCase("true")
+                    && !rawVal.equalsIgnoreCase("false"))) {
                 throw new IllegalArgumentException(String.format("Invalid boolean : %s, use true or false", rawVal));
             }
 
@@ -225,7 +226,7 @@ public abstract class PropertySchema<T> {
     public static final class DateProperty extends PropertySchema<Date> {
         SimpleDateFormat dateFormat;
 
-        DateProperty(String name, SimpleDateFormat dateFormat) {
+        public DateProperty(String name, SimpleDateFormat dateFormat) {
             super(name);
             this.dateFormat = dateFormat;
         }
@@ -331,7 +332,7 @@ public abstract class PropertySchema<T> {
         }
     }
 
-    private static abstract class ComparableProperty<T extends Comparable> extends PropertySchema<T> {
+    private abstract static class ComparableProperty<T extends Comparable> extends PropertySchema<T> {
         protected ComparableProperty(String name) {
             super(name);
         }
@@ -396,4 +397,3 @@ public abstract class PropertySchema<T> {
 
     public abstract void write(T val, DataOutput out) throws IOException;
 }
-

@@ -18,7 +18,7 @@
 package org.apache.doris.load.routineload;
 
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -27,7 +27,6 @@ import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -37,7 +36,6 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,8 +51,8 @@ import java.util.UUID;
 public abstract class RoutineLoadTaskInfo {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskInfo.class);
 
-    private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
-    
+    private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
+
     protected UUID id;
     protected long txnId = -1L;
     protected long jobId;
@@ -88,15 +86,15 @@ public abstract class RoutineLoadTaskInfo {
         this(id, jobId, clusterName, timeoutMs);
         this.previousBeId = previousBeId;
     }
-    
+
     public UUID getId() {
         return id;
     }
-    
+
     public long getJobId() {
         return jobId;
     }
-    
+
     public String getClusterName() {
         return clusterName;
     }
@@ -116,7 +114,7 @@ public abstract class RoutineLoadTaskInfo {
     public long getBeId() {
         return beId;
     }
-    
+
     public long getTxnId() {
         return txnId;
     }
@@ -168,9 +166,8 @@ public abstract class RoutineLoadTaskInfo {
         // begin a txn for task
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         try {
-            MetricRepo.COUNTER_LOAD_ADD.increase(1L);
-            txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                    routineLoadJob.getDbId(), Lists.newArrayList(routineLoadJob.getTableId()), DebugUtil.printId(id), null,
+            txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(routineLoadJob.getDbId(),
+                    Lists.newArrayList(routineLoadJob.getTableId()), DebugUtil.printId(id), null,
                     new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),
                     timeoutMs / 1000);
