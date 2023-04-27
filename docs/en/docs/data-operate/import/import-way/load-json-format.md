@@ -470,7 +470,7 @@ code INT NULL
 
 4. Import multi-line data as multi-line Object
 
-      ```JSON
+      ```json
       {"id": 100, "city": "beijing", "code" : 1}
       {"id": 101, "city": "shanghai"}
       {"id": 102, "city": "tianjin", "code" : 3}
