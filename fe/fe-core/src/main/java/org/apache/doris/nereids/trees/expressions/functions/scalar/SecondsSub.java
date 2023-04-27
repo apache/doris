@@ -48,7 +48,7 @@ public class SecondsSub extends ScalarFunction
     );
 
     public SecondsSub(Expression arg0, Expression arg1) {
-        super("Seconds_sub", arg0, arg1);
+        super("seconds_sub", arg0, arg1);
     }
 
     @Override
