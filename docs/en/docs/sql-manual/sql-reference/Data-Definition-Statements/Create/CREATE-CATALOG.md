@@ -241,10 +241,10 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"driver_url" = "file:///path/to/mssql-jdbc-11.2.3.jre8.jar",
 		"driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
 	);
-	CREATE CATALOG sqlserver_catlog WITH RESOURCE sqlserver_resource;
+	CREATE CATALOG sqlserver_catalog WITH RESOURCE sqlserver_resource;
 
 	-- The second way
-	CREATE CATALOG sqlserver_catlog PROPERTIES (
+	CREATE CATALOG sqlserver_catalog PROPERTIES (
 		"type"="jdbc",
 		"user"="SA",
 		"password"="Doris123456",
@@ -265,7 +265,7 @@ CREATE CATALOG catalog_name PROPERTIES (
        "driver_url" = "file:///path/to/ngdbc.jar",
        "driver_class" = "com.sap.db.jdbc.Driver"
    );
-   CREATE CATALOG saphana_catlog WITH RESOURCE saphana_resource;
+   CREATE CATALOG saphana_catalog WITH RESOURCE saphana_resource;
 
    -- The second way
 	CREATE CATALOG saphana_catalog PROPERTIES (
@@ -289,7 +289,7 @@ CREATE CATALOG catalog_name PROPERTIES (
        "driver_url" = "file:///path/to/trino-jdbc-389.jar",
        "driver_class" = "io.trino.jdbc.TrinoDriver"
 	);
-   CREATE CATALOG trino_catlog WITH RESOURCE trino_resource;
+   CREATE CATALOG trino_catalog WITH RESOURCE trino_resource;
 
    -- The second way
 	CREATE CATALOG trino_catalog PROPERTIES (
@@ -311,9 +311,10 @@ CREATE CATALOG catalog_name PROPERTIES (
        "password"="",
        "jdbc_url" = "jdbc:oceanbase://localhost:2881/demo",
        "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
-       "driver_class" = "com.oceanbase.jdbc.Driver"
+       "driver_class" = "com.oceanbase.jdbc.Driver",
+	   "oceanbase_mode" = "mysql" or "oracle"
 	);
-   CREATE CATALOG oceanbase_catlog WITH RESOURCE oceanbase_resource;
+   CREATE CATALOG oceanbase_catalog WITH RESOURCE oceanbase_resource;
 
    -- The second way
 	CREATE CATALOG oceanbase_catalog PROPERTIES (
@@ -322,7 +323,8 @@ CREATE CATALOG catalog_name PROPERTIES (
        "password"="",
        "jdbc_url" = "jdbc:oceanbase://localhost:2881/demo",
        "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
-       "driver_class" = "com.oceanbase.jdbc.Driver"
+       "driver_class" = "com.oceanbase.jdbc.Driver",
+   	   "oceanbase_mode" = "mysql" or "oracle"
 	);
    ```
 
