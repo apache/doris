@@ -29,3 +29,6 @@
 	path = be/src/apache-orc
 	url = https://github.com/apache/doris-thirdparty.git
 	branch = orc
+[submodule ".github/actions/pull-request-stats"]
+	path = .github/actions/pull-request-stats
+	url = https://github.com/flowwer-dev/pull-request-stats.git
