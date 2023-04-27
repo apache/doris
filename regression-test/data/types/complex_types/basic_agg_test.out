@@ -14,6 +14,11 @@
 2	1
 3	2
 
+-- !sql_hll_cardinality2 --
+1	0
+2	1
+3	2
+
 -- !sql_quantile_state --
 1	\N
 2	\N
