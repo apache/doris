@@ -52,6 +52,7 @@ eval set -- "${OPTS}"
 
 ALL_PLUGIN=1
 CLEAN=0
+HELP=0
 if [[ "$#" == 1 ]]; then
     # defuat
     ALL_PLUGIN=1
@@ -87,7 +88,7 @@ else
     done
 fi
 
-if [[ ${HELP} -eq 1 ]]; then
+if [[ "${HELP}" -eq 1 ]]; then
     usage
     exit
 fi

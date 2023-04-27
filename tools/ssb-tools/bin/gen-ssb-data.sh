@@ -88,7 +88,7 @@ while true; do
     esac
 done
 
-if [[ ${HELP} -eq 1 ]]; then
+if [[ "${HELP}" -eq 1 ]]; then
     usage
     exit
 fi

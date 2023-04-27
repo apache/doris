@@ -106,7 +106,7 @@ if [[ "$#" -ne 1 ]]; then
     done
 fi
 
-if [[ ${HELP} -eq 1 ]]; then
+if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
