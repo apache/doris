@@ -1012,9 +1012,7 @@ public:
         return Status::OK();
     }
 
-    PrimitiveType column_type() {
-        return _column_return_type;
-    }
+    PrimitiveType column_type() { return _column_return_type; }
 
     void ready_for_publish() {
         if (_filter_type == RuntimeFilterType::MINMAX_FILTER) {
@@ -1036,17 +1034,11 @@ public:
         }
     }
 
-    bool is_bloomfilter() const {
-        return _is_bloomfilter;
-    }
+    bool is_bloomfilter() const { return _is_bloomfilter; }
 
-    bool is_ignored_in_filter() const {
-        return _is_ignored_in_filter;
-    }
+    bool is_ignored_in_filter() const { return _is_ignored_in_filter; }
 
-    std::string* get_ignored_in_filter_msg() const {
-        return _ignored_in_filter_msg;
-    }
+    std::string* get_ignored_in_filter_msg() const { return _ignored_in_filter_msg; }
 
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
@@ -1057,9 +1049,7 @@ public:
         }
     }
 
-    size_t get_in_filter_size() const {
-        return _context.hybrid_set->size();
-    }
+    size_t get_in_filter_size() const { return _context.hybrid_set->size(); }
 
     std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter() const {
         return _context.bitmap_filter_func;
