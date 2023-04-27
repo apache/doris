@@ -1012,7 +1012,9 @@ public:
         return Status::OK();
     }
 
-    PrimitiveType column_type() { return _column_return_type; }
+    PrimitiveType column_type() {
+        return _column_return_type;
+    }
 
     void ready_for_publish() {
         if (_filter_type == RuntimeFilterType::MINMAX_FILTER) {
@@ -1034,11 +1036,17 @@ public:
         }
     }
 
-    bool is_bloomfilter() const { return _is_bloomfilter; }
+    bool is_bloomfilter() const {
+        return _is_bloomfilter;
+    }
 
-    bool is_ignored_in_filter() const { return _is_ignored_in_filter; }
+    bool is_ignored_in_filter() const {
+        return _is_ignored_in_filter;
+    }
 
-    std::string* get_ignored_in_filter_msg() const { return _ignored_in_filter_msg; }
+    std::string* get_ignored_in_filter_msg() const {
+        return _ignored_in_filter_msg;
+    }
 
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
@@ -1049,7 +1057,9 @@ public:
         }
     }
 
-    size_t get_in_filter_size() const { return _context.hybrid_set->size(); }
+    size_t get_in_filter_size() const {
+        return _context.hybrid_set->size();
+    }
 
     std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter() const {
         return _context.bitmap_filter_func;
@@ -1210,7 +1220,6 @@ bool IRuntimeFilter::await() {
             return false;
         }
     } else {
-        SCOPED_TIMER(_await_time_cost);
         std::unique_lock lock(_inner_mutex);
         if (_rf_state != RuntimeFilterState::READY) {
             int64_t ms_since_registration = MonotonicMillis() - registration_time_;
@@ -1485,23 +1494,21 @@ Status IRuntimeFilter::_create_wrapper(RuntimeState* state, const T* param, Obje
 
 void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     if (_profile_init) {
+        parent_profile->add_child(_profile.get(), true, nullptr);
         return;
     }
     {
-        std::lock_guard guard(_inner_mutex);
+        std::lock_guard guard(_profile_mutex);
         if (_profile_init) {
             return;
         }
         DCHECK(parent_profile != nullptr);
-        _profile.reset(
-                new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                                               ::doris::to_string(_runtime_filter_type))));
+        _name = fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                            ::doris::to_string(_runtime_filter_type));
+        _profile.reset(new RuntimeProfile(_name));
         _profile_init = true;
     }
     parent_profile->add_child(_profile.get(), true, nullptr);
-    if (!_enable_pipeline_exec) {
-        _await_time_cost = ADD_TIMER(_profile, "AWaitTimeCost");
-    }
     _profile->add_info_string("Info", _format_status());
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
@@ -1838,8 +1845,8 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
     return Status::OK();
 }
 
-Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param) {
-    int64_t start_update = MonotonicMillis();
+Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param,
+                                     int64_t start_apply) {
     if (param->request->has_in_filter() && param->request->in_filter().has_ignored_msg()) {
         set_ignored();
         const PInFilter in_filter = param->request->in_filter();
@@ -1858,7 +1865,7 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param) {
 
     _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
     _profile->add_info_string("UpdateTime",
-                              std::to_string(MonotonicMillis() - start_update) + " ms");
+                              std::to_string(MonotonicMillis() - start_apply) + " ms");
     return Status::OK();
 }
 
