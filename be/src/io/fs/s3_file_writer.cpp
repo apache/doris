@@ -85,13 +85,6 @@ S3FileWriter::~S3FileWriter() {
     CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
 }
 
-Status S3FileWriter::_open() {
-    VLOG_DEBUG << "S3FileWriter::open, path: " << _path.native();
-    _closed = false;
-    _opened = true;
-    return Status::OK();
-}
-
 Status S3FileWriter::_create_multi_upload_request() {
     CreateMultipartUploadRequest create_request;
     create_request.WithBucket(_bucket).WithKey(_key);
@@ -111,7 +104,7 @@ void S3FileWriter::_wait_until_finish(std::string task_name) {
     auto msg =
             fmt::format("{} multipart upload already takes 5 min, bucket={}, key={}, upload_id={}",
                         std::move(task_name), _bucket, _path.native(), _upload_id);
-    while (!_wait.wait()) {
+    while (_count.timed_wait({5 * 60, 0}) < 0) {
         LOG(WARNING) << msg;
     }
 }
@@ -155,7 +148,7 @@ Status S3FileWriter::close() {
     VLOG_DEBUG << "S3FileWriter::close, path: " << _path.native();
     _closed = true;
     if (_pending_buf != nullptr) {
-        _wait.add();
+        _count.add_count();
         _pending_buf->submit();
         _pending_buf = nullptr;
     }
@@ -167,7 +160,9 @@ Status S3FileWriter::close() {
 Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     // lazy open
     if (!_opened) {
-        RETURN_IF_ERROR(_open());
+        VLOG_DEBUG << "S3FileWriter::open, path: " << _path.native();
+        _closed = false;
+        _opened = true;
     }
     DCHECK(!_closed);
     size_t buffer_size = config::s3_write_buffer_size;
@@ -184,7 +179,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                         });
                 _pending_buf->set_file_offset(_bytes_appended);
                 // later we might need to wait all prior tasks to be finished
-                _pending_buf->set_finish_upload([this]() { _wait.done(); });
+                _pending_buf->set_finish_upload([this]() { _count.signal(); });
                 _pending_buf->set_is_cancel([this]() { return _failed.load(); });
                 _pending_buf->set_on_failed([this, part_num = _cur_part_num](Status st) {
                     VLOG_NOTICE << "failed at key: " << _key << ", load part " << part_num
@@ -213,7 +208,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                     RETURN_IF_ERROR(_create_multi_upload_request());
                 }
                 _cur_part_num++;
-                _wait.add();
+                _count.add_count();
                 _pending_buf->submit();
                 _pending_buf = nullptr;
             }
@@ -265,8 +260,6 @@ void S3FileWriter::_upload_one_part(int64_t part_num, S3FileBuffer& buf) {
     _bytes_written += buf.get_size();
 }
 
-// TODO(AlexYue): if the whole size is less than 5MB, we can use just call put object method
-// to reduce the network IO num to just one time
 Status S3FileWriter::_complete() {
     SCOPED_RAW_TIMER(_upload_cost_ms.get());
     if (_failed) {
@@ -308,11 +301,13 @@ Status S3FileWriter::finalize() {
     // submit pending buf if it's not nullptr
     // it's the last buf, we can submit it right now
     if (_pending_buf != nullptr) {
+        // if we only need to upload one file less than 5MB, we can just
+        // call PutObject to reduce the network IO
         if (_upload_id.empty()) {
             _pending_buf->set_upload_remote_callback(
                     [this, buf = _pending_buf]() { _put_object(*buf); });
         }
-        _wait.add();
+        _count.add_count();
         _pending_buf->submit();
         _pending_buf = nullptr;
     }
