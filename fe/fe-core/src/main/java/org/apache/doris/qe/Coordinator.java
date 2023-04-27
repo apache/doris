@@ -29,6 +29,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileUpdater;
 import org.apache.doris.common.telemetry.ScopedSpan;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.ConsistentHash;
@@ -270,6 +271,8 @@ public class Coordinator {
 
     private List<TPipelineResourceGroup> tResourceGroups = Lists.newArrayList();
 
+    private final ProfileUpdater profileUpdater;
+
     private static class BackendHash implements Funnel<Backend> {
         @Override
         public void funnel(Backend backend, PrimitiveSink primitiveSink) {
@@ -289,14 +292,15 @@ public class Coordinator {
         }
     }
 
+    // Used for query/insert
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner,
-            StatsErrorEstimator statsErrorEstimator) {
-        this(context, analyzer, planner);
+            StatsErrorEstimator statsErrorEstimator, ProfileUpdater profileUpdater) {
+        this(context, analyzer, planner, profileUpdater);
         this.statsErrorEstimator = statsErrorEstimator;
     }
 
-    // Used for query/insert
-    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
+    // Used for query/insert/test
+    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner, ProfileUpdater profileUpdater) {
         this.isBlockQuery = planner.isBlockQuery();
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
@@ -350,12 +354,12 @@ public class Coordinator {
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.tResourceGroups = analyzer == null ? null : analyzer.getResourceGroups();
+        this.profileUpdater = (profileUpdater == null ? new ProfileUpdater(false, queryId) : profileUpdater);
     }
 
     // Used for broker load task/export task/update coordinator
-    public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
-                       List<PlanFragment> fragments, List<ScanNode> scanNodes, String timezone,
-                       boolean loadZeroTolerance) {
+    public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
+            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, ProfileUpdater profileUpdater) {
         this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
@@ -372,6 +376,7 @@ public class Coordinator {
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
+        this.profileUpdater = (profileUpdater == null ? new ProfileUpdater(false, queryId) : profileUpdater);
     }
 
     private void setFromUserProperty(ConnectContext connectContext) {

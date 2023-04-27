@@ -134,7 +134,7 @@ public class LoadLoadingTask extends LoadTask {
     private void executeOnce() throws Exception {
         // New one query id,
         Coordinator curCoordinator = new Coordinator(callback.getCallbackId(), loadId, planner.getDescTable(),
-                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
+                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance, null);
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
         curCoordinator.setExecPipEngine(Config.enable_pipeline_load);

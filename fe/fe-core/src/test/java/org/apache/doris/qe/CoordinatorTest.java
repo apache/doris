@@ -83,14 +83,14 @@ public class CoordinatorTest extends Coordinator {
     }
 
     public CoordinatorTest() {
-        super(context, analyzer, originalPlanner);
+        super(context, analyzer, originalPlanner, null);
     }
 
     private static Coordinator coor;
 
     @Test
     public void testComputeColocateJoinInstanceParam()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner, null);
 
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
@@ -290,7 +290,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testColocateJoinAssignment()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner, null);
 
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
@@ -516,7 +516,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testComputeScanRangeAssignmentByScheduler()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner, null);
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
         Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
@@ -607,7 +607,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testGetExecHostPortForFragmentIDAndBucketSeq()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner, null);
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         // each olaptable bucket have the same TScanRangeLocations, be id is {0, 1, 2}
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
@@ -737,7 +737,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testComputeScanRangeAssignment()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner, null);
 
         //TScanRangeLocations
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();

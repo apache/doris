@@ -83,6 +83,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.profile.ProfileUpdater;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LiteralUtils;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -209,6 +210,8 @@ public class StmtExecutor implements ProfileWriter {
     // Distinguish from prepare and execute command
     private boolean isExecuteStmt = false;
 
+    private final ProfileUpdater profileUpdater;
+
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
     private static final CommonResultSetMetaData DRY_RUN_QUERY_METADATA = new CommonResultSetMetaData(
@@ -222,8 +225,10 @@ public class StmtExecutor implements ProfileWriter {
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
+        this.profileUpdater = new ProfileUpdater(context.getSessionVariable().enableProfile(), context.queryId());
     }
 
+    // for test
     public StmtExecutor(ConnectContext context, String stmt) {
         this(context, new OriginStatement(stmt, 0), false);
         this.stmtName = stmt;
@@ -246,6 +251,7 @@ public class StmtExecutor implements ProfileWriter {
             this.statementContext.setParsedStatement(parsedStmt);
         }
         this.context.setStatementContext(statementContext);
+        this.profileUpdater = new ProfileUpdater(context.getSessionVariable().enableProfile(), context.queryId());
     }
 
     private static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
@@ -1330,7 +1336,7 @@ public class StmtExecutor implements ProfileWriter {
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
-        coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+        coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator(), profileUpdater);
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         coord.setProfileWriter(this);
@@ -1683,7 +1689,7 @@ public class StmtExecutor implements ProfileWriter {
             LOG.info("Do insert [{}] with query id: {}", label, DebugUtil.printId(context.queryId()));
 
             try {
-                coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+                coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator(), profileUpdater);
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
 
@@ -2209,7 +2215,7 @@ public class StmtExecutor implements ProfileWriter {
             }
             planner.getFragments();
             RowBatch batch;
-            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator(), profileUpdater);
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
