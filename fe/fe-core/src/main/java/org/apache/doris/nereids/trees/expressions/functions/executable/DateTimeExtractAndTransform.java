@@ -522,7 +522,7 @@ public class DateTimeExtractAndTransform {
                 LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
     }
 
-    @ExecFunction(name = "to_days", argTypes = {"DATETV2"}, returnType = "INT")
+    @ExecFunction(name = "to_days", argTypes = {"DATEV2"}, returnType = "INT")
     public static IntegerLiteral toDays(DateV2Literal date) {
         return new IntegerLiteral(((int) Duration.between(
                 LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
