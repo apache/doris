@@ -1093,7 +1093,6 @@ Status VOlapTableSink::open(RuntimeState* state) {
 }
 
 void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
-    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     const auto& id = partition->id;
     auto it = _partition_opened.find(id);
     if (it == _partition_opened.end()) {
