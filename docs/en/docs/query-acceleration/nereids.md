@@ -70,18 +70,18 @@ SET enable_fallback_to_original_planner=true;
 
 ### temporarily unsupported features
 
-> If auto fall back is enabled, it will automatically backoff to the old planner to execute query
+> If automatic fallback is enabled, it will automatically fall back to the old optimizer execution
 
-- json、array、map and struct types：The table in the query contains the above types, or the expressions in the query outputs the above types
-- DML：All DML statement, such as insert into select，create table as select，update，delete, etc.
-- function alias
+- Json、Array、Map and Struct types: The table in the query contains the above types, or the expressions in the query outputs the above types
+- DML: All DML statements such as Insert Into Select, Create Table As Select, Update, Delete, etc.
+- Function alias
 - Java UDF and HDFS UDF
-- high conmcurrent poing query optimize
-- inverted index
+- High concurrent point query optimize
+- Inverted index
 
 ### known issues
 
-- cannot use query cache and partition cache to accelarate query
-- not support MTMV
-- not support MV created after version 2.0.0
+- Cannot use query cache and partition cache to accelarate query
+- Not support MTMV
+- Not support MV created after version 2.0.0
 - Some unsupported subquery usage will produce an error result instead of an error
