@@ -44,8 +44,8 @@ public class DateLiteral extends Literal {
     protected static DateTimeFormatter DATE_FORMATTER = null;
     protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
     protected static DateTimeFormatter DATEKEY_FORMATTER = null;
-    protected static LocalDateTime startOfAD = LocalDateTime.of(0, 1, 1, 0, 0, 0);
-
+    private static final LocalDateTime startOfAD = LocalDateTime.of(0, 1, 1, 0, 0, 0);
+    private static final LocalDateTime endOfAD = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
 
     private static final DateLiteral MIN_DATE = new DateLiteral(0000, 1, 1);
@@ -144,6 +144,10 @@ public class DateLiteral extends Literal {
         return false;
     }
 
+    protected static boolean isDateOutOfRange(LocalDateTime dateTime) {
+        return dateTime.isBefore(startOfAD) || dateTime.isAfter(endOfAD);
+    }
+
     @Override
     public Long getValue() {
         return (year * 10000 + month * 100 + day) * 1000000L;
@@ -211,7 +215,7 @@ public class DateLiteral extends Literal {
     }
 
     public static DateLiteral fromJavaDateType(LocalDateTime dateTime) {
-        return dateTime.isBefore(startOfAD) ? null
+        return isDateOutOfRange(dateTime) ? null
                 : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }

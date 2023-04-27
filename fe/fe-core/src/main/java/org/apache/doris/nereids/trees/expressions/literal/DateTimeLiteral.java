@@ -325,7 +325,7 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     public static DateTimeLiteral fromJavaDateType(LocalDateTime dateTime) {
-        return dateTime.isBefore(startOfAD) ? null
+        return isDateOutOfRange(dateTime) ? null
                 : new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
                         dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
     }
