@@ -254,14 +254,14 @@ void S3FileWriter::_upload_one_part(int64_t part_num, S3FileBuffer& buf) {
         return;
     }
 
-    std::shared_ptr<CompletedPart> completed_part = std::make_shared<CompletedPart>();
+    std::unique_ptr<CompletedPart> completed_part = std::make_unique<CompletedPart>();
     completed_part->SetPartNumber(part_num);
     auto etag = upload_part_outcome.GetResult().GetETag();
     // DCHECK(etag.empty());
     completed_part->SetETag(etag);
 
     std::unique_lock<std::mutex> lck {_completed_lock};
-    _completed_parts.emplace_back(completed_part);
+    _completed_parts.emplace_back(std::move(completed_part));
     _bytes_written += buf.get_size();
 }
 
@@ -285,7 +285,7 @@ Status S3FileWriter::_complete() {
     std::sort(_completed_parts.begin(), _completed_parts.end(),
               [](auto& p1, auto& p2) { return p1->GetPartNumber() < p2->GetPartNumber(); });
     CompletedMultipartUpload completed_upload;
-    for (std::shared_ptr<CompletedPart> part : _completed_parts) {
+    for (auto& part : _completed_parts) {
         completed_upload.AddParts(*part);
     }
 

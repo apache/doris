@@ -121,7 +121,7 @@ private:
     // Current Part Num for CompletedPart
     int _cur_part_num = 1;
     std::mutex _completed_lock;
-    std::vector<std::shared_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
+    std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
     WaitGroup _wait;
 
