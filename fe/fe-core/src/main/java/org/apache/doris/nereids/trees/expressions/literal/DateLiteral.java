@@ -118,6 +118,8 @@ public class DateLiteral extends Literal {
                 dateTime = DATE_FORMATTER_TWO_DIGIT.parse(s);
             } else if (s.length() == DATEKEY_LENGTH && !s.contains("-")) {
                 dateTime = DATEKEY_FORMATTER.parse(s);
+            } else if (s.length() == 19) {
+                dateTime = DATE_TIME_FORMATTER.parse(s);
             } else {
                 dateTime = DATE_FORMATTER.parse(s);
             }
