@@ -19,7 +19,7 @@
 echo "Copying spark default config and setting up configs"
 cp /var/scripts/config/spark-defaults.conf $SPARK_CONF_DIR/.
 cp /var/scripts/config/log4j2.properties $SPARK_CONF_DIR/.
-echo "sleep 10"
+echo "sleep 10, wait hdfs start"
 sleep 10
 echo "hadoop fs -mkdir -p /var/demo/"
 hadoop fs -mkdir -p /var/demo/
@@ -29,8 +29,8 @@ echo "hadoop fs -mkdir -p /user/hive/"
 hadoop fs -mkdir -p /user/hive/
 echo "hadoop fs -copyFromLocal -f /var/scripts/config /var/demo/."
 hadoop fs -copyFromLocal -f /var/scripts/config /var/demo/.
-echo "hadoop fs -copyFromLocal -f /var/scripts/warehouse /user/hive/"
-hadoop fs -copyFromLocal -f /var/scripts/warehouse /user/hive/
+echo "hadoop fs -copyFromLocal -f /var/scripts/hudi_docker_compose_attached_file/warehouse /user/hive/"
+hadoop fs -copyFromLocal -f /var/scripts/hudi_docker_compose_attached_file/warehouse /user/hive/
 echo "chmod +x /var/scripts/run_sync_tool.sh"
 chmod +x /var/scripts/run_sync_tool.sh
 

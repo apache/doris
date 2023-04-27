@@ -19,7 +19,7 @@
 echo "Copying spark default config and setting up configs"
 cp /var/scripts/config/spark-defaults.conf $SPARK_CONF_DIR/.
 cp /var/scripts/config/log4j2.properties $SPARK_CONF_DIR/.
-echo "sleep 10"
+echo "sleep 10, wait hdfs start"
 sleep 10
 echo "hadoop fs -mkdir -p /var/demo/"
 hadoop fs -mkdir -p /var/demo/
