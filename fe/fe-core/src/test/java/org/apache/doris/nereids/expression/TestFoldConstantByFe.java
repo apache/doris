@@ -19,7 +19,6 @@ package org.apache.doris.nereids.expression;
 
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -283,8 +282,8 @@ public class TestFoldConstantByFe {
     @Test
     public void testDateConstructFunction() {
         String[] answer = {
-                "2001-07-19", "6411-08-17", "'2044-03-17 11:32:24'",
-                "'2044-03-17'", "1008909293", "1008864000"
+                "2001-07-19", "6411-08-17", "'1977-06-03 17:57:24'",
+                "'1977-06-03'", "1008909293", "1008864000"
         };
         int answerIdx = 0;
 
@@ -296,10 +295,10 @@ public class TestFoldConstantByFe {
                 new IntegerLiteral(2341798)
         ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.fromUnixTime(
-                new BigIntLiteral(2341798344L)
+                new IntegerLiteral(234179844)
         ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.fromUnixTime(
-                new BigIntLiteral(2341798344L),
+                new IntegerLiteral(234179844),
                 new VarcharLiteral("%Y-%m-%d")
         ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.unixTimestamp(

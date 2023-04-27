@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -420,7 +419,7 @@ public class DateTimeExtractAndTransform {
      * date transformation function: from_unixtime
      */
     @ExecFunction(name = "from_unixtime", argTypes = {"INT"}, returnType = "VARCHAR")
-    public static VarcharLiteral fromUnixTime(BigIntLiteral second) {
+    public static VarcharLiteral fromUnixTime(IntegerLiteral second) {
         if (second.getValue() < 0 || second.getValue() >= 253402271999L) {
             return null;
         }
@@ -431,8 +430,8 @@ public class DateTimeExtractAndTransform {
      * date transformation function: from_unixtime
      */
     @ExecFunction(name = "from_unixtime", argTypes = {"INT", "VARCHAR"}, returnType = "VARCHAR")
-    public static VarcharLiteral fromUnixTime(BigIntLiteral second, VarcharLiteral format) {
-        if (second.getValue() < 0 || second.getValue() >= 253402271999L) {
+    public static VarcharLiteral fromUnixTime(IntegerLiteral second, VarcharLiteral format) {
+        if (second.getValue() < 0) {
             return null;
         }
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
@@ -531,7 +530,7 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: makedate
      */
-    @ExecFunction(name = "makedate", argTypes = {"INT, INT"}, returnType = "DATE")
+    @ExecFunction(name = "makedate", argTypes = {"INT", "INT"}, returnType = "DATE")
     public static DateLiteral makeDate(IntegerLiteral year, IntegerLiteral dayOfYear) {
         return DateLiteral.fromJavaDateType(LocalDateTime.of(year.getValue(), 1, 1, 0, 0, 0)
                 .plusDays(dayOfYear.getValue() - 1));
