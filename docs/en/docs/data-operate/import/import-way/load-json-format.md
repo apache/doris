@@ -30,7 +30,7 @@ Doris supports importing data in JSON format. This document mainly describes the
 
 ## Supported import methods
 
-Currently, only the following import methods support data import in Json format:
+Currently, only the following import methods support data import in JSON format:
 
 - Through [S3 table function](../../../sql-manual/sql-functions/table-functions/s3.md) import statement: insert into select * from S3();
 - Import the local JSON format file through [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md).
@@ -38,15 +38,15 @@ Currently, only the following import methods support data import in Json format:
 
 Other ways of importing data in JSON format are not currently supported.
 
-## Supported Json formats
+## Supported JSON formats
 
-Currently only the following two Json formats are supported:
+Currently only the following two JSON formats are supported:
 
 1. Multiple rows of data represented by Array
 
-   Json format with Array as root node. Each element in the Array represents a row of data to be imported, usually an Object. An example is as follows:
+   JSON format with Array as root node. Each element in the Array represents a row of data to be imported, usually an Object. An example is as follows:
 
-   ````json
+   ````JSON
    [
        { "id": 123, "city" : "beijing"},
        { "id": 456, "city" : "shanghai"},
@@ -54,7 +54,7 @@ Currently only the following two Json formats are supported:
    ]
    ````
 
-   ````json
+   ````JSON
    [
        { "id": 123, "city" : { "name" : "beijing", "region" : "haidian"}},
        { "id": 456, "city" : { "name" : "beijing", "region" : "chaoyang"}},
@@ -67,13 +67,13 @@ Currently only the following two Json formats are supported:
    This method must be used with the setting `strip_outer_array=true`. Doris will expand the array when parsing, and then parse each Object in turn as a row of data.
 
 2. A single row of data represented by Object
-   Json format with Object as root node. The entire Object represents a row of data to be imported. An example is as follows:
+   JSON format with Object as root node. The entire Object represents a row of data to be imported. An example is as follows:
 
-   ````json
+   ````JSON
    { "id": 123, "city" : "beijing"}
    ````
    
-   ````json
+   ````JSON
    { "id": 123, "city" : { "name" : "beijing", "region" : "haidian" }}
    ````
    
@@ -83,7 +83,7 @@ Currently only the following two Json formats are supported:
    
    A row of data represented by Object represents a row of data to be imported. The example is as follows:
    
-   ````json
+   ````JSON
    { "id": 123, "city" : "beijing"}
    { "id": 456, "city" : "shanghai"}
    ...
@@ -107,67 +107,67 @@ This parameter is usually used to import the format of **multi-line data represe
 
 This feature requires that each row of data in the Array has exactly the same order of fields. Doris will only parse according to the field order of the first row, and then access the subsequent data in the form of subscripts. This method can improve the import efficiency by 3-5X.
 
-## Json Path
+## JSON Path
 
-Doris supports extracting data specified in Json through Json Path.
+Doris supports extracting data specified in JSON through JSON Path.
 
 **Note: Because for Array type data, Doris will expand the array first, and finally process it in a single line according to the Object format. So the examples later in this document are all explained with Json data in a single Object format. **
 
-- do not specify Json Path
+- do not specify JSON Path
 
-  If Json Path is not specified, Doris will use the column name in the table to find the element in Object by default. An example is as follows:
+  If JSON Path is not specified, Doris will use the column name in the table to find the element in Object by default. An example is as follows:
 
   The table contains two columns: `id`, `city`
 
-  The Json data is as follows:
+  The JSON data is as follows:
 
-  ````json
+  ````JSON
   { "id": 123, "city" : "beijing"}
   ````
 
   Then Doris will use `id`, `city` for matching, and get the final data `123` and `beijing`.
 
-  If the Json data is as follows:
+  If the JSON data is as follows:
 
-  ````json
+  ````JSON
   { "id": 123, "name" : "beijing"}
   ````
 
   Then use `id`, `city` for matching, and get the final data `123` and `null`.
 
-- Specify Json Path
+- Specify JSON Path
 
-  Specify a set of Json Path in the form of a Json data. Each element in the array represents a column to extract. An example is as follows:
+  Specify a set of JSON Path in the form of a JSON data. Each element in the array represents a column to extract. An example is as follows:
 
-  ````json
+  ````JSON
   ["$.id", "$.name"]
   ````
 
-  ````json
+  ````JSON
   ["$.id.sub_id", "$.name[0]", "$.city[0]"]
   ````
 
-  Doris will use the specified Json Path for data matching and extraction.
+  Doris will use the specified JSON Path for data matching and extraction.
 
 - matches non-primitive types
 
   The values that are finally matched in the preceding examples are all primitive types, such as integers, strings, and so on. Doris currently does not support composite types, such as Array, Map, etc. So when a non-basic type is matched, Doris will convert the type to a string in Json format and import it as a string type. An example is as follows:
 
-  The Json data is:
+  The JSON data is:
 
-  ````json
+  ````JSON
   { "id": 123, "city" : { "name" : "beijing", "region" : "haidian" }}
   ````
 
-  Json Path is `["$.city"]`. The matched elements are:
+  JSON Path is `["$.city"]`. The matched elements are:
 
-  ````json
+  ````JSON
   { "name" : "beijing", "region" : "haidian" }
   ````
 
   The element will be converted to a string for subsequent import operations:
 
-  ````json
+  ````JSON
   "{'name':'beijing','region':'haidian'}"
   ````
 
@@ -175,27 +175,27 @@ Doris supports extracting data specified in Json through Json Path.
 
   When the match fails, `null` will be returned. An example is as follows:
 
-  The Json data is:
+  The JSON data is:
 
-  ````json
+  ````JSON
   { "id": 123, "name" : "beijing"}
   ````
 
-  Json Path is `["$.id", "$.info"]`. The matched elements are `123` and `null`.
+  JSON Path is `["$.id", "$.info"]`. The matched elements are `123` and `null`.
 
-  Doris currently does not distinguish between null values represented in Json data and null values produced when a match fails. Suppose the Json data is:
+  Doris currently does not distinguish between null values represented in JSON data and null values produced when a match fails. Suppose the JSON data is:
 
-  ````json
+  ````JSON
   { "id": 123, "name" : null }
   ````
 
-  The same result would be obtained with the following two Json Paths: `123` and `null`.
+  The same result would be obtained with the following two JSON Paths: `123` and `null`.
 
-  ````json
+  ````JSON
   ["$.id", "$.name"]
   ````
 
-  ````json
+  ````JSON
   ["$.id", "$.info"]
   ````
 
@@ -203,27 +203,27 @@ Doris supports extracting data specified in Json through Json Path.
 
   In order to prevent misoperation caused by some parameter setting errors. When Doris tries to match a row of data, if all columns fail to match, it considers this to be an error row. Suppose the Json data is:
 
-  ````json
+  ````JSON
   { "id": 123, "city" : "beijing" }
   ````
 
-  If the Json Path is written incorrectly as (or if the Json Path is not specified, the columns in the table do not contain `id` and `city`):
+  If the JSON Path is written incorrectly as (or if the JSON Path is not specified, the columns in the table do not contain `id` and `city`):
 
-  ````json
+  ````JSON
   ["$.ad", "$.infa"]
   ````
 
   would cause the exact match to fail, and the line would be marked as an error line instead of yielding `null, null`.
 
-## Json Path and Columns
+## JSON Path and Columns
 
-Json Path is used to specify how to extract data in JSON format, while Columns specifies the mapping and conversion relationship of columns. Both can be used together.
+JSON Path is used to specify how to extract data in JSON format, while Columns specifies the mapping and conversion relationship of columns. Both can be used together.
 
-In other words, it is equivalent to rearranging the columns of a Json format data according to the column order specified in Json Path through Json Path. After that, you can map the rearranged source data to the columns of the table through Columns. An example is as follows:
+In other words, it is equivalent to rearranging the columns of a JSON format data according to the column order specified in JSON Path through JSON Path. After that, you can map the rearranged source data to the columns of the table through Columns. An example is as follows:
 
 Data content:
 
-````json
+````JSON
 {"k1": 1, "k2": 2}
 ````
 
@@ -239,7 +239,7 @@ Import statement 1 (take Stream Load as an example):
 curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\"]" -T example.json http:/ /127.0.0.1:8030/api/db1/tbl1/_stream_load
 ````
 
-In import statement 1, only Json Path is specified, and Columns is not specified. The role of Json Path is to extract the Json data in the order of the fields in the Json Path, and then write it in the order of the table structure. The final imported data results are as follows:
+In import statement 1, only JSON Path is specified, and Columns is not specified. The role of JSON Path is to extract the JSON data in the order of the fields in the JSON Path, and then write it in the order of the table structure. The final imported data results are as follows:
 
 ````text
 +------+------+
@@ -249,7 +249,7 @@ In import statement 1, only Json Path is specified, and Columns is not specified
 +------+------+
 ````
 
-You can see that the actual k1 column imports the value of the "k2" column in the Json data. This is because the field name in Json is not equivalent to the field name in the table structure. We need to explicitly specify the mapping between the two.
+You can see that the actual k1 column imports the value of the "k2" column in the JSON data. This is because the field name in JSON is not equivalent to the field name in the table structure. We need to explicitly specify the mapping between the two.
 
 Import statement 2:
 
@@ -257,7 +257,7 @@ Import statement 2:
 curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\"]" -H "columns: k2, k1 " -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
 ````
 
-Compared with the import statement 1, the Columns field is added here to describe the mapping relationship of the columns, in the order of `k2, k1`. That is, after extracting in the order of fields in Json Path, specify the value of column k2 in the table for the first column, and the value of column k1 in the table for the second column. The final imported data results are as follows:
+Compared with the import statement 1, the Columns field is added here to describe the mapping relationship of the columns, in the order of `k2, k1`. That is, after extracting in the order of fields in JSON Path, specify the value of column k2 in the table for the first column, and the value of column k1 in the table for the second column. The final imported data results are as follows:
 
 ````text
 +------+------+
@@ -283,43 +283,43 @@ The above example will import the value of k1 multiplied by 100. The final impor
 +------+------+
 ````
 
-## Json root
+## JSON root
 
-Doris supports extracting data specified in Json through Json root.
+Doris supports extracting data specified in JSON through JSON root.
 
 **Note: Because for Array type data, Doris will expand the array first, and finally process it in a single line according to the Object format. So the examples later in this document are all explained with Json data in a single Object format. **
 
-- do not specify Json root
+- do not specify JSON root
 
-  If Json root is not specified, Doris will use the column name in the table to find the element in Object by default. An example is as follows:
+  If JSON root is not specified, Doris will use the column name in the table to find the element in Object by default. An example is as follows:
 
   The table contains two columns: `id`, `city`
 
-  The Json data is as follows:
+  The JSON data is as follows:
 
-  ```json
+  ```JSON
   { "id": 123, "name" : { "id" : "321", "city" : "shanghai" }}
   ```
 
   Then use `id`, `city` for matching, and get the final data `123` and `null`
 
-- Specify Json root
+- Specify JSON root
 
-  When the import data format is json, you can specify the root node of the Json data through json_root. Doris will extract the elements of the root node through json_root for parsing. Default is empty.
+  When the import data format is JSON, you can specify the root node of the JSON data through json_root. Doris will extract the elements of the root node through json_root for parsing. Default is empty.
 
-  Specify Json root `-H "json_root: $.name"`. The matched elements are:
+  Specify JSON root `-H "json_root: $.name"`. The matched elements are:
 
-  ```json
+  ```JSON
   { "id" : "321", "city" : "shanghai" }
   ```
 
-  The element will be treated as new json for subsequent import operations,and get the final data 321 and shanghai
+  The element will be treated as new JSON for subsequent import operations,and get the final data 321 and shanghai
 
 ## NULL and Default values
 
 Example data is as follows:
 
-````json
+````JSON
 [
     {"k1": 1, "k2": "a"},
     {"k1": 2},
@@ -374,7 +374,7 @@ curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: tru
 
 ### Stream Load
 
-Because of the inseparability of the Json format, when using Stream Load to import a Json format file, the file content will be fully loaded into the memory before processing begins. Therefore, if the file is too large, it may take up more memory.
+Because of the inseparability of the JSON format, when using Stream Load to import a JSON format file, the file content will be fully loaded into the memory before processing begins. Therefore, if the file is too large, it may take up more memory.
 
 Suppose the table structure is:
 
@@ -386,11 +386,11 @@ code INT NULL
 
 1. Import a single row of data 1
 
-   ````json
+   ````JSON
    {"id": 100, "city": "beijing", "code" : 1}
    ````
 
-   - do not specify Json Path
+   - do not specify JSON Path
 
      ```bash
      curl --location-trusted -u user:passwd -H "format: json" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
@@ -402,7 +402,7 @@ code INT NULL
      100 beijing 1
      ````
 
-   - Specify Json Path
+   - Specify JSON Path
 
      ```bash
      curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" - T data.json http://localhost:8030/api/db1/tbl1/_stream_load
@@ -416,11 +416,11 @@ code INT NULL
 
 2. Import a single row of data 2
 
-   ````json
+   ````JSON
    {"id": 100, "content": {"city": "beijing", "code": 1}}
    ````
 
-   - Specify Json Path
+   - Specify JSON Path
 
      ```bash
      curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.content.city\",\"$.content.code\ "]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
@@ -434,7 +434,7 @@ code INT NULL
 
 3. Import multiple rows of data as Array
 
-   ````json
+   ````JSON
    [
        {"id": 100, "city": "beijing", "code" : 1},
        {"id": 101, "city": "shanghai"},
@@ -451,7 +451,7 @@ code INT NULL
    ]
    ````
 
-   - Specify Json Path
+   - Specify JSON Path
 
      ```bash
      curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" - H "strip_outer_array: true" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
@@ -470,7 +470,7 @@ code INT NULL
 
 4. Import multi-line data as multi-line Object
 
-      ```json
+      ```JSON
       {"id": 100, "city": "beijing", "code" : 1}
       {"id": 101, "city": "shanghai"}
       {"id": 102, "city": "tianjin", "code" : 3}
@@ -508,15 +508,15 @@ Import result:
 105 {"order1":["guangzhou"]} 7
 ````
 
-6. Import Array by json
+6. Import Array by JSON
 Since the Rapidjson handles decimal and largeint numbers which will cause precision problems, 
-we suggest you to use json string to import data to `array<decimal>` or `array<largeint>` column.
+we suggest you to use JSON string to import data to `array<decimal>` or `array<largeint>` column.
 
-```json
+```JSON
 {"k1": 39, "k2": ["-818.2173181"]}
 ```
 
-```json
+```JSON
 {"k1": 40, "k2": ["10000000000000000000.1111111222222222"]}
 ```
 
@@ -536,7 +536,7 @@ MySQL > select * from array_test_decimal;
 ```
 
 
-```json
+```JSON
 {"k1": 999, "k2": ["76959836937749932879763573681792701709", "26017042825937891692910431521038521227"]}
 ```
 
@@ -556,6 +556,6 @@ MySQL > select * from array_test_largeint;
 
 ### Routine Load
 
-The processing principle of Routine Load for Json data is the same as that of Stream Load. It is not repeated here.
+The processing principle of Routine Load for JSON data is the same as that of Stream Load. It is not repeated here.
 
-For Kafka data sources, the content in each Massage is treated as a complete Json data. If there are multiple rows of data represented in Array format in a Massage, multiple rows will be imported, and the offset of Kafka will only increase by 1. If an Array format Json represents multiple lines of data, but the Json parsing fails due to the wrong Json format, the error line will only increase by 1 (because the parsing fails, in fact, Doris cannot determine how many lines of data are contained in it, and can only error by one line data record)
+For Kafka data sources, the content in each Massage is treated as a complete JSON data. If there are multiple rows of data represented in Array format in a Massage, multiple rows will be imported, and the offset of Kafka will only increase by 1. If an Array format Json represents multiple lines of data, but the Json parsing fails due to the wrong Json format, the error line will only increase by 1 (because the parsing fails, in fact, Doris cannot determine how many lines of data are contained in it, and can only error by one line data record)
