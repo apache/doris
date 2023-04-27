@@ -124,9 +124,13 @@ public:
     }
 
     bool empty_in_queue(int id) override {
+        LOG_INFO("yxc test").tag("id", id).tag("_queue_mutexs.size()", _queue_mutexs.size());
+        if (id >= _queue_mutexs.size()) {
+            LOG_WARNING("yxc error");
+        }
         std::unique_lock<std::mutex> l(*_queue_mutexs[id]);
-        LOG_INFO("yxc test").tag("id",id).tag("_blocks_queues.size()", _blocks_queues.size());
-        if(id >= _blocks_queues.size()){
+        LOG_INFO("yxc test").tag("id", id).tag("_blocks_queues.size()", _blocks_queues.size());
+        if (id >= _blocks_queues.size()) {
             LOG_WARNING("yxc error");
         }
         return _blocks_queues[id].empty();
