@@ -19,6 +19,7 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Group;
@@ -434,8 +435,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
-            ColumnStatistic cache =
-                    Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
+            ColumnStatistic cache = Config.enable_stats
+                    ? Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName)
+                    : ColumnStatistic.UNKNOWN;
             if (cache == ColumnStatistic.UNKNOWN) {
                 if (ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
                     throw new AnalysisException("column stats for " + colName

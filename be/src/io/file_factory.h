@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -54,6 +55,8 @@ struct FileDescription {
 };
 
 class FileFactory {
+    ENABLE_FACTORY_CREATOR(FileFactory);
+
 public:
     static io::FileCachePolicy get_cache_policy(RuntimeState* state);
 

@@ -97,3 +97,9 @@ under the License.
 
     可以尝试在 `create catalog` 语句中添加 `"metastore.filter.hook" = "org.apache.hadoop.hive.metastore.DefaultMetaStoreFilterHookImpl"` 解决。
 
+10. 通过 Hive Catalog 连接 Hive 数据库报错：`RemoteException: SIMPLE authentication is not enabled.  Available:[TOKEN, KERBEROS]`
+
+   如果在 `show databases` 和 `show tables` 都是没问题的情况下，查询的时候出现上面的错误，我们需要进行下面两个操作：
+- fe/conf、be/conf 目录下需放置 core-site.xml 和 hdfs-site.xml
+   - BE 节点执行 Kerberos 的 kinit 然后重启 BE ，然后再去执行查询即可.
+

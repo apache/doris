@@ -36,9 +36,7 @@ array_except
 
 #### Syntax
 
-```
-ARRAY<T> array_except(ARRAY<T> array1, ARRAY<T> array2)
-```
+`ARRAY<T> array_except(ARRAY<T> array1, ARRAY<T> array2)`
 
 返回一个数组，包含所有在array1内但不在array2内的元素，不包含重复项，如果输入参数为NULL，则返回NULL
 

@@ -37,6 +37,8 @@ class Block;
 namespace doris::vectorized {
 
 class VExplodeNumbersTableFunction : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VExplodeNumbersTableFunction);
+
 public:
     VExplodeNumbersTableFunction();
     ~VExplodeNumbersTableFunction() override = default;

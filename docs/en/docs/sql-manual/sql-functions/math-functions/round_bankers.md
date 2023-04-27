@@ -27,7 +27,7 @@ under the License.
 ### description
 #### Syntax
 
-`round_bankers(x), round_bankers(x, d)`
+`T round_bankers(T x[, d])`
 Rounds the argument `x` to `d` specified decimal places. `d` defaults to 0 if not specified. If d is negative, the left d digits of the decimal point are 0. If x or d is null, null is returned.
 
 + If the rounding number is halfway between two numbers, the function uses banker’s rounding.

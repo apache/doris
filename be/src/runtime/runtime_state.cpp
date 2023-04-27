@@ -48,6 +48,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env)
         : _profile("Fragment " + print_id(fragment_instance_id)),
+          _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
           _data_stream_recvrs_pool(new ObjectPool()),
@@ -72,6 +73,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env)
         : _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
+          _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(fragment_exec_params.query_id, this)),
           _data_stream_recvrs_pool(new ObjectPool()),
@@ -100,6 +102,7 @@ RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
                            const TUniqueId& query_id, const TQueryOptions& query_options,
                            const TQueryGlobals& query_globals, ExecEnv* exec_env)
         : _profile("Fragment " + print_id(pipeline_params.fragment_instance_id)),
+          _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(query_id, this)),
           _data_stream_recvrs_pool(new ObjectPool()),
@@ -125,6 +128,7 @@ RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         : _profile("<unnamed>"),
+          _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
@@ -158,6 +162,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
 
 RuntimeState::RuntimeState()
         : _profile("<unnamed>"),
+          _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),

@@ -17,18 +17,17 @@
 
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <iostream>
 #include <memory>
 #include <string>
 
-#include "common/logging.h"
-#include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/page_cache.h"
 
 namespace doris {
 namespace segment_v2 {

@@ -118,15 +118,31 @@ public:
             std::vector<vectorized::AggregateDataPtr> agg_places;
 
             for (int i = key_number; i < columns; i++) {
-                vectorized::AggregateFunctionPtr function =
-                        tablet_schema->column(i).get_aggregate_function(
-                                {finalized_block.get_data_type(i)}, vectorized::AGG_LOAD_SUFFIX);
-                agg_functions.push_back(function);
-                // create aggregate data
-                vectorized::AggregateDataPtr place = new char[function->size_of_data()];
-                function->create(place);
-                agg_places.push_back(place);
+                try {
+                    vectorized::AggregateFunctionPtr function =
+                            tablet_schema->column(i).get_aggregate_function(
+                                    {finalized_block.get_data_type(i)},
+                                    vectorized::AGG_LOAD_SUFFIX);
+                    agg_functions.push_back(function);
+                    // create aggregate data
+                    vectorized::AggregateDataPtr place = new char[function->size_of_data()];
+                    function->create(place);
+                    agg_places.push_back(place);
+                } catch (...) {
+                    for (int j = 0; j < i - key_number; ++j) {
+                        agg_functions[j]->destroy(agg_places[j]);
+                        delete[] agg_places[j];
+                    }
+                    throw;
+                }
             }
+
+            DEFER({
+                for (int i = 0; i < columns - key_number; i++) {
+                    agg_functions[i]->destroy(agg_places[i]);
+                    delete[] agg_places[i];
+                }
+            });
 
             for (int i = 0; i < rows; i++) {
                 auto row_ref = row_refs[i];
@@ -149,7 +165,7 @@ public:
                         agg_functions[j - key_number]->insert_result_into(
                                 agg_places[j - key_number],
                                 finalized_block.get_by_position(j).column->assume_mutable_ref());
-                        agg_functions[j - key_number]->create(agg_places[j - key_number]);
+                        agg_functions[j - key_number]->reset(agg_places[j - key_number]);
                     }
 
                     if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
@@ -158,11 +174,6 @@ public:
                         finalized_block.clear_column_data();
                     }
                 }
-            }
-
-            for (int i = 0; i < columns - key_number; i++) {
-                agg_functions[i]->destroy(agg_places[i]);
-                delete[] agg_places[i];
             }
         } else {
             std::vector<RowRef> pushed_row_refs;
@@ -252,7 +263,7 @@ ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
 Status BlockChanger::change_block(vectorized::Block* ref_block,
                                   vectorized::Block* new_block) const {
     ObjectPool pool;
-    RuntimeState* state = pool.add(new RuntimeState());
+    RuntimeState* state = pool.add(RuntimeState::create_unique().release());
     state->set_desc_tbl(&_desc_tbl);
     state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =

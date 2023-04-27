@@ -61,7 +61,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
                           << "host:" << master_info.network_address.hostname
                           << ", port:" << master_info.network_address.port
                           << ", cluster id:" << master_info.cluster_id
-                          << ", counter:" << google::COUNTER;
+                          << ", counter:" << google::COUNTER << ", BE start time: " << _be_epoch;
 
     // do heartbeat
     Status st = _heartbeat(master_info);

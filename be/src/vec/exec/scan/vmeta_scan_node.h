@@ -51,7 +51,7 @@ public:
 
 private:
     Status _init_profile() override;
-    Status _init_scanners(std::list<VScanner*>* scanners) override;
+    Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
     Status _process_conjuncts() override;
 
     TupleId _tuple_id;

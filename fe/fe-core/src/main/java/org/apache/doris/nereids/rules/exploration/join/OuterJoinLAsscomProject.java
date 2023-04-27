@@ -23,20 +23,13 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.Utils;
 
 import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.HashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Rule for change inner join LAsscom (associative and commutive).
@@ -61,43 +54,15 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
+                .when(topJoin -> OuterJoinLAsscom.checkCondition(topJoin,
+                        topJoin.left().child().right().getOutputExprIdSet()))
                 .when(join -> join.left().isAllSlots())
                 .then(topJoin -> {
                     /* ********** init ********** */
-                    List<NamedExpression> projects = topJoin.left().getProjects();
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
-                    Set<ExprId> aOutputExprIds = a.getOutputExprIdSet();
-
-                    /* ********** Split projects ********** */
-                    Map<Boolean, List<NamedExpression>> map = CBOUtils.splitProject(projects, aOutputExprIds);
-                    List<NamedExpression> aProjects = map.get(true);
-                    if (aProjects.isEmpty()) {
-                        return null;
-                    }
-                    List<NamedExpression> bProjects = map.get(false);
-                    Set<ExprId> bProjectsExprIds = bProjects.stream().map(NamedExpression::getExprId)
-                            .collect(Collectors.toSet());
-
-                    // topJoin condition can't contain bProject output. just can (A C)
-                    if (Stream.concat(topJoin.getHashJoinConjuncts().stream(), topJoin.getOtherJoinConjuncts().stream())
-                            .anyMatch(expr -> Utils.isIntersecting(expr.getInputSlotExprIds(), bProjectsExprIds))) {
-                        return null;
-                    }
-
-                    // Add all slots used by OnCondition when projects not empty.
-                    Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
-                                    bottomJoin.getHashJoinConjuncts().stream(),
-                                    bottomJoin.getHashJoinConjuncts().stream())
-                            .flatMap(onExpr -> onExpr.getInputSlots().stream())
-                            .collect(Collectors.partitioningBy(
-                                    slot -> aOutputExprIds.contains(slot.getExprId()), Collectors.toSet()));
-                    CBOUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), aProjects);
-                    CBOUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), bProjects);
-
-                    aProjects.addAll(forceToNullable(c.getOutputSet()));
 
                     /* ********** new Plan ********** */
                     LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(a, c);
@@ -105,8 +70,11 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-                    Plan left = CBOUtils.projectOrSelf(aProjects, newBottomJoin);
-                    Plan right = CBOUtils.projectOrSelf(bProjects, b);
+                    Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
+                    bottomJoin.getHashJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
+                    bottomJoin.getOtherJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
+                    Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
+                    Plan right = CBOUtils.newProject(topUsedExprIds, b);
 
                     LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
@@ -114,18 +82,5 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
 
                     return CBOUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM_PROJECT);
-    }
-
-    /**
-     * Force all slots in set to nullable.
-     */
-    public static Set<Slot> forceToNullable(Set<Slot> slotSet) {
-        return slotSet.stream().map(s -> (Slot) s.rewriteUp(e -> {
-            if (e instanceof SlotReference) {
-                return ((SlotReference) e).withNullable(true);
-            } else {
-                return e;
-            }
-        })).collect(Collectors.toSet());
     }
 }

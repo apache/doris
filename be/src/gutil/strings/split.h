@@ -19,8 +19,9 @@
 //
 #pragma once
 
-#include <stddef.h>
+// IWYU pragma: no_include <pstl/glue_algorithm_defs.h>
 
+#include <stddef.h>
 #include <algorithm>
 
 using std::copy;
@@ -30,32 +31,36 @@ using std::reverse;
 using std::sort;
 using std::swap;
 #include <iterator>
+
 using std::back_insert_iterator;
 using std::iterator_traits;
 #include <map>
+
 using std::map;
 using std::multimap;
 #include <set>
+
 using std::multiset;
 using std::set;
 #include <string>
+
 using std::string;
 #include <utility>
+
 using std::make_pair;
 using std::pair;
 #include <vector>
-using std::vector;
-#include <common/logging.h>
 
+using std::vector;
+#include "common/logging.h"
 #include <unordered_map>
 #include <unordered_set>
 
 #include "gutil/integral_types.h"
-#include "gutil/logging-inl.h"
 #include "gutil/strings/charset.h"
-#include "gutil/strings/split_internal.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/strings/strip.h"
+#include "gutil/strings/split_internal.h" // IWYU pragma: keep
 
 namespace strings {
 

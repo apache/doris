@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/global_types.h"
 #include "common/status.h"
 #include "exec/es/es_scan_reader.h"
@@ -47,6 +48,8 @@ namespace doris::vectorized {
 class NewEsScanNode;
 
 class NewEsScanner : public VScanner {
+    ENABLE_FACTORY_CREATOR(NewEsScanner);
+
 public:
     NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t limit, TupleId tuple_id,
                  const std::map<std::string, std::string>& properties,
