@@ -20,8 +20,8 @@ package org.apache.doris.qe;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryType;
@@ -276,10 +276,8 @@ public final class QeProcessorImpl implements QeProcessor {
                 return;
             }
 
-            ProfileWriter profileWriter = info.getCoord().getProfileWriter();
-            if (profileWriter != null) {
-                profileWriter.writeProfile(false);
-            }
+            ExecutionProfile executionProfile = info.getCoord().getExecutionProfile();
+            executionProfile.update(-1, false);
         }
     }
 }

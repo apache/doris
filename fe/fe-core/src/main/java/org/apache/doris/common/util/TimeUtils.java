@@ -120,7 +120,7 @@ public class TimeUtils {
         return System.nanoTime();
     }
 
-    public static long getEstimatedTime(long startTime) {
+    public static long getElapsedTime(long startTime) {
         return System.nanoTime() - startTime;
     }
 

@@ -83,6 +83,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileUpdater;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LiteralUtils;
@@ -90,7 +91,6 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.common.util.QueryPlannerProfile;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -190,10 +190,6 @@ public class StmtExecutor implements ProfileWriter {
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
     private Analyzer analyzer;
-    private RuntimeProfile profile;
-    private RuntimeProfile summaryProfile;
-    private RuntimeProfile plannerRuntimeProfile;
-    private volatile boolean isFinishedProfile = false;
     private String queryType = "Query";
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
@@ -210,7 +206,7 @@ public class StmtExecutor implements ProfileWriter {
     // Distinguish from prepare and execute command
     private boolean isExecuteStmt = false;
 
-    private final ProfileUpdater profileUpdater;
+    private final Profile profile;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -225,7 +221,7 @@ public class StmtExecutor implements ProfileWriter {
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
-        this.profileUpdater = new ProfileUpdater(context.getSessionVariable().enableProfile(), context.queryId());
+        this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile);
     }
 
     // for test
@@ -251,7 +247,7 @@ public class StmtExecutor implements ProfileWriter {
             this.statementContext.setParsedStatement(parsedStmt);
         }
         this.context.setStatementContext(statementContext);
-        this.profileUpdater = new ProfileUpdater(context.getSessionVariable().enableProfile(), context.queryId());
+        this.profile = new Profile("Query", context.getSessionVariable().enableProfile());
     }
 
     private static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
@@ -273,43 +269,6 @@ public class StmtExecutor implements ProfileWriter {
             }
         }
         return row.build();
-    }
-
-    // At the end of query execution, we begin to add up profile
-    private void initProfile(QueryPlannerProfile plannerProfile, boolean waiteBeReport) {
-        RuntimeProfile queryProfile;
-        // when a query hits the sql cache, `coord` is null.
-        if (coord == null) {
-            queryProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(context.queryId()));
-        } else {
-            queryProfile = coord.getQueryProfile();
-        }
-        if (profile == null) {
-            profile = new RuntimeProfile("Query");
-            summaryProfile = new RuntimeProfile("Summary");
-            profile.addChild(summaryProfile);
-            summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(context.getStartTime()));
-            updateSummaryProfile(waiteBeReport);
-            for (Map.Entry<String, String> entry : getSummaryInfo().entrySet()) {
-                summaryProfile.addInfoString(entry.getKey(), entry.getValue());
-            }
-            summaryProfile.addInfoString(ProfileManager.TRACE_ID, context.getSessionVariable().getTraceId());
-            plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
-            summaryProfile.addChild(plannerRuntimeProfile);
-            profile.addChild(queryProfile);
-        } else {
-            updateSummaryProfile(waiteBeReport);
-        }
-        plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
-
-        queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
-        endProfile(waiteBeReport);
-    }
-
-    private void endProfile(boolean waitProfileDone) {
-        if (context != null && context.getSessionVariable().enableProfile() && coord != null) {
-            coord.endProfile(waitProfileDone);
-        }
     }
 
     private void updateSummaryProfile(boolean waiteBeReport) {
@@ -432,7 +391,7 @@ public class StmtExecutor implements ProfileWriter {
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         execute(queryId);
     }
-
+e
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
         Span executeSpan = context.getTracer().spanBuilder("execute").setParent(Context.current()).startSpan();
@@ -601,7 +560,7 @@ public class StmtExecutor implements ProfileWriter {
                 // The final profile report occurs after be returns the query data, and the profile cannot be
                 // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
                 // for the profile before unregisterQuery().
-                endProfile(true);
+                profile.update(-1, Maps.newHashMap(), Maps.newHashMap(), true);
                 QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             }
         }
@@ -812,15 +771,8 @@ public class StmtExecutor implements ProfileWriter {
         if (!context.getSessionVariable().enableProfile()) {
             return;
         }
-        synchronized (writeProfileLock) {
-            if (isFinishedProfile) {
-                return;
-            }
-            initProfile(plannerProfile, isLastWriteProfile);
-            profile.computeTimeInChildProfile();
-            ProfileManager.getInstance().pushProfile(profile);
-            isFinishedProfile = isLastWriteProfile;
-        }
+        if (coord != null)
+        profile.update(context.startTime, getSummaryInfo(), getExecutionSummaryInfo());
     }
 
     // Analyze one statement to structure in memory.
@@ -1336,10 +1288,10 @@ public class StmtExecutor implements ProfileWriter {
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
-        coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator(), profileUpdater);
+        coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-        coord.setProfileWriter(this);
+        profile.addExecutionProfile(coord.getExecutionProfile());
         Span queryScheduleSpan =
                 context.getTracer().spanBuilder("query schedule").setParent(Context.current()).startSpan();
         try (Scope scope = queryScheduleSpan.makeCurrent()) {
@@ -1689,7 +1641,7 @@ public class StmtExecutor implements ProfileWriter {
             LOG.info("Do insert [{}] with query id: {}", label, DebugUtil.printId(context.queryId()));
 
             try {
-                coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator(), profileUpdater);
+                coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
 
@@ -1781,7 +1733,7 @@ public class StmtExecutor implements ProfileWriter {
                  */
                 throwable = t;
             } finally {
-                endProfile(true);
+                profile.update(-1, Maps.newHashMap(), Maps.newHashMap(), true);
                 QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             }
 
@@ -2215,7 +2167,8 @@ public class StmtExecutor implements ProfileWriter {
             }
             planner.getFragments();
             RowBatch batch;
-            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator(), profileUpdater);
+            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+            profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
@@ -2223,7 +2176,6 @@ public class StmtExecutor implements ProfileWriter {
                 LOG.warn(e.getMessage(), e);
             }
 
-            coord.setProfileWriter(this);
             Span queryScheduleSpan = context.getTracer()
                     .spanBuilder("internal SQL schedule").setParent(Context.current()).startSpan();
             try (Scope scope = queryScheduleSpan.makeCurrent()) {

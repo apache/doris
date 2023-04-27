@@ -31,6 +31,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -73,7 +74,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     private static final Logger LOG = LogManager.getLogger(BrokerLoadJob.class);
 
     // Profile of this load job, including all tasks' profiles
-    private RuntimeProfile jobProfile;
+    private Profile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
     private boolean enableProfile = false;
 
@@ -188,7 +189,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
         // divide job into broker loading task by table
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
-        this.jobProfile = new RuntimeProfile("BrokerLoadJob " + id + ". " + label);
+        this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true);
         MetaLockUtils.readLockTables(tableList);
         try {
             for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry
@@ -331,10 +332,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, this.getOriginStmt().originStmt);
         summaryProfile.addInfoString(ProfileManager.IS_CACHED, "N/A");
 
-        // Add the summary profile to the first
-        jobProfile.addFirstChild(summaryProfile);
-        jobProfile.computeTimeInChildProfile();
-        ProfileManager.getInstance().pushProfile(jobProfile);
+        jobProfile.update(createTimestamp * 1000, getSummaryInfo(), getExecutionSummaryInfo(), true);
     }
 
     private String getDefaultDb() {

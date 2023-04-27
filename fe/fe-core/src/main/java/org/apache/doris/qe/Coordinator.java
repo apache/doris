@@ -24,18 +24,16 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.profile.ProfileUpdater;
+import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.telemetry.ScopedSpan;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.ConsistentHash;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
-import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -190,14 +188,6 @@ public class Coordinator {
     // Once this is set to true, errors from remote fragments are ignored.
     private boolean returnedAllResults;
 
-    private RuntimeProfile queryProfile;
-
-    private RuntimeProfile fragmentsProfile;
-    private List<RuntimeProfile> fragmentProfile;
-    private RuntimeProfile loadChannelProfile;
-
-    private ProfileWriter profileWriter;
-
     // populated in computeFragmentExecParams()
     private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
@@ -220,8 +210,6 @@ public class Coordinator {
     // set in computeFragmentExecParams();
     // same as backend_exec_states_.size() after Exec()
     private final Set<TUniqueId> instanceIds = Sets.newHashSet();
-    // instance id -> dummy value
-    private MarkedCountDownLatch<TUniqueId, Long> profileDoneSignal;
 
     private final boolean isBlockQuery;
 
@@ -271,7 +259,11 @@ public class Coordinator {
 
     private List<TPipelineResourceGroup> tResourceGroups = Lists.newArrayList();
 
-    private final ProfileUpdater profileUpdater;
+    private final ExecutionProfile executionProfile;
+
+    public ExecutionProfile getExecutionProfile() {
+        return executionProfile;
+    }
 
     private static class BackendHash implements Funnel<Backend> {
         @Override
@@ -294,13 +286,13 @@ public class Coordinator {
 
     // Used for query/insert
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner,
-            StatsErrorEstimator statsErrorEstimator, ProfileUpdater profileUpdater) {
-        this(context, analyzer, planner, profileUpdater);
+            StatsErrorEstimator statsErrorEstimator) {
+        this(context, analyzer, planner);
         this.statsErrorEstimator = statsErrorEstimator;
     }
 
     // Used for query/insert/test
-    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner, ProfileUpdater profileUpdater) {
+    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
         this.isBlockQuery = planner.isBlockQuery();
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
@@ -354,12 +346,13 @@ public class Coordinator {
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.tResourceGroups = analyzer == null ? null : analyzer.getResourceGroups();
-        this.profileUpdater = (profileUpdater == null ? new ProfileUpdater(false, queryId) : profileUpdater);
+        this.executionProfile = new ExecutionProfile(queryId, fragments.size());
+
     }
 
     // Used for broker load task/export task/update coordinator
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
-            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, ProfileUpdater profileUpdater) {
+            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance) {
         this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
@@ -376,7 +369,7 @@ public class Coordinator {
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
-        this.profileUpdater = (profileUpdater == null ? new ProfileUpdater(false, queryId) : profileUpdater);
+        this.executionProfile = new ExecutionProfile(queryId, fragments.size());
     }
 
     private void setFromUserProperty(ConnectContext connectContext) {
@@ -430,18 +423,6 @@ public class Coordinator {
 
     public Status getExecStatus() {
         return queryStatus;
-    }
-
-    public RuntimeProfile getQueryProfile() {
-        return queryProfile;
-    }
-
-    public ProfileWriter getProfileWriter() {
-        return profileWriter;
-    }
-
-    public void setProfileWriter(ProfileWriter profileWriter) {
-        this.profileWriter = profileWriter;
     }
 
     public List<String> getDeltaUrls() {
@@ -529,20 +510,6 @@ public class Coordinator {
         }
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
-
-        int fragmentSize = fragments.size();
-        queryProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
-
-        fragmentsProfile = new RuntimeProfile("Fragments");
-        queryProfile.addChild(fragmentsProfile);
-        fragmentProfile = new ArrayList<RuntimeProfile>();
-        for (int i = 0; i < fragmentSize; i++) {
-            fragmentProfile.add(new RuntimeProfile("Fragment " + i));
-            fragmentsProfile.addChild(fragmentProfile.get(i));
-        }
-
-        loadChannelProfile = new RuntimeProfile("LoadChannels");
-        queryProfile.addChild(loadChannelProfile);
 
         this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
         if (LOG.isDebugEnabled()) {
@@ -645,10 +612,7 @@ public class Coordinator {
         // to keep things simple, make async Cancel() calls wait until plan fragment
         // execution has been initiated, otherwise we might try to cancel fragment
         // execution at backends where it hasn't even started
-        profileDoneSignal = new MarkedCountDownLatch<TUniqueId, Long>(instanceIds.size());
-        for (TUniqueId instanceId : instanceIds) {
-            profileDoneSignal.addMark(instanceId, -1L /* value is meaningless */);
-        }
+        executionProfile.markInstances(instanceIds);
         if (!isPointQuery) {
             if (enablePipelineEngine) {
                 sendPipelineCtx();
@@ -741,7 +705,8 @@ public class Coordinator {
                 for (TExecPlanFragmentParams tParam : tParams) {
                     BackendExecState execState =
                             new BackendExecState(fragment.getFragmentId(), instanceId++,
-                                    profileFragmentId, tParam, this.addressToBackendID, loadChannelProfile);
+                                    profileFragmentId, tParam, this.addressToBackendID,
+                                    executionProfile.getLoadChannelProfile());
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -1278,12 +1243,7 @@ public class Coordinator {
             return;
         }
         cancelRemoteFragmentsAsync(cancelReason);
-        if (profileDoneSignal != null) {
-            // count down to zero to notify all objects waiting for this
-            profileDoneSignal.countDownToZero(new Status());
-            LOG.info("unfinished instance: {}", profileDoneSignal.getLeftMarks()
-                    .stream().map(e -> DebugUtil.printId(e.getKey())).toArray());
-        }
+        executionProfile.onCancel();
     }
 
     private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason) {
@@ -2169,7 +2129,7 @@ public class Coordinator {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
-                profileDoneSignal.markedCountDown(params.getFragmentInstanceId(), -1L);
+                executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             }
 
             if (params.isSetLoadedRows()) {
@@ -2227,7 +2187,7 @@ public class Coordinator {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
-                profileDoneSignal.markedCountDown(params.getFragmentInstanceId(), -1L);
+                executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             }
 
             if (params.isSetLoadedRows()) {
@@ -2235,35 +2195,6 @@ public class Coordinator {
                         jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
                         params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
             }
-        }
-    }
-
-    public void endProfile() {
-        endProfile(true);
-    }
-
-    public void endProfile(boolean waitProfileDone) {
-        if (enablePipelineEngine) {
-            if (pipelineExecContexts.isEmpty()) {
-                return;
-            }
-        } else {
-            if (backendExecStates.isEmpty()) {
-                return;
-            }
-        }
-
-        // Wait for all backends to finish reporting when writing profile last time.
-        if (waitProfileDone && needReport) {
-            try {
-                profileDoneSignal.await(2, TimeUnit.SECONDS);
-            } catch (InterruptedException e1) {
-                LOG.warn("signal await error", e1);
-            }
-        }
-
-        for (int i = 1; i < fragmentProfile.size(); ++i) {
-            fragmentProfile.get(i).sortChildren();
         }
     }
 
@@ -2289,7 +2220,7 @@ public class Coordinator {
             long waitTime = Math.min(leftTimeoutS, fixedMaxWaitTime);
             boolean awaitRes = false;
             try {
-                awaitRes = profileDoneSignal.await(waitTime, TimeUnit.SECONDS);
+                awaitRes = executionProfile.awaitAllInstancesDone(waitTime);
             } catch (InterruptedException e) {
                 // Do nothing
             }
@@ -2332,7 +2263,7 @@ public class Coordinator {
     }
 
     public boolean isDone() {
-        return profileDoneSignal.getCount() == 0;
+        return executionProfile.isAllInstancesDone();
     }
 
     // map from an impalad host address to the per-node assigned scan ranges;
@@ -2582,7 +2513,7 @@ public class Coordinator {
         volatile boolean done;
         boolean hasCanceled;
         int profileFragmentId;
-        RuntimeProfile profile;
+        RuntimeProfile instanceProfile;
         RuntimeProfile loadChannelProfile;
         TNetworkAddress brpcAddress;
         TNetworkAddress address;
@@ -2606,7 +2537,7 @@ public class Coordinator {
 
             String name = "Instance " + DebugUtil.printId(fi.instanceId) + " (host=" + address + ")";
             this.loadChannelProfile = loadChannelProfile;
-            this.profile = new RuntimeProfile(name);
+            this.instanceProfile = new RuntimeProfile(name);
             this.hasCanceled = false;
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
         }
@@ -2633,7 +2564,7 @@ public class Coordinator {
                 return false;
             }
             if (params.isSetProfile()) {
-                profile.update(params.profile);
+                instanceProfile.update(params.profile);
             }
             if (params.isSetLoadChannelProfile()) {
                 loadChannelProfile.update(params.loadChannelProfile);
@@ -2646,8 +2577,8 @@ public class Coordinator {
         }
 
         public synchronized void printProfile(StringBuilder builder) {
-            this.profile.computeTimeInProfile();
-            this.profile.prettyPrint(builder, "");
+            this.instanceProfile.computeTimeInProfile();
+            this.instanceProfile.prettyPrint(builder, "");
         }
 
         // cancel the fragment instance.
@@ -2700,7 +2631,7 @@ public class Coordinator {
                 LOG.warn("profileFragmentId {} should be in [0, {})", profileFragmentId, maxFragmentId);
                 return false;
             }
-            profile.computeTimeInProfile();
+            instanceProfile.computeTimeInProfile();
             return true;
         }
 
@@ -3383,18 +3314,13 @@ public class Coordinator {
     private void attachInstanceProfileToFragmentProfile() {
         if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
-                if (!ctx.computeTimeInProfile(fragmentProfile.size())) {
-                    return;
-                }
                 ctx.fragmentInstancesMap.values().stream()
-                        .forEach(p -> fragmentProfile.get(ctx.profileFragmentId).addChild(p));
+                        .forEach(p -> executionProfile.addInstanceProfile(ctx.profileFragmentId, p));
             }
         } else {
             for (BackendExecState backendExecState : backendExecStates) {
-                if (!backendExecState.computeTimeInProfile(fragmentProfile.size())) {
-                    return;
-                }
-                fragmentProfile.get(backendExecState.profileFragmentId).addChild(backendExecState.profile);
+                executionProfile.addInstanceProfile(backendExecState.profileFragmentId,
+                        backendExecState.instanceProfile);
             }
         }
     }
