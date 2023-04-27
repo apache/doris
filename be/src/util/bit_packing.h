@@ -71,6 +71,11 @@ public:
                                                            int64_t in_bytes, int64_t num_values,
                                                            OutType* __restrict__ out);
 
+    template <typename OutType>
+    static std::pair<const uint8_t*, int64_t> UnpackValuesSIMD(int bit_width, const uint8_t* __restrict__ in,
+                                                               int64_t in_bytes, int64_t num_values,
+                                                               OutType* __restrict__ out);
+
     /// Unpack values as above, treating them as unsigned integers, and decode them
     /// using the provided dict. Writes them to 'out' with a stride of 'stride' bytes.
     /// Sets 'decode_error' to true if one of the packed values was greater than 'dict_len'.
