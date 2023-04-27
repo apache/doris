@@ -1056,7 +1056,7 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
         return false;
     }
     // Skip '0'
-    while (ptr < end && *ptr == '0') {
+    while (ptr < end && * ptr == '0') {
         ptr++;
     }
     const char* n_end = ptr + 9;
@@ -1097,7 +1097,7 @@ static int find_in_lib(const char* lib[], const char* str, const char* end) {
     for (; lib[pos] != NULL; ++pos) {
         const char* i = str;
         const char* j = lib[pos];
-        while (i < end && *j) {
+        while (i < end && * j) {
             if (toupper(*i) != toupper(*j)) {
                 break;
             }
@@ -1627,16 +1627,22 @@ bool VecDateTimeValue::from_unixtime(int64_t timestamp, const cctz::time_zone& c
                     std::chrono::system_clock::from_time_t(0));
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
 
-    const auto tp = cctz::convert(t, ctz);
+    const auto res = ctz.lookup(t);
 
     _neg = 0;
     _type = TIME_DATETIME;
-    _year = tp.year();
-    _month = tp.month();
-    _day = tp.day();
-    _hour = tp.hour();
-    _minute = tp.minute();
-    _second = tp.second();
+    _year = res.cs.year();
+    _month = res.cs.month();
+    _day = res.cs.day();
+    _hour = res.cs.hour();
+    _minute = res.cs.minute();
+    _second = res.cs.second();
+
+    if (res.is_dst) {
+        TimeInterval interval;
+        interval.second = -res.offset;
+        date_add_interval<SECOND>(interval);
+    }
 
     return true;
 }
@@ -2843,9 +2849,17 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz
                     std::chrono::system_clock::from_time_t(0));
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
 
-    const auto tp = cctz::convert(t, ctz);
+    const auto res = ctz.lookup(t);
 
-    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), 0);
+    set_time(res.cs.year(), res.cs.month(), res.cs.day(), res.cs.hour(), res.cs.minute(),
+             res.cs.second(), 0);
+
+    if (res.is_dst) {
+        TimeInterval interval;
+        interval.second = -res.offset;
+        date_add_interval<SECOND>(interval);
+    }
+
     return true;
 }
 
@@ -2867,10 +2881,16 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
                     std::chrono::system_clock::from_time_t(0));
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
 
-    const auto tp = cctz::convert(t, ctz);
+    const auto res = ctz.lookup(t);
 
-    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
-             nano_seconds / std::pow(10, 9 - scale) * std::pow(10, 6 - scale));
+    set_time(res.cs.year(), res.cs.month(), res.cs.day(), res.cs.hour(), res.cs.minute(),
+             res.cs.second(), nano_seconds / std::pow(10, 9 - scale) * std::pow(10, 6 - scale));
+
+    if (res.is_dst) {
+        TimeInterval interval;
+        interval.second = -res.offset;
+        date_add_interval<SECOND>(interval);
+    }
     return true;
 }
 
