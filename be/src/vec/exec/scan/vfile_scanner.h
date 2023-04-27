@@ -26,6 +26,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/global_types.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
@@ -57,7 +58,11 @@ namespace doris::vectorized {
 class NewFileScanNode;
 
 class VFileScanner : public VScanner {
+    ENABLE_FACTORY_CREATOR(VFileScanner);
+
 public:
+    static constexpr const char* NAME = "VFileScanner";
+
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                  const TFileScanRange& scan_range, RuntimeProfile* profile,
                  ShardedKVCache* kv_cache);
@@ -66,10 +71,11 @@ public:
 
     Status close(RuntimeState* state) override;
 
-public:
     Status prepare(VExprContext** vconjunct_ctx_ptr,
                    std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                    const std::unordered_map<std::string, int>* colname_to_slot_id);
+
+    std::string get_name() override { return VFileScanner::NAME; }
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
