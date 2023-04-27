@@ -32,6 +32,7 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行JSON格�
 
 目前只有以下导入方式支持 Json 格式的数据导入：
 
+- 通过 [S3表函数](../../../sql-manual/sql-functions/table-functions/s3.md) 导入语句：insert into select * from S3();
 - 将本地 JSON 格式的文件通过 [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md) 方式导入。
 - 通过 [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.md) 订阅并消费 Kafka 中的 JSON 格式消息。
 
