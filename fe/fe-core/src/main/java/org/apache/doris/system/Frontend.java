@@ -40,7 +40,7 @@ public class Frontend implements Writable {
     // nodeName = ip:port_timestamp
     @SerializedName("nodeName")
     private String nodeName;
-    @SerializedName("ip")
+    @SerializedName(value = "host", alternate = {"ip"})
     private volatile String host;
     // used for getIpByHostname
     @SerializedName("editLogPort")
@@ -56,7 +56,8 @@ public class Frontend implements Writable {
 
     private boolean isAlive = false;
 
-    public Frontend() {}
+    public Frontend() {
+    }
 
     public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
         this(role, nodeName, host, "", editLogPort);
