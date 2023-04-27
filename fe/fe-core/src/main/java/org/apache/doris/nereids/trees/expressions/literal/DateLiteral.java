@@ -44,6 +44,7 @@ public class DateLiteral extends Literal {
     protected static DateTimeFormatter DATE_FORMATTER = null;
     protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
     protected static DateTimeFormatter DATEKEY_FORMATTER = null;
+    // for cast date-time type to date-type.
     protected static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static final LocalDateTime startOfAD = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime endOfAD = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
