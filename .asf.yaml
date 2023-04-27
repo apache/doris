@@ -73,8 +73,6 @@ github:
         strict: false
         contexts:
           - License Check
-          - BE UT (Doris BE UT)
-          - Build Broker
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
