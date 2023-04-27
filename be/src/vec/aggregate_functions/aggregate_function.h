@@ -395,7 +395,10 @@ public:
     /// NOTE: Currently not used (structures with aggregation state are put without alignment).
     size_t align_of_data() const override { return alignof(Data); }
 
-    void reset(AggregateDataPtr place) const override {}
+    void reset(AggregateDataPtr place) const override {
+        destroy(place);
+        create(place);
+    }
 
     void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
                                Arena* arena) const override {
