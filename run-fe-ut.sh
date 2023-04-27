@@ -96,6 +96,14 @@ cd "${DORIS_HOME}/docs"
 cp build/help-resource.zip "${DORIS_HOME}"/fe/fe-core/src/test/resources/real-help-resource.zip
 cd "${DORIS_HOME}"
 
+echo "Build generated code"
+cd "${DORIS_HOME}/gensrc"
+make
+rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"
+cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris"
+cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/"
+cd "${DORIS_HOME}"
+
 cd "${DORIS_HOME}/fe"
 mkdir -p build/compile
 
