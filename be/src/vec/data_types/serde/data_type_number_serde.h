@@ -41,7 +41,7 @@ class JsonbOutStream;
 namespace vectorized {
 class Arena;
 
-// special data type using, maybe has various serde actions
+// special data type using, maybe has various serde actions, so use specific date serde
 //  DataTypeDateV2 => T:UInt32
 //  DataTypeDateTimeV2 => T:UInt64
 //  DataTypeTime => T:Float64
