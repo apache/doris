@@ -32,7 +32,7 @@ Doris supports importing data in JSON format. This document mainly describes the
 
 Currently, only the following import methods support data import in JSON format:
 
-- Through [S3 table function](../../../sql-manual/sql-functions/table-functions/s3.md) import statement: insert into select * from S3();
+- Through [S3 table function](../../../sql-manual/sql-functions/table-functions/s3.md) import statement: insert into table select * from S3();
 - Import the local JSON format file through [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md).
 - Subscribe and consume JSON format in Kafka via [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.md) information.
 
