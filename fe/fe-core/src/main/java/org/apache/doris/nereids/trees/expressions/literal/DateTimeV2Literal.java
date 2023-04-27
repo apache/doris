@@ -121,10 +121,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(dateTime, 6);
     }
 
-    public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int percision) {
+    public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int precision) {
         return dateTime.isBefore(startOfAD) ? null
                 : new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
                         dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
-                        dateTime.getNano() / (long) Math.pow(10, 9 - percision));
+                        dateTime.getNano() / (long) Math.pow(10, 9 - precision));
     }
 }
