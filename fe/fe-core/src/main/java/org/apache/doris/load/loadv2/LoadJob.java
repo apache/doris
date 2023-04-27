@@ -760,18 +760,27 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(state.name());
 
             // progress
+            // check null
+            ProgressManager.Progress progressShow = Env.getCurrentProgressManager().getProgressClass(id);
+            String progress = "ERROR";
+            if (progressShow != null) {
+                int finish = progressShow.getFinishedScanNums();
+                int total = progressShow.getTotalScanNums();
+                String currentProgress = String.format("%.2f", progressShow.getProgress());
+                progress = currentProgress + "% (" + finish + "/" + total + ")";
+            }
             switch (state) {
                 case PENDING:
-                    jobInfo.add("ETL:0%; LOAD:0%");
+                    jobInfo.add("INITIALING");
                     break;
                 case CANCELLED:
-                    jobInfo.add("ETL:N/A; LOAD:N/A");
+                    jobInfo.add(progress);
                     break;
                 case ETL:
-                    jobInfo.add("ETL:" + progress + "%; LOAD:0%");
+                    jobInfo.add(progress);
                     break;
                 default:
-                    jobInfo.add("ETL:100%; LOAD:" + progress + "%");
+                    jobInfo.add(progress);
                     break;
             }
 

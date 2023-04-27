@@ -185,6 +185,8 @@ public class LoadLoadingTask extends LoadTask {
                 curCoordinator.getErrorTabletInfos().clear();
                 // Create profile of this task and add to the job profile.
                 createProfile(curCoordinator);
+                // Register current load job to ProgressManager
+                // progressManager.registerProgress(curCoordinator.getQueryId(), curCoordinator.getScanRangeNum());
             } else {
                 throw new LoadException(status.getErrorMsg());
             }
