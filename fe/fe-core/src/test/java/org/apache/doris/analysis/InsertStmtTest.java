@@ -40,7 +40,6 @@ import org.junit.Test;
 
 import java.io.StringReader;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 
@@ -193,7 +192,7 @@ public class InsertStmtTest {
         };
 
 
-        InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>(), new HashMap<>());
+        InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>());
         stmt.setTargetTable(targetTable);
         stmt.setQueryStmt(queryStmt);
 
@@ -258,7 +257,7 @@ public class InsertStmtTest {
         };
 
 
-        InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>(), new HashMap<>());
+        InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>());
         stmt.setTargetTable(targetTable);
         stmt.setQueryStmt(queryStmt);
 

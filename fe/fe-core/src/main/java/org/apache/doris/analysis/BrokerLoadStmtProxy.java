@@ -1,0 +1,139 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.analysis;
+
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.load.loadv2.LoadTask;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
+
+import java.util.List;
+import java.util.Map;
+
+public class BrokerLoadStmtProxy extends AbstractInsertStmtProxy {
+
+    private final List<DataDescription> dataDescList;
+
+    private final BrokerDesc brokerDesc;
+
+    private String cluster;
+
+    public BrokerLoadStmtProxy(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
+            Map<String, String> properties, String comments) {
+        this.label = label;
+        this.dataDescList = dataDescList;
+        this.brokerDesc = brokerDesc;
+        this.properties = properties;
+        this.comments = comments;
+    }
+
+    @Override
+    public List<DataDescription> getDataDescList() {
+        return dataDescList;
+    }
+
+    @Override
+    public BrokerDesc getResourceDesc() {
+        return brokerDesc;
+    }
+
+    @Override
+    public LoadType getLoadType() {
+        return LoadType.BROKER_LOAD;
+    }
+
+    @Override
+    public void analyzeProperties() throws DdlException {
+        // public check should be in base class
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
+        // TODO(tsy): move to base class
+        label.analyze(analyzer);
+        Preconditions.checkState(CollectionUtils.isEmpty(dataDescList),
+                new AnalysisException("No data file in load statement."));
+        Preconditions.checkNotNull(brokerDesc, "No broker desc found.");
+        // check data descriptions, support 2 cases bellow:
+        // case 1: multi file paths, multi data descriptions
+        // case 2: one hive table, one data description
+        for (DataDescription dataDescription : dataDescList) {
+            final String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
+            dataDescription.analyze(fullDbName);
+            Preconditions.checkState(dataDescription.isLoadFromTable(),
+                    new AnalysisException("Load from table should use Spark Load"));
+            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(fullDbName);
+            OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
+            // TODO(tsy): add a static method to DataDesc
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND) {
+                if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
+                    throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+                } else if (!table.hasDeleteSign()) {
+                    throw new AnalysisException(
+                            "load by MERGE or DELETE need to upgrade table to support batch delete.");
+                }
+            }
+            if (!brokerDesc.isMultiLoadBroker()) {
+                for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
+                    String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
+                    dataDescription.getFilePaths().set(i, location);
+                    dataDescription.getFilePaths().set(i,
+                            ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
+                }
+            }
+        }
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
+    }
+
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("LOAD LABEL ").append(label.toSql()).append("\n");
+        sb.append("(");
+        Joiner.on(",\n").appendTo(sb, Lists.transform(dataDescList, DataDesc::toSql)).append(")");
+        if (cluster != null) {
+            sb.append("\nBY '");
+            sb.append(cluster);
+            sb.append("'");
+        }
+        if (brokerDesc != null) {
+            sb.append("\n").append(brokerDesc.toSql());
+        }
+
+        if (properties != null && !properties.isEmpty()) {
+            sb.append("\nPROPERTIES (");
+            sb.append(new PrintableMap<>(properties, "=", true, false));
+            sb.append(")");
+        }
+        return sb.toString();
+    }
+}

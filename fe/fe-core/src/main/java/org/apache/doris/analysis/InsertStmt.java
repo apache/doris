@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.AbstractInsertStmtProxy.DataDesc;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -95,9 +96,9 @@ public class InsertStmt extends DdlStmt {
 
     // --------------------- hints ---------------------
 
-    public static final String SHUFFLE_HINT = "SHUFFLE";
-    public static final String NOSHUFFLE_HINT = "NOSHUFFLE";
-    public static final String STREAMING = "STREAMING";
+    private static final String SHUFFLE_HINT = "SHUFFLE";
+    private static final String NOSHUFFLE_HINT = "NOSHUFFLE";
+    private static final String STREAMING = "STREAMING";
 
     // -------------------------------------------------
 
@@ -105,7 +106,7 @@ public class InsertStmt extends DdlStmt {
 
         public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
 
-        public static final String TIME_ZONE = "time_zone";
+        public static final String TIMEZONE = "timezone";
 
         public static final String STRICT_MODE = "strict_mode";
 
@@ -139,18 +140,17 @@ public class InsertStmt extends DdlStmt {
 
     }
 
-    private final TableName tblName;
-    private final PartitionNames targetPartitionNames;
+    private boolean isExternalLoad;
+
+    private TableName tblName;
+    private PartitionNames targetPartitionNames;
     // parsed from targetPartitionNames.
     private List<Long> targetPartitionIds;
-    private final List<String> targetColumnNames;
+    private List<String> targetColumnNames;
     private QueryStmt queryStmt;
-    private final List<String> planHints;
+    private List<String> planHints;
     private Boolean isRepartition;
-    private boolean isStreaming = false;
-    private String label = null;
-
-    private Map<Long, Integer> indexIdToSchemaHash = null;
+    private LabelName label;
 
     // set after parse all columns and expr in query statement
     // this result expr in the order of target table's columns
@@ -171,7 +171,7 @@ public class InsertStmt extends DdlStmt {
 
     private List<Column> targetColumns = Lists.newArrayList();
 
-    private final Map<String, String> properties;
+    private Map<String, String> properties;
 
     /*
      * InsertStmt may be analyzed twice, but transaction must be only begun once.
@@ -182,13 +182,18 @@ public class InsertStmt extends DdlStmt {
     private boolean isValuesOrConstantSelect = false;
 
     /**
+     * should be changed to InsertStmt
+     */
+    private AbstractInsertStmtProxy proxyStmt;
+
+    /**
      * TODO: change Function to Util.getXXXPropertyOrDefault()
      */
     public static final ImmutableMap<String, Function<String, ?>> PROPERTIES_MAP =
             new Builder<String, Function<String, ?>>()
                     .put(Properties.EXEC_MEM_LIMIT, (Function<String, Long>) Long::valueOf)
                     .put(Properties.TIMEOUT_PROPERTY, (Function<String, Long>) Long::valueOf)
-                    .put(Properties.TIME_ZONE, (Function<String, String>) input -> input)
+                    .put(Properties.TIMEZONE, (Function<String, String>) input -> input)
                     .put(Properties.LOAD_TO_SINGLE_TABLET,
                             (Function<String, Boolean>) Boolean::parseBoolean)
                     .put(Properties.MAX_FILTER_RATIO, (Function<String, Double>) Double::parseDouble)
@@ -208,19 +213,35 @@ public class InsertStmt extends DdlStmt {
         return isValuesOrConstantSelect;
     }
 
-    public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints,
-            Map<String, String> properties) {
+    @SuppressWarnings("unchecked")
+    public InsertStmt(LabelName label, List<? extends DataDesc> dataDescList, ResourceDesc resourceDesc,
+            Map<String, String> properties, String comments, LoadType loadType) {
+        this.label = label;
+        switch (loadType) {
+            case BROKER_LOAD:
+                proxyStmt = new BrokerLoadStmtProxy(label, (List<DataDescription>) dataDescList,
+                        (BrokerDesc) resourceDesc, properties, comments);
+                break;
+            case MYSQL_LOAD:
+            default:
+        }
+    }
 
+    /**
+     * For native insert
+     */
+    public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints) {
+
+        this.isExternalLoad = false;
         this.tblName = target.getTblName();
         this.targetPartitionNames = target.getPartitionNames();
-        this.label = label;
+        this.label = new LabelName(null, label);
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
         this.targetColumnNames = cols;
 
         this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
-        this.properties = properties;
     }
 
     // Ctor for CreateTableAsSelectStmt
@@ -230,41 +251,39 @@ public class InsertStmt extends DdlStmt {
         this.targetColumnNames = null;
         this.queryStmt = queryStmt;
         this.planHints = null;
-        this.properties = null;
     }
 
-    public TupleDescriptor getOlapTuple() {
-        return olapTuple;
-    }
-
+    @KeptForNative
     public Table getTargetTable() {
         return targetTable;
     }
 
+    @KeptForNative
     public void setTargetTable(Table targetTable) {
         this.targetTable = targetTable;
     }
 
-    public Map<Long, Integer> getIndexIdToSchemaHash() {
-        return this.indexIdToSchemaHash;
-    }
-
+    @FacadeIf
     public long getTransactionId() {
         return this.transactionId;
     }
 
+    @KeptForNative
     public Boolean isRepartition() {
         return isRepartition;
     }
 
-    public String getDb() {
+    @FacadeIf
+    public String getDbName() {
         return tblName.getDb();
     }
 
+    @KeptForNative
     public String getTbl() {
         return tblName.getTbl();
     }
 
+    @KeptForNative
     public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
             throws AnalysisException {
         // get dbs of statement
@@ -292,10 +311,12 @@ public class InsertStmt extends DdlStmt {
         tableMap.put(table.getId(), table);
     }
 
+    @KeptForNative
     public QueryStmt getQueryStmt() {
         return queryStmt;
     }
 
+    @KeptForNative
     public void setQueryStmt(QueryStmt queryStmt) {
         this.queryStmt = queryStmt;
     }
@@ -317,22 +338,22 @@ public class InsertStmt extends DdlStmt {
         return queryStmt.isExplain();
     }
 
-    public boolean isStreaming() {
-        return isStreaming;
-    }
-
+    @FacadeIf
     public String getLabel() {
-        return label;
+        return label.getLabelName();
     }
 
+    @KeptForNative
     public DataSink getDataSink() {
         return dataSink;
     }
 
+    @KeptForNative
     public DatabaseIf getDbObj() {
         return db;
     }
 
+    @KeptForNative
     public boolean isTransactionBegin() {
         return isTransactionBegin;
     }
@@ -380,14 +401,15 @@ public class InsertStmt extends DdlStmt {
         db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getExecTimeout();
-        if (Strings.isNullOrEmpty(label)) {
-            label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
+        if (Strings.isNullOrEmpty(label.getLabelName())) {
+            label = new LabelName(db.getFullName(),
+                    "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_"));
         }
         if (!isExplain() && !isTransactionBegin) {
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                        Lists.newArrayList(targetTable.getId()), label,
+                        Lists.newArrayList(targetTable.getId()), label.getLabelName(),
                         new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                         sourceType, timeoutSecond);
             }
@@ -446,8 +468,6 @@ public class InsertStmt extends DdlStmt {
                 slotDesc.setColumn(col);
                 slotDesc.setIsNullable(col.isAllowNull());
             }
-            // will use it during create load job
-            indexIdToSchemaHash = olapTable.getIndexIdToSchemaHash();
         } else if (targetTable instanceof MysqlTable || targetTable instanceof OdbcTable
                 || targetTable instanceof JdbcTable) {
             if (targetPartitionNames != null) {
@@ -618,7 +638,6 @@ public class InsertStmt extends DdlStmt {
                     selectStmt.getResultExprs().add(expr);
                 }
             }
-            isStreaming = true;
         } else {
             // INSERT INTO SELECT ... FROM tbl
             if (!origColIdxsForExtendCols.isEmpty()) {
@@ -771,14 +790,13 @@ public class InsertStmt extends DdlStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_PLAN_HINT_CONFILT, hint);
                 }
                 isRepartition = Boolean.FALSE;
-            } else if (STREAMING.equalsIgnoreCase(hint)) {
-                isStreaming = true;
             } else {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_PLAN_HINT, hint);
             }
         }
     }
 
+    @KeptForNative
     public void prepareExpressions() throws UserException {
         List<Expr> selectList = Expr.cloneList(queryStmt.getResultExprs());
         // check type compatibility
@@ -841,6 +859,7 @@ public class InsertStmt extends DdlStmt {
         return dataSink;
     }
 
+    @KeptForNative
     public void complete() throws UserException {
         if (!isExplain() && targetTable instanceof OlapTable) {
             ((OlapTableSink) dataSink).complete();
@@ -859,6 +878,7 @@ public class InsertStmt extends DdlStmt {
         return resultExprs;
     }
 
+    @KeptForNative
     public DataPartition getDataPartition() {
         return dataPartition;
     }
@@ -884,5 +904,48 @@ public class InsertStmt extends DdlStmt {
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
+    }
+
+    public boolean isExternalLoad() {
+        return isExternalLoad;
+    }
+
+    // TODO: data_desc
+    @FacadeIf
+    public List<? extends DataDesc> getDataDesc() {
+        // TODO(tsy): implement
+        // (T) proxy.getDataDesc().getImpl()
+        return proxyStmt.getDataDescList();
+    }
+
+    @FacadeIf
+    public ResourceDesc getResourceDesc() {
+        // TODO(tsy): implement
+        return proxyStmt.getResourceDesc();
+    }
+
+    @FacadeIf
+    public Map<String, String> getProperties() {
+        return proxyStmt.getProperties();
+    }
+
+    @FacadeIf
+    public String getComments() {
+        // TODO(tsy): implement
+        return proxyStmt.getComments();
+    }
+
+    /**
+     * Helper annotation, removed after load refactor
+     * TODO: removed after load refactor
+     */
+    public @interface KeptForNative {
+    }
+
+    /**
+     * Helper annotation, removed after load refactor
+     * TODO: removed after load refactor
+     */
+    public @interface FacadeIf {
     }
 }

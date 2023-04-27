@@ -109,8 +109,8 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_STRICT_MODE = "strict_mode";
     public static final String KEY_IN_PARAM_TIMEZONE = "timezone";
     public static final String KEY_IN_PARAM_EXEC_MEM_LIMIT = "exec_mem_limit";
-    public static final String KEY_IN_PARAM_JSONPATHS  = "jsonpaths";
-    public static final String KEY_IN_PARAM_JSONROOT  = "json_root";
+    public static final String KEY_IN_PARAM_JSONPATHS = "jsonpaths";
+    public static final String KEY_IN_PARAM_JSONROOT = "json_root";
     public static final String KEY_IN_PARAM_STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String KEY_IN_PARAM_FUZZY_PARSE = "fuzzy_parse";
     public static final String KEY_IN_PARAM_NUM_AS_STRING = "num_as_string";
@@ -230,7 +230,7 @@ public class LoadStmt extends DdlStmt {
     }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment) {
+            BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
@@ -246,7 +246,7 @@ public class LoadStmt extends DdlStmt {
     }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    ResourceDesc resourceDesc, Map<String, String> properties, String comment) {
+            ResourceDesc resourceDesc, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = null;
@@ -273,6 +273,7 @@ public class LoadStmt extends DdlStmt {
         return brokerDesc;
     }
 
+    @Deprecated
     public String getCluster() {
         return cluster;
     }
@@ -285,6 +286,7 @@ public class LoadStmt extends DdlStmt {
         return properties;
     }
 
+    @Deprecated
     public String getUser() {
         return user;
     }
@@ -450,11 +452,11 @@ public class LoadStmt extends DdlStmt {
             etlJobType = resourceDesc.getEtlJobType();
             // check resource usage privilege
             if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
-                                                                         resourceDesc.getName(),
-                                                                         PrivPredicate.USAGE)) {
+                    resourceDesc.getName(),
+                    PrivPredicate.USAGE)) {
                 throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
-                                                    + "'@'" + ConnectContext.get().getRemoteIP()
-                                                    + "' for resource '" + resourceDesc.getName() + "'");
+                        + "'@'" + ConnectContext.get().getRemoteIP()
+                        + "' for resource '" + resourceDesc.getName() + "'");
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;

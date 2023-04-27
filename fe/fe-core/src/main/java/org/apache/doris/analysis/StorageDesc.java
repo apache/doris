@@ -23,18 +23,18 @@ import java.util.Map;
 /**
  * Describe storage properties
  * The structure diagram is divided into three levels:
- *            StorageDesc
- *          /            \
- *    BrokerDesc        The other StorageBackend.StorageType desc
- *        |
- *  The broker's StorageBackend.StorageType desc
+ * StorageDesc
+ * /            \
+ * BrokerDesc        The other StorageBackend.StorageType desc
+ * |
+ * The broker's StorageBackend.StorageType desc
  */
-public class StorageDesc {
-    protected String name;
-    protected StorageBackend.StorageType storageType;
-    protected Map<String, String> properties;
+public class StorageDesc extends ResourceDesc {
 
-    public StorageDesc() {}
+    protected StorageBackend.StorageType storageType;
+
+    public StorageDesc() {
+    }
 
     public StorageDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
         this.name = name;

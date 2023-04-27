@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -81,7 +82,7 @@ import java.util.TreeSet;
  * The transform after the keyword named SET is the old ways which only supports the hadoop function.
  * It old way of transform will be removed gradually. It
  */
-public class DataDescription {
+public class DataDescription implements AbstractInsertStmtProxy.DataDesc {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
@@ -146,7 +147,7 @@ public class DataDescription {
 
     private boolean isHadoopLoad = false;
 
-    private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
+    private final LoadTask.MergeType mergeType;
     private final Expr deleteCondition;
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
@@ -154,32 +155,32 @@ public class DataDescription {
     private int skipLines = 0;
 
     public DataDescription(String tableName,
-                           PartitionNames partitionNames,
-                           List<String> filePaths,
-                           List<String> columns,
-                           Separator columnSeparator,
-                           String fileFormat,
-                           boolean isNegative,
-                           List<Expr> columnMappingList) {
+            PartitionNames partitionNames,
+            List<String> filePaths,
+            List<String> columns,
+            Separator columnSeparator,
+            String fileFormat,
+            boolean isNegative,
+            List<Expr> columnMappingList) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
                 isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
     }
 
     public DataDescription(String tableName,
-                           PartitionNames partitionNames,
-                           List<String> filePaths,
-                           List<String> columns,
-                           Separator columnSeparator,
-                           String fileFormat,
-                           List<String> columnsFromPath,
-                           boolean isNegative,
-                           List<Expr> columnMappingList,
-                           Expr fileFilterExpr,
-                           Expr whereExpr,
-                           LoadTask.MergeType mergeType,
-                           Expr deleteCondition,
-                           String sequenceColName,
-                           Map<String, String> properties) {
+            PartitionNames partitionNames,
+            List<String> filePaths,
+            List<String> columns,
+            Separator columnSeparator,
+            String fileFormat,
+            List<String> columnsFromPath,
+            boolean isNegative,
+            List<Expr> columnMappingList,
+            Expr fileFilterExpr,
+            Expr whereExpr,
+            LoadTask.MergeType mergeType,
+            Expr deleteCondition,
+            String sequenceColName,
+            Map<String, String> properties) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
@@ -202,14 +203,14 @@ public class DataDescription {
 
     // data from table external_hive_table
     public DataDescription(String tableName,
-                           PartitionNames partitionNames,
-                           String srcTableName,
-                           boolean isNegative,
-                           List<Expr> columnMappingList,
-                           Expr whereExpr,
-                           LoadTask.MergeType mergeType,
-                           Expr deleteCondition,
-                           Map<String, String> properties) {
+            PartitionNames partitionNames,
+            String srcTableName,
+            boolean isNegative,
+            List<Expr> columnMappingList,
+            Expr whereExpr,
+            LoadTask.MergeType mergeType,
+            Expr deleteCondition,
+            Map<String, String> properties) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = null;
@@ -229,15 +230,15 @@ public class DataDescription {
 
     // data desc for mysql client
     public DataDescription(TableName tableName,
-                           PartitionNames partitionNames,
-                           String file,
-                           boolean clientLocal,
-                           List<String> columns,
-                           Separator columnSeparator,
-                           Separator lineDelimiter,
-                           int skipLines,
-                           List<Expr> columnMappingList,
-                           Map<String, String> properties) {
+            PartitionNames partitionNames,
+            String file,
+            boolean clientLocal,
+            List<String> columns,
+            Separator columnSeparator,
+            Separator lineDelimiter,
+            int skipLines,
+            List<Expr> columnMappingList,
+            Map<String, String> properties) {
         this.tableName = tableName.getTbl();
         this.dbName = tableName.getDb();
         this.partitionNames = partitionNames;
@@ -809,7 +810,8 @@ public class DataDescription {
             return;
         }
         String columnsSQL = "COLUMNS (" + columnDef + ")";
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
+        org.apache.doris.analysis.SqlParser parser = new org.apache.doris.analysis.SqlParser(
+                new org.apache.doris.analysis.SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
         try {
             columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
@@ -1151,6 +1153,17 @@ public class DataDescription {
             sb.append(" DELETE ON ").append(deleteCondition.toSql());
         }
         return sb.toString();
+    }
+
+    public void checkKeyTypeForLoad(OlapTable table) throws AnalysisException {
+        if (getMergeType() != LoadTask.MergeType.APPEND) {
+            if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+            } else if (!table.hasDeleteSign()) {
+                throw new AnalysisException(
+                        "load by MERGE or DELETE need to upgrade table to support batch delete.");
+            }
+        }
     }
 
     @Override

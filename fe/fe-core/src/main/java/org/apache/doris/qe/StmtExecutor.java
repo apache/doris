@@ -677,15 +677,22 @@ public class StmtExecutor implements ProfileWriter {
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 handleCtasStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InsertStmt is its subclass
-                try {
-                    handleInsertStmt();
-                    if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
-                        queryType = "Load";
+                InsertStmt insertStmt = (InsertStmt) parsedStmt;
+                if (insertStmt.isExternalLoad()) {
+                    // TODO(tsy): will eventually try to handle native insert and external insert together
+                    // add a branch for external load
+                    handleExternalInsertStmt();
+                } else {
+                    try {
+                        handleInsertStmt();
+                        if (!insertStmt.getQueryStmt().isExplain()) {
+                            queryType = "Load";
+                        }
+                    } catch (Throwable t) {
+                        LOG.warn("handle insert stmt fail: {}", t.getMessage());
+                        // the transaction of this insert may already begin, we will abort it at outer finally block.
+                        throw t;
                     }
-                } catch (Throwable t) {
-                    LOG.warn("handle insert stmt fail: {}", t.getMessage());
-                    // the transaction of this insert may already begin, we will abort it at outer finally block.
-                    throw t;
                 }
             } else if (parsedStmt instanceof LoadStmt) {
                 handleLoadStmt();
@@ -873,7 +880,7 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         if (parsedStmt instanceof QueryStmt
-                || parsedStmt instanceof InsertStmt
+                || (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).isExternalLoad())
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
             if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
                 analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
@@ -1528,9 +1535,9 @@ public class StmtExecutor implements ProfileWriter {
     private int executeForTxn(InsertStmt insertStmt)
             throws UserException, TException, InterruptedException, ExecutionException, TimeoutException {
         if (context.isTxnIniting()) { // first time, begin txn
-            beginTxn(insertStmt.getDb(), insertStmt.getTbl());
+            beginTxn(insertStmt.getDbName(), insertStmt.getTbl());
         }
-        if (!context.getTxnEntry().getTxnConf().getDb().equals(insertStmt.getDb())
+        if (!context.getTxnEntry().getTxnConf().getDb().equals(insertStmt.getDbName())
                 || !context.getTxnEntry().getTxnConf().getTbl().equals(insertStmt.getTbl())) {
             throw new TException("Only one table can be inserted in one transaction.");
         }
@@ -1630,8 +1637,8 @@ public class StmtExecutor implements ProfileWriter {
         if (context.getMysqlChannel() != null) {
             context.getMysqlChannel().reset();
         }
-        // create plan
         InsertStmt insertStmt = (InsertStmt) parsedStmt;
+        // create plan
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
             throw new DdlException("Not support OUTFILE clause in INSERT statement");
         }
@@ -1772,7 +1779,8 @@ public class StmtExecutor implements ProfileWriter {
             txnId = insertStmt.getTransactionId();
             try {
                 context.getEnv().getLoadManager()
-                        .recordFinishedLoadJob(label, txnId, insertStmt.getDb(), insertStmt.getTargetTable().getId(),
+                        .recordFinishedLoadJob(label, txnId, insertStmt.getDbName(),
+                                insertStmt.getTargetTable().getId(),
                                 EtlJobType.INSERT, createTime, throwable == null ? "" : throwable.getMessage(),
                                 coord.getTrackingUrl(), insertStmt.getUserInfo());
             } catch (MetaNotFoundException e) {
@@ -1798,10 +1806,14 @@ public class StmtExecutor implements ProfileWriter {
 
         // set insert result in connection context,
         // so that user can use `show insert result` to get info of the last insert operation.
-        context.setOrUpdateInsertResult(txnId, label, insertStmt.getDb(), insertStmt.getTbl(),
+        context.setOrUpdateInsertResult(txnId, label, insertStmt.getDbName(), insertStmt.getTbl(),
                 txnStatus, loadedRows, filteredRows);
         // update it, so that user can get loaded rows in fe.audit.log
         context.updateReturnRows((int) loadedRows);
+    }
+
+    private void handleExternalInsertStmt() {
+        // TODO(tsy): load refactor, handle external load here
     }
 
     private void handleUnsupportedStmt() {
@@ -1826,10 +1838,10 @@ public class StmtExecutor implements ProfileWriter {
     private void handlePrepareStmt() throws Exception {
         // register prepareStmt
         LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                        prepareStmt.getName(), prepareStmt.isBinaryProtocol());
+                prepareStmt.getName(), prepareStmt.isBinaryProtocol());
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
-                            context, planner, analyzer, prepareStmt.getName()));
+                        context, planner, analyzer, prepareStmt.getName()));
         if (prepareStmt.isBinaryProtocol()) {
             sendStmtPrepareOK();
         }
@@ -1894,7 +1906,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
             sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
-                        exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
+                    exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
         }
         context.getState().setOk();
     }
