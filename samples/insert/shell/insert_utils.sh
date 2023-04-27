@@ -47,7 +47,6 @@ function check_insert_load_doris_func() {
             else
                 return 1
             fi
-            break
         else
             echo "insert status: ${load_status}"
             sleep 5s
