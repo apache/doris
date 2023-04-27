@@ -90,7 +90,6 @@ done
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit
 fi
 
 echo "Scale Factor: ${SCALE_FACTOR}"

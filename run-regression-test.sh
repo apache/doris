@@ -111,7 +111,6 @@ fi
 
 if [[ ${WRONG_CMD} -eq 1 ]]; then
     usage
-    exit 1
 fi
 
 # set maven
