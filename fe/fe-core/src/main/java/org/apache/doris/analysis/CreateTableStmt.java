@@ -380,6 +380,9 @@ public class CreateTableStmt extends DdlStmt {
                             if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
                                 break;
                             }
+                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.GEOMETRY) {
+                                break;
+                            }
                             if (columnDef.getType().isComplexType()) {
                                 break;
                             }
