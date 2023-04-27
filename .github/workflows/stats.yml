@@ -28,10 +28,10 @@ on:
 
 jobs:
   stats:
+    name: "Pull Request Stats"
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         uses: actions/checkout@v2
       - name: Run pull request stats
-        uses: ./.github/actions/pull-requests-stats
-
+        uses: ./.github/actions/pull-request-stats
