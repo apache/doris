@@ -36,6 +36,8 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
+
 public class AnalysisJobTest extends TestWithFeService {
 
     @Override
@@ -110,8 +112,9 @@ public class AnalysisJobTest extends TestWithFeService {
         };
         AnalysisTaskInfo analysisJobInfo = new AnalysisTaskInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
-                .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(
-                        AnalysisType.COLUMN)
+                .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL)
+                .setAnalysisType(AnalysisType.COLUMN)
+                .setPartitionNames(Collections.singleton("t1"))
                 .build();
         new OlapAnalysisTask(analysisJobInfo).execute();
     }

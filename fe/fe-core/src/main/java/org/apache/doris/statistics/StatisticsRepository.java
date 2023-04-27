@@ -30,6 +30,7 @@ import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Maps;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -108,6 +109,11 @@ public class StatisticsRepository {
                     + " ORDER BY update_time "
                     + "LIMIT ${limit} OFFSET ${offset}";
 
+    private static final String FETCH_STATS_PART_ID = "SELECT col_id, part_id FROM "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+            + " WHERE tbl_id = ${tblId}"
+            + " AND part_id IS NOT NULL";
+
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
         if (resultRow == null) {
@@ -180,12 +186,17 @@ public class StatisticsRepository {
         return stringJoiner.toString();
     }
 
-    public static void dropStatistics(long tblId, Set<String> colNames) throws DdlException {
-        dropStatistics(tblId, colNames, StatisticConstants.STATISTIC_TBL_NAME);
-        dropStatistics(tblId, colNames, StatisticConstants.HISTOGRAM_TBL_NAME);
+    public static void dropStatistics(Set<Long> partIds) throws DdlException {
+        dropStatisticsByPartId(partIds, StatisticConstants.STATISTIC_TBL_NAME);
     }
 
-    public static void dropStatistics(long tblId, Set<String> colNames, String statsTblName) throws DdlException {
+    public static void dropStatistics(long tblId, Set<String> colNames) throws DdlException {
+        dropStatisticsByColName(tblId, colNames, StatisticConstants.STATISTIC_TBL_NAME);
+        dropStatisticsByColName(tblId, colNames, StatisticConstants.HISTOGRAM_TBL_NAME);
+    }
+
+    public static void dropStatisticsByColName(long tblId, Set<String> colNames, String statsTblName)
+            throws DdlException {
         Map<String, String> params = new HashMap<>();
         String right = colNames.stream().map(s -> "'" + s + "'").collect(Collectors.joining(","));
         String inPredicate = String.format("tbl_id = %s AND %s IN (%s)", tblId, "col_id", right);
@@ -198,12 +209,17 @@ public class StatisticsRepository {
         }
     }
 
-    private static <T> void buildPredicate(String fieldName, Set<T> fieldValues, StringBuilder predicate) {
-        StringJoiner predicateBuilder = new StringJoiner(",", "(", ")");
-        fieldValues.stream().map(value -> String.format("'%s'", value))
-                .forEach(predicateBuilder::add);
-        String partPredicate = String.format(" AND %s IN %s", fieldName, predicateBuilder);
-        predicate.append(partPredicate);
+    public static void dropStatisticsByPartId(Set<Long> partIds, String statsTblName) throws DdlException {
+        Map<String, String> params = new HashMap<>();
+        String right = StatisticsUtil.joinElementsToString(partIds, ",");
+        String inPredicate = String.format(" part_id IN (%s)", right);
+        params.put("tblName", statsTblName);
+        params.put("condition", inPredicate);
+        try {
+            StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(DROP_TABLE_STATISTICS_TEMPLATE));
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage(), e);
+        }
     }
 
     public static void persistAnalysisTask(AnalysisTaskInfo analysisTaskInfo) throws Exception {
@@ -241,7 +257,7 @@ public class StatisticsRepository {
             builder.setCount(Double.parseDouble(rowCount));
         }
         if (ndv != null) {
-            Double dNdv = Double.parseDouble(ndv);
+            double dNdv = Double.parseDouble(ndv);
             builder.setNdv(dNdv);
             builder.setOriginalNdv(dNdv);
         }
@@ -297,5 +313,29 @@ public class StatisticsRepository {
         params.put("offset", String.valueOf(offset));
         params.put("now", String.valueOf(System.currentTimeMillis()));
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FIND_EXPIRED_JOBS));
+    }
+
+    public static Map<String, Set<Long>> fetchColAndPartsForStats(long tblId) {
+        Map<String, String> params = Maps.newHashMap();
+        params.put("tblId", String.valueOf(tblId));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String partSql = stringSubstitutor.replace(FETCH_STATS_PART_ID);
+        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(partSql);
+
+        Map<String, Set<Long>> columnToPartitions = Maps.newHashMap();
+
+        resultRows.forEach(row -> {
+            try {
+                String colId = row.getColumnValue("col_id");
+                String partId = row.getColumnValue("part_id");
+                columnToPartitions.computeIfAbsent(colId,
+                        k -> new HashSet<>()).add(Long.valueOf(partId));
+            } catch (NumberFormatException | DdlException e) {
+                LOG.warn("Failed to obtain the column and partition for statistics.{}",
+                        e.getMessage());
+            }
+        });
+
+        return columnToPartitions;
     }
 }
