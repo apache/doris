@@ -41,17 +41,17 @@ under the License.
 
 - Supports connecting to Trino/Presto via JDBC Catalog
 
-​		Refer to: [https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc#trino](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc#trino)
+​        Refer to: [https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc#trino](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc#trino)
 
 - JDBC Catalog connects to Clickhouse data source and supports Array type mapping
 
-​		Refer to: [https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc#clickhouse](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc#clickhouse)
+​        Refer to: [https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc#clickhouse](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc#clickhouse)
 
 ### Spark Load 
 
 - Spark Load supports Resource Manager HA related configuration
 
-​		Refer to: https://github.com/apache/doris/pull/15000
+​        Refer to: https://github.com/apache/doris/pull/15000
 
 ## Bug Fixes
 
