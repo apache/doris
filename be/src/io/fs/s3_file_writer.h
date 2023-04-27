@@ -74,7 +74,7 @@ private:
     bool _closed = true;
     bool _opened = false;
 
-    std::shared_ptr<int64_t> _upload_cost_ms;
+    std::unique_ptr<int64_t> _upload_cost_ms;
 
     std::shared_ptr<Aws::S3::S3Client> _client;
     std::string _upload_id;

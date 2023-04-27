@@ -75,7 +75,7 @@ S3FileWriter::S3FileWriter(Path path, std::shared_ptr<S3Client> client, const S3
         : FileWriter(Path(s3_conf.endpoint) / s3_conf.bucket / path, std::move(fs)),
           _bucket(s3_conf.bucket),
           _key(std::move(path)),
-          _upload_cost_ms(std::make_shared<int64_t>()),
+          _upload_cost_ms(std::make_unique<int64_t>()),
           _client(std::move(client)) {}
 
 S3FileWriter::~S3FileWriter() {
