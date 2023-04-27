@@ -746,6 +746,9 @@ public class HiveMetaStoreCache {
 
         @Override
         public int hashCode() {
+            if (dummyKey != null) {
+                return Objects.hash(dummyKey);
+            }
             return Objects.hash(location, partitionValues);
         }
 
