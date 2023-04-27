@@ -23,12 +23,17 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,7 +65,8 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> OuterJoinAssoc.checkCondition(join, join.left().child().left().getOutputSet()))
                 .when(join -> join.left().isAllSlots())
-                .then(topJoin -> {
+                .thenApply(ctx -> {
+                    LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin = ctx.root;
                     /* ********** init ********** */
                     List<NamedExpression> projects = topJoin.left().getProjects();
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
@@ -68,6 +74,23 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
                     Set<ExprId> aOutputExprIds = a.getOutputExprIdSet();
+
+                    /*
+                     * Paper `On the Correct and Complete Enumeration of the Core Search Space`.
+                     * p23 need to reject nulls on A(e2) (Eqv. 1).
+                     * It means that when slot is null, condition must return false or unknown.
+                     */
+                    if (bottomJoin.getJoinType().isLeftOuterJoin() && topJoin.getJoinType().isLeftOuterJoin()) {
+                        Set<Slot> conditionSlot = topJoin.getConditionSlot();
+                        Set<Expression> on = ImmutableSet.<Expression>builder()
+                                .addAll(topJoin.getHashJoinConjuncts())
+                                .addAll(topJoin.getOtherJoinConjuncts()).build();
+                        Set<Slot> notNullSlots = ExpressionUtils.inferNotNullSlots(on,
+                                ctx.cascadesContext);
+                        if (!conditionSlot.equals(notNullSlots)) {
+                            return null;
+                        }
+                    }
 
                     /* ********** Split projects ********** */
                     Map<Boolean, List<NamedExpression>> map = CBOUtils.splitProject(projects, aOutputExprIds);

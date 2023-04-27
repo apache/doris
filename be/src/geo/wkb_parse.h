@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <iosfwd>
+#include <memory>
 
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
@@ -41,14 +42,14 @@ public:
 
     static WkbParseContext* read(std::istream& is, WkbParseContext* ctx);
 
-    static GeoShape* readGeometry(WkbParseContext* ctx);
+    static std::unique_ptr<GeoShape> readGeometry(WkbParseContext* ctx);
 
 private:
-    static GeoPoint* readPoint(WkbParseContext* ctx);
+    static std::unique_ptr<GeoPoint> readPoint(WkbParseContext* ctx);
 
-    static GeoLine* readLine(WkbParseContext* ctx);
+    static std::unique_ptr<GeoLine> readLine(WkbParseContext* ctx);
 
-    static GeoPolygon* readPolygon(WkbParseContext* ctx);
+    static std::unique_ptr<GeoPolygon> readPolygon(WkbParseContext* ctx);
 
     static GeoCoordinateList readCoordinateList(unsigned size, WkbParseContext* ctx);
 
