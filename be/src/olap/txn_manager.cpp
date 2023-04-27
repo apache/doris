@@ -172,7 +172,7 @@ void TxnManager::set_txn_related_delete_bitmap(
     std::unique_lock<std::mutex> txn_lock(_get_txn_lock(transaction_id));
     {
         // get tx
-        std::shared_lock rdlock(_get_txn_map_lock(transaction_id));
+        std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         auto it = txn_tablet_map.find(key);
         DCHECK(it != txn_tablet_map.end());
