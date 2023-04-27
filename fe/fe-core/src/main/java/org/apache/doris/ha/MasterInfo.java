@@ -31,7 +31,7 @@ import java.io.IOException;
 
 public class MasterInfo implements Writable {
 
-    @SerializedName("ip")
+    @SerializedName(value = "host", alternate = {"ip"})
     private String host;
     @SerializedName("httpPort")
     private int httpPort;
@@ -77,7 +77,7 @@ public class MasterInfo implements Writable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("MasterInfo: ip=").append(host)
+        sb.append("MasterInfo: host=").append(host)
                 .append(" httpPort=").append(httpPort)
                 .append(" rpcPort=").append(rpcPort);
         return sb.toString();
