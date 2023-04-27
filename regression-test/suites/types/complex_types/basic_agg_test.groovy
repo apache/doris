@@ -32,3 +32,4 @@ suite("basic_agg_test", "types") {
 
     qt_sql_hll_cardinality2 """select k1, hll_cardinality(hll_raw_agg(k2)) from hll_basic_agg group by k1 order by k1;"""
 }
+
