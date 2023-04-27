@@ -227,6 +227,7 @@ public class DateLiteral extends LiteralExpr {
         ZonedDateTime zonedDateTime = ZonedDateTime.ofInstant(timestamp.toInstant(), ZoneId.of(timeZone.getID()));
 
 
+        // Ignore DST transition
         LocalDateTime time = zonedDateTime.minusSeconds(
                 zonedDateTime.getOffset().getTotalSeconds() - timeZone.getRawOffset()).toLocalDateTime();
         year = time.getYear();

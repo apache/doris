@@ -1056,7 +1056,7 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
         return false;
     }
     // Skip '0'
-    while (ptr < end && * ptr == '0') {
+    while (ptr < end && *ptr == '0') {
         ptr++;
     }
     const char* n_end = ptr + 9;
@@ -1097,7 +1097,7 @@ static int find_in_lib(const char* lib[], const char* str, const char* end) {
     for (; lib[pos] != NULL; ++pos) {
         const char* i = str;
         const char* j = lib[pos];
-        while (i < end && * j) {
+        while (i < end && *j) {
             if (toupper(*i) != toupper(*j)) {
                 break;
             }
