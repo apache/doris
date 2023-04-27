@@ -349,6 +349,12 @@ FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t 
     }
 
     DCHECK(!file_blocks.empty());
+    _num_read_segments += file_blocks.size();
+    for (auto& segment : file_blocks) {
+        if (segment->state() == FileBlock::State::DOWNLOADED) {
+            _num_hit_segments++;
+        }
+    }
     return FileBlocksHolder(std::move(file_blocks));
 }
 
@@ -391,6 +397,52 @@ LRUFileCache::FileBlockCell* LRUFileCache::add_cell(const Key& key, const CacheC
                      << ", offset: " << offset << ", size: " << size;
 
     return &(it->second);
+}
+
+IFileCache::Statistics LRUFileCache::get_cache_statistics() {
+    std::lock_guard<std::mutex> l(_mutex);
+    double hit_ratio = 0;
+    if (_num_read_segments > 0) {
+        hit_ratio = (double)_num_hit_segments / (double)_num_read_segments;
+    }
+    return Statistics {.cache_path = _cache_base_path,
+
+                       .index_queue_max_size = _index_queue.get_max_size(),
+                       .index_queue_curr_size = _index_queue.get_total_cache_size(l),
+                       .index_queue_max_elements = _index_queue.get_max_element_size(),
+                       .index_queue_curr_elements = _index_queue.get_elements_num(l),
+
+                       .normal_queue_max_size = _normal_queue.get_max_size(),
+                       .normal_queue_curr_size = _normal_queue.get_total_cache_size(l),
+                       .normal_queue_max_elements = _normal_queue.get_max_element_size(),
+                       .normal_queue_curr_elements = _normal_queue.get_elements_num(l),
+
+                       .disposable_queue_max_size = _disposable_queue.get_max_size(),
+                       .disposable_queue_curr_size = _disposable_queue.get_total_cache_size(l),
+                       .disposable_queue_max_elements = _disposable_queue.get_max_element_size(),
+                       .disposable_queue_curr_elements = _disposable_queue.get_elements_num(l),
+
+                       .hits_ratio = hit_ratio,
+                       .removed_elements = _num_removed_segments};
+}
+
+size_t LRUFileCache::try_release() {
+    std::lock_guard<std::mutex> l(_mutex);
+    std::vector<FileBlockCell*> trash;
+    for (auto& [key, segments] : _files) {
+        for (auto& [offset, cell] : segments) {
+            if (cell.releasable()) {
+                trash.emplace_back(&cell);
+            }
+        }
+    }
+    for (auto& cell : trash) {
+        FileBlockSPtr file_block = cell->file_block;
+        std::lock_guard<std::mutex> lc(cell->file_block->_mutex);
+        remove(file_block, l, lc);
+    }
+    LOG(INFO) << "Released " << trash.size() << " segments in file cache " << _cache_base_path;
+    return trash.size();
 }
 
 LRUFileCache::LRUQueue& LRUFileCache::get_queue(CacheType type) {
@@ -707,6 +759,7 @@ void LRUFileCache::remove(FileBlockSPtr file_block, std::lock_guard<std::mutex>&
             LOG(ERROR) << ec.message();
         }
     }
+    _num_removed_segments++;
     if (offsets.empty()) {
         auto key_path = get_path_in_local_cache(key);
         _files.erase(key);

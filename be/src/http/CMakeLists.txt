@@ -56,4 +56,4 @@ add_library(Webserver STATIC
   action/check_tablet_segment_action.cpp
   action/version_action.cpp
   action/jeprofile_actions.cpp
-)
+        action/file_cache_action.cpp action/file_cache_action.h)

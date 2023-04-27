@@ -126,6 +126,10 @@ private:
     LRUQueue _normal_queue;
     LRUQueue _disposable_queue;
 
+    Statistics get_cache_statistics() override;
+
+    virtual size_t try_release() override;
+
     LRUFileCache::LRUQueue& get_queue(CacheType type);
     const LRUFileCache::LRUQueue& get_queue(CacheType type) const;
 
@@ -193,6 +197,9 @@ public:
 private:
     std::atomic_bool _close {false};
     std::thread _cache_background_thread;
+    size_t _num_read_segments = 0;
+    size_t _num_hit_segments = 0;
+    size_t _num_removed_segments = 0;
 };
 
 } // namespace io

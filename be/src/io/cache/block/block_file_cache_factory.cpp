@@ -42,6 +42,22 @@ FileCacheFactory& FileCacheFactory::instance() {
     return ret;
 }
 
+std::vector<IFileCache::Statistics> FileCacheFactory::get_cache_statistics() {
+    std::vector<IFileCache::Statistics> statistics;
+    for (auto& cache : _caches) {
+        statistics.emplace_back(cache->get_cache_statistics());
+    }
+    return statistics;
+}
+
+size_t FileCacheFactory::try_release() {
+    int elements = 0;
+    for (auto& cache : _caches) {
+        elements += cache->try_release();
+    }
+    return elements;
+}
+
 Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
                                            const FileCacheSettings& file_cache_settings) {
     if (config::clear_file_cache) {

@@ -42,6 +42,10 @@ public:
     Status create_file_cache(const std::string& cache_base_path,
                              const FileCacheSettings& file_cache_settings);
 
+    std::vector<IFileCache::Statistics> get_cache_statistics();
+
+    size_t try_release();
+
     CloudFileCachePtr get_by_path(const IFileCache::Key& key);
     std::vector<IFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
             const TUniqueId& query_id);

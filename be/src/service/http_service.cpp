@@ -27,6 +27,7 @@
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
 #include "http/action/download_action.h"
+#include "http/action/file_cache_action.h"
 #include "http/action/health_action.h"
 #include "http/action/jeprofile_actions.h"
 #include "http/action/meta_action.h"
@@ -135,6 +136,9 @@ Status HttpService::start() {
 
     MetaAction* meta_action = _pool.add(new MetaAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/{op}/{tablet_id}", meta_action);
+
+    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/file_cache", file_cache_action);
 
 #ifndef BE_TEST
     // Register BE checksum action
