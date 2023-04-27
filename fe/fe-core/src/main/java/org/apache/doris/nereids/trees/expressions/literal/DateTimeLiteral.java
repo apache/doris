@@ -44,7 +44,6 @@ import java.util.Objects;
  * date time literal.
  */
 public class DateTimeLiteral extends DateLiteral {
-    protected static DateTimeFormatter DATE_TIME_FORMATTER = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MINUTE = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TWO_DIGIT = null;
