@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -93,7 +94,7 @@ public class WindowExpression extends Expression {
         expressions.addAll(function.children());
         expressions.addAll(partitionKeys);
         expressions.addAll(orderKeys.stream()
-                .map(orderExpression -> orderExpression.child())
+                .map(UnaryNode::child)
                 .collect(Collectors.toList()));
         return expressions;
     }
@@ -115,17 +116,13 @@ public class WindowExpression extends Expression {
     }
 
     public WindowExpression withOrderKeyList(List<OrderExpression> orderKeyList) {
-        if (windowFrame.isPresent()) {
-            return new WindowExpression(function, partitionKeys, orderKeyList, windowFrame.get());
-        }
-        return new WindowExpression(function, partitionKeys, orderKeyList);
+        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeyList, frame))
+                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeyList));
     }
 
     public WindowExpression withFunction(Expression function) {
-        if (windowFrame.isPresent()) {
-            return new WindowExpression(function, partitionKeys, orderKeys, windowFrame.get());
-        }
-        return new WindowExpression(function, partitionKeys, orderKeys);
+        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeys, frame))
+                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys));
     }
 
     @Override
@@ -177,7 +174,7 @@ public class WindowExpression extends Expression {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append(function.toSql() + " OVER(");
+        sb.append(function.toSql()).append(" OVER(");
         if (!partitionKeys.isEmpty()) {
             sb.append("PARTITION BY ").append(partitionKeys.stream()
                     .map(Expression::toSql)
@@ -195,7 +192,7 @@ public class WindowExpression extends Expression {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append(function + " WindowSpec(");
+        sb.append(function).append(" WindowSpec(");
         if (!partitionKeys.isEmpty()) {
             sb.append("PARTITION BY ").append(partitionKeys.stream()
                     .map(Expression::toString)
