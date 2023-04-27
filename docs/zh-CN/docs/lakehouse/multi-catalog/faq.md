@@ -100,6 +100,6 @@ under the License.
 10. 通过 Hive Catalog 连接 Hive 数据库报错：`RemoteException: SIMPLE authentication is not enabled.  Available:[TOKEN, KERBEROS]`
 
    如果在 `show databases` 和 `show tables` 都是没问题的情况下，查询的时候出现上面的错误，我们需要进行下面两个操作：
-   1. fe/conf、be/conf 目录下需放置 core-site.xml 和 hdfs-site.xml
-   2. BE 节点执行 Kerberos 的 kinit 然后重启 BE ，然后再去执行查询即可.
+- fe/conf、be/conf 目录下需放置 core-site.xml 和 hdfs-site.xml
+   - BE 节点执行 Kerberos 的 kinit 然后重启 BE ，然后再去执行查询即可.
 
