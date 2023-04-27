@@ -1357,8 +1357,7 @@ public class Coordinator {
 
                 // when left table is empty, it's bucketset is empty.
                 // set right table destination address to the address of left table
-                if (destParams.instanceExecParams.size() == 1
-                        && destParams.instanceExecParams.get(0).bucketSeqSet.isEmpty()) {
+                if (destParams.instanceExecParams.size() == 1 && bucketNum == 0) {
                     bucketNum = 1;
                     destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
                 }
