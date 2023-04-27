@@ -455,10 +455,24 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: unix_timestamp
      */
-    @ExecFunction(name = "unix_timestamp", argTypes = {"VARCHAR"}, returnType = "INT")
-    public static IntegerLiteral unixTimestamp(VarcharLiteral date) {
-        return new IntegerLiteral(getTimestamp(LocalDateTime.parse(date.getValue(),
-                DateUtils.formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter())));
+    @ExecFunction(name = "unix_timestamp", argTypes = {"DATE"}, returnType = "INT")
+    public static IntegerLiteral unixTimestamp(DateLiteral date) {
+        return new IntegerLiteral(getTimestamp(date.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "unix_timestamp", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntegerLiteral unixTimestamp(DateTimeLiteral date) {
+        return new IntegerLiteral(getTimestamp(date.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "unix_timestamp", argTypes = {"DATEV2"}, returnType = "INT")
+    public static IntegerLiteral unixTimestamp(DateV2Literal date) {
+        return new IntegerLiteral(getTimestamp(date.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "unix_timestamp", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral unixTimestamp(DateTimeV2Literal date) {
+        return new IntegerLiteral(getTimestamp(date.toJavaDateType()));
     }
 
     /**

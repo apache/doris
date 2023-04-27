@@ -302,7 +302,7 @@ public class TestFoldConstantByFe {
                 new VarcharLiteral("%Y-%m-%d")
         ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.unixTimestamp(
-                new VarcharLiteral("2001-12-21 12:34:53")
+                new DateTimeLiteral("2001-12-21 12:34:53")
         ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.unixTimestamp(
                 new VarcharLiteral("2001-12-21"),
