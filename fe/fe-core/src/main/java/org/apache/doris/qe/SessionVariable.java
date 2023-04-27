@@ -1166,10 +1166,9 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
-        if (parallelExecInstanceNum != 1) {
-            return parallelExecInstanceNum;
-        }
-        return (int) BackendInfo.get().getParallelExecInstanceNum();
+        // not return (int) BackendInfo.get().getParallelExecInstanceNum();
+        // test p0
+        return parallelExecInstanceNum;
     }
 
     public int getExchangeInstanceParallel() {
