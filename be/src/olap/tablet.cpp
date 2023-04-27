@@ -116,6 +116,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
@@ -2429,7 +2430,17 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), column_ptr));
     assert(column_ptr->size() == rowids.size());
     auto string_column = static_cast<vectorized::ColumnString*>(column_ptr.get());
-    vectorized::JsonbSerializeUtil::jsonb_to_block(tablet_schema, cids, *string_column, block);
+    vectorized::DataTypeSerDeSPtrs serdes;
+    serdes.reserve(cids.size());
+    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    for (int i = 0; i < cids.size(); ++i) {
+        const TabletColumn& column = tablet_schema->column(cids[i]);
+        vectorized::DataTypePtr type =
+                vectorized::DataTypeFactory::instance().create_data_type(column);
+        col_uid_to_idx[column.unique_id()] = i;
+        serdes[i] = type->get_serde();
+    }
+    vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block);
     return Status::OK();
 }
 
