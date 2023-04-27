@@ -47,7 +47,7 @@ public class BackendInfo {
 
     public void clear() {
         Info.clear();
-        numCores = Long.MAX_VALUE;
+        minNumCores = Long.MAX_VALUE;
     }
 
     public void addBeInfo(long beId, long numCores) {
