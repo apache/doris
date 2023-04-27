@@ -334,32 +334,35 @@ public:
         //TODO: get size of inverted index
         return 0;
     }
+    void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out,
+                           lucene::store::Directory* dir) {
+        // write null_bitmap file
+        _null_bitmap.runOptimize();
+        size_t size = _null_bitmap.getSizeInBytes(false);
+        if (size > 0) {
+            null_bitmap_out = dir->createOutput(
+                    InvertedIndexDescriptor::get_temporary_null_bitmap_file_name().c_str());
+            faststring buf;
+            buf.resize(size);
+            _null_bitmap.write(reinterpret_cast<char*>(buf.data()), false);
+            null_bitmap_out->writeBytes(reinterpret_cast<uint8_t*>(buf.data()), size);
+            FINALIZE_OUTPUT(null_bitmap_out)
+        }
+    }
 
     Status finish() override {
-        auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
-                _directory + "/" + _segment_file_name, _index_meta->index_id());
-        lucene::store::Directory* dir =
-                DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
+        lucene::store::Directory* dir = nullptr;
         lucene::store::IndexOutput* null_bitmap_out = nullptr;
         lucene::store::IndexOutput* data_out = nullptr;
         lucene::store::IndexOutput* index_out = nullptr;
         lucene::store::IndexOutput* meta_out = nullptr;
         try {
-            // write null_bitmap file
-            _null_bitmap.runOptimize();
-            size_t size = _null_bitmap.getSizeInBytes(false);
-            if (size > 0) {
-                null_bitmap_out = dir->createOutput(
-                        InvertedIndexDescriptor::get_temporary_null_bitmap_file_name().c_str());
-                faststring buf;
-                buf.resize(size);
-                _null_bitmap.write(reinterpret_cast<char*>(buf.data()), false);
-                null_bitmap_out->writeBytes(reinterpret_cast<uint8_t*>(buf.data()), size);
-                FINALIZE_OUTPUT(null_bitmap_out)
-            }
-
             // write bkd file
             if constexpr (field_is_numeric_type(field_type)) {
+                auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
+                        _directory + "/" + _segment_file_name, _index_meta->index_id());
+                dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
+                write_null_bitmap(null_bitmap_out, dir);
                 _bkd_writer->max_doc_ = _rid;
                 _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;
                 data_out = dir->createOutput(
@@ -377,6 +380,8 @@ public:
                 FINALIZE_OUTPUT(index_out)
                 FINALIZE_OUTPUT(dir)
             } else if constexpr (field_is_slice_type(field_type)) {
+                dir = _index_writer->getDirectory();
+                write_null_bitmap(null_bitmap_out, dir);
                 close();
             }
         } catch (CLuceneError& e) {
