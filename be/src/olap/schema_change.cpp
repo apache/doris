@@ -1718,9 +1718,10 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             continue;
         }
 
-        if (column_name.find_first_of("__doris_shadow_") == 0) {
+        if (column_name.find("__doris_shadow_") == 0) {
             // Should delete in the future, just a protection for bug.
-            return Status::InternalError("failed due to operate on shadow");
+            LOG(INFO) << "a shadow column is encountered " << column_name;
+            return Status::InternalError("failed due to operate on shadow column");
         }
         // Newly added column go here
         column_mapping->ref_column = -1;
