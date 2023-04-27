@@ -861,6 +861,88 @@ public class SystemInfoService {
         return classMap;
     }
 
+    class BeComparator implements Comparator<Backend> {
+        public int compare(Backend a, Backend b) {
+            return (int) (a.getId() - b.getId());
+        }
+    }
+
+    public List<Long> selectBackendIdsRoundRobinByPolicy(BeSelectionPolicy policy, int number,
+            int nextIndex) {
+        Preconditions.checkArgument(number >= -1);
+        List<Backend> candidates = policy.getCandidateBackends(idToBackendRef.values());
+
+        if ((number != -1 && candidates.size() < number) || candidates.isEmpty()) {
+            LOG.info("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            return Lists.newArrayList();
+        }
+
+        if (!policy.allowOnSameHost) {
+            Map<String, List<Backend>> backendMaps = Maps.newHashMap();
+            for (Backend backend : candidates) {
+                if (backendMaps.containsKey(backend.getIp())) {
+                    backendMaps.get(backend.getIp()).add(backend);
+                } else {
+                    List<Backend> list = Lists.newArrayList();
+                    list.add(backend);
+                    backendMaps.put(backend.getIp(), list);
+                }
+            }
+            candidates.clear();
+            for (List<Backend> list : backendMaps.values()) {
+                candidates.add(list.get(0));
+            }
+        }
+
+        if (number != -1 && candidates.size() < number) {
+            LOG.info("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            return Lists.newArrayList();
+        }
+
+        Collections.sort(candidates, new BeComparator());
+        int realIndex = nextIndex % candidates.size();
+
+        List<Long> partialOrderList = new ArrayList<Long>();
+        partialOrderList.addAll(candidates.subList(realIndex, candidates.size())
+                .stream().map(b -> b.getId()).collect(Collectors.toList()));
+        partialOrderList.addAll(candidates.subList(0, realIndex)
+                .stream().map(b -> b.getId()).collect(Collectors.toList()));
+
+        if (number == -1) {
+            return partialOrderList;
+        } else {
+            return partialOrderList.subList(0, number);
+        }
+    }
+
+    public Map<Tag, List<Long>> getBeIdRoundRobinForReplicaCreation(
+            ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium storageMedium,
+            Map<Tag, Integer> nextIndexs) throws DdlException {
+        Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
+        Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
+        short totalReplicaNum = 0;
+        for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
+            BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder().setCluster(clusterName)
+                    .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(entry.getKey()))
+                    .setStorageMedium(storageMedium);
+            if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
+                builder.allowOnSameHost();
+            }
+
+            BeSelectionPolicy policy = builder.build();
+            int nextIndex = nextIndexs.get(entry.getKey());
+            List<Long> beIds = selectBackendIdsRoundRobinByPolicy(policy, entry.getValue(), nextIndex);
+            nextIndexs.put(entry.getKey(), nextIndex + beIds.size());
+
+            if (beIds.isEmpty()) {
+                throw new DdlException("Failed to find " + entry.getValue() + " backend(s) for policy: " + policy);
+            }
+            chosenBackendIds.put(entry.getKey(), beIds);
+            totalReplicaNum += beIds.size();
+        }
+        Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
+        return chosenBackendIds;
+    }
 
     /**
      * Select a set of backends for replica creation.

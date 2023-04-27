@@ -176,6 +176,7 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -203,6 +204,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+
 
 /**
  * The Internal catalog will manage all self-managed meta object in a Doris cluster.
@@ -2513,7 +2515,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
     }
 
-    private void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
+    @VisibleForTesting
+    public void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
             DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc, TabletMeta tabletMeta,
             Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer) throws DdlException {
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
@@ -2535,6 +2538,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (chooseBackendsArbitrary) {
             backendsPerBucketSeq = Maps.newHashMap();
         }
+
+        Map<Tag, Integer> nextIndexs = new HashMap<>();
+        for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
+            // TODO: random roundrobin starting position
+            nextIndexs.put(entry.getKey(), 0);
+        }
+
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             // create a new tablet with random chosen backends
             Tablet tablet = new Tablet(idGeneratorBuffer.getNextId());
@@ -2547,14 +2557,26 @@ public class InternalCatalog implements CatalogIf<Database> {
             Map<Tag, List<Long>> chosenBackendIds;
             if (chooseBackendsArbitrary) {
                 // This is the first colocate table in the group, or just a normal table,
-                // randomly choose backends
-                if (!Config.disable_storage_medium_check) {
-                    chosenBackendIds = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName,
-                                    tabletMeta.getStorageMedium());
+                // choose backends
+                if (Config.enable_round_robin_create_tablet) {
+                    if (!Config.disable_storage_medium_check) {
+                        chosenBackendIds = Env.getCurrentSystemInfo()
+                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, clusterName,
+                                        tabletMeta.getStorageMedium(), nextIndexs);
+                    } else {
+                        chosenBackendIds = Env.getCurrentSystemInfo()
+                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, clusterName, null,
+                                        nextIndexs);
+                    }
                 } else {
-                    chosenBackendIds = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName, null);
+                    if (!Config.disable_storage_medium_check) {
+                        chosenBackendIds = Env.getCurrentSystemInfo()
+                                .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName,
+                                        tabletMeta.getStorageMedium());
+                    } else {
+                        chosenBackendIds = Env.getCurrentSystemInfo()
+                                .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName, null);
+                    }
                 }
 
                 for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {

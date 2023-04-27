@@ -2149,5 +2149,8 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false)
     public static boolean skip_localhost_auth_check  = false;
+
+    @ConfField(mutable = true)
+    public static boolean enable_round_robin_create_tablet = false;
 }
 
