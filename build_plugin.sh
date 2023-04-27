@@ -87,7 +87,7 @@ else
     done
 fi
 
-if [[ "${HELP}" -eq 1 ]]; then
+if [[ ${HELP} -eq 1 ]]; then
     usage
     exit
 fi

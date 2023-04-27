@@ -230,7 +230,7 @@ else
     fi
 fi
 
-if [[ "${HELP}" -eq 1 ]]; then
+if [[ ${HELP} -eq 1 ]]; then
     usage
     exit
 fi
@@ -432,7 +432,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_be
     fi
-    MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
+    MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"

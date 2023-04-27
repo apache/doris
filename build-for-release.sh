@@ -58,7 +58,6 @@ eval set -- "${OPTS}"
 
 _USE_AVX2=1
 TAR=0
-VERSION=
 if [[ "$#" == 1 ]]; then
     _USE_AVX2=1
 else
@@ -92,9 +91,9 @@ else
     done
 fi
 
-if [[ "${HELP}" -eq 1 ]]; then
+if [[ ${HELP} -eq 1 ]]; then
     usage
-    exit
+    exit 0
 fi
 
 if [[ -z ${VERSION} ]]; then

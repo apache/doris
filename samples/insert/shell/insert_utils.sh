@@ -34,7 +34,7 @@ function check_insert_load_doris_func() {
     fi
 
     wait_seconds=3600
-    while [[ "${wait_seconds}" -gt 0 ]]; do
+    while [[ ${wait_seconds} -gt 0 ]]; do
         echo "${wait_seconds}"
         echo "${doris} -e show load where label = '${label}' order by createtime desc limit 1"
         result=$(${doris} -e "show load where label = '${label}' order by createtime desc limit 1" -N)
