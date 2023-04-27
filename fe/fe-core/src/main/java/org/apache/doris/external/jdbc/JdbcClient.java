@@ -66,16 +66,20 @@ public class JdbcClient {
     // only used when isLowerCaseTableNames = true.
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
 
+    private String oceanbaseMode = "";
+
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
-            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap) {
+            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap,
+            String oceanbaseMode) {
         this.jdbcUser = user;
         this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
         this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
         if (specifiedDatabaseMap != null) {
             this.specifiedDatabaseMap = specifiedDatabaseMap;
         }
+        this.oceanbaseMode = oceanbaseMode;
         try {
-            this.dbType = JdbcResource.parseDbType(jdbcUrl);
+            this.dbType = JdbcResource.parseDbType(jdbcUrl, oceanbaseMode);
         } catch (DdlException e) {
             throw new JdbcClientException("Failed to parse db type from jdbcUrl: " + jdbcUrl, e);
         }
@@ -185,6 +189,7 @@ public class JdbcClient {
             switch (dbType) {
                 case JdbcResource.MYSQL:
                 case JdbcResource.CLICKHOUSE:
+                case JdbcResource.OCEANBASE:
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -192,6 +197,7 @@ public class JdbcClient {
                             + "'" + jdbcUser + "', nspname, 'USAGE');");
                     break;
                 case JdbcResource.ORACLE:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
                     break;
                 case JdbcResource.SQLSERVER:
@@ -233,6 +239,7 @@ public class JdbcClient {
             switch (dbType) {
                 case JdbcResource.MYSQL:
                 case JdbcResource.CLICKHOUSE:
+                case JdbcResource.OCEANBASE:
                     databaseNames.add(conn.getCatalog());
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -240,6 +247,7 @@ public class JdbcClient {
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
                 case JdbcResource.TRINO:
+                case JdbcResource.OCEANBASE_ORACLE:
                     databaseNames.add(conn.getSchema());
                     break;
                 default:
@@ -266,6 +274,7 @@ public class JdbcClient {
             String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.OCEANBASE:
                     rs = databaseMetaData.getTables(dbName, null, null, types);
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -273,6 +282,7 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 case JdbcResource.TRINO:
@@ -306,6 +316,7 @@ public class JdbcClient {
             String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.OCEANBASE:
                     rs = databaseMetaData.getTables(dbName, null, tableName, types);
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -313,6 +324,7 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 case JdbcResource.TRINO:
@@ -381,6 +393,7 @@ public class JdbcClient {
             //                     Can contain single-character wildcards ("_"), or multi-character wildcards ("%")
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.OCEANBASE:
                     rs = databaseMetaData.getColumns(dbName, null, tableName, null);
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -388,6 +401,7 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
                 case JdbcResource.TRINO:
@@ -427,12 +441,14 @@ public class JdbcClient {
     public Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         switch (dbType) {
             case JdbcResource.MYSQL:
+            case JdbcResource.OCEANBASE:
                 return mysqlTypeToDoris(fieldSchema);
             case JdbcResource.POSTGRESQL:
                 return postgresqlTypeToDoris(fieldSchema);
             case JdbcResource.CLICKHOUSE:
                 return clickhouseTypeToDoris(fieldSchema);
             case JdbcResource.ORACLE:
+            case JdbcResource.OCEANBASE_ORACLE:
                 return oracleTypeToDoris(fieldSchema);
             case JdbcResource.SQLSERVER:
                 return sqlserverTypeToDoris(fieldSchema);
@@ -875,7 +891,6 @@ public class JdbcClient {
                 return Type.UNSUPPORTED;
         }
     }
-
 
     private Type createDecimalOrStringType(int precision, int scale) {
         if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {

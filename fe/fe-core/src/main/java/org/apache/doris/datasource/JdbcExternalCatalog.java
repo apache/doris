@@ -80,8 +80,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             properties.put(StringUtils.removeStart(kv.getKey(), JdbcResource.JDBC_PROPERTIES_PREFIX), kv.getValue());
         }
         String jdbcUrl = properties.getOrDefault(JdbcResource.JDBC_URL, "");
+        String oceanbaseMode = properties.getOrDefault(JdbcResource.OCEANBASE_MODE, "");
         if (!Strings.isNullOrEmpty(jdbcUrl)) {
-            jdbcUrl = JdbcResource.handleJdbcUrl(jdbcUrl);
+            jdbcUrl = JdbcResource.handleJdbcUrl(jdbcUrl, oceanbaseMode);
             properties.put(JdbcResource.JDBC_URL, jdbcUrl);
         }
 
@@ -132,10 +133,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(JdbcResource.SPECIFIED_DATABASE_LIST, "");
     }
 
+    public String getOceanBaseMode() {
+        return catalogProperty.getOrDefault(JdbcResource.OCEANBASE_MODE, "");
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
         jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass(),
-                getOnlySpecifiedDatabase(), getLowerCaseTableNames(), getSpecifiedDatabaseMap());
+                getOnlySpecifiedDatabase(), getLowerCaseTableNames(), getSpecifiedDatabaseMap(), getOceanBaseMode());
     }
 
     @Override

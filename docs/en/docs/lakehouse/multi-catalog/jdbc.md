@@ -205,29 +205,40 @@ When Trino is mapped, Doris's Database corresponds to a Schema in Trino that spe
 <version since="dev"></version>
 
 ```sql
-CREATE CATALOG jdbc_oceanbase PROPERTIES (
+CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive"
+    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "oceanbase_mode" = "mysql"
+)
+
+CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "oceanbase_mode" = "oracle"
 )
 ```
 
 ### Parameter Description
 
-| Parameter       | Required or Not | Default Value | Description                                        |
-| --------------- | --------------- | ------------- | -------------------------------------------------- |
-| `user`          | Yes             |               | Username in relation to the corresponding database |
-| `password`      | Yes             |               | Password for the corresponding database            |
-| `jdbc_url `     | Yes             |               | JDBC connection string                             |
-| `driver_url `   | Yes             |               | JDBC Driver Jar                                    |
-| `driver_class ` | Yes             |               | JDBC Driver Class                                  |
-| `only_specified_database` | No             |     "false"          | Whether only the database specified to be synchronized.                                  |
-| `lower_case_table_names` | No             |     "false"          | Whether to synchronize jdbc external data source table names in lower case. |
-| `specified_database_list` | No             |     ""          | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.|
-
+| Parameter                 | Required or Not | Default Value | Description                                        |
+|---------------------------|-----------------|---------------| -------------------------------------------------- |
+| `user`                    | Yes             |               | Username in relation to the corresponding database |
+| `password`                | Yes             |               | Password for the corresponding database            |
+| `jdbc_url `               | Yes             |               | JDBC connection string                             |
+| `driver_url `             | Yes             |               | JDBC Driver Jar                                    |
+| `driver_class `           | Yes             |               | JDBC Driver Class                                  |
+| `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                  |
+| `lower_case_table_names`  | No              | "false"       | Whether to synchronize jdbc external data source table names in lower case. |
+| `specified_database_list` | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.|
+| `oceanbase_mode`          | No              | ""            | When the connected external data source is OceanBase, the mode must be specified as mysql or oracle                        |
 > `driver_url` can be specified in three ways:
 >
 > 1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
@@ -459,32 +470,8 @@ Currently, only Hive connected to Trino has been tested. Other data sources conn
 
 ### OceanBase
 
-| OceanBase Type                                                                                                                                       | Doris Type  | Comment                                                                                    |
-|------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------|
-| TINYINT                                                                                                                                              | TINYINT     |                                                                                            |
-| SMALLINT                                                                                                                                             | SMALLINT    |                                                                                            |
-| MEDIUMINT                                                                                                                                            | INT         |                                                                                            |
-| INT                                                                                                                                                  | INT         |                                                                                            |
-| BIGINT                                                                                                                                               | BIGINT      |                                                                                            |
-| UNSIGNED TINYINT                                                                                                                                     | SMALLINT    | Doris does not support UNSIGNED data types so UNSIGNED TINYINT will be mapped to SMALLINT. |
-| UNSIGNED MEDIUMINT                                                                                                                                   | INT         | Doris does not support UNSIGNED data types so UNSIGNED MEDIUMINT will be mapped to INT.    |
-| UNSIGNED INT                                                                                                                                         | BIGINT      | Doris does not support UNSIGNED data types so UNSIGNED INT will be mapped to BIGINT.       |
-| UNSIGNED BIGINT                                                                                                                                      | LARGEINT    | Doris does not support UNSIGNED data types so UNSIGNED BIGINT will be mapped to LARGEINT.  |
-| FLOAT                                                                                                                                                | FLOAT       |                                                                                            |
-| DOUBLE                                                                                                                                               | DOUBLE      |                                                                                            |
-| DECIMAL                                                                                                                                              | DECIMALV3   |                                                                                            |
-| DATE                                                                                                                                                 | DATEV2      |                                                                                            |
-| TIMESTAMP                                                                                                                                            | DATETIMEV2  |                                                                                            |
-| DATETIME                                                                                                                                             | DATETIMEV2  |                                                                                            |
-| YEAR                                                                                                                                                 | DATETIMEV2  |                                                                                            |
-| TIME                                                                                                                                                 | STRING      |                                                                                            |
-| CHAR                                                                                                                                                 | CHAR        |                                                                                            |
-| VARCHAR                                                                                                                                              | VARCHAR     |                                                                                            |
-| BOOLEAN、TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT  | STRING      |                                                                                            |
-| Other                                                                                                                                                | UNSUPPORTED |                                                                                            |
-
-**Note:**
-At present, only the MySQL mode of OceanBase has been adapted, while the Oracle mode has not been fully tested
+For MySQL mode, please refer to [MySQL type mapping](#MySQL)
+For Oracle mode, please refer to [Oracle type mapping](#Oracle)
 
 ## FAQ
 
