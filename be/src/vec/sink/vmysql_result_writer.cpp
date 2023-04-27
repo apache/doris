@@ -17,6 +17,7 @@
 
 #include "vec/sink/vmysql_result_writer.h"
 
+#include <fmt/core.h>
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
@@ -126,8 +127,10 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 return Status::InternalError("pack mysql buffer failed.");
             }
 
+            const auto col_index = index_check_const(i, arg_const);
+
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(index_check_const(i, arg_const))) {
+                if (column_ptr->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
@@ -138,8 +141,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     const vectorized::ColumnComplexType<BitmapValue>* pColumnComplexType =
                             assert_cast<const vectorized::ColumnComplexType<BitmapValue>*>(
                                     column.get());
-                    BitmapValue bitmapValue =
-                            pColumnComplexType->get_element(index_check_const(i, arg_const));
+                    BitmapValue bitmapValue = pColumnComplexType->get_element(col_index);
                     size_t size = bitmapValue.getSizeInBytes();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
                     bitmapValue.write_to(buf.get());
@@ -148,8 +150,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     const vectorized::ColumnComplexType<HyperLogLog>* pColumnComplexType =
                             assert_cast<const vectorized::ColumnComplexType<HyperLogLog>*>(
                                     column.get());
-                    HyperLogLog hyperLogLog =
-                            pColumnComplexType->get_element(index_check_const(i, arg_const));
+                    HyperLogLog hyperLogLog = pColumnComplexType->get_element(col_index);
                     size_t size = hyperLogLog.max_serialized_size();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
                     hyperLogLog.serialize((uint8*)buf.get());
@@ -159,8 +160,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     const vectorized::ColumnComplexType<QuantileStateDouble>* pColumnComplexType =
                             assert_cast<const vectorized::ColumnComplexType<QuantileStateDouble>*>(
                                     column.get());
-                    QuantileStateDouble quantileValue =
-                            pColumnComplexType->get_element(index_check_const(i, arg_const));
+                    QuantileStateDouble quantileValue = pColumnComplexType->get_element(col_index);
                     size_t size = quantileValue.get_serialized_size();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
                     quantileValue.serialize((uint8_t*)buf.get());
@@ -170,7 +170,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 }
             }
             if constexpr (type == TYPE_VARCHAR) {
-                const auto string_val = column->get_data_at(index_check_const(i, arg_const));
+                const auto string_val = column->get_data_at(col_index);
 
                 if (string_val.data == nullptr) {
                     if (string_val.size == 0) {
@@ -185,7 +185,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 }
             }
             if constexpr (type == TYPE_JSONB) {
-                const auto jsonb_val = column->get_data_at(index_check_const(i, arg_const));
+                const auto jsonb_val = column->get_data_at(col_index);
                 // jsonb size == 0 is NULL
                 if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
                     buf_ret = rows_buffer[i].push_null();
@@ -205,8 +205,10 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 return Status::InternalError("pack mysql buffer failed.");
             }
 
+            const auto col_index = index_check_const(i, arg_const);
+
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(index_check_const(i, arg_const))) {
+                if (column_ptr->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
@@ -215,8 +217,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             rows_buffer[i].open_dynamic_mode();
             buf_ret = rows_buffer[i].push_string("[", 1);
             bool begin = true;
-            for (auto j = offsets[index_check_const(i, arg_const) - 1];
-                 j < offsets[index_check_const(i, arg_const)]; ++j) {
+            for (auto j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
                 if (!begin) {
                     buf_ret = rows_buffer[i].push_string(", ", 2);
                 }
@@ -245,14 +246,16 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 return Status::InternalError("pack mysql buffer failed.");
             }
 
+            const auto col_index = index_check_const(i, arg_const);
+
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(index_check_const(i, arg_const))) {
+                if (column_ptr->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
             }
             rows_buffer[i].open_dynamic_mode();
-            std::string cell_str = map_type.to_string(*column, index_check_const(i, arg_const));
+            std::string cell_str = map_type.to_string(*column, col_index);
             buf_ret = rows_buffer[i].push_string(cell_str.c_str(), strlen(cell_str.c_str()));
 
             rows_buffer[i].close_dynamic_mode();
@@ -265,8 +268,10 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 return Status::InternalError("pack mysql buffer failed.");
             }
 
+            const auto col_index = index_check_const(i, arg_const);
+
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(index_check_const(i, arg_const))) {
+                if (column_ptr->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
@@ -280,17 +285,15 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     buf_ret = rows_buffer[i].push_string(", ", 2);
                 }
                 const auto& data = column_struct.get_column_ptr(j);
-                if (data->is_null_at(index_check_const(i, arg_const))) {
+                if (data->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_string("NULL", strlen("NULL"));
                 } else {
                     if (WhichDataType(remove_nullable(sub_types[j])).is_string()) {
                         buf_ret = rows_buffer[i].push_string("'", 1);
-                        buf_ret = _add_one_cell(data, index_check_const(i, arg_const), sub_types[j],
-                                                rows_buffer[i]);
+                        buf_ret = _add_one_cell(data, col_index, sub_types[j], rows_buffer[i]);
                         buf_ret = rows_buffer[i].push_string("'", 1);
                     } else {
-                        buf_ret = _add_one_cell(data, index_check_const(i, arg_const), sub_types[j],
-                                                rows_buffer[i]);
+                        buf_ret = _add_one_cell(data, col_index, sub_types[j], rows_buffer[i]);
                     }
                 }
                 begin = false;
@@ -306,14 +309,15 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 return Status::InternalError("pack mysql buffer failed.");
             }
 
+            const auto col_index = index_check_const(i, arg_const);
+
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(index_check_const(i, arg_const))) {
+                if (column_ptr->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
             }
-            std::string decimal_str =
-                    sub_types[0]->to_string(*column, index_check_const(i, arg_const));
+            std::string decimal_str = sub_types[0]->to_string(*column, col_index);
             buf_ret = rows_buffer[i].push_string(decimal_str.c_str(), decimal_str.length());
         }
     } else {
@@ -325,8 +329,10 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 return Status::InternalError("pack mysql buffer failed.");
             }
 
+            const auto col_index = index_check_const(i, arg_const);
+
             if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(index_check_const(i, arg_const))) {
+                if (column_ptr->is_null_at(col_index)) {
                     buf_ret = rows_buffer[i].push_null();
                     continue;
                 }
@@ -334,46 +340,46 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
 
             if constexpr (type == TYPE_BOOLEAN) {
                 //todo here need to using uint after MysqlRowBuffer support it
-                buf_ret = rows_buffer[i].push_tinyint(data[index_check_const(i, arg_const)]);
+                buf_ret = rows_buffer[i].push_tinyint(data[col_index]);
             }
             if constexpr (type == TYPE_TINYINT) {
-                buf_ret = rows_buffer[i].push_tinyint(data[index_check_const(i, arg_const)]);
+                buf_ret = rows_buffer[i].push_tinyint(data[col_index]);
             }
             if constexpr (type == TYPE_SMALLINT) {
-                buf_ret = rows_buffer[i].push_smallint(data[index_check_const(i, arg_const)]);
+                buf_ret = rows_buffer[i].push_smallint(data[col_index]);
             }
             if constexpr (type == TYPE_INT) {
-                buf_ret = rows_buffer[i].push_int(data[index_check_const(i, arg_const)]);
+                buf_ret = rows_buffer[i].push_int(data[col_index]);
             }
             if constexpr (type == TYPE_BIGINT) {
-                buf_ret = rows_buffer[i].push_bigint(data[index_check_const(i, arg_const)]);
+                buf_ret = rows_buffer[i].push_bigint(data[col_index]);
             }
             if constexpr (type == TYPE_LARGEINT) {
-                auto v = LargeIntValue::to_string(data[index_check_const(i, arg_const)]);
+                auto v = LargeIntValue::to_string(data[col_index]);
                 buf_ret = rows_buffer[i].push_string(v.c_str(), v.size());
             }
             if constexpr (type == TYPE_FLOAT) {
-                buf_ret = rows_buffer[i].push_float(data[index_check_const(i, arg_const)]);
+                buf_ret = rows_buffer[i].push_float(data[col_index]);
             }
             if constexpr (type == TYPE_DOUBLE) {
-                buf_ret = rows_buffer[i].push_double(data[index_check_const(i, arg_const)]);
+                buf_ret = rows_buffer[i].push_double(data[col_index]);
             }
             if constexpr (type == TYPE_TIME || type == TYPE_TIMEV2) {
-                buf_ret = rows_buffer[i].push_time(data[index_check_const(i, arg_const)]);
+                buf_ret = rows_buffer[i].push_time(data[col_index]);
             }
             if constexpr (type == TYPE_DATETIME) {
-                auto time_num = data[index_check_const(i, arg_const)];
+                auto time_num = data[col_index];
                 VecDateTimeValue time_val = binary_cast<Int64, VecDateTimeValue>(time_num);
                 buf_ret = rows_buffer[i].push_vec_datetime(time_val);
             }
             if constexpr (type == TYPE_DATEV2) {
-                auto time_num = data[index_check_const(i, arg_const)];
+                auto time_num = data[col_index];
                 DateV2Value<DateV2ValueType> date_val =
                         binary_cast<UInt32, DateV2Value<DateV2ValueType>>(time_num);
                 buf_ret = rows_buffer[i].push_vec_datetime(date_val);
             }
             if constexpr (type == TYPE_DATETIMEV2) {
-                auto time_num = data[index_check_const(i, arg_const)];
+                auto time_num = data[col_index];
                 char buf[64];
                 DateV2Value<DateTimeV2ValueType> date_val =
                         binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(time_num);
@@ -381,7 +387,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 buf_ret = rows_buffer[i].push_string(buf, pos - buf - 1);
             }
             if constexpr (type == TYPE_DECIMALV2) {
-                DecimalV2Value decimal_val(data[index_check_const(i, arg_const)]);
+                DecimalV2Value decimal_val(data[col_index]);
                 auto decimal_str = decimal_val.to_string(scale);
                 buf_ret = rows_buffer[i].push_string(decimal_str.c_str(), decimal_str.length());
             }
@@ -611,11 +617,9 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         const auto& [column_ptr, col_const] = unpack_if_const(block.get_by_position(i).column);
         auto type_ptr = block.get_by_position(i).type;
 
-        if (UNLIKELY(num_rows != block.get_by_position(i).column->size())) {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "block's rows({}) != column{}'s size({})", num_rows, i,
-                    block.get_by_position(i).column->size());
-        }
+        DCHECK(num_rows == block.get_by_position(i).column->size())
+                << fmt::format("block's rows({}) != column{}'s size({})", num_rows, i,
+                               block.get_by_position(i).column->size());
 
         int scale = _output_vexpr_ctxs[i]->root()->type().scale;
         switch (_output_vexpr_ctxs[i]->root()->result_type()) {
