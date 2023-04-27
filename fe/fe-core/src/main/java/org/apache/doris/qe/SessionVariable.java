@@ -1168,6 +1168,9 @@ public class SessionVariable implements Serializable, Writable {
     public int getParallelExecInstanceNum() {
         LOG.info("test user set {} , be get {} , mincore {}", parallelExecInstanceNum,
                 (int) BackendInfo.get().getParallelExecInstanceNum(), BackendInfo.get().getMinNumCores());
+        if ((int) BackendInfo.get().getParallelExecInstanceNum() == 1) {
+            return parallelExecInstanceNum;
+        }
         return (int) BackendInfo.get().getParallelExecInstanceNum();
     }
 
@@ -1690,7 +1693,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
-        tResult.setParallelInstance(parallelExecInstanceNum);
+        tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
