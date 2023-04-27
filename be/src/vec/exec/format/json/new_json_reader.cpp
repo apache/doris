@@ -392,9 +392,9 @@ Status NewJsonReader::_open_line_reader() {
     } else {
         _skip_first_line = false;
     }
-    _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, nullptr, size,
-                                                  _line_delimiter, _line_delimiter_length,
-                                                  _current_offset));
+    _line_reader = NewPlainTextLineReader::create_unique(_profile, _file_reader, nullptr, size,
+                                                         _line_delimiter, _line_delimiter_length,
+                                                         _current_offset);
     return Status::OK();
 }
 
@@ -682,7 +682,7 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof, _io_ctx));
     } else {
         RETURN_IF_ERROR(_read_one_message(&json_str_ptr, size));
-        json_str = json_str_ptr.release();
+        json_str = json_str_ptr.get();
         if (*size == 0) {
             *eof = true;
         }

@@ -17,13 +17,15 @@
 
 #include "util/easy_json.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
 
 #include <string>
 
-#include "gutil/integral_types.h"
+#include "gtest/gtest_pred_impl.h"
 
 using rapidjson::SizeType;
 using rapidjson::Value;

@@ -14,13 +14,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <inttypes.h>
+#include <sys/types.h>
 #include <limits>
+#include <ostream>
+
 using std::numeric_limits;
 #include <string>
+
 using std::string;
 
-#include <common/logging.h>
+#include "common/logging.h"
 #include <fmt/format.h>
 
 #include "gutil/gscoped_ptr.h"

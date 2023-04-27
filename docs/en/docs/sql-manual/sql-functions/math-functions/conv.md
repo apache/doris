@@ -27,8 +27,10 @@ under the License.
 ### description
 #### Syntax
 
-`VARCHAR CONV(VARCHAR input, TINYINT from_base, TINYINT to_base)`
-`VARCHAR CONV(BIGINT input, TINYINT from_base, TINYINT to_base)`
+```sql
+VARCHAR CONV(VARCHAR input, TINYINT from_base, TINYINT to_base)
+VARCHAR CONV(BIGINT input, TINYINT from_base, TINYINT to_base)
+```
 Convert the input number to the target base. The input base range should be within `[2,36]`. 
 
 ### example

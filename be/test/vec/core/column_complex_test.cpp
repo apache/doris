@@ -17,16 +17,19 @@
 
 #include "vec/columns/column_complex.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
 #include <memory>
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
-#include "agent/heartbeat_server.h"
-#include "vec/core/block.h"
+#include "gtest/gtest_pred_impl.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_quantilestate.h"
+
 namespace doris::vectorized {
 TEST(ColumnComplexTest, BasicTest) {
     using ColumnSTLString = ColumnComplexType<std::string>;

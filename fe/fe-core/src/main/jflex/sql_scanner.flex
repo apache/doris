@@ -553,6 +553,9 @@ import org.apache.doris.qe.SqlModeHelper;
   }
 
   public static boolean isKeyword(String str) {
+        if (str == null) {
+            return false;
+        }
 	    return keywordMap.containsKey(str.toLowerCase());
   }
 

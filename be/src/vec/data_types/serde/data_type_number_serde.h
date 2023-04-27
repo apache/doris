@@ -18,19 +18,28 @@
 #pragma once
 
 #include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
 #include <stddef.h>
+#include <stdint.h>
+
+#include <ostream>
+#include <string>
 
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "olap/olap_common.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
 namespace doris {
+class JsonbOutStream;
 
 namespace vectorized {
+class Arena;
 
 template <typename T>
 class DataTypeNumberSerDe : public DataTypeSerDe {
@@ -176,7 +185,7 @@ template <typename T>
 void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                       const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnType&>(column);
-    if constexpr (std::is_same_v<T, Int8>) {
+    if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) {
         col.insert_value(static_cast<const JsonbInt8Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {
         col.insert_value(static_cast<const JsonbInt16Val*>(arg)->val());
@@ -201,7 +210,11 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
                                                      int row_num) const {
     result.writeKey(col_id);
     StringRef data_ref = column.get_data_at(row_num);
-    if constexpr (std::is_same_v<T, Int8>) {
+    // TODO: Casting unsigned integers to signed integers may result in loss of data precision.
+    // However, as Doris currently does not support unsigned integers, only the boolean type uses
+    // uint8_t for representation, making the cast acceptable. In the future, we should add support for
+    // both unsigned integers in Doris types and the JSONB types.
+    if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) {
         int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data);
         result.writeInt8(val);
     } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {

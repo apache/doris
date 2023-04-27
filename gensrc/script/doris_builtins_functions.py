@@ -160,6 +160,18 @@ visible_functions = [
     [['array_contains'], 'BOOLEAN', ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['array_contains'], 'BOOLEAN', ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
+    [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_TINYINT'], ''],
+    [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_SMALLINT'], ''],
+    [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_INT'], ''],
+    [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_BIGINT'], ''],
+    [['array_cum_sum'], 'ARRAY_LARGEINT',   ['ARRAY_LARGEINT'], ''],
+    [['array_cum_sum'], 'ARRAY_DOUBLE',     ['ARRAY_FLOAT'], ''],
+    [['array_cum_sum'], 'ARRAY_DOUBLE',     ['ARRAY_DOUBLE'], ''],
+    [['array_cum_sum'], 'ARRAY_DECIMALV2',  ['ARRAY_DECIMALV2'], ''],
+    [['array_cum_sum'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL32'], ''],
+    [['array_cum_sum'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL64'], ''],
+    [['array_cum_sum'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
+
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_BOOLEAN'], ''],
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_TINYINT'], ''],
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_SMALLINT'], ''],

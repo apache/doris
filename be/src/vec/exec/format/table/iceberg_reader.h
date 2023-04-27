@@ -59,13 +59,15 @@ class ShardedKVCache;
 class VExprContext;
 
 class IcebergTableReader : public TableFormatReader {
+    ENABLE_FACTORY_CREATOR(IcebergTableReader);
+
 public:
     struct PositionDeleteRange {
         std::vector<std::string> data_file_path;
         std::vector<std::pair<int, int>> range;
     };
 
-    IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
+    IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
                        const TFileRangeDesc& range, ShardedKVCache* kv_cache,
                        io::IOContext* io_ctx);

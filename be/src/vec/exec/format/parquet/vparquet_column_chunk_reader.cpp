@@ -291,6 +291,9 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
 
 Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                         ColumnSelectVector& select_vector, bool is_dict_filter) {
+    if (select_vector.num_values() == 0) {
+        return Status::OK();
+    }
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     if (UNLIKELY((doris_column->is_column_dictionary() || is_dict_filter) && !_has_dict)) {
         return Status::IOError("Not dictionary coded");

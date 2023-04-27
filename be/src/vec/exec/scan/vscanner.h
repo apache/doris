@@ -64,6 +64,8 @@ public:
 
     virtual Status close(RuntimeState* state);
 
+    virtual std::string get_name() { return ""; }
+
 protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
@@ -203,5 +205,7 @@ protected:
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
 };
+
+using VScannerSPtr = std::shared_ptr<VScanner>;
 
 } // namespace doris::vectorized
