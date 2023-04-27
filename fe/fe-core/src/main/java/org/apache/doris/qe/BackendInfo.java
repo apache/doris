@@ -55,7 +55,7 @@ public class BackendInfo {
         minNumCores = Math.min(minNumCores, numCores);
     }
 
-    public static long getMinNumCores() {
+    public long getMinNumCores() {
         return minNumCores;
     }
 

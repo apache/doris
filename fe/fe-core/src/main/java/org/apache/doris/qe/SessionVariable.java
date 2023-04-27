@@ -1169,6 +1169,8 @@ public class SessionVariable implements Serializable, Writable {
         if (parallelExecInstanceNum != 1) {
             return parallelExecInstanceNum;
         }
+        LOG.info("test use set {} , be get {} , mincore {}", parallelExecInstanceNum,
+                (int) BackendInfo.get().getParallelExecInstanceNum(), BackendInfo.get().getMinNumCores());
         return (int) BackendInfo.get().getParallelExecInstanceNum();
     }
 

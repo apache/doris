@@ -174,6 +174,8 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
             auto status = !_eos ? _prepare_scanners() : Status::OK();
             if (_scanner_ctx) {
                 DCHECK(!_eos && _num_scanners->value() > 0);
+                LOG_INFO("yxc test query_parallel_instance_num()")
+                        .tag("query_parallel_instance_num()", state->query_parallel_instance_num());
                 _scanner_ctx->set_max_queue_size(
                         _shared_scan_opt ? std::max(state->query_parallel_instance_num(), 1) : 1);
                 RETURN_IF_ERROR(
