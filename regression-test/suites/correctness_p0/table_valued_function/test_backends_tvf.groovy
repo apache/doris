@@ -39,5 +39,11 @@ suite("test_backends_tvf") {
     assertTrue(table[0].size == 4) // column should be 26
     assertEquals("true", table[0][2])
 
+    // test changing position of columns
+    table = sql """ select Hostname as name, NodeRole as r, alive, ip from backends();"""
+    assertTrue(table.size() > 0) // row should > 0
+    assertTrue(table[0].size == 4) // column should be 26
+    assertEquals("true", table[0][2])
+
 
 }
