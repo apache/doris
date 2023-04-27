@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 suite("test_all_types", "types") {
     String ak = getS3AK()
     String sk = getS3SK()
@@ -24,72 +22,67 @@ suite("test_all_types", "types") {
     String region = getS3Region()
     String bucket = getS3BucketName()
 
-    List<List<String>> dataTypes1 = sql "SHOW data types"
-
+    List<List<String>> dataTypes = sql "SHOW data types"
     // aggModel start 
 
-    def TableName1 = "data_types_agg"
-    sql "DROP TABLE IF EXISTS ${TableName1}"
+    def TableName = "data_types_agg"
+    def createTBSQL = "CREATE TABLE IF NOT EXISTS ${TableName} ("
+    def valueCols = ""
+    def index = 0
+    def keyCols = ""
 
-    def createTBSQL1 = "CREATE TABLE IF NOT EXISTS ${TableName1} ("
-    def subSQL1 = ""
-
-    def index1 = 0
-
-    def masterKey1 = ""
-
-    dataTypes1.each { row ->
+    dataTypes.each { row ->
         def dataType = row[0]
         println(dataType)
-        index1++
+        index++
         if (dataType == "ARRAY" || dataType == "MAP") {
             return
         } else if (dataType == "DECIMAL128") {
-            masterKey1 += "k${index1}, "
-            createTBSQL1 += "k${index1} DECIMALV3(36,3), "
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(36,3), "
         } else if (dataType == "DECIMAL32") {
-            masterKey1 += "k${index1}, "
-            createTBSQL1 += "k${index1} DECIMALV3(6,3), "
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(6,3), "
         } else if (dataType == "DECIMAL64") {
-            masterKey1 += "k${index1}, "
-            createTBSQL1 += "k${index1} DECIMALV3(16,3), "
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(16,3), "
         } else if (dataType == "DECIMALV2") {
-            masterKey1 += "k${index1}, "
-            createTBSQL1 += "k${index1} DECIMAL, "
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMAL, "
         } else if (dataType == "JSONB") {
-            subSQL1 += "k${index1} ${dataType} REPLACE, "
+            valueCols += "k${index} ${dataType} REPLACE, "
         } else if (dataType == "STRING") {
-            subSQL1 += "k${index1} ${dataType} REPLACE, "
+            valueCols += "k${index} ${dataType} REPLACE, "
         } else if (dataType == "FLOAT") {
-            subSQL1 += "k${index1} ${dataType} MAX, "
+            valueCols += "k${index} ${dataType} MAX, "
         } else if (dataType == "DOUBLE") {
-            subSQL1 += "k${index1} ${dataType} MAX, "
+            valueCols += "k${index} ${dataType} MAX, "
         } else if (dataType == "HLL") {
-            subSQL1 += "k${index1} ${dataType} ${dataType}_UNION, "
+            valueCols += "k${index} ${dataType} ${dataType}_UNION, "
         } else if (dataType == "BITMAP") {
-            subSQL1 += "k${index1} ${dataType} ${dataType}_UNION, "
+            valueCols += "k${index} ${dataType} ${dataType}_UNION, "
         } else if (dataType == "QUANTILE_STATE") {
-            subSQL1 += "k${index1} ${dataType} QUANTILE_UNION NOT NULL, "
+            valueCols += "k${index} ${dataType} QUANTILE_UNION NOT NULL, "
         } else {
-            masterKey1 += "k${index1}, "
-            createTBSQL1 += "k${index1} ${dataType}, "
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} ${dataType}, "
         }
     }
-    subSQL1 = subSQL1.substring(0, subSQL1.length() - 2)
-    masterKey1 = masterKey1.substring(0, masterKey1.length() - 2)
-    createTBSQL1 = createTBSQL1.substring(0, createTBSQL1.length() - 2)
-    createTBSQL1 += "," + subSQL1
-    createTBSQL1 += ")"
+    valueCols = valueCols.substring(0, valueCols.length() - 2)
+    keyCols = keyCols.substring(0, keyCols.length() - 2)
+    createTBSQL = createTBSQL.substring(0, createTBSQL.length() - 2)
+    createTBSQL += "," + valueCols
+    createTBSQL += ")"
 
-    createTBSQL1 += """AGGREGATE KEY(${masterKey1})
+    createTBSQL += """AGGREGATE KEY(${keyCols})
     DISTRIBUTED BY HASH(k2) BUCKETS 5 properties("replication_num" = "1");"""
     
-    println "${createTBSQL1}"
+    println "${createTBSQL}"
 
-    sql "${createTBSQL1}"
+    sql "${createTBSQL}"
 
     // aggModel insert load
-    sql """ insert into ${TableName1} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k3, k14, k15, k16, k18, k21, k23) values 
+    sql """ insert into ${TableName} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k3, k14, k15, k16, k18, k21, k23) values 
     (11,1,'x','1999-01-08','1999-01-08 02:05:06','1999-01-08 02:05:06','1999-01-08',11.11,11.11,11.11,11,1,1,1,1,'x',to_bitmap(1),1,1,hll_hash(17),'"a"',to_quantile_state(1,2048),'text1'),
     (12,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',22.22,22.22,22.22,22,2,2,2,2,'a',to_bitmap(2),2.2,2.2,hll_hash(18),'"b"',to_quantile_state(2,2048),'text2'),
     (13,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',33.33,33.33,33.33,33,3,3,3,3,'c',to_bitmap(3),3.3,3.3,hll_hash(3),'"c"',to_quantile_state(3,2048),'text3'),
@@ -104,7 +97,7 @@ suite("test_all_types", "types") {
 
     // aggModel stream load
     streamLoad {
-        table "${TableName1}"
+        table "${TableName}"
 
         set 'column_separator', '|'  
 
@@ -122,13 +115,13 @@ suite("test_all_types", "types") {
     def columns = "k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k3, k14, k15, k16, k18, k20, k21, k23"
     String columns_str = ("$columns" != "") ? "($columns)" : "";
 
-    def loadLabel1 = TableName1 + '_' + uuid
+    def loadLabel = TableName + '_' + uuid
 
     // aggModel s3 load
     sql """
-            LOAD LABEL $loadLabel1 (
+            LOAD LABEL $loadLabel (
                 DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
-                INTO TABLE $TableName1
+                INTO TABLE $TableName
                 COLUMNS TERMINATED BY "|"
                 $columns_str
                 SET 
@@ -147,13 +140,13 @@ suite("test_all_types", "types") {
             )
             
         """
-    waitForS3LoadFinished(loadLabel1)
+    waitForS3LoadFinished(loadLabel)
     
-    def stateResult1 = sql "show load where Label = '${loadLabel1}'"
-    println(stateResult1)
+    def stateResult = sql "show load where Label = '${loadLabel}'"
+    println(stateResult)
 
     // aggModel output to .out
-    qt_sql "SELECT * FROM ${TableName1} ORDER BY k2"
+    qt_sql "SELECT * FROM ${TableName} ORDER BY k2"
 
     // aggModel select into outfile
     try {
@@ -164,12 +157,12 @@ suite("test_all_types", "types") {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
         sql """
-            SELECT * FROM ${TableName1} ORDER BY k2 INTO OUTFILE "file://${outFilePath}/";
+            SELECT * FROM ${TableName} ORDER BY k2 INTO OUTFILE "file://${outFilePath}/";
         """
         File[] files = path.listFiles()
         assert files.length == 1
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${TableName1}")
+        try_sql("DROP TABLE IF EXISTS ${TableName}")
         File path = new File(outFilePath)
         if (path.exists()) {
             for (File f : path.listFiles()) {
@@ -179,64 +172,62 @@ suite("test_all_types", "types") {
         }
     }
 
-    sql "DROP TABLE IF EXISTS ${TableName1}"
+    sql "DROP TABLE IF EXISTS ${TableName}"
 
     sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 
     // uniModel_read start 
 
-    def TableName2 = "data_types_uni_read"
+    TableName = "data_types_uni_read"
 
-    def createTBSQL2 = "CREATE TABLE IF NOT EXISTS ${TableName2} ("
-    def subSQL2 = ""
+    createTBSQL = "CREATE TABLE IF NOT EXISTS ${TableName} ("
+    valueCols = ""
+    index = 0
+    keyCols = ""
 
-    def index2 = 0
-
-    def masterKey2 = ""
-
-    dataTypes1.each { row ->
+    dataTypes.each { row ->
         def dataType = row[0]
-        index2++
-        if (dataType == "DECIMAL128") {
-            masterKey2 += "k${index2}, "
-            createTBSQL2 += "k${index2} DECIMALV3(36,3), "
-        } else if (dataType == "DECIMAL32") {
-            masterKey2 += "k${index2}, "
-            createTBSQL2 += "k${index2} DECIMALV3(6,3), "
-        } else if (dataType == "DECIMAL64") {
-            masterKey2 += "k${index2}, "
-            createTBSQL2 += "k${index2} DECIMALV3(16,3), "
-        } else if (dataType == "DECIMALV2") {
-            masterKey2 += "k${index2}, "
-            createTBSQL2 += "k${index2} DECIMAL, "
-        } else if (dataType == "ARRAY") {
-            subSQL2 += "k${index2} ${dataType}<INT>, "
-        } else if (dataType == "MAP") {
-            subSQL2 += "k${index2} ${dataType}<STRING, INT>, "
-        } else if (dataType == "QUANTILE_STATE" || dataType == "HLL" || dataType == "BITMAP") {
+        index++
+        if (dataType == "QUANTILE_STATE" || dataType == "HLL" || dataType == "BITMAP") {
             return
+        } else if (dataType == "DECIMAL128") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(36,3), "
+        } else if (dataType == "DECIMAL32") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(6,3), "
+        } else if (dataType == "DECIMAL64") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(16,3), "
+        } else if (dataType == "DECIMALV2") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMAL, "
+        } else if (dataType == "ARRAY") {
+            valueCols += "k${index} ${dataType}<INT>, "
+        } else if (dataType == "MAP") {
+            valueCols += "k${index} ${dataType}<STRING, INT>, "
         } else if (dataType == "STRING" || dataType == "JSONB" || dataType == "FLOAT" || dataType == "DOUBLE") {
-            subSQL2 += "k${index2} ${dataType}, "
+            valueCols += "k${index} ${dataType}, "
         } else {
-            masterKey2 += "k${index2}, "
-            createTBSQL2 += "k${index2} ${dataType}, "
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} ${dataType}, "
             println(dataType)
         }
     }
-    subSQL2 = subSQL2.substring(0, subSQL2.length() - 2)
-    masterKey2 = masterKey2.substring(0, masterKey2.length() - 2)
-    createTBSQL2 = createTBSQL2.substring(0, createTBSQL2.length() - 2)
-    createTBSQL2 += "," + subSQL2
-    createTBSQL2 += ")"
+    valueCols = valueCols.substring(0, valueCols.length() - 2)
+    keyCols = keyCols.substring(0, keyCols.length() - 2)
+    createTBSQL = createTBSQL.substring(0, createTBSQL.length() - 2)
+    createTBSQL += "," + valueCols
+    createTBSQL += ")"
     
-    createTBSQL2 += """UNIQUE KEY(${masterKey2})
+    createTBSQL += """UNIQUE KEY(${keyCols})
     DISTRIBUTED BY HASH(k2) BUCKETS 5 properties("replication_num" = "1");"""
 
-    println "${createTBSQL2}"
-    sql "${createTBSQL2}"
+    println "${createTBSQL}"
+    sql "${createTBSQL}"
 
     // uniModel_read insert load
-    sql """ insert into ${TableName2} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k14, k15, k18, k20, k23) values 
+    sql """ insert into ${TableName} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k14, k15, k18, k20, k23) values 
     (11,1,'x','1999-01-08','1999-01-08 02:05:06','1999-01-08 02:05:06','1999-01-08',11.11,11.11,11.11,11,1,1,1,1,'x',[1, 1],1,1,'"a"',{"k1":1},'text1'),
     (12,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',22.22,22.22,22.22,22,2,2,2,2,'a',[2, 2],2.2,2.2,'"b"',{"k2":2},'text2'),
     (13,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',33.33,33.33,33.33,33,3,3,3,3,'c',[3, 3],3.3,3.3,'"c"',{"k3":3},'text3'),
@@ -251,7 +242,7 @@ suite("test_all_types", "types") {
 
     // uniModel_read stream load
     streamLoad {
-        table "${TableName2}"
+        table "${TableName}"
 
         set 'column_separator', '|'  
 
@@ -263,12 +254,12 @@ suite("test_all_types", "types") {
     }
 
     // uniModel_read s3 load
-    def loadLabel2 = TableName2 + '_' + uuid
+    loadLabel = TableName + '_' + uuid
 
     sql """
-            LOAD LABEL $loadLabel2 (
+            LOAD LABEL $loadLabel (
                 DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
-                INTO TABLE $TableName2
+                INTO TABLE $TableName
                 COLUMNS TERMINATED BY "|"
                 $columns_str
                 SET 
@@ -287,13 +278,13 @@ suite("test_all_types", "types") {
             )
             
         """
-    waitForS3LoadFinished(loadLabel2)
+    waitForS3LoadFinished(loadLabel)
     
-    def stateResult2 = sql "show load where Label = '${loadLabel2}'"
-    println(stateResult2)
+    stateResult = sql "show load where Label = '${loadLabel}'"
+    println(stateResult)
 
     // uniModel_read output to .out
-    qt_sql "SELECT * FROM ${TableName2} ORDER BY k2"
+    qt_sql "SELECT * FROM ${TableName} ORDER BY k2"
 
     // uniModel_read select into outfile
     try {
@@ -304,12 +295,12 @@ suite("test_all_types", "types") {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
         sql """
-            SELECT * FROM ${TableName2} ORDER BY k2 INTO OUTFILE "file://${outFilePath}/";
+            SELECT * FROM ${TableName} ORDER BY k2 INTO OUTFILE "file://${outFilePath}/";
         """
         File[] files = path.listFiles()
         assert files.length == 1
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${TableName2}")
+        try_sql("DROP TABLE IF EXISTS ${TableName}")
         File path = new File(outFilePath)
         if (path.exists()) {
             for (File f : path.listFiles()) {
@@ -319,63 +310,61 @@ suite("test_all_types", "types") {
         }
     }
 
-    sql "DROP TABLE IF EXISTS ${TableName2}"
+    sql "DROP TABLE IF EXISTS ${TableName}"
 
     // uniModel_write start 
 
-    def TableName3 = "data_types_uni_write"
-    sql "DROP TABLE IF EXISTS ${TableName3}"
-    def createTBSQL3 = "CREATE TABLE IF NOT EXISTS ${TableName3} ("
-    def subSQL3 = ""
+    TableName = "data_types_uni_write"
+    sql "DROP TABLE IF EXISTS ${TableName}"
+    createTBSQL = "CREATE TABLE IF NOT EXISTS ${TableName} ("
+    valueCols = ""
+    index = 0
+    keyCols = ""
 
-    def index3 = 0
-
-    def masterKey3 = ""
-
-    dataTypes1.each { row ->
+    dataTypes.each { row ->
         def dataType = row[0]
-        index3++
-        if (dataType == "ARRAY") {
-            subSQL3 += "k${index3} ${dataType}<INT>, "
-        } else if (dataType == "MAP") {
-            subSQL3 += "k${index3} ${dataType}<STRING, INT>, "
-        } else if (dataType == "DECIMAL128") {
-            masterKey3 += "k${index3}, "
-            createTBSQL3 += "k${index3} DECIMALV3(36,3), "
-        } else if (dataType == "DECIMAL32") {
-            masterKey3 += "k${index3}, "
-            createTBSQL3 += "k${index3} DECIMALV3(6,3), "
-        } else if (dataType == "DECIMAL64") {
-            masterKey3 += "k${index3}, "
-            createTBSQL3 += "k${index3} DECIMALV3(16,3), "
-        } else if (dataType == "DECIMALV2") {
-            masterKey3 += "k${index3}, "
-            createTBSQL3 += "k${index3} DECIMAL, "
-        } else if (dataType == "QUANTILE_STATE" || dataType == "HLL" || dataType == "BITMAP" || dataType == "MAP") {
+        index++
+        if (dataType == "QUANTILE_STATE" || dataType == "HLL" || dataType == "BITMAP") {
             return
-        }else if (dataType == "STRING" || dataType == "JSONB" || dataType == "FLOAT" || dataType == "DOUBLE") {
-            subSQL3 += "k${index3} ${dataType}, "
+        } else if (dataType == "ARRAY") {
+            valueCols += "k${index} ${dataType}<INT>, "
+        } else if (dataType == "MAP") {
+            valueCols += "k${index} ${dataType}<STRING, INT>, "
+        } else if (dataType == "DECIMAL128") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(36,3), "
+        } else if (dataType == "DECIMAL32") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(6,3), "
+        } else if (dataType == "DECIMAL64") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(16,3), "
+        } else if (dataType == "DECIMALV2") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMAL, "
+        } else if (dataType == "STRING" || dataType == "JSONB" || dataType == "FLOAT" || dataType == "DOUBLE") {
+            valueCols += "k${index} ${dataType}, "
         } else {
-            masterKey3 += "k${index3}, "
-            createTBSQL3 += "k${index3} ${dataType}, "
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} ${dataType}, "
             println(dataType)
         }
     }
-    subSQL3 = subSQL3.substring(0, subSQL3.length() - 2)
-    masterKey3 = masterKey3.substring(0, masterKey3.length() - 2)
-    createTBSQL3 = createTBSQL3.substring(0, createTBSQL3.length() - 2)
-    createTBSQL3 += "," + subSQL3
-    createTBSQL3 += ")"
+    valueCols = valueCols.substring(0, valueCols.length() - 2)
+    keyCols = keyCols.substring(0, keyCols.length() - 2)
+    createTBSQL = createTBSQL.substring(0, createTBSQL.length() - 2)
+    createTBSQL += "," + valueCols
+    createTBSQL += ")"
 
-    createTBSQL3 += """UNIQUE KEY(${masterKey3})
+    createTBSQL += """UNIQUE KEY(${keyCols})
     DISTRIBUTED BY HASH(k2) BUCKETS 5 properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");"""
 
-    println "${createTBSQL3}"
-    sql "${createTBSQL3}"
+    println "${createTBSQL}"
+    sql "${createTBSQL}"
 
     // uniModel_write insert load
 
-    sql """ insert into ${TableName3} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k14, k15, k18, k20, k23) values 
+    sql """ insert into ${TableName} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k14, k15, k18, k20, k23) values 
     (11,1,'x','1999-01-08','1999-01-08 02:05:06','1999-01-08 02:05:06','1999-01-08',11.11,11.11,11.11,11,1,1,1,1,'x',[1, 1],1,1,'"a"',{"k1":1},'text1'),
     (12,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',22.22,22.22,22.22,22,2,2,2,2,'a',[2, 2],2.2,2.2,'"b"',{"k2":2},'text2'),
     (13,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',33.33,33.33,33.33,33,3,3,3,3,'c',[3, 3],3.3,3.3,'"c"',{"k3":3},'text3'),
@@ -390,7 +379,7 @@ suite("test_all_types", "types") {
 
     // uniModel_write stream load
     streamLoad {
-        table "${TableName3}"
+        table "${TableName}"
 
         set 'column_separator', '|'  
 
@@ -402,11 +391,11 @@ suite("test_all_types", "types") {
     }
     
     // uniModel_write s3 load
-    def loadLabel3 = TableName3 + '_' + uuid
+    loadLabel = TableName + '_' + uuid
     sql """
-            LOAD LABEL $loadLabel3 (
+            LOAD LABEL $loadLabel (
                 DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
-                INTO TABLE $TableName3
+                INTO TABLE $TableName
                 COLUMNS TERMINATED BY "|"
                 $columns_str
                 SET 
@@ -425,13 +414,13 @@ suite("test_all_types", "types") {
             )
             
         """
-    waitForS3LoadFinished(loadLabel3)
+    waitForS3LoadFinished(loadLabel)
     
-    def stateResult3 = sql "show load where Label = '${loadLabel3}'"
-    println(stateResult3)
+    stateResult = sql "show load where Label = '${loadLabel}'"
+    println(stateResult)
 
     // uniModel_write output to .out
-    qt_sql "SELECT * FROM ${TableName3} ORDER BY k2"
+    qt_sql "SELECT * FROM ${TableName} ORDER BY k2"
 
     // uniModel_write select into outfile
     try {
@@ -442,12 +431,12 @@ suite("test_all_types", "types") {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
         sql """
-            SELECT * FROM ${TableName3} ORDER BY k2 INTO OUTFILE "file://${outFilePath}/";
+            SELECT * FROM ${TableName} ORDER BY k2 INTO OUTFILE "file://${outFilePath}/";
         """
         File[] files = path.listFiles()
         assert files.length == 1
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${TableName3}")
+        try_sql("DROP TABLE IF EXISTS ${TableName}")
         File path = new File(outFilePath)
         if (path.exists()) {
             for (File f : path.listFiles()) {
@@ -457,64 +446,62 @@ suite("test_all_types", "types") {
         }
     }
 
-    sql "DROP TABLE IF EXISTS ${TableName3}"
+    sql "DROP TABLE IF EXISTS ${TableName}"
 
 
 
     // DupModel start
-    def TableName4 = "data_types_dup"
+    TableName = "data_types_dup"
 
-    def createTBSQL4 = "CREATE TABLE IF NOT EXISTS ${TableName4} ("
-    def subSQL4 = ""
+    createTBSQL = "CREATE TABLE IF NOT EXISTS ${TableName} ("
+    valueCols = ""
+    index = 0
+    keyCols = ""
 
-    def index4 = 0
-
-    def masterKey4 = ""
-
-    dataTypes1.each { row ->
+    dataTypes.each { row ->
         def dataType = row[0]
-        index4++
-        if (dataType == "DECIMAL128") {
-            masterKey4 += "k${index4}, "
-            createTBSQL4 += "k${index4} DECIMALV3(36,3), "
-        } else if (dataType == "DECIMAL32") {
-            masterKey4 += "k${index4}, "
-            createTBSQL4 += "k${index4} DECIMALV3(6,3), "
-        } else if (dataType == "DECIMAL64") {
-            masterKey4 += "k${index4}, "
-            createTBSQL4 += "k${index4} DECIMALV3(16,3), "
-        } else if (dataType == "DECIMALV2") {
-            masterKey4 += "k${index4}, "
-            createTBSQL4 += "k${index4} DECIMAL, "
-        } else if (dataType == "QUANTILE_STATE" || dataType == "HLL" || dataType == "BITMAP") {
+        index++
+        if (dataType == "QUANTILE_STATE" || dataType == "HLL" || dataType == "BITMAP") {
             return
+        } else if (dataType == "DECIMAL128") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(36,3), "
+        } else if (dataType == "DECIMAL32") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(6,3), "
+        } else if (dataType == "DECIMAL64") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMALV3(16,3), "
+        } else if (dataType == "DECIMALV2") {
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} DECIMAL, "
         } else if (dataType == "ARRAY") {
-            subSQL4 += "k${index4} ${dataType}<INT>, "
+            valueCols += "k${index} ${dataType}<INT>, "
         } else if (dataType == "MAP") {
-            subSQL4 += "k${index4} ${dataType}<STRING, INT>, "
+            valueCols += "k${index} ${dataType}<STRING, INT>, "
         } else if (dataType == "STRING" || dataType == "JSONB" || dataType == "FLOAT" || dataType == "DOUBLE") {
-            subSQL4 += "k${index4} ${dataType}, "
+            valueCols += "k${index} ${dataType}, "
         } else {
-            masterKey4 += "k${index4}, "
-            createTBSQL4 += "k${index4} ${dataType}, "
+            keyCols += "k${index}, "
+            createTBSQL += "k${index} ${dataType}, "
             println(dataType)
         }
     }
-    subSQL4 = subSQL4.substring(0, subSQL4.length() - 2)
-    masterKey4 = masterKey4.substring(0, masterKey4.length() - 2)
-    createTBSQL4 = createTBSQL4.substring(0, createTBSQL4.length() - 2)
-    createTBSQL4 += "," + subSQL4
-    createTBSQL4 += ")"
+    valueCols = valueCols.substring(0, valueCols.length() - 2)
+    keyCols = keyCols.substring(0, keyCols.length() - 2)
+    createTBSQL = createTBSQL.substring(0, createTBSQL.length() - 2)
+    createTBSQL += "," + valueCols
+    createTBSQL += ")"
 
-    createTBSQL4 += """DUPLICATE KEY(${masterKey4})
+    createTBSQL += """DUPLICATE KEY(${keyCols})
     DISTRIBUTED BY HASH(k2) BUCKETS 5 properties("replication_num" = "1");"""
 
-    println "${createTBSQL4}"
+    println "${createTBSQL}"
 
-    sql "${createTBSQL4}"
+    sql "${createTBSQL}"
 
     // DupModel insert load
-    sql """ insert into ${TableName4} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k14, k15, k18, k20, k23) values 
+    sql """ insert into ${TableName} (k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k14, k15, k18, k20, k23) values 
     (11,1,'x','1999-01-08','1999-01-08 02:05:06','1999-01-08 02:05:06','1999-01-08',11.11,11.11,11.11,11,1,1,1,1,'x',[1, 1],1,1,'"a"',{"k1":1},'text1'),
     (12,0,'b','2000-01-08','2000-01-08 02:05:06','2000-01-08 02:05:06','2000-01-08',22.22,22.22,22.22,22,2,2,2,2,'a',[2, 2],2.2,2.2,'"b"',{"k2":2},'text2'),
     (13,1,'c','2001-01-08','2001-01-08 02:05:06','2001-01-08 02:05:06','2001-01-08',33.33,33.33,33.33,33,3,3,3,3,'c',[3, 3],3.3,3.3,'"c"',{"k3":3},'text3'),
@@ -530,7 +517,7 @@ suite("test_all_types", "types") {
 
     // DupModel stream load
     streamLoad {
-        table "${TableName4}"
+        table "${TableName}"
 
         set 'column_separator', '|'  
 
@@ -543,11 +530,11 @@ suite("test_all_types", "types") {
 
     // DupModel s3 load
 
-    def loadLabel4 = TableName4 + '_' + uuid
+    loadLabel = TableName + '_' + uuid
     sql """
-            LOAD LABEL $loadLabel4 (
+            LOAD LABEL $loadLabel (
                 DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
-                INTO TABLE $TableName4
+                INTO TABLE $TableName
                 COLUMNS TERMINATED BY "|"
                 $columns_str
                 SET 
@@ -566,13 +553,13 @@ suite("test_all_types", "types") {
             )
             
         """
-    waitForS3LoadFinished(loadLabel4)
+    waitForS3LoadFinished(loadLabel)
     
-    def stateResult4 = sql "show load where Label = '${loadLabel4}'"
-    println(stateResult4)
+    stateResult = sql "show load where Label = '${loadLabel}'"
+    println(stateResult)
 
     // DupModel output to .out
-    qt_sql "SELECT * FROM ${TableName4} ORDER BY k2"
+    qt_sql "SELECT * FROM ${TableName} ORDER BY k2"
 
     // DupModel select into outfile
     try {
@@ -583,12 +570,12 @@ suite("test_all_types", "types") {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
         sql """
-            SELECT * FROM ${TableName4} ORDER BY k2 INTO OUTFILE "file://${outFilePath}/";
+            SELECT * FROM ${TableName} ORDER BY k2 INTO OUTFILE "file://${outFilePath}/";
         """
         File[] files = path.listFiles()
         assert files.length == 1
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${TableName4}")
+        try_sql("DROP TABLE IF EXISTS ${TableName}")
         File path = new File(outFilePath)
         if (path.exists()) {
             for (File f : path.listFiles()) {
@@ -598,5 +585,5 @@ suite("test_all_types", "types") {
         }
     }
 
-    sql "DROP TABLE IF EXISTS ${TableName4}"
+    sql "DROP TABLE IF EXISTS ${TableName}"
 }
