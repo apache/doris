@@ -40,7 +40,9 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     // and then wants add lambda expr as the input param, so we rewrite it to contains an array_map lambda function
     // rather than reimplementing a lambda function, this will be reused the implementation of normal array function
     public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby").add("array_first_index").add("array_last").build();
+            String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby")
+            .add("array_first_index").add("array_last")
+            .build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
 
@@ -204,7 +206,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
             }
             fn.setReturnType(getChild(0).getType());
-        } else if ( fnName.getFunction().equalsIgnoreCase("array_last") ) {
+        } else if (fnName.getFunction().equalsIgnoreCase("array_last")) {
             // array_last(lambda,array)--->array_last(array,lambda)--->element_at(array_filter,-1)
             if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
                 List<Expr> params = new ArrayList<>();
@@ -228,7 +230,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 LOG.warn("fn element_at not exists");
                 throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
             }
-            fn.setReturnType(((ArrayType)argTypes[0]).getItemType()) ;
+            fn.setReturnType(((ArrayType) argTypes[0]).getItemType());
         }
         LOG.info("fn string: " + fn.signatureString() + ". return type: " + fn.getReturnType());
         if (fn == null) {
