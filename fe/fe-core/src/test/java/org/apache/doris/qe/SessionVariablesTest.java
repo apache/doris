@@ -189,7 +189,6 @@ public class SessionVariablesTest extends TestWithFeService {
             e.printStackTrace();
             Assertions.fail(e.getMessage());
         }
-
     }
 
     @Test

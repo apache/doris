@@ -349,6 +349,15 @@ public class RuntimeProfile {
                 }
                 break;
             }
+            case TIME_MS: {
+                if (tmpValue >= DebugUtil.THOUSAND) {
+                    // If the time is over a second, print it up to ms.
+                    DebugUtil.printTimeMs(tmpValue, builder);
+                } else {
+                    builder.append(tmpValue).append("ms");
+                }
+                break;
+            }
             case BYTES: {
                 Pair<Double, String> pair = DebugUtil.getByteUint(tmpValue);
                 Formatter fmt = new Formatter();
@@ -505,3 +514,4 @@ public class RuntimeProfile {
         return infoStrings;
     }
 }
+
