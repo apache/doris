@@ -2162,5 +2162,17 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean experimental_enable_duplicate_without_keys_by_default = false;
+
+    /**
+     * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
+     * we may delete the DecimalV2 and DateV1 types in the future.
+     * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
+     * to determine whether these two types take effect.
+     */
+    @ConfField(mutable = true)
+    public static boolean disable_decimalv2  = true;
+
+    @ConfField(mutable = true)
+    public static boolean disable_datev1  = true;
 }
 
