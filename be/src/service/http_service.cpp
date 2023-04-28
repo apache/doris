@@ -51,7 +51,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 #include "util/doris_metrics.h"
-#include "http/action/cancel_pipe_action.h"
 
 namespace doris {
 
@@ -121,10 +120,6 @@ Status HttpService::start() {
     TabletMigrationAction* tablet_migration_action = _pool.add(new TabletMigrationAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/tablet_migration",
                                       tablet_migration_action);
-
-    // shrink memory for starting co-exist process during upgrade
-    ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction(_env));
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
 
     // register pprof actions
     PprofActions::setup(_env, _ev_http_server.get(), _pool);

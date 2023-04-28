@@ -55,6 +55,5 @@ add_library(Webserver STATIC
   action/reset_rpc_channel_action.cpp
   action/check_tablet_segment_action.cpp
   action/version_action.cpp
-  action/cancel_pipe_action.cpp
   action/jeprofile_actions.cpp
 )

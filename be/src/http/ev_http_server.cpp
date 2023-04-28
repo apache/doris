@@ -59,13 +59,6 @@ std::mutex g_conn_req_map_lock;
 
 static void on_chunked(struct evhttp_request* ev_req, void* param) {
     HttpRequest* request = (HttpRequest*)ev_req->on_free_cb_arg;
-#if 0
-    {
-        std::lock_guard<std::mutex> l(g_conn_req_map_lock);
-        g_conn_req_map.erase(ev_req->evcon);
-        g_conn_req_map[ev_req->evcon] = request;
-    }
-#endif
 
     LOG(INFO) << "ev on chunked req=" << ev_req << " HttpRequest=" << request;
     request->handler()->on_chunk_data(request);
