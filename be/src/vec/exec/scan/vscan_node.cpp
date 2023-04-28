@@ -119,9 +119,12 @@ Status VScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
     // init profile for runtime filter
+    std::stringstream ss;
     for (auto& rf_ctx : _runtime_filter_ctxs) {
         rf_ctx.runtime_filter->init_profile(_runtime_profile.get());
+        ss << rf_ctx.runtime_filter->get_name() << ", ";
     }
+    _runtime_profile->add_info_string("RuntimeFilters: ", ss.str());
 
     if (_is_pipeline_scan) {
         if (_shared_scan_opt) {
