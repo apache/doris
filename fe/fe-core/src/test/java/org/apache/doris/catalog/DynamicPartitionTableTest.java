@@ -1595,6 +1595,32 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"2\",\n"
                 + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
                 + ");";
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "could not be HOUR when type of partition column days is DATE or DATEV2",
+                () -> createTable(createOlapTblStmt));
+
+        String createOlapTblStmt2 = "CREATE TABLE if not exists test.hour_with_date (\n"
+                + "  `days` DATETIMEV2 NOT NULL,\n"
+                + "  `hours` char(2) NOT NULL,\n"
+                + "  `positionID` char(20)\n"
+                + "  )\n"
+                + "UNIQUE KEY(`days`,`hours`,`positionID`)\n"
+                + "PARTITION BY RANGE(`days`) ()\n"
+                + "DISTRIBUTED BY HASH(`positionID`) BUCKETS AUTO\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"compression\" = \"zstd\",\n"
+                + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
+                + "\"light_schema_change\" = \"true\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_zone\" = \"+00:00\",\n"
+                + "\"dynamic_partition.time_unit\" = \"HOUR\",\n"
+                + "\"dynamic_partition.start\" = \"-24\",\n"
+                + "\"dynamic_partition.end\" = \"24\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"2\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
+                + ");";
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt2));
     }
 }
