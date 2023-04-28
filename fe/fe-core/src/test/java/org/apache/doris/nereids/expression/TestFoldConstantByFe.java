@@ -20,6 +20,7 @@ package org.apache.doris.nereids.expression;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -324,6 +325,17 @@ public class TestFoldConstantByFe implements MemoPatternMatchSupported {
                         logicalOneRowRelation().when(
                                 r -> r.getProjects().size() == 1 &&
                                         r.getProjects().get(0).child(0).equals(new DateLiteral("2010-04-11"))
+                        )
+                );
+
+        sql = "select IF(true, DAYOFWEEK('2022-12-06 17:48:46'), 1) + 1";
+        PlanChecker.from(MemoTestUtils.createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new ExpressionNormalization())
+                .matches(
+                        logicalOneRowRelation().when(
+                                r -> r.getProjects().size() == 1 &&
+                                        r.getProjects().get(0).child(0).equals(new BigIntLiteral(4))
                         )
                 );
     }
