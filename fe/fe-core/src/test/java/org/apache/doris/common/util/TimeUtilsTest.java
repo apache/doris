@@ -56,7 +56,7 @@ public class TimeUtilsTest {
     public void testNormal() {
         Assert.assertNotNull(TimeUtils.getCurrentFormatTime());
         Assert.assertNotNull(TimeUtils.getStartTime());
-        Assert.assertTrue(TimeUtils.getElapsedTime(0L) > 0);
+        Assert.assertTrue(TimeUtils.getElapsedTimeMs(0L) > 0);
 
         Assert.assertEquals(-62167420800000L, TimeUtils.MIN_DATE.getTime());
         Assert.assertEquals(253402185600000L, TimeUtils.MAX_DATE.getTime());

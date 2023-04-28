@@ -23,9 +23,10 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUnit;
 
-import com.clearspring.analytics.util.Lists;
-import com.clearspring.analytics.util.Preconditions;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -33,16 +34,28 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-// Execution Profile
-//   Fragments:
-//     Fragment 0:
-//     Fragment 1:
+
+/**
+ * ExecutionProfile is used to collect profile of a complete query plan(including query or load).
+ * Need to call addToProfileAsChild() to add it to the root profile.
+ * It has the following structure:
+ *  Execution Profile:
+ *      Fragment 0:
+ *          Instance 0:
+ *          ...
+ *      Fragment 1:
+ *          Instance 0:
+ *          ...
+ *      ...
+ *      LoadChannels:  // only for load job
+ */
 public class ExecutionProfile {
     private static final Logger LOG = LogManager.getLogger(ExecutionProfile.class);
 
     private RuntimeProfile executionProfile;
     private List<RuntimeProfile> fragmentProfiles;
     private RuntimeProfile loadChannelProfile;
+    // A count down latch to mark the completion of each instance.
     // instance id -> dummy value
     private MarkedCountDownLatch<TUniqueId, Long> profileDoneSignal;
 
@@ -72,7 +85,7 @@ public class ExecutionProfile {
     }
 
     public void markInstances(Set<TUniqueId> instanceIds) {
-        profileDoneSignal = new MarkedCountDownLatch<TUniqueId, Long>(instanceIds.size());
+        profileDoneSignal = new MarkedCountDownLatch<>(instanceIds.size());
         for (TUniqueId instanceId : instanceIds) {
             profileDoneSignal.addMark(instanceId, -1L /* value is meaningless */);
         }
@@ -80,7 +93,7 @@ public class ExecutionProfile {
 
     public void update(long startTime, boolean isFinished) {
         if (startTime > 0) {
-            executionProfile.getCounterTotalTime().setValue(TimeUtils.getElapsedTime(startTime));
+            executionProfile.getCounterTotalTime().setValue(TUnit.TIME_MS, TimeUtils.getElapsedTimeMs(startTime));
         }
         // Wait for all backends to finish reporting when writing profile last time.
         if (isFinished && profileDoneSignal != null) {

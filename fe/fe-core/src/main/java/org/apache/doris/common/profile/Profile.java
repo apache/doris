@@ -21,28 +21,30 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
 
 /**
  * Profile is a class to record the execution time of a query.
- * It has following structure:
+ * It has the following structure:
  * root profile:
- *     [summary profile]
- *     [execution profile 1]
- *     [execution profile 2]
+ *     // summary of this profile, such as start time, end time, query id, etc.
+ *     [SummaryProfile]
+ *     // each execution profile is a complete execution of a query, a job may contain multiple queries.
+ *     [List<ExecutionProfile>]
  *
- * summary profile:
+ * SummaryProfile:
  *     Summary:
  *         Execution Summary:
  *
- * execution profile:
+ * ExecutionProfile:
  *     Fragment 0:
  *     Fragment 1:
+ *     ...
  */
 public class Profile {
-    private long startTimeNs = 0;
     private RuntimeProfile rootProfile;
     private SummaryProfile summaryProfile;
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
@@ -51,23 +53,26 @@ public class Profile {
     public Profile(String name, boolean isEnable) {
         this.rootProfile = new RuntimeProfile(name);
         this.summaryProfile = new SummaryProfile(rootProfile);
+        // if disabled, just set isFinished to true, so that update() will do nothing
         this.isFinished = !isEnable;
     }
 
-    // Must be called before update()
     public void addExecutionProfile(ExecutionProfile executionProfile) {
         this.executionProfiles.add(executionProfile);
         executionProfile.addToProfileAsChild(rootProfile);
     }
 
-    public synchronized void update(long startTimeNs, Map<String, String> summaryInfo, boolean isFinished) {
+    public void finalUpdate() {
+        update(-1, Maps.newHashMap(), true);
+    }
+
+    public synchronized void update(long startTime, Map<String, String> summaryInfo, boolean isFinished) {
         if (this.isFinished) {
             return;
         }
-        this.startTimeNs = (this.startTimeNs == 0 && startTimeNs > 0 ? startTimeNs : this.startTimeNs);
         summaryProfile.update(summaryInfo);
         for (ExecutionProfile executionProfile : executionProfiles) {
-            executionProfile.update(startTimeNs, isFinished);
+            executionProfile.update(startTime, isFinished);
         }
         rootProfile.computeTimeInProfile();
         ProfileManager.getInstance().pushProfile(rootProfile);

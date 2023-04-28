@@ -37,8 +37,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
-import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -316,24 +314,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (!enableProfile) {
             return;
         }
-
-        RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
-        summaryProfile.addInfoString(ProfileManager.JOB_ID, String.valueOf(this.id));
-        summaryProfile.addInfoString(ProfileManager.QUERY_ID, this.queryId);
-        summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(createTimestamp));
-        summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(finishTimestamp));
-        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME,
-                DebugUtil.getPrettyStringMs(finishTimestamp - createTimestamp));
-
-        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Load");
-        summaryProfile.addInfoString(ProfileManager.QUERY_STATE, "N/A");
-        summaryProfile.addInfoString(ProfileManager.USER,
-                getUserInfo() != null ? getUserInfo().getQualifiedUser() : "N/A");
-        summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, getDefaultDb());
-        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, this.getOriginStmt().originStmt);
-        summaryProfile.addInfoString(ProfileManager.IS_CACHED, "N/A");
-
-        jobProfile.update(createTimestamp * 1000, getSummaryInfo(true), true);
+        jobProfile.update(createTimestamp, getSummaryInfo(true), true);
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {

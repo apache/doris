@@ -550,7 +550,7 @@ public class StmtExecutor {
                 // The final profile report occurs after be returns the query data, and the profile cannot be
                 // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
                 // for the profile before unregisterQuery().
-                profile.update(-1, Maps.newHashMap(), true);
+                profile.finalUpdate();
                 QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             }
         }
@@ -1720,7 +1720,7 @@ public class StmtExecutor {
                  */
                 throwable = t;
             } finally {
-                profile.update(-1, Maps.newHashMap(), true);
+                profile.finalUpdate();
                 QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             }
 

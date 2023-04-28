@@ -608,10 +608,6 @@ public class Coordinator {
                     relatedBackendIds);
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
-
-        // to keep things simple, make async Cancel() calls wait until plan fragment
-        // execution has been initiated, otherwise we might try to cancel fragment
-        // execution at backends where it hasn't even started
         executionProfile.markInstances(instanceIds);
         if (!isPointQuery) {
             if (enablePipelineEngine) {

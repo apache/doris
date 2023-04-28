@@ -120,8 +120,8 @@ public class TimeUtils {
         return System.nanoTime();
     }
 
-    public static long getElapsedTime(long startTime) {
-        return System.nanoTime() - startTime;
+    public static long getElapsedTimeMs(long startTime) {
+        return System.currentTimeMillis() - startTime;
     }
 
     public static synchronized String getCurrentFormatTime() {

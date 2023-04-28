@@ -174,7 +174,7 @@ public class RuntimeProfile {
                         LOG.error("Cannot update counters with the same name but different types"
                                 + " type=" + tcounter.type);
                     } else {
-                        counter.setValue(tcounter.value);
+                        counter.setValue(tcounter.type, tcounter.value);
                     }
                 }
             }

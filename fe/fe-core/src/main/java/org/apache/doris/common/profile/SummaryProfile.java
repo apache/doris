@@ -27,6 +27,10 @@ import com.google.common.collect.Maps;
 
 import java.util.Map;
 
+/**
+ * SummaryProfile is part of a query profile.
+ * It contains the summary information of a query.
+ */
 public class SummaryProfile {
     // Summary
     public static final String DORIS_VERSION = "Doris Version";
@@ -54,11 +58,11 @@ public class SummaryProfile {
     public static final String WRITE_RESULT_TIME = "Write Result Time";
     public static final String WAIT_FETCH_RESULT_TIME = "Wait and Fetch Result Time";
 
-    private static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(START_TIME, END_TIME, TOTAL_TIME,
+    public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(START_TIME, END_TIME, TOTAL_TIME,
             QUERY_STATE, JOB_ID, QUERY_ID, QUERY_TYPE, USER, DEFAULT_DB, SQL_STATEMENT, IS_CACHED, TOTAL_INSTANCES_NUM,
             INSTANCES_NUM_PER_BE, PARALLEL_FRAGMENT_EXEC_INSTANCE, TRACE_ID);
 
-    private static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(ANALYSIS_TIME, PLAN_TIME,
+    public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(ANALYSIS_TIME, PLAN_TIME,
             SCHEDULE_TIME, FETCH_RESULT_TIME, WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME);
 
     private RuntimeProfile summaryProfile;
@@ -113,10 +117,8 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(ANALYSIS_TIME, getPrettyQueryAnalysisFinishTime());
         executionSummaryProfile.addInfoString(PLAN_TIME, getPrettyQueryPlanFinishTime());
         executionSummaryProfile.addInfoString(SCHEDULE_TIME, getPrettyQueryScheduleFinishTime());
-        executionSummaryProfile.addInfoString(FETCH_RESULT_TIME,
-                RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_NS));
-        executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
-                RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_NS));
+        executionSummaryProfile.addInfoString(FETCH_RESULT_TIME, RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_NS));
+        executionSummaryProfile.addInfoString(WRITE_RESULT_TIME, RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_NS));
         executionSummaryProfile.addInfoString(WAIT_FETCH_RESULT_TIME, getPrettyQueryFetchResultFinishTime());
     }
 

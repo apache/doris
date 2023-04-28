@@ -122,7 +122,7 @@ public class LoadLoadingTask extends LoadTask {
         LOG.info("begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
         retryTime--;
-        beginTime = System.nanoTime();
+        beginTime = System.currentTimeMillis();
         if (!((BrokerLoadJob) callback).updateState(JobState.LOADING)) {
             // job may already be cancelled
             return;
