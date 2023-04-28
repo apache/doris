@@ -59,7 +59,8 @@
         "disable_auto_compaction": false,
         "version_col_idx": -1,
         "store_row_column": false,
-        "is_dynamic_schema": false
+        "is_dynamic_schema": false,
+        "is_partial_update": false
     },
     "rs_metas": [
         {
