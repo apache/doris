@@ -26,22 +26,39 @@ under the License.
 
 # FQDN
 
-## 概念介绍
-
 <version since="dev"></version>
 
-完全限定域名fully qualified domain name(FQDN)是internet上特定计算机或主机的完整域名。
+本文介绍如何启用基于完全限定域名（fully qualified domain name，FQDN）使用doris。FQDN是internet上特定计算机或主机的完整域名。
 
-Doris支持FQDN之后，添加各类节点时可以直接指定域名，例如添加be节点的命令为`ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port`，
+Doris支持FQDN之后，各节点之间通信完全基于FQDN。添加各类节点时应直接指定FQDN，例如添加be节点的命令为`ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port`，
 
-"be_host"此前是be节点的ip，启动FQDN后，be_host应指定be节点的域名。
+"be_host"此前是be节点的ip，启动FQDN后，be_host应指定be节点的FQDN。
 
 ## 前置条件
 
-1. fe.conf 文件 设置 `enable_fqdn_mode = true`
-2. fe节点都能解析出doris所有节点的域名
+1. fe.conf 文件 设置 `enable_fqdn_mode = true`。
+2. 集群中的所有机器都必须配置有主机名。
+3. 必须在集群中每台机器的 `/etc/hosts` 文件中指定集群中其他机器对应的 IP 地址和 FQDN。
+4. /etc/hosts 文件中不能有重复的 IP 地址。
 
 ## 最佳实践
+
+### 新集群启用FQDN
+
+1. 准备机器，例如想部署3fe3be的集群，可以准备六台机器。
+2. 每台机器执行`host`返回结果都唯一，假设六台机器的执行结果分别为fe1,fe2,fe3,be1,be2,be3。
+3. 在6台机器的`/etc/hosts` 中配置6个fqdn对应的真实ip，例如:
+   ```
+   172.22.0.1 fe1
+   172.22.0.2 fe2
+   172.22.0.3 fe3
+   172.22.0.4 be1
+   172.22.0.5 be2
+   172.22.0.6 be3
+   ```
+4. 验证：可以在fe1上`ping fe2`等，能解析出正确的ip并且能ping通，代表网络环境可用。
+5. 每个fe节点的fe.conf设置`enable_fqdn_mode = true`。
+6. 参考[标准部署](../../install/standard-deployment.md)
 
 ### k8s部署doris
 
@@ -49,17 +66,9 @@ pod意外重启后，k8s不能保证pod的ip不发生变化，但是能保证域
 
 k8s部署doris的方法请参考[K8s部署doris](../../install/k8s-deploy.md)
 
-### 服务器切换网卡
+### 服务器变更ip
 
-例如有一个be节点的服务器有两个网卡，对应的ip分别为192.192.192.2和10.10.10.3,目前用192.192.192.2对应的网卡，可以按照下述步骤操作：
-
-1. 在fe所在机器的`etc/hosts`文件增加一行 `192.192.192.2 be1_fqdn`
-2. 更改be.conf文件`priority_networks = 192.192.192.2`并启动be
-3. 连接执行sql命令 `ALTER SYSTEM ADD BACKEND "be1_fqdn:9050`
-
-将来需要切换到10.10.10.3对应的网卡时，可以按照下述步骤操作：
-
-1. 把`etc/hosts`配置的`192.192.192.2 be1_fqdn` 改为 `10.10.10.3  be1_fqdn`
+按照'新集群启用FQDN'部署好集群后，如果想变更机器的ip，无论是切换网卡，或者是更换机器，只需要更改各机器的`/etc/hosts`即可。
 
 ### 旧集群启用FQDN
 
@@ -81,3 +90,8 @@ k8s部署doris的方法请参考[K8s部署doris](../../install/k8s-deploy.md)
    `ALTER SYSTEM MODIFY BACKEND "<backend_ip>:<backend_port>" HOSTNAME "<be_hostname>"`
 
 
+## 常见问题
+
+- 配置项enable_fqdn_mode可以随意更改么？
+ 
+  不能随意更改，更改该配置要按照'旧集群启用FQDN'进行操作。
