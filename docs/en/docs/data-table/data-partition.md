@@ -404,7 +404,7 @@ In this example, the ENGINE is of OLAP type, which is the default ENGINE type. I
    1. In fe.log, find the `Failed to create partition` log of the corresponding time point. In that log, find a number pair that looks like `{10001-10010}` . The first number of the pair is the Backend ID and the second number is the Tablet ID. As for `{10001-10010}`, it means that on Backend ID 10001, the creation of Tablet ID 10010 failed.
    2. After finding the target Backend, go to the corresponding be.INFO log and find the log of the target tablet, and then check the error message.
    3. A few common tablet creation failures include but not limited to:
-      * The task is not received by BE. In this case, the tablet ID related information will be found in be.INFO, or the creation is successful in BE but it still reports a failure. To solve the above problems, see [Installation and Deployment](https://doris.apache.org/docs/dev/install/install-deploy/) about how to check the connectivity of FE and BE.
+      * The task is not received by BE. In this case, the tablet ID related information will be found in be.INFO, or the creation is successful in BE but it still reports a failure. To solve the above problems, see [Installation and Deployment](https://doris.apache.org/docs/dev/install/standard-deployment/) about how to check the connectivity of FE and BE.
       * Pre-allocated memory failure. It may be that the length of a row in the table exceeds 100KB.
       * `Too many open files`. The number of open file descriptors exceeds the Linux system limit. In this case, you need to change the open file descriptor limit of the Linux system.
 
