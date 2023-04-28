@@ -29,6 +29,9 @@ import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
+import com.vesoft.nebula.client.graph.data.DateTimeWrapper;
+import com.vesoft.nebula.client.graph.data.DateWrapper;
+import com.vesoft.nebula.client.graph.data.ValueWrapper;
 import org.apache.log4j.Logger;
 import sun.misc.Unsafe;
 
@@ -583,5 +586,57 @@ public class UdfUtils {
             bytes[length - 1 - i] = temp;
         }
         return bytes;
+    }
+
+    // only used by nebula-graph
+    // transfer to an object that can copy to the block
+    public static Object convertObject(ValueWrapper value) {
+        try {
+            if (value.isLong()) {
+                return value.asLong();
+            }
+            if (value.isBoolean()) {
+                return value.asBoolean();
+            }
+            if (value.isDouble()) {
+                return value.asDouble();
+            }
+            if (value.isString()) {
+                return value.asString();
+            }
+            if (value.isTime()) {
+                return value.asTime().toString();
+            }
+            if (value.isDate()) {
+                DateWrapper date = value.asDate();
+                return LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
+            }
+            if (value.isDateTime()) {
+                DateTimeWrapper dateTime = value.asDateTime();
+                return LocalDateTime.of(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay(),
+                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getMicrosec() * 1000);
+            }
+            if (value.isVertex()) {
+                return value.asNode().toString();
+            }
+            if (value.isEdge()) {
+                return value.asRelationship().toString();
+            }
+            if (value.isPath()) {
+                return value.asPath().toString();
+            }
+            if (value.isList()) {
+                return value.asList().toString();
+            }
+            if (value.isSet()) {
+                return value.asSet().toString();
+            }
+            if (value.isMap()) {
+                return value.asMap().toString();
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

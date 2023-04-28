@@ -61,6 +61,7 @@ import java.util.Map;
 public class JdbcResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(JdbcResource.class);
 
+    public static final String JDBC_NEBULA = "jdbc:nebula";
     public static final String JDBC_MYSQL = "jdbc:mysql";
     public static final String JDBC_MARIADB = "jdbc:mariadb";
     public static final String JDBC_POSTGRESQL = "jdbc:postgresql";
@@ -72,6 +73,7 @@ public class JdbcResource extends Resource {
     public static final String JDBC_PRESTO = "jdbc:presto";
     public static final String JDBC_OCEANBASE = "jdbc:oceanbase";
 
+    public static final String NEBULA = "NEBULA";
     public static final String MYSQL = "MYSQL";
     public static final String POSTGRESQL = "POSTGRESQL";
     public static final String ORACLE = "ORACLE";
@@ -296,6 +298,8 @@ public class JdbcResource extends Resource {
             } else {
                 throw new DdlException("Invalid OceanBase mode: " + oceanbaseMode + ". Must be 'mysql' or 'oracle'");
             }
+        } else if (url.startsWith(JDBC_NEBULA)) {
+            return NEBULA;
         }
         throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
