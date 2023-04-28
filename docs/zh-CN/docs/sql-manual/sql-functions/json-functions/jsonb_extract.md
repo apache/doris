@@ -55,8 +55,9 @@ jsonb_extract是一系列函数，从JSONB类型的数据中提取json_path指�
 - jsonb_extract_STRING返回STRING类型
 
 特殊情况处理如下：
-- 如果json_path指定的字段在JSON中不存在，返回NULL
-- 如果json_path指定的字段在JSON中的实际类型和jsonb_extract_t指定的类型不一致，如果能无损转换成指定类型返回指定类型t，如果不能则返回NULL
+- 如果 json_path 指定的字段在JSON中不存在，返回NULL
+- 如果 json_path 指定的字段在JSON中的实际类型和jsonb_extract_t指定的类型不一致，如果能无损转换成指定类型返回指定类型t，如果不能则返回NULL
+- 如果 key 列值包含 ".", json_path 中需要用双引号，例如 SELECT jsonb_extract('{"k1.a":"abc","k2":300}', '$."k1.a"');
 
 ### example
 
