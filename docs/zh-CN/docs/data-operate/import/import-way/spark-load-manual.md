@@ -162,10 +162,10 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 - YARN RM 相关参数如下：
   - 如果 Spark 为单点 RM，则需要配置`spark.hadoop.yarn.resourcemanager.address`，表示单点 ResourceManager 地址。
   - 如果 Spark 为 RM-HA，则需要配置（其中 hostname 和 address 任选一个配置）：
-  - `spark.hadoop.yarn.resourcemanager.ha.enabled`: ResourceManager 启用 HA，设置为 true。
-  - `spark.hadoop.yarn.resourcemanager.ha.rm-ids`: ResourceManager 逻辑 ID 列表。
-  - `spark.hadoop.yarn.resourcemanager.hostname.rm-id`: 对于每个 rm-id，指定 ResourceManager 对应的主机名。
-  - `spark.hadoop.yarn.resourcemanager.address.rm-id`: 对于每个 rm-id，指定 host:port 以供客户端提交作业。
+    - `spark.hadoop.yarn.resourcemanager.ha.enabled`: ResourceManager 启用 HA，设置为 true。
+    - `spark.hadoop.yarn.resourcemanager.ha.rm-ids`: ResourceManager 逻辑 ID 列表。
+    - `spark.hadoop.yarn.resourcemanager.hostname.rm-id`: 对于每个 rm-id，指定 ResourceManager 对应的主机名。
+    - `spark.hadoop.yarn.resourcemanager.address.rm-id`: 对于每个 rm-id，指定 host:port 以供客户端提交作业。
 - HDFS HA 相关参数如下：
   - `spark.hadoop.fs.defaultFS`, hdfs客户端默认路径前缀
   - `spark.hadoop.dfs.nameservices`, hdfs集群逻辑名称
