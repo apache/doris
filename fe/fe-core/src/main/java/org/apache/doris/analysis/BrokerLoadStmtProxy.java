@@ -48,7 +48,11 @@ public class BrokerLoadStmtProxy extends AbstractInsertStmtProxy {
         this.dataDescList = dataDescList;
         this.brokerDesc = brokerDesc;
         this.properties = properties;
-        this.comments = comments;
+        if (comments != null) {
+            this.comments = comments;
+        } else {
+            this.comments = "";
+        }
     }
 
     @Override
@@ -76,7 +80,7 @@ public class BrokerLoadStmtProxy extends AbstractInsertStmtProxy {
         super.analyze(analyzer);
         // TODO(tsy): move to base class
         label.analyze(analyzer);
-        Preconditions.checkState(CollectionUtils.isEmpty(dataDescList),
+        Preconditions.checkState(!CollectionUtils.isEmpty(dataDescList),
                 new AnalysisException("No data file in load statement."));
         Preconditions.checkNotNull(brokerDesc, "No broker desc found.");
         // check data descriptions, support 2 cases bellow:
@@ -85,7 +89,7 @@ public class BrokerLoadStmtProxy extends AbstractInsertStmtProxy {
         for (DataDescription dataDescription : dataDescList) {
             final String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
             dataDescription.analyze(fullDbName);
-            Preconditions.checkState(dataDescription.isLoadFromTable(),
+            Preconditions.checkState(!dataDescription.isLoadFromTable(),
                     new AnalysisException("Load from table should use Spark Load"));
             Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(fullDbName);
             OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());

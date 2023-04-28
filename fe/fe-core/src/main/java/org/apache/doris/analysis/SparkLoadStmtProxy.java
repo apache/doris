@@ -82,7 +82,6 @@ public class SparkLoadStmtProxy extends AbstractInsertStmtProxy {
         label.analyze(analyzer);
         Preconditions.checkNotNull(dataDescription, new AnalysisException("No data file in load statement."));
         Preconditions.checkNotNull(resourceDesc, new AnalysisException("Resource desc not found"));
-        Preconditions.checkState(dataDescription.isLoadFromTable());
         String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
         dataDescription.analyze(fullDbName);
         resourceDesc.analyze();
