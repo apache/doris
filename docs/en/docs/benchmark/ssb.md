@@ -169,7 +169,7 @@ With the `-s 100` parameter, the resulting dataset size is:
 | customer  | 3,000,000 | 277M | 1           |
 | part      | 1,400,000 | 116M | 1           |
 | supplier  | 200,000   | 17M  | 1           |
-| dates     | 2,556             | 228K | 1           |
+| dates     | 2,556     | 228K | 1           |
 
 ### 7.3 Create Table
 
@@ -297,7 +297,7 @@ The amount of data should be consistent with the number of rows of generated dat
 | customer       | 3,000,000 | 277 MB      | 138.247 MB                |
 | part           | 1,400,000 | 116 MB      | 12.759 MB                 |
 | supplier       | 200,000   | 17 MB       | 9.143 MB                  |
-| dates          | 2,556             | 228 KB      | 34.276 KB                 |
+| dates          | 2,556     | 228 KB      | 34.276 KB                 |
 
 ### 7.6 Query Test
 

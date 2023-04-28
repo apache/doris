@@ -170,7 +170,7 @@ sh gen-ssb-data.sh -s 100 -c 100
 | customer  | 300万（3000000） | 277M | 1           |
 | part      | 140万（1400000） | 116M | 1           |
 | supplier  | 20万（200000）   | 17M  | 1           |
-| dates     | 2556             | 228K | 1           |
+| dates     | 2556            | 228K | 1           |
 
 ### 7.3 建表
 
@@ -298,7 +298,7 @@ select count(*) from lineorder_flat;
 | customer       | 300万（3000000） | 277 MB      | 138.247 MB                |
 | part           | 140万（1400000） | 116 MB      | 12.759 MB                 |
 | supplier       | 20万（200000）   | 17 MB       | 9.143 MB                  |
-| dates          | 2556             | 228 KB      | 34.276 KB                 |
+| dates          | 2556            | 228 KB      | 34.276 KB                 |
 
 ### 7.6 查询测试
 
