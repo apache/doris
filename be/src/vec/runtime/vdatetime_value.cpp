@@ -1640,7 +1640,7 @@ bool VecDateTimeValue::from_unixtime(int64_t timestamp, const cctz::time_zone& c
 
     if (res.is_dst) {
         TimeInterval interval;
-        interval.second = -res.offset;
+        interval.second = -3600;
         date_add_interval<SECOND>(interval);
     }
 
@@ -2856,7 +2856,7 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz
 
     if (res.is_dst) {
         TimeInterval interval;
-        interval.second = -res.offset;
+        interval.second = -3600;
         date_add_interval<SECOND>(interval);
     }
 
@@ -2888,7 +2888,7 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
 
     if (res.is_dst) {
         TimeInterval interval;
-        interval.second = -res.offset;
+        interval.second = -3600;
         date_add_interval<SECOND>(interval);
     }
     return true;
