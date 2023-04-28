@@ -21,6 +21,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
+#include <bitset>
 #include <cstddef>
 #include <limits>
 #include <shared_mutex>
@@ -275,6 +276,8 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
 }
 template <bool is_final>
 void MemTable::_collect_vskiplist_results() {
+    VecTable::Iterator it(_vec_skip_list.get());
+    vectorized::Block in_block = _input_mutable_block.to_block();
     if (_keys_type == KeysType::DUP_KEYS) {
         if (_schema->num_key_columns() > 0) {
             _collect_dup_table_with_keys();
@@ -283,51 +286,65 @@ void MemTable::_collect_vskiplist_results() {
             _collect_dup_table_without_keys();
         }
     } else {
-        VecTable::Iterator it(_vec_skip_list.get());
-        vectorized::Block in_block = _input_mutable_block.to_block();
-        size_t idx = 0;
-        if (_keys_type == KeysType::AGG_KEYS) { // use if-else to seperate code for now
-            vectorized::MutableBlock mutable_block =
-                    vectorized::MutableBlock::build_mutable_block(&in_block);
-            _vec_row_comparator->set_block(&mutable_block);
-            std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
-                      [this](const RowInBlock* l, const RowInBlock* r) -> bool {
-                          auto value = (*(this->_vec_row_comparator))(l, r);
-                          if (value == 0) {
-                              return l->_row_pos > r->_row_pos;
-                          } else {
-                              return value < 0;
-                          }
-                      });
-            std::vector<RowInBlock*> temp_row_in_blocks;
-            for (int i = 0; i < _row_in_blocks.size(); i++) {
-                if (!temp_row_in_blocks.empty() &&
-                    (*_vec_row_comparator)(temp_row_in_blocks.back(), _row_in_blocks[i]) == 0) {
-                    _merged_rows++;
-                    _aggregate_two_row_in_block(_row_in_blocks[i], temp_row_in_blocks.back());
-                } else {
-                    _row_in_blocks[i]->init_agg_places(
+        size_t idx = 0, temp_idx = 0;
+        vectorized::MutableBlock mutable_block =
+                vectorized::MutableBlock::build_mutable_block(&in_block);
+        _vec_row_comparator->set_block(&mutable_block);
+        auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
+        // sort new rows
+        std::sort(new_row_it, _row_in_blocks.end(),
+                  [this](const RowInBlock* l, const RowInBlock* r) -> bool {
+                      auto value = (*(this->_vec_row_comparator))(l, r);
+                      if (value == 0) {
+                          return l->_row_pos > r->_row_pos;
+                      } else {
+                          return value < 0;
+                      }
+                  });
+        // merge new rows and old rows
+        std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end());
+        _last_sorted_pos = _row_in_blocks.size();
+        std::vector<RowInBlock*> temp_row_in_blocks(_last_sorted_pos);
+        std::vector<size_t> need_merge_idxs; // use bitset?
+        bool need_init_agg = true;
+        for (int i = 0; i < _row_in_blocks.size(); i++) {
+            if (!temp_row_in_blocks.empty() &&
+                (*_vec_row_comparator)(temp_row_in_blocks[temp_idx], _row_in_blocks[i]) == 0) {
+                if (need_init_agg) {
+                    temp_row_in_blocks[temp_idx]->init_agg_places(
                             _arena->aligned_alloc(_total_size_of_aggregate_states, 16),
                             _offsets_of_aggregate_states.data());
                     for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns();
                          cid++) {
                         auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-                        auto data = _row_in_blocks[i]->agg_places(cid);
+                        auto data = temp_row_in_blocks[temp_idx]->agg_places(cid);
                         _agg_functions[cid]->create(data);
                         _agg_functions[cid]->add(
                                 data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                _row_in_blocks[i]->_row_pos, nullptr);
+                                temp_row_in_blocks[temp_idx]->_row_pos, nullptr);
                     }
-                    temp_row_in_blocks.push_back(_row_in_blocks[i]);
+                    need_merge_idxs.push_back(temp_idx);
+                    need_init_agg = false;
                 }
+                _merged_rows++;
+                _aggregate_two_row_in_block(_row_in_blocks[i], temp_row_in_blocks[temp_idx]);
+            } else {
+                temp_row_in_blocks[temp_idx++] = _row_in_blocks[i];
+                need_init_agg = true;
             }
-            for (auto& now_row : temp_row_in_blocks) {
-                auto& block_data = in_block.get_columns_with_type_and_name();
-                // move key columns
-                for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
-                    _output_mutable_block.get_column_by_position(i)->insert_from(
-                            *block_data[i].column.get(), now_row->_row_pos);
-                }
+        }
+        temp_row_in_blocks.resize(temp_idx);
+        size_t now_row_id = 0, need_merge_idx = 0;
+        for (auto& now_row : temp_row_in_blocks) {
+            auto& block_data = in_block.get_columns_with_type_and_name();
+            // move key columns
+            for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
+                _output_mutable_block.get_column_by_position(i)->insert_from(
+                        *block_data[i].column.get(), now_row->_row_pos);
+            }
+            if (need_merge_idx < need_merge_idxs.size() &&
+                now_row_id == need_merge_idxs[need_merge_idx]) {
+                need_merge_idx++;
                 // get value columns from agg_places
                 for (size_t i = _schema->num_key_columns(); i < _num_columns; ++i) {
                     auto function = _agg_functions[i];
@@ -343,19 +360,10 @@ void MemTable::_collect_vskiplist_results() {
                                       nullptr);
                     }
                 }
-                if constexpr (!is_final) {
-                    // re-index the row_pos in VSkipList
-                    now_row->_row_pos = idx;
-                    idx++;
-                }
-            }
-        } else {
-            for (it.SeekToFirst(); it.Valid(); it.Next()) {
-                auto& block_data = in_block.get_columns_with_type_and_name();
-                // move key columns
-                for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
+            } else {
+                for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
                     _output_mutable_block.get_column_by_position(i)->insert_from(
-                            *block_data[i].column.get(), it.key()->_row_pos);
+                            *block_data[i].column.get(), now_row->_row_pos);
                 }
                 // get value columns from agg_places
                 for (size_t i = _schema->num_key_columns(); i < _num_columns; ++i) {
