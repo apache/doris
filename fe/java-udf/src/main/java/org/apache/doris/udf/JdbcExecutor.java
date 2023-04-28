@@ -92,8 +92,8 @@ public class JdbcExecutor {
         minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL", "1"));
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
         maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "300000"));
-        tableType = request.table_type;
         minIdleSize = minPoolSize > 0 ? 1 : 0;
+        tableType = request.table_type;
         LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
                 + ", maxPoolSize = " + maxPoolSize
                 + ", maxIdelTime = " + maxIdelTime
@@ -268,55 +268,12 @@ public class JdbcExecutor {
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
             String jdbcPassword, TJdbcOperation op, TOdbcTableType tableType) throws UdfRuntimeException {
         try {
-<<<<<<< HEAD
-<<<<<<< HEAD
-            ClassLoader parent = getClass().getClassLoader();
-            ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
-            druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
-            if (druidDataSource == null) {
-                DruidDataSource ds = new DruidDataSource();
-                ds.setDriverClassLoader(classLoader);
-                ds.setDriverClassName(driverClass);
-                ds.setUrl(jdbcUrl);
-                ds.setUsername(jdbcUser);
-                ds.setPassword(jdbcPassword);
-                ds.setMinIdle(minIdleSize);
-                ds.setInitialSize(minPoolSize);
-                ds.setMaxActive(maxPoolSize);
-                ds.setMaxWait(5000);
-                ds.setTestWhileIdle(true);
-                ds.setTestOnBorrow(false);
-                setValidationQuery(ds, tableType);
-                ds.setTimeBetweenEvictionRunsMillis(maxIdelTime / 5);
-                ds.setMinEvictableIdleTimeMillis(maxIdelTime);
-                druidDataSource = ds;
-                // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
-                // jdbcPassword) as key.
-                // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
-                // time greater than 10 minutes. then connection will be retrieved.
-                JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
-            }
-            conn = druidDataSource.getConnection();
-            if (op == TJdbcOperation.READ) {
-                conn.setAutoCommit(false);
-                Preconditions.checkArgument(sql != null);
-                stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-                if (tableType == TOdbcTableType.MYSQL) {
-                    stmt.setFetchSize(Integer.MIN_VALUE);
-                } else {
-                    stmt.setFetchSize(batchSize);
-                }
-=======
-            if (isGraph()) {
->>>>>>> d038b048dc ([feature](graph)Support querying data from the Nebula graph database)
-=======
             if (isNebula()) {
->>>>>>> 3303ea56a5 ([feature](graph)Support querying data from the Nebula graph database)
                 batchSizeNum = batchSize;
                 Class.forName(driverClass);
                 conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
                 stmt = conn.prepareStatement(sql);
-            } else {
+            } else { 
                 ClassLoader parent = getClass().getClassLoader();
                 ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
                 druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
