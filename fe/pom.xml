@@ -23,7 +23,7 @@ under the License.
     <parent>
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
-        <version>25</version>
+        <version>29</version>
     </parent>
     <groupId>org.apache.doris</groupId>
     <artifactId>fe</artifactId>
@@ -133,6 +133,10 @@ under the License.
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                        <excludes>
+                            **/apache/doris/thrift/*,
+                            **/apache/parquet/**/*
+                        </excludes>
                     </configuration>
                     <executions>
                         <execution>

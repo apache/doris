@@ -18,7 +18,6 @@
 #include "vec/aggregate_functions/aggregate_function_percentile_approx.h"
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
@@ -50,9 +49,9 @@ void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& fact
 }
 
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("percentile_approx",
-                                   create_aggregate_function_percentile_approx<false>);
-    factory.register_function_both("percentile_approx",
-                                   create_aggregate_function_percentile_approx<true>);
+    factory.register_function("percentile_approx",
+                              create_aggregate_function_percentile_approx<false>, false);
+    factory.register_function("percentile_approx",
+                              create_aggregate_function_percentile_approx<true>, true);
 }
 } // namespace doris::vectorized

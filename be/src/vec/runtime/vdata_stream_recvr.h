@@ -17,34 +17,46 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <google/protobuf/stubs/callback.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <list>
+#include <memory>
+#include <mutex>
+#include <ostream>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
+#include "common/config.h"
 #include "common/global_types.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
-
-namespace google {
-namespace protobuf {
-class Closure;
-}
-} // namespace google
 
 namespace doris {
 class MemTracker;
-class RuntimeProfile;
 class PBlock;
+class MemTrackerLimiter;
+class PQueryStatistics;
+class RuntimeState;
 
 namespace vectorized {
-class Block;
 class VDataStreamMgr;
 class VSortedRunMerger;
 class VExprContext;
@@ -100,6 +112,7 @@ public:
 private:
     class SenderQueue;
     class PipSenderQueue;
+
     friend struct BlockSupplierSortCursorImpl;
 
     // DataStreamMgr instance used to create this recvr. (Not owned)
@@ -224,7 +237,7 @@ public:
         if (_is_cancelled || !block->rows()) {
             return;
         }
-        BlockUPtr nblock = std::make_unique<Block>(block->get_columns_with_type_and_name());
+        BlockUPtr nblock = Block::create_unique(block->get_columns_with_type_and_name());
 
         // local exchange should copy the block contented if use move == false
         if (use_move) {

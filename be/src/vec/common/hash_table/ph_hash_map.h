@@ -23,6 +23,7 @@
 
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table_utils.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 template <typename Key, typename Mapped>
 ALWAYS_INLINE inline auto lookup_result_get_mapped(std::pair<const Key, Mapped>* it) {
@@ -36,7 +37,7 @@ public:
     using Self = PHHashMap;
     using Hash = HashMethod;
     using cell_type = std::pair<const Key, Mapped>;
-    using HashMapImpl = phmap::flat_hash_map<Key, Mapped, Hash>;
+    using HashMapImpl = doris::vectorized::flat_hash_map<Key, Mapped, Hash>;
 
     using key_type = Key;
     using mapped_type = Mapped;

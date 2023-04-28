@@ -149,7 +149,6 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -651,7 +650,7 @@ public class Env {
         this.mtmvJobManager = new MTMVJobManager();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.fqdnManager = new FQDNManager(systemInfo);
-        if (!isCheckpointCatalog) {
+        if (Config.enable_stats && !isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
             this.statisticsCleaner = new StatisticsCleaner();
         }
@@ -1402,9 +1401,8 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // Export checker
-        ExportChecker.init(Config.export_checker_interval_second * 1000L);
-        ExportChecker.startAll();
+        // export task
+        exportMgr.start();
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();
@@ -2851,20 +2849,24 @@ public class Env {
 
         if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
             OlapTable olapTable = (OlapTable) table;
-
             // keys
             String keySql = olapTable.getKeysType().toSql();
-            sb.append("\n").append(table.getType() == TableType.OLAP
+            if (olapTable.isDuplicateWithoutKey()) {
+                // after #18621, use can create a DUP_KEYS olap table without key columns
+                // and get a ddl schema without key type and key columns
+            } else {
+                sb.append("\n").append(table.getType() == TableType.OLAP
                     ? keySql
                     : keySql.substring("DUPLICATE ".length()))
                     .append("(");
-            List<String> keysColumnNames = Lists.newArrayList();
-            for (Column column : olapTable.getBaseSchema()) {
-                if (column.isKey()) {
-                    keysColumnNames.add("`" + column.getName() + "`");
+                List<String> keysColumnNames = Lists.newArrayList();
+                for (Column column : olapTable.getBaseSchema()) {
+                    if (column.isKey()) {
+                        keysColumnNames.add("`" + column.getName() + "`");
+                    }
                 }
+                sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
             }
-            sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
 
             if (specificVersion != -1) {
                 // for copy tablet operation
@@ -2984,8 +2986,10 @@ public class Env {
             }
 
             // in memory
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
-            sb.append(olapTable.isInMemory()).append("\"");
+            if (olapTable.isInMemory()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
+                sb.append(olapTable.isInMemory()).append("\"");
+            }
 
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
@@ -3707,8 +3711,8 @@ public class Env {
         this.haProtocol = protocol;
     }
 
-    public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties)
-            throws DdlException {
+    public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties,
+                boolean isKeysRequired) throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
         for (Column column : columns) {
             if (column.isKey()) {
@@ -3716,7 +3720,9 @@ public class Env {
             }
         }
         LOG.debug("index column size: {}", indexColumns.size());
-        Preconditions.checkArgument(indexColumns.size() > 0);
+        if (isKeysRequired) {
+            Preconditions.checkArgument(indexColumns.size() > 0);
+        }
 
         // figure out shortKeyColumnCount
         short shortKeyColumnCount = (short) -1;
@@ -3770,7 +3776,7 @@ public class Env {
                 }
                 ++shortKeyColumnCount;
             }
-            if (shortKeyColumnCount == 0) {
+            if (isKeysRequired && shortKeyColumnCount == 0) {
                 throw new DdlException("The first column could not be float or double type, use decimal instead");
             }
 

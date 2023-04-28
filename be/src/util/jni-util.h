@@ -17,10 +17,16 @@
 
 #pragma once
 
+#include <butil/macros.h>
 #include <jni.h>
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <string>
 
 #include "common/status.h"
-#include "gutil/macros.h"
+#include "jni_md.h"
 #include "util/thrift_util.h"
 
 #ifdef USE_HADOOP_HDFS
@@ -29,6 +35,7 @@ extern "C" JNIEnv* getJNIEnv(void);
 #endif
 
 namespace doris {
+class JniUtil;
 
 #define RETURN_ERROR_IF_EXC(env)                                     \
     do {                                                             \

@@ -22,6 +22,8 @@ import org.apache.doris.planner.Split;
 import lombok.Data;
 import org.apache.hadoop.fs.Path;
 
+import java.util.List;
+
 @Data
 public class FileSplit extends Split {
     protected Path path;
@@ -33,13 +35,19 @@ public class FileSplit extends Split {
     // If the file length is not set, the file length will be fetched from the file system.
     protected long fileLength;
     protected TableFormatType tableFormatType;
+    // The values of partitions.
+    // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
+    // partitionValues would be ["part1", "part2"]
+    protected List<String> partitionValues;
 
-    public FileSplit(Path path, long start, long length, long fileLength, String[] hosts) {
+    public FileSplit(Path path, long start, long length, long fileLength,
+                     String[] hosts, List<String> partitionValues) {
         this.path = path;
         this.start = start;
         this.length = length;
         this.fileLength = fileLength;
         this.hosts = hosts;
+        this.partitionValues = partitionValues;
     }
 
     public String[] getHosts() {

@@ -17,28 +17,48 @@
 
 #include "olap/delta_writer.h"
 
-#include <gtest/gtest.h>
-#include <sys/file.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdlib.h>
+#include <unistd.h>
 
+#include <iostream>
+#include <map>
 #include <string>
+#include <utility>
 
+#include "common/config.h"
+#include "common/object_pool.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
-#include "olap/field.h"
+#include "olap/data_dir.h"
+#include "olap/iterators.h"
+#include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/utils.h"
+#include "olap/tablet_manager.h"
+#include "olap/txn_manager.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+class OlapMeta;
 
 // This is DeltaWriter unit test which used by streaming load.
 // And also it should take schema change into account after streaming load.
@@ -669,7 +689,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     std::unique_ptr<RowwiseIterator> iter;
     Schema schema(rowset->tablet_schema());
-    segments[0]->new_iterator(schema, opts, &iter);
+    auto s = segments[0]->new_iterator(schema, opts, &iter);
+    ASSERT_TRUE(s.ok());
     auto read_block = rowset->tablet_schema()->create_block();
     res = iter->next_batch(&read_block);
     ASSERT_TRUE(res.ok());

@@ -38,9 +38,8 @@ hdfs
 
 HDFS表函数（table-valued-function,tvf），可以让用户像访问关系表格式数据一样，读取并访问 HDFS 上的文件内容。目前支持`csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`文件格式。
 
-**语法**
-
-```
+#### syntax
+```sql
 hdfs(
   "uri" = "..",
   "fs.defaultFS" = "...",

@@ -15,21 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <fmt/core.h>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/lambda_function/lambda_function.h"
 #include "vec/exprs/lambda_function/lambda_function_factory.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
+
+namespace doris {
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 class ArrayMapFunction : public LambdaFunction {
+    ENABLE_FACTORY_CREATOR(ArrayMapFunction);
+
 public:
     ~ArrayMapFunction() override = default;
 
@@ -61,7 +81,7 @@ public:
         // offset column
         MutableColumnPtr array_column_offset;
         int nested_array_column_rows = 0;
-
+        const ColumnArray::Offsets64* array_offsets = nullptr;
         //2. get the result column from executed expr, and the needed is nested column of array
         Block lambda_block;
         for (int i = 0; i < arguments.size(); ++i) {
@@ -90,18 +110,25 @@ public:
             // here is the array column
             const ColumnArray& col_array = assert_cast<const ColumnArray&>(*column_array);
             const auto& col_type = assert_cast<const DataTypeArray&>(*type_array);
+
             if (i == 0) {
                 nested_array_column_rows = col_array.get_data_ptr()->size();
+                array_offsets = &col_array.get_offsets();
                 auto& off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
                         col_array.get_offsets_column());
                 array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
             } else {
                 // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
                 // c_array1: [0,1,2,3,4,5,6,7,8,9]
-                if (nested_array_column_rows != col_array.get_data_ptr()->size()) {
+                if (nested_array_column_rows != col_array.get_data_ptr()->size() ||
+                    (array_offsets->size() > 0 &&
+                     memcmp(array_offsets->data(), col_array.get_offsets().data(),
+                            sizeof((*array_offsets)[0]) * array_offsets->size()) != 0)) {
                     return Status::InternalError(
-                            "in array map function, the input column nested column data rows are "
-                            "not equal, the first size is {}, but with {}th size is {}.",
+                            "in array map function, the input column size "
+                            "are "
+                            "not equal completely, nested column data rows 1st size is {}, {}th "
+                            "size is {}.",
                             nested_array_column_rows, i + 1, col_array.get_data_ptr()->size());
                 }
             }

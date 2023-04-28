@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 //#include "geo_types.h"
 
-#include "geo/geo_common.h"
-#include "geo/geo_tobinary_type.h"
-#include "geo/wkt_parse_type.h"
+#include <string>
+
+struct ToBinaryContext;
 
 namespace doris {
 
@@ -27,10 +29,12 @@ class GeoShape;
 class GeoPoint;
 class GeoLine;
 class GeoPolygon;
+struct GeoCoordinate;
+struct GeoCoordinateList;
 
 class toBinary {
 public:
-    static bool geo_tobinary(GeoShape* shape, bool isEwkb, std::string* result);
+    static bool geo_tobinary(GeoShape* shape, std::string* result);
 
     static bool write(GeoShape* shape, ToBinaryContext* ctx);
 
@@ -46,8 +50,6 @@ private:
     static void writeGeometryType(int geometryType, ToBinaryContext* ctx);
 
     static void writeInt(int intValue, ToBinaryContext* ctx);
-
-    static void writeSRID(ToBinaryContext* ctx);
 
     static void writeCoordinateList(const GeoCoordinateList& coords, bool sized,
                                     ToBinaryContext* ctx);

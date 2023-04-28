@@ -17,7 +17,16 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <list>
+#include <memory>
+#include <vector>
+
 #include "common/status.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/utils.h"
 #ifdef USE_LIBCPP
 #include <queue>
 #else
@@ -28,9 +37,14 @@
 #include "olap/rowset/rowset_reader.h"
 #include "vec/core/block.h"
 
+namespace __gnu_pbds {
+struct pairing_heap_tag;
+} // namespace __gnu_pbds
+
 namespace doris {
 
 class TabletSchema;
+class RuntimeProfile;
 
 namespace vectorized {
 

@@ -52,7 +52,7 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
                 .when(InnerJoinLeftAssociate::checkReorder)
                 .whenNot(join -> join.hasJoinHint() || join.right().child().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.right().child().isMarkJoin())
-                .when(join -> CBOUtils.isAllSlotProject(join.right()))
+                .when(join -> join.right().isAllSlots())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
                     GroupPlan a = topJoin.left();

@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.statistics.util.StatisticsUtil;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,9 +63,9 @@ public class AnalysisTaskInfo {
 
     public final String tblName;
 
-    public final String colName;
-
     public final Set<String> partitionNames;
+
+    public final String colName;
 
     public final Long indexId;
 
@@ -73,9 +75,11 @@ public class AnalysisTaskInfo {
 
     public final AnalysisType analysisType;
 
-    // TODO: define constants or get them from configuration properties
-    public final double sampleRate = 1.0;
-    public final int maxBucketNum = 128;
+    public final int samplePercent;
+
+    public final int sampleRows;
+
+    public final int maxBucketNum;
 
     public String message;
 
@@ -87,20 +91,23 @@ public class AnalysisTaskInfo {
     public final ScheduleType scheduleType;
 
     public AnalysisTaskInfo(long jobId, long taskId, String catalogName, String dbName, String tblName,
-            String colName, Set<String> partitionNames, Long indexId, JobType jobType,
-            AnalysisMethod analysisMethod, AnalysisType analysisType, String message,
-            int lastExecTimeInMs, AnalysisState state, ScheduleType scheduleType) {
+            Set<String> partitionNames, String colName, Long indexId, JobType jobType, AnalysisMethod analysisMethod,
+            AnalysisType analysisType, int samplePercent, int sampleRows, int maxBucketNum,
+            String message, int lastExecTimeInMs, AnalysisState state, ScheduleType scheduleType) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.catalogName = catalogName;
         this.dbName = dbName;
         this.tblName = tblName;
-        this.colName = colName;
         this.partitionNames = partitionNames;
+        this.colName = colName;
         this.indexId = indexId;
         this.jobType = jobType;
         this.analysisMethod = analysisMethod;
         this.analysisType = analysisType;
+        this.samplePercent = samplePercent;
+        this.sampleRows = sampleRows;
+        this.maxBucketNum = maxBucketNum;
         this.message = message;
         this.lastExecTimeInMs = lastExecTimeInMs;
         this.state = state;
@@ -114,8 +121,8 @@ public class AnalysisTaskInfo {
         sj.add("CatalogName: " + catalogName);
         sj.add("DBName: " + dbName);
         sj.add("TableName: " + tblName);
+        sj.add("PartitionNames: " + StatisticsUtil.joinElementsToString(partitionNames, ","));
         sj.add("ColumnName: " + colName);
-        sj.add("PartitionNames: " + partitionNames);
         sj.add("TaskType: " + analysisType.toString());
         sj.add("TaskMethod: " + analysisMethod.toString());
         sj.add("Message: " + message);

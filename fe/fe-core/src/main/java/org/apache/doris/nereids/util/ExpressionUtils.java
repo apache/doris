@@ -111,12 +111,6 @@ public class ExpressionUtils {
         }
     }
 
-    public static Set<Expression> extractToSet(Expression predicate) {
-        Set<Expression> result = Sets.newHashSet();
-        extract(predicate.getClass(), predicate, result);
-        return result;
-    }
-
     public static Optional<Expression> optionalAnd(List<Expression> expressions) {
         if (expressions.isEmpty()) {
             return Optional.empty();
@@ -212,6 +206,9 @@ public class ExpressionUtils {
                 minSlot = slot;
             } else {
                 int slotDataTypeWidth = slot.getDataType().width();
+                if (slotDataTypeWidth < 0) {
+                    continue;
+                }
                 minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
             }
         }

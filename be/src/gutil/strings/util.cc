@@ -7,13 +7,18 @@
 
 #include "gutil/strings/util.h"
 
+// IWYU pragma: no_include <pstl/glue_algorithm_defs.h>
+
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h> // for FastTimeToBuffer()
-
 #include <algorithm>
+#include <iterator>
+#include <mutex>
+#include <ostream>
+
 using std::copy;
 using std::max;
 using std::min;
@@ -21,17 +26,20 @@ using std::reverse;
 using std::sort;
 using std::swap;
 #include <string>
+
 using std::string;
 #include <vector>
+
 using std::vector;
 
-#include <common/logging.h>
+#include "common/logging.h"
 
 #include "gutil/stl_util.h" // for string_as_array, STLAppendToString
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/utf/utf.h"
+#include "gutil/stringprintf.h"
 
 #ifdef OS_WINDOWS
 #ifdef min // windows.h defines this to something silly

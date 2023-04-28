@@ -16,7 +16,16 @@
 // under the License.
 #include "runtime/cache/result_node.h"
 
-#include "gen_cpp/internal_service.pb.h"
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+
+#include <iostream>
+#include <limits>
+#include <utility>
+
+#include "common/config.h"
+#include "olap/olap_define.h"
 #include "runtime/cache/cache_utils.h"
 
 namespace doris {

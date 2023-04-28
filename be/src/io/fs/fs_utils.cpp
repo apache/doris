@@ -17,7 +17,12 @@
 
 #include "io/fs/fs_utils.h"
 
+#include <stddef.h>
+
+#include <memory>
+
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 
 namespace doris {

@@ -17,9 +17,33 @@
 
 #include "vec/exec/vanalytic_eval_node.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <thrift/protocol/TDebugProtocol.h>
+
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
 #include "runtime/descriptors.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class ObjectPool;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -144,7 +168,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     DCHECK(child(0)->row_desc().is_prefix_of(_row_descriptor));
 
-    auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
+    auto* memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
     runtime_profile()->add_child(memory_usage, false, nullptr);
     _blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
@@ -712,13 +736,21 @@ Status VAnalyticEvalNode::_reset_agg_status() {
 
 Status VAnalyticEvalNode::_create_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
-        _agg_functions[i]->create(_fn_place_ptr + _offsets_of_aggregate_states[i]);
+        try {
+            _agg_functions[i]->create(_fn_place_ptr + _offsets_of_aggregate_states[i]);
+        } catch (...) {
+            for (int j = 0; j < i; ++j) {
+                _agg_functions[j]->destroy(_fn_place_ptr + _offsets_of_aggregate_states[j]);
+            }
+            throw;
+        }
     }
+    _agg_functions_created = true;
     return Status::OK();
 }
 
 Status VAnalyticEvalNode::_destroy_agg_status() {
-    if (UNLIKELY(_fn_place_ptr == nullptr)) {
+    if (UNLIKELY(_fn_place_ptr == nullptr || !_agg_functions_created)) {
         return Status::OK();
     }
     for (size_t i = 0; i < _agg_functions_size; ++i) {

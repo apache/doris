@@ -142,19 +142,20 @@ public class HiveSplitter implements Splitter {
             if (fileCacheValue.getFiles() != null) {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                    allFiles.addAll(splitFile(status, isSplittable));
+                    allFiles.addAll(splitFile(status, isSplittable, fileCacheValue.getPartitionValues()));
                 }
             }
         }
     }
 
-    private List<Split> splitFile(HiveMetaStoreCache.HiveFileStatus status, boolean splittable) throws IOException {
+    private List<Split> splitFile(HiveMetaStoreCache.HiveFileStatus status,
+                                  boolean splittable, List<String> partitionValues) throws IOException {
         List<Split> result = Lists.newArrayList();
         if (!splittable) {
             LOG.debug("Path {} is not splittable.", status.getPath());
             BlockLocation block = status.getBlockLocations()[0];
             result.add(new FileSplit(status.getPath(), 0, status.getLength(),
-                    status.getLength(), block.getHosts()));
+                    status.getLength(), block.getHosts(), partitionValues));
             return result;
         }
         long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
@@ -170,12 +171,12 @@ public class HiveSplitter implements Splitter {
                 bytesRemaining -= splitSize) {
             int location = getBlockIndex(blockLocations, length - bytesRemaining);
             result.add(new FileSplit(status.getPath(), length - bytesRemaining,
-                    splitSize, length, blockLocations[location].getHosts()));
+                    splitSize, length, blockLocations[location].getHosts(), partitionValues));
         }
         if (bytesRemaining != 0L) {
             int location = getBlockIndex(blockLocations, length - bytesRemaining);
             result.add(new FileSplit(status.getPath(), length - bytesRemaining,
-                    bytesRemaining, length, blockLocations[location].getHosts()));
+                    bytesRemaining, length, blockLocations[location].getHosts(), partitionValues));
         }
 
         LOG.debug("Path {} includes {} splits.", status.getPath(), result.size());
@@ -192,15 +193,17 @@ public class HiveSplitter implements Splitter {
 
     // Get File Status by using FileSystem API.
     public static HiveMetaStoreCache.FileCacheValue getFileCache(Path path, InputFormat<?, ?> inputFormat,
-                                                                  JobConf jobConf) throws IOException {
+                                                                 JobConf jobConf,
+                                                                 List<String> partitionValues) throws IOException {
         FileSystem fs = path.getFileSystem(jobConf);
         boolean splittable = HiveUtil.isSplittable(inputFormat, fs, path);
-        RemoteIterator<LocatedFileStatus> locatedFileStatusRemoteIterator = fs.listFiles(path, true);
+        RemoteIterator<LocatedFileStatus> locatedFileStatusRemoteIterator = fs.listFiles(path, false);
         HiveMetaStoreCache.FileCacheValue result = new HiveMetaStoreCache.FileCacheValue();
         result.setSplittable(splittable);
         while (locatedFileStatusRemoteIterator.hasNext()) {
             result.addFile(locatedFileStatusRemoteIterator.next());
         }
+        result.setPartitionValues(partitionValues);
         return result;
     }
 

@@ -458,8 +458,11 @@ public class SingleNodePlanner {
                                 break;
                             }
                         } else {
-                            aggExprValidate = false;
-                            break;
+                            // want to support the agg of count(const value) in dup table
+                            aggExprValidate = (aggOp == TPushAggOp.COUNT && child.isConstant() && !child.isNullable());
+                            if (!aggExprValidate) {
+                                break;
+                            }
                         }
                     } else {
                         returnColumns.add(((SlotRef) aggExpr.getChild(0)).getDesc().getColumn());
@@ -490,8 +493,7 @@ public class SingleNodePlanner {
                                 break;
                             }
 
-                            if (colType.isCharFamily() && aggOp != TPushAggOp.COUNT
-                                    && col.getType().getLength() > 512) {
+                            if (colType.isCharFamily() && col.getType().getLength() > 512) {
                                 returnColumnValidate = false;
                                 break;
                             }

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <netinet/in.h>
 
 #include <cstdint>
@@ -31,7 +32,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
 #include "olap/olap_define.h"
 #include "util/hash_util.hpp"
@@ -462,5 +462,24 @@ struct HashOfRowsetId {
 };
 
 using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
+
+class DeleteBitmap;
+// merge on write context
+struct MowContext {
+    MowContext(int64_t version, const RowsetIdUnorderedSet& ids, std::shared_ptr<DeleteBitmap> db)
+            : max_version(version), rowset_ids(ids), delete_bitmap(db) {}
+    int64_t max_version;
+    const RowsetIdUnorderedSet& rowset_ids;
+    std::shared_ptr<DeleteBitmap> delete_bitmap;
+};
+
+// used in mow partial update
+struct RidAndPos {
+    uint32_t rid;
+    // pos in block
+    size_t pos;
+};
+
+using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
 
 } // namespace doris

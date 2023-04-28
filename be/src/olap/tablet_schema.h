@@ -17,14 +17,25 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
-#include "gen_cpp/olap_file.pb.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "olap/olap_define.h"
-#include "olap/types.h"
+#include "common/status.h"
+#include "gutil/stringprintf.h"
+#include "olap/olap_common.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris {
 namespace vectorized {
@@ -32,6 +43,8 @@ class Block;
 }
 
 struct OlapTableIndexSchema;
+class TColumn;
+class TOlapTableIndex;
 
 class TabletColumn {
 public:
@@ -269,6 +282,18 @@ public:
         str += "]";
         return str;
     }
+    vectorized::Block create_missing_columns_block();
+    vectorized::Block create_update_columns_block();
+    void set_partial_update_info(bool is_partial_update,
+                                 const std::set<string>& partial_update_input_columns);
+    bool is_partial_update() const { return _is_partial_update; }
+    size_t partial_input_column_size() const { return _partial_update_input_columns.size(); }
+    bool is_column_missing(size_t cid) const;
+    bool allow_key_not_exist_in_partial_update() const {
+        return _allow_key_not_exist_in_partial_update;
+    }
+    std::vector<uint32_t> get_missing_cids() { return _missing_cids; }
+    std::vector<uint32_t> get_update_cids() { return _update_cids; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -303,6 +328,13 @@ private:
     bool _disable_auto_compaction = false;
     int64_t _mem_size = 0;
     bool _store_row_column = false;
+
+    bool _is_partial_update;
+    std::set<std::string> _partial_update_input_columns;
+    std::vector<uint32_t> _missing_cids;
+    std::vector<uint32_t> _update_cids;
+    // if key not exist in old rowset, use default value or null
+    bool _allow_key_not_exist_in_partial_update = true;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

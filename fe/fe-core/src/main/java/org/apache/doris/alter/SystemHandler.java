@@ -48,7 +48,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -103,7 +103,7 @@ public class SystemHandler extends AlterHandler {
 
     @Override
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getAlterJobInfosByDb is not supported in SystemHandler");
     }
 
     @Override

@@ -19,6 +19,9 @@
 // and modified by Doris
 
 #pragma once
+
+#include <memory>
+
 namespace doris {
 namespace io {
 

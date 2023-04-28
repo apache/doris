@@ -15,19 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vec/olap/vgeneric_iterators.h>
+#include "vec/olap/vgeneric_iterators.h"
 
+#include <algorithm>
 #include <memory>
-#include <queue>
 #include <utility>
 
 #include "common/status.h"
+#include "olap/field.h"
 #include "olap/iterators.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
+#include "olap/tablet_schema.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+class RuntimeProfile;
+
 using namespace ErrorCode;
 
 namespace vectorized {

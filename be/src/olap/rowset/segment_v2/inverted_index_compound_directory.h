@@ -17,16 +17,27 @@
 
 #pragma once
 
-#include <CLucene.h>
+#include <CLucene.h> // IWYU pragma: keep
+#include <CLucene/store/Directory.h>
+#include <CLucene/store/IndexInput.h>
+#include <CLucene/store/IndexOutput.h>
+#include <stdint.h>
 
-#include <iostream>
-#include <map>
-#include <memory>
-#include <mutex>
+#include <string>
 #include <vector>
 
+#include "CLucene/SharedHeader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "util/lock.h"
+
+class CLuceneError;
+
+namespace lucene {
+namespace store {
+class LockFactory;
+} // namespace store
+} // namespace lucene
 
 namespace doris {
 
@@ -76,6 +87,7 @@ protected:
 public:
     class FSIndexOutput;
     class FSIndexInput;
+
     friend class DorisCompoundDirectory::FSIndexOutput;
     friend class DorisCompoundDirectory::FSIndexInput;
 

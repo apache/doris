@@ -33,7 +33,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 ## 使用限制
 
-1. 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse、Doris
+1. 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse、Doris、SAP HANA、Trino、OceanBase
 
 ## 创建 Catalog
 
@@ -180,7 +180,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 
 8. Trino
 
-<version since="dev"></version>
+<version since="1.2.4"></version>
 
 ```sql
 CREATE CATALOG trino_catalog PROPERTIES (
@@ -201,18 +201,46 @@ CREATE CATALOG trino_catalog PROPERTIES (
 | Database | Schema  |
 | Table    | Table   |
 
+9. OceanBase
+
+<version since="dev"></version>
+
+```sql
+CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "oceanbase_mode" = "mysql"
+)
+
+CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "oceanbase_mode" = "oracle"
+)
+```
+
 ### 参数说明
 
-参数 | 是否必须 | 默认值 | 说明 
---- | --- | --- | --- 
-`user` | 是 | | 对应数据库的用户名 |
-`password` | 是 |   | 对应数据库的密码 |
-`jdbc_url` | 是 |  | JDBC 连接串 |
-`driver_url` | 是 |  | JDBC Driver Jar 包名称* |
-`driver_class` | 是 |  | JDBC Driver Class 名称 |
-`only_specified_database` | 否 | "false" | 指定是否只同步指定的 database  |
-`lower_case_table_names` | 否 | "false" | 是否以小写的形式同步jdbc外部数据源的表名 |
-`specified_database_list` | 否 | "" | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
+| 参数                       | 是否必须  | 默认值       | 说明                                                               | 
+|---------------------------|----------|-----------|------------------------------------------------------------------- |
+| `user`                    | 是        |           | 对应数据库的用户名                                                         |
+| `password`                | 是        |           | 对应数据库的密码                                                          |
+| `jdbc_url`                | 是        |           | JDBC 连接串                                                          |
+| `driver_url`              | 是        |           | JDBC Driver Jar 包名称*                                              |
+| `driver_class`            | 是        |           | JDBC Driver Class 名称                                              |
+| `only_specified_database` | 否        | "false"   | 指定是否只同步指定的 database                                               |
+| `lower_case_table_names`  | 否        | "false"   | 是否以小写的形式同步jdbc外部数据源的表名                                            |
+| `specified_database_list` | 否        | ""        | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
+| `oceanbase_mode`          | 否        | ""        | 当连接的外部数据源为OceanBase时，必须为其指定模式为mysql或oracle                        |
+
 
 > `driver_url` 可以通过以下三种方式指定：
 > 
@@ -440,11 +468,16 @@ set enable_odbc_transcation = true;
 **Note:**
 目前仅针对Trino连接的Hive做了测试，其他的Trino连接的数据源暂时未测试。
 
+### OceanBase
+
+MySQL 模式请参考 [MySQL类型映射](#MySQL)
+Oracle 模式请参考 [Oracle类型映射](#Oracle)
+
 ## 常见问题
 
-1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA 是否能够支持更多的数据库
+1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino,OceanBase 是否能够支持更多的数据库
 
-    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino,OceanBase. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写 MySQL外表的emoji表情出现乱码
 

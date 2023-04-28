@@ -17,14 +17,20 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
 #include "common/status.h"
 #include "io/fs/file_system.h"
-#include "olap/inverted_index_parser.h"
-#include "olap/olap_common.h"
-#include "olap/tablet_schema.h"
 
 namespace doris {
 class CollectionValue;
+class Field;
+class TabletIndex;
 
 namespace segment_v2 {
 

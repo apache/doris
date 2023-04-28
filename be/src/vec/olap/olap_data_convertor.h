@@ -17,25 +17,47 @@
 
 #pragma once
 
-#include "olap/types.h"
-#include "vec/columns/column_map.h"
+#include <assert.h>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "gutil/integral_types.h"
+#include "olap/decimal12.h"
+#include "olap/uint24.h"
+#include "runtime/collection_value.h"
+#include "util/slice.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class TabletSchema;
 class TabletColumn;
-class MemTracker;
-class Status;
 
 namespace vectorized {
 
 class Block;
 class ColumnArray;
 class DataTypeArray;
+class ColumnMap;
+class DataTypeMap;
+template <typename T>
+class ColumnDecimal;
 
 class IOlapColumnDataAccessor {
 public:
@@ -51,6 +73,8 @@ public:
     OlapBlockDataConvertor(const TabletSchema* tablet_schema);
     OlapBlockDataConvertor(const TabletSchema* tablet_schema, const std::vector<uint32_t>& col_ids);
     void set_source_content(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    void set_source_content_with_specifid_columns(const vectorized::Block* block, size_t row_pos,
+                                                  size_t num_rows, std::vector<uint32_t> cids);
     void clear_source_content();
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
@@ -61,6 +85,7 @@ public:
 
 private:
     class OlapColumnDataConvertorBase;
+
     using OlapColumnDataConvertorBaseUPtr = std::unique_ptr<OlapColumnDataConvertorBase>;
     using OlapColumnDataConvertorBaseSPtr = std::shared_ptr<OlapColumnDataConvertorBase>;
 

@@ -17,10 +17,12 @@
 
 #include "gutil/strings/numbers.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <limits>
 
+#include "gtest/gtest_pred_impl.h"
 #include "util/mysql_global.h"
 
 namespace doris {

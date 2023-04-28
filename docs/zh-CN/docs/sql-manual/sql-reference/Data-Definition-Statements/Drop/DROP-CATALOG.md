@@ -50,7 +50,7 @@ DROP CATALOG [IF EXISTS] catalog_name;
 
    ```sql
    DROP CATALOG hive;
-   	```
+   ```
 
 ### Keywords
 

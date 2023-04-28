@@ -17,29 +17,60 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+#include <stddef.h>
 #include <stdint.h>
 
-#include <queue>
+#include <list>
+#include <map>
+#include <memory>
 #include <string>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "gen_cpp/parquet_types.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
-#include "vec/core/block.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/exprs/vexpr_context.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_column_reader.h"
-#include "vparquet_file_metadata.h"
 #include "vparquet_group_reader.h"
-#include "vparquet_page_index.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class SlotDescriptor;
+class TFileRangeDesc;
+class TFileScanRangeParams;
+class TupleDescriptor;
+
+namespace io {
+class FileSystem;
+class IOContext;
+} // namespace io
+namespace vectorized {
+class Block;
+class FileMetaData;
+class PageIndex;
+class ShardedKVCache;
+class VExprContext;
+} // namespace vectorized
+struct TypeDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 
 class ParquetReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(ParquetReader);
+
 public:
     struct Statistics {
         int32_t filtered_row_groups = 0;
@@ -171,6 +202,8 @@ private:
     Status _process_bloom_filter(bool* filter_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
+    std::vector<io::PrefetchRange> _generate_random_access_ranges(
+            const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
 
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
@@ -196,7 +229,6 @@ private:
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
-
     // should turn off filtering by page index and lazy read if having complex type
     bool _has_complex_type = false;
 

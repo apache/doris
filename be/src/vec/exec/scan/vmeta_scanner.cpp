@@ -17,14 +17,42 @@
 
 #include "vmeta_scanner.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 
-#include "gen_cpp/FrontendService.h"
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/logging.h"
 #include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/thrift_rpc_helper.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/exec/scan/vmeta_scan_node.h"
+
+namespace doris {
+class RuntimeProfile;
+namespace vectorized {
+class VExprContext;
+class VScanNode;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -183,6 +211,13 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         _meta_eos = true;
         return Status::OK();
     }
+
+    // set filter columns
+    std::vector<std::string> filter_columns;
+    for (const auto& slot : _tuple_desc->slots()) {
+        filter_columns.emplace_back(slot->col_name_lower_case());
+    }
+    request.metada_table_params.__set_columns_name(filter_columns);
 
     // _state->execution_timeout() is seconds, change to milliseconds
     int time_out = _state->execution_timeout() * 1000;

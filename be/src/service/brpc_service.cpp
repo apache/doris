@@ -17,11 +17,19 @@
 
 #include "service/brpc_service.h"
 
+#include <brpc/server.h>
+#include <brpc/ssl_options.h>
+#include <butil/endpoint.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <gflags/gflags_declare.h>
 #include <string.h>
 
+#include <ostream>
+
+#include "common/config.h"
 #include "common/logging.h"
 #include "service/backend_options.h"
-#include "service/brpc.h"
 #include "service/internal_service.h"
 
 namespace brpc {

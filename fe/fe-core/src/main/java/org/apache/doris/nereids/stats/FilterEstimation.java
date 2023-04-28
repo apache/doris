@@ -173,7 +173,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     private Statistics updateLessThanLiteral(Expression leftExpr, ColumnStatistic statsForLeft,
             double val, EstimationContext context, boolean contains) {
-        if (statsForLeft.histogram != null) {
+        if (statsForLeft.hasHistogram()) {
             return estimateLessThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
         //rightRange.distinctValues should not be used
@@ -186,7 +186,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     private Statistics updateGreaterThanLiteral(Expression leftExpr, ColumnStatistic statsForLeft,
             double val, EstimationContext context, boolean contains) {
-        if (statsForLeft.histogram != null) {
+        if (statsForLeft.hasHistogram()) {
             return estimateGreaterThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
         //rightRange.distinctValues should not be used
@@ -228,7 +228,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         } else {
             selectivity = StatsMathUtil.minNonNaN(1.0, 1.0 / ndv);
         }
-        if (statsForLeft.histogram != null) {
+        if (statsForLeft.hasHistogram()) {
             return estimateEqualToWithHistogram(cp.left(), statsForLeft, val, context);
         }
 
@@ -389,7 +389,22 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         rightBuilder.setNdv(rightIntersectLeft.getDistinctValues());
         rightBuilder.setMinValue(rightIntersectLeft.getLow());
         rightBuilder.setMaxValue(rightIntersectLeft.getDistinctValues());
-        double sel = 1 / StatsMathUtil.nonZeroDivisor(Math.max(leftStats.ndv, rightStats.ndv));
+        double sel;
+        double reduceRatio = 0.25;
+        double bothSideReducedRatio = 0.9;
+        if (leftStats.ndv < leftStats.originalNdv * bothSideReducedRatio
+                && rightStats.ndv < rightStats.originalNdv * bothSideReducedRatio) {
+            double sel1;
+            if (leftStats.ndv > rightStats.ndv) {
+                sel1 = 1 / StatsMathUtil.nonZeroDivisor(leftStats.ndv);
+            } else {
+                sel1 = 1 / StatsMathUtil.nonZeroDivisor(rightStats.ndv);
+            }
+            double sel2 = Math.min(rightStats.ndv / rightStats.originalNdv, leftStats.ndv / leftStats.originalNdv);
+            sel = sel1 * Math.pow(sel2, reduceRatio);
+        } else {
+            sel = 1 / StatsMathUtil.nonZeroDivisor(Math.max(leftStats.ndv, rightStats.ndv));
+        }
         Statistics updatedStatistics = context.statistics.withSel(sel);
         updatedStatistics.addColumnStats(leftExpr, leftBuilder.build());
         updatedStatistics.addColumnStats(rightExpr, rightBuilder.build());

@@ -17,20 +17,26 @@
 
 #pragma once
 
-#include <string>
+#include <gen_cpp/Descriptors_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/object_pool.h"
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/factory_creator.h"
 #include "common/status.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/Types_types.h"
+#include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
-#include "vec/core/block.h"
 
 namespace doris {
 
 // forehead declare class, because jni function init in DorisServer.
 class DorisServer;
 class RuntimeState;
+class ObjectPool;
+class TUserIdentity;
 
 namespace vectorized {
 class Block;
@@ -64,6 +70,8 @@ struct SchemaScannerParam {
 
 // virtual scanner for all schema table
 class SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaScanner);
+
 public:
     struct ColumnDesc {
         const char* name;
@@ -85,7 +93,7 @@ public:
     virtual Status get_next_block(vectorized::Block* block, bool* eos);
     const std::vector<ColumnDesc>& get_column_desc() const { return _columns; }
     // factory function
-    static SchemaScanner* create(TSchemaTableType::type type);
+    static std::unique_ptr<SchemaScanner> create(TSchemaTableType::type type);
     TSchemaTableType::type type() const { return _schema_table_type; }
 
     static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }

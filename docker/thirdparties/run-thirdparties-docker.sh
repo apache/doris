@@ -99,13 +99,11 @@ fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit 0
 fi
 
 if [[ "${COMPONENTS}"x == ""x ]]; then
     echo "Invalid arguments"
     usage
-    exit 1
 fi
 
 if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
@@ -150,7 +148,6 @@ for element in "${COMPONENTS_ARR[@]}"; do
     else
         echo "Invalid component: ${element}"
         usage
-        exit 1
     fi
 done
 
@@ -190,7 +187,7 @@ if [[ "${RUN_PG}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
-        sudo rm "${ROOT}"/docker-compose/postgresql/data/data/* -rf
+        sudo rm "${ROOT}"/docker-compose/postgresql/data/* -rf
         sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
     fi
 fi
@@ -241,10 +238,10 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
-    sudo docker-compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     sudo sed -i '/${CONTAINER_UID}namenode/d' /etc/hosts
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker-compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
         sudo echo "127.0.0.1 ${CONTAINER_UID}namenode" >> /etc/hosts
     fi
 fi

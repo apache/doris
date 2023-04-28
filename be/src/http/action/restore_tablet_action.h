@@ -17,16 +17,19 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <map>
 #include <mutex>
+#include <string>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
 #include "http/http_handler.h"
 
 namespace doris {
 
 class ExecEnv;
+class HttpRequest;
 
 class RestoreTabletAction : public HttpHandler {
 public:

@@ -17,39 +17,51 @@
 
 #include "olap/rowset/beta_rowset_writer.h"
 
+#include <assert.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <stdio.h>
+
 #include <ctime> // time
+#include <filesystem>
 #include <memory>
 #include <sstream>
+#include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "gutil/integral_types.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_reader_options.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "olap/memtable.h"
-#include "olap/merger.h"
+#include "olap/data_dir.h"
 #include "olap/olap_define.h"
-#include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
-#include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker_limiter.h"
+#include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "segcompaction.h"
+#include "util/slice.h"
+#include "util/time.h"
 #include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
-#include "vec/jsonb/serialize.h"
+#include "vec/core/block.h"
 
 namespace doris {
 using namespace ErrorCode;
-
-class StorageEngine;
 
 BetaRowsetWriter::BetaRowsetWriter()
         : _rowset_meta(nullptr),
           _num_segment(0),
           _num_flushed_segment(0),
+          _segment_start_id(0),
           _segcompacted_point(0),
           _num_segcompacted(0),
           _segment_writer(nullptr),
@@ -610,10 +622,12 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
+#ifndef NDEBUG
             if (_context.enable_unique_key_merge_on_write) {
                 DCHECK(itr.second.key_set.get() != nullptr);
                 key_set.insert(itr.second.key_set->begin(), itr.second.key_set->end());
             }
+#endif
         }
     }
     _num_mow_keys = key_set.size();
@@ -668,7 +682,7 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir, _context.rowset_id,
                                                            begin, end);
     } else {
-        segment_id = _num_segment.fetch_add(1);
+        segment_id = _num_segment.fetch_add(1) + _segment_start_id;
         path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
     }
     auto fs = _rowset_meta->fs();
@@ -689,17 +703,19 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     writer_options.is_direct_write = _context.is_direct_write;
 
     if (is_segcompaction) {
-        writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segcompacted,
-                                                    _context.tablet_schema, _context.data_dir,
-                                                    _context.max_rows_per_segment, writer_options));
+        writer->reset(new segment_v2::SegmentWriter(
+                file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
+                _context.data_dir, _context.max_rows_per_segment, writer_options,
+                _context.mow_context));
         if (_segcompaction_worker.get_file_writer() != nullptr) {
             _segcompaction_worker.get_file_writer()->close();
         }
         _segcompaction_worker.get_file_writer().reset(file_writer.release());
     } else {
-        writer->reset(new segment_v2::SegmentWriter(file_writer.get(), segment_id,
-                                                    _context.tablet_schema, _context.data_dir,
-                                                    _context.max_rows_per_segment, writer_options));
+        writer->reset(new segment_v2::SegmentWriter(
+                file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+                _context.data_dir, _context.max_rows_per_segment, writer_options,
+                _context.mow_context));
         {
             std::lock_guard<SpinLock> l(_lock);
             _file_writers.push_back(std::move(file_writer));

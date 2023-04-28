@@ -23,7 +23,7 @@
 
 namespace doris {
 
-class ExecEnv;
+class HttpRequest;
 
 class ChecksumAction : public HttpHandler {
 public:

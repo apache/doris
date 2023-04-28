@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -51,7 +50,7 @@ import java.util.Set;
  * |   (y)
  * (x)
  * ->
- * aggregate: SUM(sum1) * cnt2, SUM(sum2) * cnt1
+ * aggregate: SUM(sum1 * cnt2), SUM(sum2 * cnt1)
  * |
  * join
  * |   \
@@ -98,7 +97,7 @@ public class EagerSplit extends OneExplorationRuleFactory {
                     for (int i = 0; i < leftSums.size(); i++) {
                         leftBottomSums.add(new Alias(new Sum(leftSums.get(i).child()), "left_sum" + i));
                     }
-                    Alias leftCnt = new Alias(new Count(Literal.of(1)), "left_cnt");
+                    Alias leftCnt = new Alias(new Count(), "left_cnt");
                     List<NamedExpression> leftBottomAggOutput = ImmutableList.<NamedExpression>builder()
                             .addAll(leftBottomAggGroupBy).addAll(leftBottomSums).add(leftCnt).build();
                     LogicalAggregate<GroupPlan> leftBottomAgg = new LogicalAggregate<>(
@@ -117,7 +116,7 @@ public class EagerSplit extends OneExplorationRuleFactory {
                     for (int i = 0; i < rightSums.size(); i++) {
                         rightBottomSums.add(new Alias(new Sum(rightSums.get(i).child()), "right_sum" + i));
                     }
-                    Alias rightCnt = new Alias(new Count(Literal.of(1)), "right_cnt");
+                    Alias rightCnt = new Alias(new Count(), "right_cnt");
                     List<NamedExpression> rightBottomAggOutput = ImmutableList.<NamedExpression>builder()
                             .addAll(rightBottomAggGroupBy).addAll(rightBottomSums).add(rightCnt).build();
                     LogicalAggregate<GroupPlan> rightBottomAgg = new LogicalAggregate<>(
@@ -146,16 +145,15 @@ public class EagerSplit extends OneExplorationRuleFactory {
                     Preconditions.checkState(rightSumOutputExprs.size() == rightBottomSums.size());
                     for (int i = 0; i < leftSumOutputExprs.size(); i++) {
                         Alias oldSum = leftSumOutputExprs.get(i);
-                        Slot bottomSum = leftBottomSums.get(i).toSlot();
-                        Alias newSum = new Alias(oldSum.getExprId(),
-                                new Multiply(new Sum(bottomSum), rightCnt.toSlot()), oldSum.getName());
-                        newOutputExprs.add(newSum);
+                        Slot slot = leftBottomSums.get(i).toSlot();
+                        newOutputExprs.add(new Alias(oldSum.getExprId(), new Sum(new Multiply(slot, rightCnt.toSlot())),
+                                oldSum.getName()));
                     }
                     for (int i = 0; i < rightSumOutputExprs.size(); i++) {
                         Alias oldSum = rightSumOutputExprs.get(i);
                         Slot bottomSum = rightBottomSums.get(i).toSlot();
-                        Alias newSum = new Alias(oldSum.getExprId(),
-                                new Multiply(new Sum(bottomSum), leftCnt.toSlot()), oldSum.getName());
+                        Alias newSum = new Alias(oldSum.getExprId(), new Sum(new Multiply(bottomSum, leftCnt.toSlot())),
+                                oldSum.getName());
                         newOutputExprs.add(newSum);
                     }
                     return agg.withAggOutput(newOutputExprs).withChildren(newJoin);

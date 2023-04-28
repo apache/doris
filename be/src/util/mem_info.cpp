@@ -24,21 +24,29 @@
 #include <sys/sysctl.h>
 #endif
 
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <jemalloc/jemalloc.h>
 
+#include <algorithm>
+#include <boost/algorithm/string/trim.hpp>
 #include <fstream>
-#include <iostream>
-#include <sstream>
+#include <unordered_map>
+#include <vector>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "gutil/strings/split.h"
 #include "olap/page_cache.h"
 #include "olap/segment_loader.h"
+#include "runtime/memory/chunk_allocator.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/cgroup_util.h"
+#include "util/defer_op.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
+#include "util/stopwatch.hpp"
 #include "util/string_parser.hpp"
 
 namespace doris {

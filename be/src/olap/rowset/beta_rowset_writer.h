@@ -17,21 +17,40 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "segcompaction.h"
 #include "segment_v2/segment.h"
-#include "vec/columns/column.h"
-#include "vec/olap/vertical_block_reader.h"
-#include "vec/olap/vgeneric_iterators.h"
+#include "util/spinlock.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace segment_v2 {
 class SegmentWriter;
 } // namespace segment_v2
-
-namespace io {
-class FileWriter;
-} // namespace io
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -133,12 +152,15 @@ private:
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
 
+    void set_segment_start_id(int32_t start_id) override { _segment_start_id = start_id; }
+
 protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
     std::atomic<int32_t> _num_segment;
     std::atomic<int32_t> _num_flushed_segment;
+    int32_t _segment_start_id; //basic write start from 0, partial update may be different
     std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
                                               // already been segment compacted
     std::atomic<int32_t> _num_segcompacted;   // index for segment compaction
@@ -191,6 +213,8 @@ protected:
     std::atomic<int> _segcompaction_status;
 
     fmt::memory_buffer vlog_buffer;
+
+    std::shared_ptr<MowContext> _mow_context;
 };
 
 } // namespace doris

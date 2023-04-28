@@ -20,18 +20,18 @@
 
 #pragma once
 
+#include <memory>
+#include <string>
 #include <vector>
 
+#include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_fwd.h"
 #include "io/cache/block/block_file_cache_settings.h"
 namespace doris {
+class TUniqueId;
+
 namespace io {
 
-enum FileCacheType {
-    NORMAL,
-    DISPOSABLE,
-};
 /**
  * Creates a FileCache object for cache_base_path.
  */
@@ -40,10 +40,9 @@ public:
     static FileCacheFactory& instance();
 
     Status create_file_cache(const std::string& cache_base_path,
-                             const FileCacheSettings& file_cache_settings, FileCacheType type);
+                             const FileCacheSettings& file_cache_settings);
 
     CloudFileCachePtr get_by_path(const IFileCache::Key& key);
-    CloudFileCachePtr get_disposable_cache(const IFileCache::Key& key);
     std::vector<IFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
             const TUniqueId& query_id);
     FileCacheFactory() = default;
@@ -52,7 +51,6 @@ public:
 
 private:
     std::vector<std::unique_ptr<IFileCache>> _caches;
-    std::vector<std::unique_ptr<IFileCache>> _disposable_cache;
 };
 
 } // namespace io

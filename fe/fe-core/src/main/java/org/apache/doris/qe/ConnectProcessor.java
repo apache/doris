@@ -667,9 +667,6 @@ public class ConnectProcessor {
         if (request.isSetCluster()) {
             ctx.setCluster(request.cluster);
         }
-        if (request.isSetResourceInfo()) {
-            ctx.getSessionVariable().setResourceGroup(request.getResourceInfo().getGroup());
-        }
         if (request.isSetUserIp()) {
             ctx.setRemoteIP(request.getUserIp());
         }

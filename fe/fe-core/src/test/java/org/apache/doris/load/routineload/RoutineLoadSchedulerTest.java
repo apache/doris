@@ -132,7 +132,6 @@ public class RoutineLoadSchedulerTest {
             throws DdlException, InterruptedException {
         new Expectations() {
             {
-                connectContext.toResourceCtx();
                 minTimes = 0;
                 result = tResourceInfo;
             }

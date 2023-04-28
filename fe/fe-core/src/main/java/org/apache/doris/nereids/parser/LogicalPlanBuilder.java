@@ -20,6 +20,7 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
@@ -185,6 +186,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
@@ -1742,8 +1744,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public DecimalLiteral visitDecimalLiteral(DecimalLiteralContext ctx) {
-        return new DecimalLiteral(new BigDecimal(ctx.getText()));
+    public Literal visitDecimalLiteral(DecimalLiteralContext ctx) {
+        if (Config.enable_decimal_conversion) {
+            return new DecimalV3Literal(new BigDecimal(ctx.getText()));
+        } else {
+            return new DecimalLiteral(new BigDecimal(ctx.getText()));
+        }
     }
 
     private String parseTVFPropertyItem(TvfPropertyItemContext item) {

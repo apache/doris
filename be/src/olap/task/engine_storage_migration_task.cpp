@@ -17,10 +17,32 @@
 
 #include "olap/task/engine_storage_migration_task.h"
 
-#include <ctime>
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <unistd.h>
 
+#include <algorithm>
+#include <ctime>
+#include <memory>
+#include <new>
+#include <ostream>
+#include <set>
+#include <utility>
+
+#include "common/config.h"
+#include "common/logging.h"
+#include "gutil/strings/numbers.h"
+#include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/snapshot_manager.h"
-#include "olap/tablet_meta_manager.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
+#include "olap/txn_manager.h"
+#include "util/doris_metrics.h"
+#include "util/uid_util.h"
 
 namespace doris {
 

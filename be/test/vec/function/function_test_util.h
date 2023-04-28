@@ -15,27 +15,47 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
 #include <time.h>
 
-#include <any>
-#include <iostream>
+#include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
+#include "util/jsonb_utils.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
-#include "vec/core/columns_with_type_and_name.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_jsonb.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time.h"
-#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+namespace vectorized {
+class DataTypeJsonb;
+class DataTypeTime;
+class TableFunction;
+template <typename T>
+class DataTypeDecimal;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

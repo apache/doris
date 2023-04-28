@@ -17,25 +17,50 @@
 
 #include "vec/runtime/vfile_result_writer.h"
 
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
-#include "gutil/strings/substitute.h"
 #include "io/file_factory.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/buffer_control_block.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "service/backend_options.h"
+#include "util/metrics.h"
 #include "util/mysql_global.h"
 #include "util/mysql_row_buffer.h"
+#include "util/types.h"
+#include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/vdatetime_value.h"
 #include "vec/runtime/vorc_writer.h"
+#include "vec/runtime/vparquet_writer.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris::vectorized {
 const size_t VFileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
@@ -475,6 +500,15 @@ Status VFileResultWriter::_send_result() {
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     result->result_batch.rows.resize(1);
     result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
+
+    std::map<std::string, string> attach_infos;
+    attach_infos.insert(std::make_pair("FileNumber", std::to_string(_file_idx)));
+    attach_infos.insert(
+            std::make_pair("TotalRows", std::to_string(_written_rows_counter->value())));
+    attach_infos.insert(std::make_pair("FileSize", std::to_string(_written_data_bytes->value())));
+    attach_infos.insert(std::make_pair("URL", file_url));
+
+    result->result_batch.__set_attached_infos(attach_infos);
     RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "failed to send outfile result");
     return Status::OK();
 }

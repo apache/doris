@@ -17,9 +17,12 @@
 
 #include "olap/types.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
 #include <memory>
 
-#include "gen_cpp/segment_v2.pb.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "olap/tablet_schema.h"
 
 namespace doris {
@@ -256,7 +259,7 @@ TypeInfoPtr get_type_info(const TabletColumn* col) {
         const auto* val_column = &col->get_sub_column(1);
         TypeInfoPtr value_type = get_type_info(val_column);
         MapTypeInfo* map_type_info = new MapTypeInfo(std::move(key_type), std::move(value_type));
-        return create_static_type_info_ptr(map_type_info);
+        return create_dynamic_type_info_ptr(map_type_info);
     } else {
         return create_static_type_info_ptr(get_scalar_type_info(type));
     }

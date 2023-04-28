@@ -107,6 +107,7 @@ message PGenericType {
         DECIMAL128I = 32;
         VARIANT = 33;
         QUANTILE_STATE = 34;
+        TIME = 35;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

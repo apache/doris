@@ -17,26 +17,36 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <ostream>
+#include <string>
 #include <vector>
 
-#include "gen_cpp/olap_file.pb.h"
-#include "gutil/macros.h"
-#include "io/fs/remote_file_system.h"
+#include "common/logging.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
 #include "util/lock.h"
 
 namespace doris {
 
-class DataDir;
-class OlapTuple;
-class RowCursor;
 class Rowset;
+
+namespace io {
+class RemoteFileSystem;
+} // namespace io
+
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
-class RowsetFactory;
 class RowsetReader;
 
 // the rowset state transfer graph:
@@ -155,6 +165,10 @@ public:
     // remove all files in this rowset
     // TODO should we rename the method to remove_files() to be more specific?
     virtual Status remove() = 0;
+
+    // used for partial update, when publish, partial update may add a new rowset
+    // and we should update rowset meta
+    void merge_rowset_meta(const RowsetMetaSharedPtr& other);
 
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on

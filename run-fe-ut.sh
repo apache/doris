@@ -96,6 +96,14 @@ cd "${DORIS_HOME}/docs"
 cp build/help-resource.zip "${DORIS_HOME}"/fe/fe-core/src/test/resources/real-help-resource.zip
 cd "${DORIS_HOME}"
 
+echo "Build generated code"
+cd "${DORIS_HOME}/gensrc"
+make
+rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"
+cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris"
+cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/"
+cd "${DORIS_HOME}"
+
 cd "${DORIS_HOME}/fe"
 mkdir -p build/compile
 
@@ -112,8 +120,8 @@ else
     if [[ "${RUN}" -eq 1 ]]; then
         echo "Run the specified class: $1"
         # eg:
-        # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo
-        # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo#testCreateDbAndTable+test2
+        # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest
+        # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
         "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -D test="$1"
     else
         echo "Run Frontend UT"

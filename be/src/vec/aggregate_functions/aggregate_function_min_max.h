@@ -20,14 +20,36 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <string.h>
+
+#include <memory>
+#include <vector>
+
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column_decimal.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
-#include "vec/columns/column_vector.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/bit_helpers.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+template <typename T>
+class ColumnDecimal;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

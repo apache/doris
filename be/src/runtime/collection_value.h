@@ -17,40 +17,15 @@
 
 #pragma once
 
-#include <type_traits>
+#include <stdint.h>
 
-#include "runtime/primitive_type.h"
-
-namespace doris {
-class FunctionContext;
-} // namespace doris
+#include <functional>
+#include <utility>
 
 namespace doris {
-
-using doris::FunctionContext;
 
 using MemFootprint = std::pair<int64_t, uint8_t*>;
 using GenMemFootprintFunc = std::function<MemFootprint(int64_t size)>;
-
-struct ArrayIteratorFunctionsBase;
-class ArrayIterator;
-class Status;
-class ObjectPool;
-
-template <PrimitiveType type>
-struct ArrayIteratorFunctions;
-template <typename T>
-inline constexpr std::enable_if_t<std::is_base_of_v<ArrayIteratorFunctionsBase, T>, bool>
-        IsTypeFixedWidth = true;
-
-template <>
-inline constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_CHAR>> = false;
-template <>
-inline constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_VARCHAR>> = false;
-template <>
-inline constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_STRING>> = false;
-template <>
-inline constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_ARRAY>> = false;
 
 /**
  * The format of array-typed slot.

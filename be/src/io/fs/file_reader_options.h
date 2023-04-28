@@ -17,7 +17,9 @@
 
 #pragma once
 
-#include "io/cache/block/block_file_cache.h"
+#include <stdint.h>
+
+#include <string>
 
 namespace doris {
 namespace io {

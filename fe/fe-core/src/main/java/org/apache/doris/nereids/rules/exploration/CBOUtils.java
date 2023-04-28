@@ -35,56 +35,14 @@ import java.util.stream.Collectors;
  * Common
  */
 public class CBOUtils {
-    public static boolean isAllSlotProject(LogicalProject<? extends Plan> project) {
-        return project.getProjects().stream().allMatch(expr -> expr instanceof Slot);
-    }
-
-    /**
-     * Split project according to whether namedExpr contains by splitChildExprIds.
-     * Notice: projects must all be Slot.
-     */
-    public static Map<Boolean, List<NamedExpression>> splitProject(List<NamedExpression> projects,
-            Set<ExprId> splitChildExprIds) {
-        return projects.stream()
-                .collect(Collectors.partitioningBy(expr -> {
-                    Slot slot = (Slot) expr;
-                    return splitChildExprIds.contains(slot.getExprId());
-                }));
-    }
-
     /**
      * If projects is empty or project output equal plan output, return the original plan.
      */
     public static Plan projectOrSelf(List<NamedExpression> projects, Plan plan) {
-        Set<Slot> outputSet = plan.getOutputSet();
-        if (projects.isEmpty() || (outputSet.size() == projects.size() && outputSet.containsAll(projects))) {
-            return plan;
-        }
-        return new LogicalProject<>(projects, plan);
-    }
-
-    public static Plan projectOrSelfInOrder(List<NamedExpression> projects, Plan plan) {
         if (projects.isEmpty() || projects.equals(plan.getOutput())) {
             return plan;
         }
         return new LogicalProject<>(projects, plan);
-    }
-
-    /**
-     * When project not empty, we add all slots used by hashOnCondition into projects.
-     */
-    public static void addSlotsUsedByOn(Set<Slot> usedSlots, List<NamedExpression> projects) {
-        if (projects.isEmpty()) {
-            return;
-        }
-        Set<ExprId> projectExprIdSet = projects.stream()
-                .map(NamedExpression::getExprId)
-                .collect(Collectors.toSet());
-        usedSlots.forEach(slot -> {
-            if (!projectExprIdSet.contains(slot.getExprId())) {
-                projects.add(slot);
-            }
-        });
     }
 
     public static Set<Slot> joinChildConditionSlots(LogicalJoin<? extends Plan, ? extends Plan> join, boolean left) {

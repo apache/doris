@@ -17,8 +17,14 @@
 
 #include "http/http_channel.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <iosfwd>
+
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "util/slice.h"
 #include "util/zlib.h"
 
 namespace doris {

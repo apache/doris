@@ -1440,6 +1440,20 @@ public class Config extends ConfigBase {
     public static boolean recover_with_empty_tablet = false;
 
     /**
+     * In some scenarios, there is an unrecoverable metadata problem in the cluster,
+     * and the visibleVersion of the data does not match be. In this case, it is still
+     * necessary to restore the remaining data (which may cause problems with the correctness of the data).
+     * This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
+     * This configuration has three values:
+     *   disable : If an exception occurs, an error will be reported normally.
+     *   ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
+     *   ignore_all: In addition to ignore_version, when encountering no queryable replica,
+     *   skip it directly instead of throwing an exception
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static String recover_with_skip_missing_version = "disable";
+
+    /**
      * Whether to add a delete sign column when create unique table
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1738,7 +1752,8 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_pipeline_load = false;
 
-    @ConfField
+    // enable_resource_group should be immutable and temporarily set to mutable during the development test phase
+    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_resource_group = false;
 
     @ConfField(mutable = false, masterOnly = true)
@@ -1806,7 +1821,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 1;
+    public static int max_be_exec_version = 2;
 
     /**
      * Min data version of backends serialize block.
@@ -2012,6 +2027,13 @@ public class Config extends ConfigBase {
     public static boolean enable_func_pushdown = true;
 
     /**
+     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
+     * otherwise it will throw an AnalysisException.
+     */
+    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
+    public static boolean enable_query_hive_views = false;
+
+    /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
      */
     @ConfField(masterOnly = true)
@@ -2042,17 +2064,36 @@ public class Config extends ConfigBase {
     public static boolean enable_ssl = true;
 
     /**
-     * Default certificate file location for mysql ssl connection.
+     * If set to ture, ssl connection needs to authenticate client's certificate.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_certificate = System.getenv("DORIS_HOME")
-            + "/mysql_ssl_default_certificate/certificate.p12";
+    public static boolean ssl_force_client_auth = false;
 
     /**
-     * Password for default certificate file.
+     * Default CA certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_certificate_password = "doris";
+    public static String mysql_ssl_default_ca_certificate = System.getenv("DORIS_HOME")
+            + "/mysql_ssl_default_certificate/ca_certificate.p12";
+
+    /**
+     * Default server certificate file location for mysql ssl connection.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_server_certificate = System.getenv("DORIS_HOME")
+            + "/mysql_ssl_default_certificate/server_certificate.p12";
+
+    /**
+     * Password for default CA certificate file.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_ca_certificate_password = "doris";
+
+    /**
+     * Password for default CA certificate file.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_server_certificate_password = "doris";
 
     /**
      * Used to set session variables randomly to check more issues in github workflow
@@ -2115,5 +2156,37 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean infodb_support_ext_catalog = false;
+
+    /**
+     * If true, auth check will be disabled. The default value is false.
+     * This is to solve the case that user forgot the password.
+     */
+    @ConfField(mutable = false)
+    public static boolean skip_localhost_auth_check  = false;
+
+    /**
+     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
+     */
+    @ConfField
+    public static boolean enable_stats = true;
+
+    /**
+     * Whether create a duplicate table without keys by default
+     * when creating a table which not set key type and key columns
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean experimental_enable_duplicate_without_keys_by_default = false;
+
+    /**
+     * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
+     * we may delete the DecimalV2 and DateV1 types in the future.
+     * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
+     * to determine whether these two types take effect.
+     */
+    @ConfField(mutable = true)
+    public static boolean disable_decimalv2  = true;
+
+    @ConfField(mutable = true)
+    public static boolean disable_datev1  = true;
 }
 

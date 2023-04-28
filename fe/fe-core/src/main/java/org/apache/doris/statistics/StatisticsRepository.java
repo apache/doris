@@ -18,18 +18,19 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
-import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Maps;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -85,10 +87,14 @@ public class StatisticsRepository {
             + "'${colId}', ${partId}, ${count}, ${ndv}, ${nullCount}, '${min}', '${max}', ${dataSize}, NOW())";
 
     private static final String DROP_TABLE_STATISTICS_TEMPLATE = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE ${condition}";
+            + "." + "${tblName}" + " WHERE ${condition}";
 
-    private static final String DROP_TABLE_HISTOGRAM_TEMPLATE = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.HISTOGRAM_TBL_NAME + " WHERE ${condition}";
+    private static final String FIND_EXPIRED_JOBS = "SELECT job_id FROM "
+            + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
+            + " WHERE task_id = -1 AND ${now} - last_exec_time_in_ms  > "
+            + TimeUnit.HOURS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS)
+            + " ORDER BY last_exec_time_in_ms"
+            + " LIMIT ${limit} OFFSET ${offset}";
 
     private static final String FETCH_RECENT_STATS_UPDATED_COL =
             "SELECT * FROM "
@@ -102,6 +108,11 @@ public class StatisticsRepository {
                     + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
                     + " ORDER BY update_time "
                     + "LIMIT ${limit} OFFSET ${offset}";
+
+    private static final String FETCH_STATS_PART_ID = "SELECT col_id, part_id FROM "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+            + " WHERE tbl_id = ${tblId}"
+            + " AND part_id IS NOT NULL";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
@@ -175,57 +186,40 @@ public class StatisticsRepository {
         return stringJoiner.toString();
     }
 
-    public static void dropStatistics(Long dbId,
-            Set<Long> tblIds, Set<String> colNames, Set<Long> partIds) {
-        dropStatistics(dbId, tblIds, colNames, partIds, false);
+    public static void dropStatistics(Set<Long> partIds) throws DdlException {
+        dropStatisticsByPartId(partIds, StatisticConstants.STATISTIC_TBL_NAME);
     }
 
-    public static void dropHistogram(Long dbId,
-            Set<Long> tblIds, Set<String> colNames, Set<Long> partIds) {
-        dropStatistics(dbId, tblIds, colNames, partIds, true);
+    public static void dropStatistics(long tblId, Set<String> colNames) throws DdlException {
+        dropStatisticsByColName(tblId, colNames, StatisticConstants.STATISTIC_TBL_NAME);
+        dropStatisticsByColName(tblId, colNames, StatisticConstants.HISTOGRAM_TBL_NAME);
     }
 
-    private static void dropStatistics(Long dbId,
-            Set<Long> tblIds, Set<String> colNames, Set<Long> partIds, boolean isHistogram) {
-        if (dbId <= 0) {
-            throw new IllegalArgumentException("Database id is not specified.");
-        }
-
-        StringBuilder predicate = new StringBuilder();
-        predicate.append(String.format("db_id = '%d'", dbId));
-
-        if (!tblIds.isEmpty()) {
-            buildPredicate("tbl_id", tblIds, predicate);
-        }
-
-        if (!colNames.isEmpty()) {
-            buildPredicate("col_id", colNames, predicate);
-        }
-
-        if (!partIds.isEmpty() && !isHistogram) {
-            // Histogram is not collected and deleted by partition
-            buildPredicate("part_id", partIds, predicate);
-        }
-
+    public static void dropStatisticsByColName(long tblId, Set<String> colNames, String statsTblName)
+            throws DdlException {
         Map<String, String> params = new HashMap<>();
-        params.put("condition", predicate.toString());
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-
+        String right = colNames.stream().map(s -> "'" + s + "'").collect(Collectors.joining(","));
+        String inPredicate = String.format("tbl_id = %s AND %s IN (%s)", tblId, "col_id", right);
+        params.put("tblName", statsTblName);
+        params.put("condition", inPredicate);
         try {
-            String statement = isHistogram ? stringSubstitutor.replace(DROP_TABLE_HISTOGRAM_TEMPLATE) :
-                    stringSubstitutor.replace(DROP_TABLE_STATISTICS_TEMPLATE);
-            StatisticsUtil.execUpdate(statement);
+            StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(DROP_TABLE_STATISTICS_TEMPLATE));
         } catch (Exception e) {
-            LOG.warn("Drop statistics failed", e);
+            throw new DdlException(e.getMessage(), e);
         }
     }
 
-    private static <T> void buildPredicate(String fieldName, Set<T> fieldValues, StringBuilder predicate) {
-        StringJoiner predicateBuilder = new StringJoiner(",", "(", ")");
-        fieldValues.stream().map(value -> String.format("'%s'", value))
-                .forEach(predicateBuilder::add);
-        String partPredicate = String.format(" AND %s IN %s", fieldName, predicateBuilder);
-        predicate.append(partPredicate);
+    public static void dropStatisticsByPartId(Set<Long> partIds, String statsTblName) throws DdlException {
+        Map<String, String> params = new HashMap<>();
+        String right = StatisticsUtil.joinElementsToString(partIds, ",");
+        String inPredicate = String.format(" part_id IN (%s)", right);
+        params.put("tblName", statsTblName);
+        params.put("condition", inPredicate);
+        try {
+            StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(DROP_TABLE_STATISTICS_TEMPLATE));
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage(), e);
+        }
     }
 
     public static void persistAnalysisTask(AnalysisTaskInfo analysisTaskInfo) throws Exception {
@@ -263,7 +257,7 @@ public class StatisticsRepository {
             builder.setCount(Double.parseDouble(rowCount));
         }
         if (ndv != null) {
-            Double dNdv = Double.parseDouble(ndv);
+            double dNdv = Double.parseDouble(ndv);
             builder.setNdv(dNdv);
             builder.setOriginalNdv(dNdv);
         }
@@ -302,15 +296,6 @@ public class StatisticsRepository {
                 .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
     }
 
-    public static void dropTableStatistics(DropStatsStmt dropTableStatsStmt) {
-        Long dbId = dropTableStatsStmt.getDbId();
-        Set<Long> tbIds = dropTableStatsStmt.getTbIds();
-        Set<String> cols = dropTableStatsStmt.getColumnNames();
-        Set<Long> partIds = dropTableStatsStmt.getPartitionIds();
-        dropHistogram(dbId, tbIds, cols, partIds);
-        dropStatistics(dbId, tbIds, cols, partIds);
-    }
-
     public static List<ResultRow> fetchRecentStatsUpdatedCol() {
         return StatisticsUtil.execStatisticQuery(FETCH_RECENT_STATS_UPDATED_COL);
     }
@@ -320,5 +305,37 @@ public class StatisticsRepository {
         params.put("limit", String.valueOf(limit));
         params.put("offset", String.valueOf(offset));
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FETCH_STATS_FULL_NAME));
+    }
+
+    public static List<ResultRow> fetchExpiredJobs(long limit, long offset) {
+        Map<String, String> params = new HashMap<>();
+        params.put("limit", String.valueOf(limit));
+        params.put("offset", String.valueOf(offset));
+        params.put("now", String.valueOf(System.currentTimeMillis()));
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FIND_EXPIRED_JOBS));
+    }
+
+    public static Map<String, Set<Long>> fetchColAndPartsForStats(long tblId) {
+        Map<String, String> params = Maps.newHashMap();
+        params.put("tblId", String.valueOf(tblId));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String partSql = stringSubstitutor.replace(FETCH_STATS_PART_ID);
+        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(partSql);
+
+        Map<String, Set<Long>> columnToPartitions = Maps.newHashMap();
+
+        resultRows.forEach(row -> {
+            try {
+                String colId = row.getColumnValue("col_id");
+                String partId = row.getColumnValue("part_id");
+                columnToPartitions.computeIfAbsent(colId,
+                        k -> new HashSet<>()).add(Long.valueOf(partId));
+            } catch (NumberFormatException | DdlException e) {
+                LOG.warn("Failed to obtain the column and partition for statistics.{}",
+                        e.getMessage());
+            }
+        });
+
+        return columnToPartitions;
     }
 }

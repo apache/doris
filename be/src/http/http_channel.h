@@ -17,12 +17,11 @@
 
 #pragma once
 
-#include <cstdint>
+#include <stddef.h>
+
 #include <string>
 
 #include "http/http_status.h"
-
-struct mg_connection;
 
 namespace doris {
 

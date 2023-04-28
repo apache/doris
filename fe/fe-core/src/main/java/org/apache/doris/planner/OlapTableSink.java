@@ -71,12 +71,13 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -90,6 +91,9 @@ public class OlapTableSink extends DataSink {
     private TupleDescriptor tupleDescriptor;
     // specified partition ids.
     private List<Long> partitionIds;
+    // partial update input columns
+    private boolean isPartialUpdate = false;
+    private HashSet<String> partialUpdateInputColumns;
 
     // set after init called
     private TDataSink tDataSink;
@@ -138,6 +142,11 @@ public class OlapTableSink extends DataSink {
             singleReplicaLoad = false;
             LOG.warn("Single replica load not supported by TStorageFormat.V1. table: {}", dstTable.getName());
         }
+    }
+
+    public void setPartialUpdateInputColumns(boolean isPartialUpdate, HashSet<String> columns) {
+        this.isPartialUpdate = isPartialUpdate;
+        this.partialUpdateInputColumns = columns;
     }
 
     public void updateLoadId(TUniqueId newLoadId) {
@@ -230,6 +239,12 @@ public class OlapTableSink extends DataSink {
             indexSchema.setColumnsDesc(columnsDesc);
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
+        }
+        schemaParam.setIsPartialUpdate(isPartialUpdate);
+        if (isPartialUpdate) {
+            for (String s : partialUpdateInputColumns) {
+                schemaParam.addToPartialUpdateInputColumns(s);
+            }
         }
         return schemaParam;
     }

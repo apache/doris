@@ -17,18 +17,27 @@
 
 #include "service/point_query_executor.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <stdlib.h>
+
 #include "olap/lru_cache.h"
+#include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
 #include "olap/storage_engine.h"
-#include "service/internal_service.h"
-#include "util/defer_op.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_util.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/sink/vmysql_result_writer.cpp"
+#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 
@@ -40,12 +49,12 @@ Reusable::~Reusable() {
 
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       size_t block_size) {
-    _runtime_state.reset(new RuntimeState());
+    _runtime_state = RuntimeState::create_unique();
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     _block_pool.resize(block_size);
     for (int i = 0; i < _block_pool.size(); ++i) {
-        _block_pool[i] = std::make_unique<vectorized::Block>(tuple_desc()->slots(), 10);
+        _block_pool[i] = vectorized::Block::create_unique(tuple_desc()->slots(), 10);
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_runtime_state->obj_pool(), output_exprs,
@@ -60,7 +69,7 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
 std::unique_ptr<vectorized::Block> Reusable::get_block() {
     std::lock_guard lock(_block_mutex);
     if (_block_pool.empty()) {
-        return std::make_unique<vectorized::Block>(tuple_desc()->slots(), 4);
+        return vectorized::Block::create_unique(tuple_desc()->slots(), 4);
     }
     auto block = std::move(_block_pool.back());
     CHECK(block != nullptr);
@@ -246,7 +255,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, &location,
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, true, nullptr, &location,
                                       INT32_MAX /*rethink?*/, rowset_ptr.get()));
         if (st.is_not_found()) {
             continue;

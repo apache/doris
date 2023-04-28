@@ -17,11 +17,24 @@
 
 #pragma once
 
-#include "runtime/runtime_state.h"
+#include <gen_cpp/Types_types.h>
+
+#include <list>
+#include <string>
+
+#include "common/global_types.h"
+#include "common/status.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TPlanNode;
+
 namespace vectorized {
+class VScanner;
+
 class NewJdbcScanNode : public VScanNode {
 public:
     NewJdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
@@ -31,7 +44,7 @@ public:
 
 protected:
     Status _init_profile() override;
-    Status _init_scanners(std::list<VScanner*>* scanners) override;
+    Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
 private:
     std::string _table_name;

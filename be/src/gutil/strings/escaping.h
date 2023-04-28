@@ -27,7 +27,7 @@ using std::string;
 #include <vector>
 using std::vector;
 
-#include <common/logging.h>
+#include "common/logging.h"
 
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/charset.h"

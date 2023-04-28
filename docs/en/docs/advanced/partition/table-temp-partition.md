@@ -50,7 +50,7 @@ ALTER TABLE tbl1 ADD TEMPORARY PARTITION tp1 VALUES LESS THAN ("2020-02-01");
 ALTER TABLE tbl2 ADD TEMPORARY PARTITION tp1 VALUES [("2020-01-01"), ("2020-02-01"));
 
 ALTER TABLE tbl1 ADD TEMPORARY PARTITION tp1 VALUES LESS THAN ("2020-02-01")
-("in_memory" = "true", "replication_num" = "1")
+("replication_num" = "1")
 DISTRIBUTED BY HASH (k1) BUCKETS 5;
 
 ALTER TABLE tbl3 ADD TEMPORARY PARTITION tp1 VALUES IN ("Beijing", "Shanghai");
@@ -58,7 +58,7 @@ ALTER TABLE tbl3 ADD TEMPORARY PARTITION tp1 VALUES IN ("Beijing", "Shanghai");
 ALTER TABLE tbl4 ADD TEMPORARY PARTITION tp1 VALUES IN ((1, "Beijing"), (1, "Shanghai"));
 
 ALTER TABLE tbl3 ADD TEMPORARY PARTITION tp1 VALUES IN ("Beijing", "Shanghai")
-("in_memory" = "true", "replication_num" = "1")
+("replication_num" = "1")
 DISTRIBUTED BY HASH(k1) BUCKETS 5;
 
 ```
@@ -68,7 +68,7 @@ See `HELP ALTER TABLE;` for more help and examples.
 Some instructions for adding operations:
 
 * Adding a temporary partition is similar to adding a formal partition. The partition range of the temporary partition is independent of the formal partition.
-* Temporary partition can independently specify some attributes. Includes information such as the number of buckets, the number of replicas, whether it is a memory table, or the storage medium.
+* Temporary partition can independently specify some attributes. Includes information such as the number of buckets, the number of replicas, or the storage medium.
 
 ### Delete temporary partition
 

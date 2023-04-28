@@ -178,7 +178,7 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
-MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
+MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
 echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
