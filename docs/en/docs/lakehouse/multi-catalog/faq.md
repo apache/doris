@@ -107,5 +107,5 @@ under the License.
 
     Add a property in CATALOG:
     ```
-    'fs.defaultFS' = 'hdfs://nameservice1'
+    'fs.defaultFS' = 'hdfs://<your_nameservice_or_actually_HDFS_IP_and_port>'
     ```

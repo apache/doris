@@ -108,5 +108,5 @@ under the License.
 
     可以在 CATALOG 的 PROPERTIES 中添加
     ```
-    'fs.defaultFS' = 'hdfs://nameservice1'
+    'fs.defaultFS' = 'hdfs://<your_nameservice_or_actually_HDFS_IP_and_port>'
     ```
