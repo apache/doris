@@ -128,7 +128,7 @@ private:
 
     Statistics get_cache_statistics() override;
 
-    virtual size_t try_release() override;
+    size_t try_release() override;
 
     LRUFileCache::LRUQueue& get_queue(CacheType type);
     const LRUFileCache::LRUQueue& get_queue(CacheType type) const;

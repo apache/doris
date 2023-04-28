@@ -304,7 +304,7 @@ public:
             RuntimeProfile* profile, const FileSystemProperties& system_properties,
             const FileDescription& file_description, std::shared_ptr<io::FileSystem>* file_system,
             io::FileReaderSPtr* file_reader, AccessMode access_mode = SEQUENTIAL,
-            io::FileCachePolicy cache_policy = io::FileCachePolicy::NO_CACHE,
+            io::FileReaderOptions reader_options = FileFactory::NO_CACHE_READER_OPTIONS,
             const IOContext* io_ctx = nullptr,
             const PrefetchRange file_range = PrefetchRange(0, 0));
 };

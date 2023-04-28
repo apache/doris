@@ -74,8 +74,14 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         *json_metrics = result.str();
         return Status::OK();
     } else if (operation == "release") {
+        size_t released = 0;
+        if (req->param("base_path") != "") {
+            released = io::FileCacheFactory::instance().try_release(req->param("base_path"));
+        } else {
+            released = io::FileCacheFactory::instance().try_release();
+        }
         EasyJson json;
-        json["released_elements"] = io::FileCacheFactory::instance().try_release();
+        json["released_elements"] = released;
         *json_metrics = json.ToString();
         return Status::OK();
     }

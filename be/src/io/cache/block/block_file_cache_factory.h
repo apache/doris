@@ -46,7 +46,10 @@ public:
 
     size_t try_release();
 
+    size_t try_release(const std::string& base_path);
+
     CloudFileCachePtr get_by_path(const IFileCache::Key& key);
+    CloudFileCachePtr get_by_path(const std::string& cache_base_path);
     std::vector<IFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
             const TUniqueId& query_id);
     FileCacheFactory() = default;
@@ -55,6 +58,7 @@ public:
 
 private:
     std::vector<std::unique_ptr<IFileCache>> _caches;
+    std::unordered_map<std::string, CloudFileCachePtr> _path_to_cache;
 };
 
 } // namespace io
