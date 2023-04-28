@@ -80,6 +80,8 @@ public class TableProperty implements Writable {
 
     private boolean disableAutoCompaction = false;
 
+    private boolean enableSingleReplicaCompaction = false;
+
     private boolean storeRowColumn = false;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
@@ -171,6 +173,16 @@ public class TableProperty implements Writable {
 
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
+    }
+
+    public TableProperty buildEnableSingleReplicaCompaction() {
+        enableSingleReplicaCompaction = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION, "false"));
+        return this;
+    }
+
+    public boolean enableSingleReplicaCompaction() {
+        return enableSingleReplicaCompaction;
     }
 
     public TableProperty buildStoreRowColumn() {
@@ -402,7 +414,8 @@ public class TableProperty implements Writable {
                 .buildBinlogConfig()
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
-                .buildDisableAutoCompaction();
+                .buildDisableAutoCompaction()
+                .buildEnableSingleReplicaCompaction();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

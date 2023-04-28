@@ -1007,6 +1007,7 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getCompressionType(),
                             localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
                             localTbl.disableAutoCompaction(),
+                            localTbl.enableSingleReplicaCompaction(),
                             localTbl.storeRowColumn(),
                             localTbl.isDynamicSchema());
 
