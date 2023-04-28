@@ -309,6 +309,8 @@ public:
 
     Status create_rowset_writer(RowsetWriterContext& context,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
+    Status create_transient_rowset_writer(RowsetWriterContext& context, const RowsetId& rowset_id,
+                                          std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_vertical_rowset_writer(RowsetWriterContext& context,
                                          std::unique_ptr<RowsetWriter>* rowset_writer);
@@ -393,9 +395,9 @@ public:
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
-    Status lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
-                          RowLocation* row_location, uint32_t version,
-                          RowsetSharedPtr* rowset = nullptr);
+    Status lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+                          const RowsetIdUnorderedSet* rowset_ids, RowLocation* row_location,
+                          uint32_t version, RowsetSharedPtr* rowset = nullptr);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
@@ -403,20 +405,44 @@ public:
                            OlapReaderStatistics& stats, vectorized::Block* block,
                            bool write_to_cache = false);
 
+    Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
+                                 const std::vector<uint32_t>& rowids,
+                                 const std::string& column_name, vectorized::MutableColumnPtr& dst);
+
+    Status fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint32_t segid,
+                                          const std::vector<uint32_t>& rowids,
+                                          const std::vector<uint32_t>& cids,
+                                          vectorized::Block& block);
+
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
     // finally this rowset publish version with 8, we should make up data
     // for rowset 6-7. Also, if a compaction happens between commit_txn and
     // publish_txn, we should remove compaction input rowsets' delete_bitmap
     // and build newly generated rowset's delete_bitmap
-    Status calc_delete_bitmap(RowsetId rowset_id,
+    Status calc_delete_bitmap(RowsetSharedPtr rowset,
                               const std::vector<segment_v2::SegmentSharedPtr>& segments,
                               const RowsetIdUnorderedSet* specified_rowset_ids,
                               DeleteBitmapPtr delete_bitmap, int64_t version,
-                              bool check_pre_segments = false);
+                              bool check_pre_segments = false,
+                              RowsetWriter* rowset_writer = nullptr);
+    Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
+                                const std::vector<uint32_t> cids_to_read,
+                                const PartialUpdateReadPlan& read_plan,
+                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index);
+    void prepare_to_read(const RowLocation& row_location, size_t pos,
+                         PartialUpdateReadPlan* read_plan);
+    Status generate_new_block_for_partial_update(
+            TabletSchemaSPtr rowset_schema, const PartialUpdateReadPlan& read_plan_ori,
+            const PartialUpdateReadPlan& read_plan_update,
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            vectorized::Block* output_block);
 
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
-    Status update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info);
+
+    Status update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info,
+                                RowsetWriter* rowset_writer = nullptr);
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
@@ -429,6 +455,7 @@ public:
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
                     location_map);
     RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
+    void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     bool check_all_rowset_segment();
 

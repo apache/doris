@@ -576,6 +576,7 @@ struct TStreamLoadPutRequest {
     42: optional bool trim_double_quotes // trim double quotes for csv
     43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
     44: optional bool enable_profile
+    45: optional bool partial_update
 }
 
 struct TStreamLoadPutResult {
