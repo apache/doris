@@ -281,7 +281,7 @@ public:
     void change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
-    Status update_filter(const UpdateRuntimeFilterParamsV2* param);
+    Status update_filter(const UpdateRuntimeFilterParamsV2* param, int64_t start_apply);
 
     void set_ignored() { _is_ignored = true; }
 
@@ -298,6 +298,8 @@ public:
     Status join_rpc();
 
     void init_profile(RuntimeProfile* parent_profile);
+
+    std::string& get_name() { return _name; }
 
     void update_runtime_filter_type_to_profile();
 
@@ -394,8 +396,6 @@ protected:
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
-    // unix millis
-    RuntimeProfile::Counter* _await_time_cost = nullptr;
 
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;
@@ -403,7 +403,8 @@ protected:
     const bool _enable_pipeline_exec;
 
     bool _profile_init = false;
-
+    doris::Mutex _profile_mutex;
+    std::string _name;
     bool _opt_remote_rf;
 };
 
