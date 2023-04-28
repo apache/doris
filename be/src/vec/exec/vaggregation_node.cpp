@@ -1778,6 +1778,9 @@ void AggregationNode::_close_with_serialized_key() {
                         mapped = nullptr;
                     }
                 });
+                if (data.has_null_key_data()) {
+                    _destroy_agg_status(data.get_null_key_data());
+                }
             },
             _agg_data->_aggregated_method_variant);
     release_tracker();
