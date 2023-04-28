@@ -51,8 +51,52 @@ public:
         return _type_converted_decoder->skip_values(num_values);
     }
 
+    template <bool has_filter>
     Status decode_byte_array(const std::vector<Slice>& decoded_vals, MutableColumnPtr& doris_column,
-                             DataTypePtr& data_type, ColumnSelectVector& select_vector);
+                             DataTypePtr& data_type, ColumnSelectVector& select_vector) {
+        TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+        switch (logical_type) {
+        case TypeIndex::String:
+            [[fallthrough]];
+        case TypeIndex::FixedString: {
+            ColumnSelectVector::DataReadType read_type;
+            while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
+                switch (read_type) {
+                case ColumnSelectVector::CONTENT: {
+                    std::vector<StringRef> string_values;
+                    string_values.reserve(run_length);
+                    for (size_t i = 0; i < run_length; ++i) {
+                        size_t length = decoded_vals[_current_value_idx].size;
+                        string_values.emplace_back(decoded_vals[_current_value_idx].data, length);
+                        _current_value_idx++;
+                    }
+                    doris_column->insert_many_strings(&string_values[0], run_length);
+                    break;
+                }
+                case ColumnSelectVector::NULL_DATA: {
+                    doris_column->insert_many_defaults(run_length);
+                    break;
+                }
+                case ColumnSelectVector::FILTERED_CONTENT: {
+                    _current_value_idx += run_length;
+                    break;
+                }
+                case ColumnSelectVector::FILTERED_NULL: {
+                    // do nothing
+                    break;
+                }
+                }
+            }
+            _current_value_idx = 0;
+            return Status::OK();
+        }
+        default:
+            break;
+        }
+        return Status::InvalidArgument(
+                "Can't decode parquet physical type BYTE_ARRAY to doris logical type {}",
+                getTypeName(logical_type));
+    }
 
 protected:
     void init_values_converter() {
@@ -175,6 +219,16 @@ public:
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter) override {
+        if (select_vector.has_filter()) {
+            return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
+        } else {
+            return _decode_values<false>(doris_column, data_type, select_vector, is_dict_filter);
+        }
+    }
+
+    template <bool has_filter>
+    Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                          ColumnSelectVector& select_vector, bool is_dict_filter) {
         size_t num_values = select_vector.num_values();
         size_t null_count = select_vector.num_nulls();
         // init read buffer
@@ -186,7 +240,7 @@ public:
             return Status::IOError("Expected to decode {} values, but decoded {} values.",
                                    num_values - null_count, num_valid_values);
         }
-        return decode_byte_array(_values, doris_column, data_type, select_vector);
+        return decode_byte_array<has_filter>(_values, doris_column, data_type, select_vector);
     }
 
     Status decode(Slice* buffer, int num_values, int* out_num_values) {
@@ -242,13 +296,23 @@ public:
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter) override {
+        if (select_vector.has_filter()) {
+            return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
+        } else {
+            return _decode_values<false>(doris_column, data_type, select_vector, is_dict_filter);
+        }
+    }
+
+    template <bool has_filter>
+    Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                          ColumnSelectVector& select_vector, bool is_dict_filter) {
         size_t num_values = select_vector.num_values();
         size_t null_count = select_vector.num_nulls();
         _values.resize(num_values - null_count);
         int num_valid_values;
         RETURN_IF_ERROR(_get_internal(_values.data(), num_values - null_count, &num_valid_values));
         DCHECK_EQ(num_values - null_count, num_valid_values);
-        return decode_byte_array(_values, doris_column, data_type, select_vector);
+        return decode_byte_array<has_filter>(_values, doris_column, data_type, select_vector);
     }
 
     void set_data(Slice* slice) override {

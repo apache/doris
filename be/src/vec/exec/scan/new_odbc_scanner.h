@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 
+#include "common/factory_creator.h"
 #include "common/global_types.h"
 #include "common/status.h"
 #include "exec/odbc_connector.h"
@@ -43,6 +44,8 @@ class VExprContext;
 
 namespace doris::vectorized {
 class NewOdbcScanner : public VScanner {
+    ENABLE_FACTORY_CREATOR(NewOdbcScanner);
+
 public:
     NewOdbcScanner(RuntimeState* state, NewOdbcScanNode* parent, int64_t limit,
                    const TOdbcScanNode& odbc_scan_node, RuntimeProfile* profile);

@@ -30,6 +30,7 @@
 #include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "task_group/task_group.h"
 #include "util/pretty_printer.h"
@@ -48,8 +49,12 @@ class QueryContext {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
-    QueryContext(int total_fragment_num, ExecEnv* exec_env)
-            : fragment_num(total_fragment_num), timeout_second(-1), _exec_env(exec_env) {
+    QueryContext(int total_fragment_num, ExecEnv* exec_env, const TQueryOptions& query_options)
+            : fragment_num(total_fragment_num),
+              timeout_second(-1),
+              _exec_env(exec_env),
+              _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
+              _query_options(query_options) {
         _start_time = vectorized::VecDateTimeValue::local_time();
         _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
         _shared_scanner_controller.reset(new vectorized::SharedScannerController());
@@ -139,6 +144,29 @@ public:
 
     taskgroup::TaskGroup* get_task_group() const { return _task_group.get(); }
 
+    int execution_timeout() const {
+        return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
+                                                        : _query_options.query_timeout;
+    }
+
+    int32_t runtime_filter_wait_time_ms() const {
+        return _query_options.runtime_filter_wait_time_ms;
+    }
+
+    bool enable_pipeline_exec() const {
+        return _query_options.__isset.enable_pipeline_engine &&
+               _query_options.enable_pipeline_engine;
+    }
+
+    int be_exec_version() const {
+        if (!_query_options.__isset.be_exec_version) {
+            return 0;
+        }
+        return _query_options.be_exec_version;
+    }
+
+    RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
+
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
@@ -186,6 +214,8 @@ private:
     vectorized::RuntimePredicate _runtime_predicate;
 
     taskgroup::TaskGroupPtr _task_group;
+    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
+    const TQueryOptions _query_options;
 };
 
 } // namespace doris

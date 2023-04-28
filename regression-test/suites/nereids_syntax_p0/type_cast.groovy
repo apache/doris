@@ -46,4 +46,9 @@ suite("type_cast") {
             where case when id > 0 then 2 else 'abc' end = '2'""")
         result([[1]])
     }
+
+    test {
+        sql("select '12' = id from (select '1' as id)a")
+        result([[false]])
+    }
 }

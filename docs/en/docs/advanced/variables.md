@@ -189,11 +189,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
 * `disable_colocate_join`
 
-    Controls whether the [Colocation Join](../advanced/join-optimization/colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
+    Controls whether the [Colocation Join](../query-acceleration/join-optimization/colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
     
 * `enable_bucket_shuffle_join`
 
-    Controls whether the [Bucket Shuffle Join](../advanced/join-optimization/bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
+    Controls whether the [Bucket Shuffle Join](../query-acceleration/join-optimization/bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
 
 * `disable_streaming_preaggregations`
 

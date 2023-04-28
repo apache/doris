@@ -48,7 +48,7 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         this(conjuncts, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalHaving(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
+    private LogicalHaving(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_HAVING, groupExpression, logicalProperties, child);
         this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));

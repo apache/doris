@@ -78,6 +78,7 @@ suite("test_map_load_and_function", "p0") {
     // map construct
     qt_select_map1 "SELECT map('k11', 1000, 'k22', 2000)"
     qt_select_map2 "SELECT map(1000, 'k11', 2000, 'k22')"
+    qt_select_map3 "SELECT map()"
 
     // map element_at
     qt_select_element1 "SELECT map('k11', 1000, 'k22', 2000)['k11']"
@@ -88,6 +89,14 @@ suite("test_map_load_and_function", "p0") {
     qt_select_element6 "SELECT map(1000, 'k11', 2000, 'k22')[2000]"
     qt_select_element7 "SELECT map(1000, 'k11', 2000, 'k22')[3000]"
     qt_select_element8 "SELECT map('k11', 1000, 'k22', 2000)[NULL]"
+    qt_select_element9 "SELECT {'k11':1000, 'k22':2000}['k11']"
+    qt_select_element10 "SELECT {'k11':1000, 'k22':2000}['k22']"
+    qt_select_element11 "SELECT {'k11':1000, 'k22':2000}['nokey']"
+    qt_select_element12 "SELECT {'k11':1000, 'k22':2000}[NULL]"
+    qt_select_element13 "SELECT {1000:'k11', 2000:'k22'}[1000]"
+    qt_select_element14 "SELECT {1000:'k11', 2000:'k22'}[2000]"
+    qt_select_element15 "SELECT {1000:'k11', 2000:'k22'}[3000]"
+    qt_select_element16 "SELECT {1000:'k11', 2000:'k22'}[NULL]"
     qt_select_element101 "SELECT id, m, m['k1'] FROM ${testTable} ORDER BY id"
     qt_select_element102 "SELECT id, m, m['k2'] FROM ${testTable} ORDER BY id"
     qt_select_element103 "SELECT id, m, m['  11amory  '] FROM ${testTable} ORDER BY id"

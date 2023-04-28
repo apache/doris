@@ -359,6 +359,8 @@ To enable automatic update, you need to modify the hive-site.xml of HMS and then
 
 > Note: To enable automatic update, whether for existing Catalogs or newly created Catalogs, all you need is to set `enable_hms_events_incremental_sync` to `true`, and then restart the FE node. You don't need to manually update the metadata before or after the restart.
 
+<version since="dev">
+
 #### Timing Refresh
 
 When creating a catalog, specify the refresh time parameter `metadata_refresh_interval_sec` in the properties, in seconds. If this parameter is set when creating a catalog, the master node of FE will refresh the catalog regularly according to the parameter value. Three types are currently supported
@@ -377,3 +379,5 @@ CREATE CATALOG es PROPERTIES (
      "metadata_refresh_interval_sec"="20"
 );
 ```
+
+</version>

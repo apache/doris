@@ -2152,5 +2152,18 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = false;
+
+    /**
+     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
+     */
+    @ConfField
+    public static boolean enable_stats = true;
+
+    /**
+     * Whether create a duplicate table without keys by default
+     * when creating a table which not set key type and key columns
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean experimental_enable_duplicate_without_keys_by_default = false;
 }
 
