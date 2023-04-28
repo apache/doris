@@ -129,7 +129,6 @@ public:
     }
 
     void set_max_queue_size(const int max_queue_size) override {
-        LOG_INFO("yxc set_max_queue_size ").tag("max_queue_size", max_queue_size);
         _max_queue_size = max_queue_size;
         for (int i = 0; i < max_queue_size; ++i) {
             _queue_mutexs.emplace_back(new std::mutex);
