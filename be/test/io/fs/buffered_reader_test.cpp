@@ -284,8 +284,9 @@ TEST_F(BufferedReaderTest, test_merged_io) {
     // read column 0
     merge_reader.read_at(0, result, &bytes_read, nullptr);
     // will merge 3MB + 1MB + 3MB, and read out 1MB
-    // so _remaining in MergeRangeFileReader is: 64MB - (3MB + 3MB - 1MB) = 59MB
-    EXPECT_EQ(59 * 1024 * 1024, merge_reader.buffer_remaining());
+    // so _remaining in MergeRangeFileReader is: ${NUM_BOX}MB - (3MB + 3MB - 1MB)
+    EXPECT_EQ((io::MergeRangeFileReader::NUM_BOX - 5) * 1024 * 1024,
+              merge_reader.buffer_remaining());
     auto& range_cached_data = merge_reader.range_cached_data();
     // range 0 is read out 1MB, so the cached range is [1MB, 3MB)
     // range 1 is not read, so the cached range is [4MB, 7MB)
@@ -299,14 +300,15 @@ TEST_F(BufferedReaderTest, test_merged_io) {
     // the column 1 is already cached
     EXPECT_EQ(5 * 1024 * 1024, range_cached_data[1].start_offset);
     EXPECT_EQ(7 * 1024 * 1024, range_cached_data[1].end_offset);
-    EXPECT_EQ(60 * 1024 * 1024, merge_reader.buffer_remaining());
+    EXPECT_EQ((io::MergeRangeFileReader::NUM_BOX - 4) * 1024 * 1024,
+              merge_reader.buffer_remaining());
 
     // read all cached data
     merge_reader.read_at(1 * 1024 * 1024, result, &bytes_read, nullptr);
     merge_reader.read_at(2 * 1024 * 1024, result, &bytes_read, nullptr);
     merge_reader.read_at(5 * 1024 * 1024, result, &bytes_read, nullptr);
     merge_reader.read_at(6 * 1024 * 1024, result, &bytes_read, nullptr);
-    EXPECT_EQ(64 * 1024 * 1024, merge_reader.buffer_remaining());
+    EXPECT_EQ(io::MergeRangeFileReader::TOTAL_BUFFER_SIZE, merge_reader.buffer_remaining());
 
     // read all remaining columns
     for (int i = 0; i < 3; ++i) {
@@ -334,7 +336,7 @@ TEST_F(BufferedReaderTest, test_merged_io) {
     }
 
     // check the final state
-    EXPECT_EQ(64 * 1024 * 1024, merge_reader.buffer_remaining());
+    EXPECT_EQ(io::MergeRangeFileReader::TOTAL_BUFFER_SIZE, merge_reader.buffer_remaining());
     for (auto& cached_data : merge_reader.range_cached_data()) {
         EXPECT_TRUE(cached_data.empty());
     }
