@@ -35,6 +35,7 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
+import org.apache.doris.analysis.AlterResourceGroupStmt;
 import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
@@ -92,6 +93,7 @@ import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
+import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
@@ -302,6 +304,8 @@ public class DdlExecutor {
             env.createAnalysisJob((AnalyzeStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterResourceStmt) {
             env.getResourceMgr().alterResource((AlterResourceStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterResourceGroupStmt) {
+            env.getResourceGroupMgr().alterResourceGroup((AlterResourceGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreatePolicyStmt) {
             env.getPolicyMgr().createPolicy((CreatePolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropPolicyStmt) {
@@ -332,6 +336,8 @@ public class DdlExecutor {
             ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof DropStatsStmt) {
             env.getAnalysisManager().dropStats((DropStatsStmt) ddlStmt);
+        } else if (ddlStmt instanceof KillAnalysisJobStmt) {
+            env.getAnalysisManager().handleKillAnalyzeStmt((KillAnalysisJobStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

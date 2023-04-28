@@ -204,6 +204,8 @@ public:
         return Status::OK();
     }
 
+    size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
+
     void light_copy(BloomFilterFuncBase* bloomfilter_func) {
         auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;

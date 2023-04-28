@@ -117,9 +117,9 @@ protected:
     Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished,
                                 const int64_t index_id);
 
-    template <typename Request, typename Response>
-    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel, const Request& request,
-                       Response* response) {
+    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel,
+                       const PTabletWriterAddBlockRequest& request,
+                       PTabletWriterAddBlockResult* response) {
         bool finished = false;
         auto index_id = request.index_id();
         RETURN_IF_ERROR(channel->close(

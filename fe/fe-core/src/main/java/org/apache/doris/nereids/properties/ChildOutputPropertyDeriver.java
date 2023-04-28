@@ -21,8 +21,11 @@ import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -43,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -137,11 +141,16 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             for (NamedExpression namedExpression : project.getProjects()) {
                 if (namedExpression instanceof Alias) {
                     Alias alias = (Alias) namedExpression;
-                    if (alias.child() instanceof SlotReference) {
-                        projections.put(((SlotReference) alias.child()).getExprId(), alias.getExprId());
+                    Expression child = alias.child();
+                    if (child instanceof SlotReference) {
+                        projections.put(((SlotReference) child).getExprId(), alias.getExprId());
+                    } else if (child instanceof Cast && child.child(0) instanceof Slot
+                            && isSameHashValue(child.child(0).getDataType(), child.getDataType())) {
+                        // cast(slot as varchar(10)) can do projection if slot is varchar(3)
+                        projections.put(((Slot) child.child(0)).getExprId(), alias.getExprId());
                     } else {
                         obstructions.addAll(
-                                alias.child().getInputSlots().stream()
+                                child.getInputSlots().stream()
                                         .map(NamedExpression::getExprId)
                                         .collect(Collectors.toSet()));
                     }
@@ -267,5 +276,14 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         return childrenOutputProperties.get(0);
+    }
+
+    private boolean isSameHashValue(DataType originType, DataType castType) {
+        if (originType.isStringLikeType() && (castType.isVarcharType() || castType.isStringType())
+                && (castType.width() >= originType.width() || castType.width() < 0)) {
+            return true;
+        } else {
+            return false;
+        }
     }
 }

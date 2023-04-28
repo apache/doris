@@ -158,8 +158,22 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 - Spark 相关参数如下：
   - `spark.master`: 必填，目前支持 yarn，spark://host:port。
   - `spark.submit.deployMode`: Spark 程序的部署模式，必填，支持 cluster，client 两种。
-  - `spark.hadoop.yarn.resourcemanager.address`: master 为 yarn 时必填。
   - `spark.hadoop.fs.defaultFS`: master为yarn时必填。
+- YARN RM 相关参数如下：
+  - 如果 Spark 为单点 RM，则需要配置`spark.hadoop.yarn.resourcemanager.address`，表示单点 ResourceManager 地址。
+  - 如果 Spark 为 RM-HA，则需要配置（其中 hostname 和 address 任选一个配置）：
+  - `spark.hadoop.yarn.resourcemanager.ha.enabled`: ResourceManager 启用 HA，设置为 true。
+  - `spark.hadoop.yarn.resourcemanager.ha.rm-ids`: ResourceManager 逻辑 ID 列表。
+  - `spark.hadoop.yarn.resourcemanager.hostname.rm-id`: 对于每个 rm-id，指定 ResourceManager 对应的主机名。
+  - `spark.hadoop.yarn.resourcemanager.address.rm-id`: 对于每个 rm-id，指定 host:port 以供客户端提交作业。
+- HDFS HA 相关参数如下：
+  - `spark.hadoop.fs.defaultFS`, hdfs客户端默认路径前缀
+  - `spark.hadoop.dfs.nameservices`, hdfs集群逻辑名称
+  - `spark.hadoop.dfs.ha.namenodes.nameservices01` , nameservice中每个NameNode的唯一标识符
+  - `spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode1`, 每个NameNode的完全限定的RPC地址
+  - `spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode2`, 每个NameNode的完全限定的RPC地址
+  - `spark.hadoop.dfs.client.failover.proxy.provider` = `org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider`, 设置实现类
+- `working_dir`: ETL 使用的目录。spark作为ETL资源使用时必填。例如：hdfs://host:port/tmp/doris。
   - 其他参数为可选，参考http://spark.apache.org/docs/latest/configuration.html
 - `working_dir`: ETL 使用的目录。spark作为ETL资源使用时必填。例如：hdfs://host:port/tmp/doris。
 - `broker.hadoop.security.authentication`：指定认证方式为 kerberos。
@@ -204,6 +218,37 @@ PROPERTIES
   "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
   "broker" = "broker1"
 );
+
+-- yarn HA 模式
+CREATE EXTERNAL RESOURCE sparkHA
+PROPERTIES
+(
+  "type" = "spark",
+  "spark.master" = "yarn",
+  "spark.submit.deployMode" = "cluster",
+  "spark.executor.memory" = "1g",
+  "spark.yarn.queue" = "default",
+  "spark.hadoop.yarn.resourcemanager.ha.enabled" = "true",
+  "spark.hadoop.yarn.resourcemanager.ha.rm-ids" = "rm1,rm2",
+  "spark.hadoop.yarn.resourcemanager.address.rm1" = "xxxx:8032",
+  "spark.hadoop.yarn.resourcemanager.address.rm2" = "xxxx:8032",
+  "spark.hadoop.fs.defaultFS" = "hdfs://nameservices01",
+  "spark.hadoop.dfs.nameservices" = "nameservices01",
+  "spark.hadoop.dfs.ha.namenodes.nameservices01" = "mynamenode1,mynamenode2",
+  "spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
+  "spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
+  "spark.hadoop.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+  "working_dir" = "hdfs://nameservices01/doris_prd_data/sinan/spark_load/",
+  "broker" = "broker_name",
+  "broker.username" = "username",
+  "broker.password" = "",
+  "broker.dfs.nameservices" = "nameservices01",
+  "broker.dfs.ha.namenodes.HDFS4001273" = "mynamenode1, mynamenode2",
+  "broker.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
+  "broker.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
+  "broker.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+);
+
 ```
 
 **Spark Load 支持 Kerberos 认证**

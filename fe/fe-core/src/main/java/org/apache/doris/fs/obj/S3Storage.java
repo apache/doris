@@ -72,6 +72,11 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * @see S3ObjStorage
+ * @see org.apache.doris.fs.remote.S3FileSystem
+ */
+@Deprecated
 public class S3Storage extends BlobStorage {
     private static final Logger LOG = LogManager.getLogger(S3Storage.class);
     private FileSystem dfsFileSystem = null;

@@ -26,6 +26,15 @@ import org.apache.hadoop.fs.RemoteIterator;
 
 import java.util.List;
 
+/**
+ * File system interface.
+ * All file operations should use DFSFileSystem.
+ * @see org.apache.doris.fs.remote.dfs.DFSFileSystem
+ * If the file system use the object storage's SDK, use ObjStorage
+ * @see org.apache.doris.fs.remote.ObjFileSystem
+ * Read and Write operation put in FileOperations
+ * @see org.apache.doris.fs.operations.FileOperations
+ */
 public interface FileSystem {
     Status exists(String remotePath);
 
@@ -39,15 +48,18 @@ public interface FileSystem {
 
     Status delete(String remotePath);
 
+    Status makeDir(String remotePath);
+
     default RemoteIterator<LocatedFileStatus> listLocatedStatus(String remotePath) throws UserException {
         throw new UserException("Not support to listLocatedStatus.");
     }
 
     // List files in remotePath
     // The remote file name will only contains file name only(Not full path)
-    Status list(String remotePath, List<RemoteFile> result);
+    default Status list(String remotePath, List<RemoteFile> result) {
+        return list(remotePath, result, true);
+    }
 
     Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
 
-    Status makeDir(String remotePath);
 }
