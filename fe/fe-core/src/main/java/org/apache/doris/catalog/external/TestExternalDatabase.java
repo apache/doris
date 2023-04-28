@@ -108,7 +108,6 @@ public class TestExternalDatabase extends ExternalDatabase<TestExternalTable> im
         initialized = true;
     }
 
-    // TODO(ftw): drew
     @Override
     public Set<String> getTableNamesWithLock() {
         makeSureInitialized();
