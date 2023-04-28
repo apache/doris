@@ -188,7 +188,7 @@ BOOST_MD5SUM="4bf02e84afb56dfdccd1e6aec9911f4b"
 MYSQL_DOWNLOAD="https://github.com/mysql/mysql-server/archive/mysql-5.7.18.tar.gz"
 MYSQL_NAME=mysql-5.7.18.tar.gz
 MYSQL_SOURCE=mysql-server-mysql-5.7.18
-MYSQL_MD5SUM="11403c628c5e5101e6bf22453dbb2d34"
+MYSQL_MD5SUM="58598b10dce180e4d1fbdd7cf5fa68d6"
 
 # unix odbc
 ODBC_DOWNLOAD="http://www.unixodbc.org/unixODBC-2.3.7.tar.gz"
