@@ -99,26 +99,6 @@ under the License.
     <build>
         <finalName>doris-fe-common</finalName>
         <plugins>
-            <!--thrift-->
-            <plugin>
-                <groupId>org.apache.thrift.tools</groupId>
-                <artifactId>maven-thrift-plugin</artifactId>
-                <version>0.1.11</version>
-                <configuration>
-                    <thriftExecutable>${doris.thirdparty}/installed/bin/thrift</thriftExecutable>
-                    <thriftSourceRoot>${doris.home}/gensrc/thrift</thriftSourceRoot>
-                    <generator>java:fullcamel</generator>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>thrift-sources</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>compile</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>

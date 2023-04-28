@@ -74,8 +74,8 @@ fe/fe-core/gen/
 fe/fe-core/src/main/resources/static/
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/gen/
-fe/fe-core/src/main/java/org/apache/doris/thrift
-fe/fe-core/src/main/java/org/apache/parquet
+fe/fe-common/src/main/java/org/apache/doris/thrift
+fe/fe-common/src/main/java/org/apache/parquet
 
 # BE
 be/build*/
