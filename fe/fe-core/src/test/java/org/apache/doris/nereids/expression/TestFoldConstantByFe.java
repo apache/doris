@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.expression;
 
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -26,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -308,5 +311,14 @@ public class TestFoldConstantByFe {
                 new VarcharLiteral("2001-12-21"),
                 new VarcharLiteral("%Y-%m-%d")
         ).toSql(), answer[answerIdx]);
+    }
+
+    @Test
+    public void testFoldNestedExpression() {
+        String sql = "select makedate(year('2010-04-10'), dayofyear('2010-04-11'))";
+        PlanChecker.from(MemoTestUtils.createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new ExpressionNormalization())
+                .matches(null);
     }
 }
