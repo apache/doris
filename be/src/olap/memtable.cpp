@@ -335,7 +335,7 @@ void MemTable::_collect_vskiplist_results() {
         }
         temp_row_in_blocks.resize(temp_idx);
         size_t need_merge_idx = 0;
-        for (size_t now_row_id = 0;now_row_id < temp_row_in_blocks.size();now_row_id++) {
+        for (size_t now_row_id = 0; now_row_id < temp_row_in_blocks.size(); now_row_id++) {
             auto& now_row = temp_row_in_blocks[now_row_id];
             auto& block_data = in_block.get_columns_with_type_and_name();
             // move key columns
