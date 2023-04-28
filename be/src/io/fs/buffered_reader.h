@@ -68,7 +68,7 @@ struct PrefetchRange {
  *
  * When reading at offset, if [offset, offset + 8MB) contains many random access ranges, the reader
  * will read data in [offset, offset + 8MB) as a whole, and copy the data in random access ranges
- * into small buffers(name as box, default 1MB, 64MB in total). A box can be occupied by many ranges,
+ * into small buffers(name as box, default 1MB, 128MB in total). A box can be occupied by many ranges,
  * and use a reference counter to record how many ranges are cached in the box. If reference counter
  * equals zero, the box can be release or reused by other ranges. When there is no empty box for a new
  * read operation, the read operation will do directly.
@@ -118,11 +118,11 @@ public:
         }
     };
 
-    static constexpr size_t TOTAL_BUFFER_SIZE = 64 * 1024 * 1024;   // 64MB
+    static constexpr size_t TOTAL_BUFFER_SIZE = 128 * 1024 * 1024;  // 128MB
     static constexpr size_t READ_SLICE_SIZE = 8 * 1024 * 1024;      // 8MB
     static constexpr size_t BOX_SIZE = 1 * 1024 * 1024;             // 1MB
     static constexpr size_t SMALL_IO = 2 * 1024 * 1024;             // 2MB
-    static constexpr size_t NUM_BOX = TOTAL_BUFFER_SIZE / BOX_SIZE; // 64
+    static constexpr size_t NUM_BOX = TOTAL_BUFFER_SIZE / BOX_SIZE; // 128
 
     MergeRangeFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
                          const std::vector<PrefetchRange>& random_access_ranges)

@@ -203,7 +203,7 @@ private:
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
-            const RowGroupReader::RowGroupIndex& group);
+            const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
 
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
