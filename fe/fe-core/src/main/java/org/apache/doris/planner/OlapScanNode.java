@@ -709,7 +709,7 @@ public class OlapScanNode extends ScanNode {
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
-            if (!Config.revover_with_skip_missing_version.equalsIgnoreCase("disable")) {
+            if (!Config.recover_with_skip_missing_version.equalsIgnoreCase("disable")) {
                 long tabletVersion = -1L;
                 for (Replica replica : tablet.getReplicas()) {
                     if (replica.getVersion() > tabletVersion) {
@@ -798,7 +798,7 @@ public class OlapScanNode extends ScanNode {
                 scanBackendIds.add(backend.getId());
             }
             if (tabletIsNull) {
-                if (Config.revover_with_skip_missing_version.equalsIgnoreCase("ignore_all")) {
+                if (Config.recover_with_skip_missing_version.equalsIgnoreCase("ignore_all")) {
                     continue;
                 } else {
                     throw new UserException(tabletId + " have no queryable replicas. err: "

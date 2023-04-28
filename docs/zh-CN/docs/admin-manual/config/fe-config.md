@@ -1785,7 +1785,7 @@ show data （其他用法：HELP SHOW DATA）
 
 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
 
-#### `revover_with_skip_missing_version`
+#### `recover_with_skip_missing_version`
 
 默认值：disable
 

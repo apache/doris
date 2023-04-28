@@ -1451,7 +1451,7 @@ public class Config extends ConfigBase {
      *   skip it directly instead of throwing an exception
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static String revover_with_skip_missing_version = "disable";
+    public static String recover_with_skip_missing_version = "disable";
 
     /**
      * Whether to add a delete sign column when create unique table

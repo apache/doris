@@ -1785,7 +1785,7 @@ In some very special circumstances, such as code bugs, or human misoperation, et
 
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing
 
-#### `revover_with_skip_missing_version`
+#### `recover_with_skip_missing_version`
 
 Default：disable
 
