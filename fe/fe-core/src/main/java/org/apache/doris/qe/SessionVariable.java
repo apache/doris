@@ -28,6 +28,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.qe.VariableMgr.VarAttr;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -1177,7 +1178,8 @@ public class SessionVariable implements Serializable, Writable {
         if (parallelExecInstanceNum != 0) {
             return parallelExecInstanceNum;
         }
-        return (int) BackendInfo.get().getParallelExecInstanceNum();
+        Backend.BeInfoCollector beinfoCollector  = Backend.getBeInfoCollector();
+        return (int) beinfoCollector.getParallelExecInstanceNum();
     }
 
     public int getExchangeInstanceParallel() {

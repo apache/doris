@@ -26,7 +26,6 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
-import org.apache.doris.qe.BackendInfo;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -133,8 +132,8 @@ public class HeartbeatMgr extends MasterDaemon {
         // them and write
         // an edit log to synchronize the info to other Frontends
         HbPackage hbPackage = new HbPackage();
-        BackendInfo beinfo = BackendInfo.get();
-        beinfo.clear();
+        Backend.BeInfoCollector beinfoCollector  = Backend.getBeInfoCollector();
+        beinfoCollector.clear();
         for (Future<HeartbeatResponse> future : hbResponses) {
             boolean isChanged = false;
             try {
@@ -148,7 +147,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (response.isBackEnd()) {
                     long numCores = ((BackendHbResponse) response).getNumCores();
                     long beId = ((BackendHbResponse) response).getBeId();
-                    beinfo.addBeInfo(beId, numCores);
+                    beinfoCollector.addBeInfo(beId, numCores);
                 }
                 if (isChanged) {
                     hbPackage.addHbResponse(response);
