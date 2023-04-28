@@ -52,10 +52,14 @@ import java.util.concurrent.TimeUnit;
 public class ExecutionProfile {
     private static final Logger LOG = LogManager.getLogger(ExecutionProfile.class);
 
+    // The root profile of this execution task
     private RuntimeProfile executionProfile;
+    // Profiles for each fragment. And the InstanceProfile is the child of fragment profile.
+    // Which will be added to fragment profile when calling Coordinator::sendFragment()
     private List<RuntimeProfile> fragmentProfiles;
+    // Profile for load channels. Only for load job.
     private RuntimeProfile loadChannelProfile;
-    // A count down latch to mark the completion of each instance.
+    // A countdown latch to mark the completion of each instance.
     // instance id -> dummy value
     private MarkedCountDownLatch<TUniqueId, Long> profileDoneSignal;
 
