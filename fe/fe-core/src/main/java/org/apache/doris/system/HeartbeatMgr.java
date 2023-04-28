@@ -128,19 +128,27 @@ public class HeartbeatMgr extends MasterDaemon {
         }
 
         // collect all heartbeat responses and handle them.
-        // and also we find which node's info is changed, if is changed, we need collect them and write
+        // and also we find which node's info is changed, if is changed, we need collect
+        // them and write
         // an edit log to synchronize the info to other Frontends
         HbPackage hbPackage = new HbPackage();
+        Backend.BeInfoCollector beinfoCollector  = Backend.getBeInfoCollector();
+        beinfoCollector.clear();
         for (Future<HeartbeatResponse> future : hbResponses) {
             boolean isChanged = false;
             try {
-                // the heartbeat rpc's timeout is 5 seconds, so we will not be blocked here very long.
+                // the heartbeat rpc's timeout is 5 seconds, so we will not be blocked here very
+                // long.
                 HeartbeatResponse response = future.get();
                 if (response.getStatus() != HbStatus.OK) {
                     LOG.warn("get bad heartbeat response: {}", response);
                 }
                 isChanged = handleHbResponse(response, false);
-
+                if (response.isBackEnd()) {
+                    long numCores = ((BackendHbResponse) response).getNumCores();
+                    long beId = ((BackendHbResponse) response).getBeId();
+                    beinfoCollector.addBeInfo(beId, numCores);
+                }
                 if (isChanged) {
                     hbPackage.addHbResponse(response);
                 }
@@ -148,7 +156,6 @@ public class HeartbeatMgr extends MasterDaemon {
                 LOG.warn("got exception when doing heartbeat", e);
             }
         } // end for all results
-
         Env.getCurrentEnv().getEditLog().logHeartbeat(hbPackage);
     }
 
@@ -243,6 +250,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     int bePort = tBackendInfo.getBePort();
                     int httpPort = tBackendInfo.getHttpPort();
                     int brpcPort = -1;
+                    long numCores = tBackendInfo.getNumCores();
                     if (tBackendInfo.isSetBrpcPort()) {
                         brpcPort = tBackendInfo.getBrpcPort();
                     }
@@ -256,11 +264,12 @@ public class HeartbeatMgr extends MasterDaemon {
                         nodeRole = tBackendInfo.getBeNodeRole();
                     }
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
-                            System.currentTimeMillis(), beStartTime, version, nodeRole);
+                            System.currentTimeMillis(), beStartTime, version, nodeRole, numCores);
                 } else {
                     return new BackendHbResponse(backendId, backend.getIp(),
                             result.getStatus().getErrorMsgs().isEmpty()
-                                    ? "Unknown error" : result.getStatus().getErrorMsgs().get(0));
+                                    ? "Unknown error"
+                                    : result.getStatus().getErrorMsgs().get(0));
                 }
             } catch (Exception e) {
                 LOG.warn("backend heartbeat got exception", e);

@@ -107,6 +107,10 @@ public class HeartbeatResponse implements Writable {
         status = HbStatus.valueOf(Text.readString(in));
     }
 
+    public boolean isBackEnd() {
+        return type == Type.BACKEND;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();

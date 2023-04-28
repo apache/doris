@@ -52,7 +52,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
             .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
-            .add("HeartbeatFailureCounter").add("NodeRole")
+            .add("HeartbeatFailureCounter").add("NodeRole").add("NumCores")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
@@ -189,6 +189,10 @@ public class BackendsProcDir implements ProcDirInterface {
             // node role, show the value only when backend is alive.
             backendInfo.add(backend.isAlive() ? backend.getNodeRoleTag().value : "");
 
+            // NumCores
+            if (Strings.isNullOrEmpty(clusterName)) {
+                backendInfo.add(String.valueOf(backend.getNumCores()));
+            }
             comparableBackendInfos.add(backendInfo);
         }
 

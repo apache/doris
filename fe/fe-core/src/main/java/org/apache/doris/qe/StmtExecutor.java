@@ -335,7 +335,7 @@ public class StmtExecutor implements ProfileWriter {
                 String.valueOf(beToInstancesNum.values().stream().reduce(0, Integer::sum)));
         infos.put(ProfileManager.INSTANCES_NUM_PER_BE, beToInstancesNum.toString());
         infos.put(ProfileManager.PARALLEL_FRAGMENT_EXEC_INSTANCE,
-                String.valueOf(context.sessionVariable.parallelExecInstanceNum));
+                String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         return infos;
     }
 
@@ -2277,5 +2277,4 @@ public class StmtExecutor implements ProfileWriter {
         return plannerProfile;
     }
 }
-
 

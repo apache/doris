@@ -43,6 +43,7 @@ struct TBackendInfo {
     5: optional string version
     6: optional i64 be_start_time
     7: optional string be_node_role
+    8: optional i64 num_cores
 }
 
 struct THeartbeatResult {

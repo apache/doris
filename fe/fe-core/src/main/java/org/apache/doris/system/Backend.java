@@ -49,6 +49,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -84,6 +85,8 @@ public class Backend implements Writable {
     private volatile int httpPort; // web service
     @SerializedName("beRpcPort")
     private volatile int beRpcPort; // be rpc port
+    @SerializedName("numCores")
+    private volatile long numCores = 1;
     @SerializedName("brpcPort")
     private volatile int brpcPort = -1;
 
@@ -233,6 +236,10 @@ public class Backend implements Writable {
         return this.backendStatus.lastStreamLoadTime;
     }
 
+    public long getNumCores() {
+        return numCores;
+    }
+
     public void setLastStreamLoadTime(long lastStreamLoadTime) {
         this.backendStatus.lastStreamLoadTime = lastStreamLoadTime;
     }
@@ -251,6 +258,10 @@ public class Backend implements Writable {
 
     public void setLoadDisabled(boolean isLoadDisabled) {
         this.backendStatus.isLoadDisabled = isLoadDisabled;
+    }
+
+    public void setNumCores(long numCores) {
+        this.numCores = numCores;
     }
 
     // for test only
@@ -688,6 +699,11 @@ public class Backend implements Writable {
                 this.brpcPort = hbResponse.getBrpcPort();
             }
 
+            if (this.numCores != hbResponse.getNumCores() && !FeConstants.runningUnitTest) {
+                isChanged = true;
+                this.numCores = hbResponse.getNumCores();
+            }
+
             if (!this.getNodeRoleTag().value.equals(hbResponse.getNodeRole()) && Tag.validNodeRoleTag(
                     hbResponse.getNodeRole())) {
                 isChanged = true;
@@ -707,6 +723,7 @@ public class Backend implements Writable {
                 this.lastStartTime = hbResponse.getBeStartTime();
                 isChanged = true;
             }
+
             heartbeatErrMsg = "";
             this.heartbeatFailureCounter = 0;
         } else {
@@ -798,5 +815,60 @@ public class Backend implements Writable {
 
     public String getTagMapString() {
         return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
+    }
+
+    public static BeInfoCollector getBeInfoCollector() {
+        return BeInfoCollector.get();
+    }
+
+    public static class BeInfoCollector {
+        private long numCores = 1;
+        private static volatile BeInfoCollector instance = null;
+        private static final Map<Long, BeInfoCollector> Info = new ConcurrentHashMap<>();
+        private static volatile long minNumCores = Long.MAX_VALUE;
+
+        private BeInfoCollector(long numCores) {
+            this.numCores = numCores;
+        }
+
+        public static BeInfoCollector get() {
+            if (instance == null) {
+                synchronized (BeInfoCollector.class) {
+                    if (instance == null) {
+                        instance = new BeInfoCollector(minNumCores);
+                    }
+                }
+            }
+            return instance;
+        }
+
+        public long getNumCores() {
+            return numCores;
+        }
+
+        public void clear() {
+            Info.clear();
+            minNumCores = Long.MAX_VALUE;
+        }
+
+        public void addBeInfo(long beId, long numCores) {
+            Info.put(beId, new BeInfoCollector(numCores));
+            minNumCores = Math.min(minNumCores, numCores);
+        }
+
+        public long getMinNumCores() {
+            return Math.max(1, minNumCores);
+        }
+
+        public long getParallelExecInstanceNum() {
+            if (getMinNumCores() == Long.MAX_VALUE) {
+                return 1;
+            }
+            return (getMinNumCores() + 1) / 2;
+        }
+
+        public BeInfoCollector getBeInfoCollectorById(long beId) {
+            return Info.get(beId);
+        }
     }
 }
