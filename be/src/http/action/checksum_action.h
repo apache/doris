@@ -27,7 +27,8 @@ class HttpRequest;
 
 class ChecksumAction : public HttpHandlerWithAuth {
 public:
-    explicit ChecksumAction(ExecEnv* exec_env);
+    explicit ChecksumAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                            TPrivilegeType::type type);
 
     ~ChecksumAction() override = default;
 

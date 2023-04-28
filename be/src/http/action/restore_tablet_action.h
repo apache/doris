@@ -33,7 +33,7 @@ class HttpRequest;
 
 class RestoreTabletAction : public HttpHandlerWithAuth {
 public:
-    RestoreTabletAction(ExecEnv* exec_env);
+    RestoreTabletAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
 
     ~RestoreTabletAction() override = default;
 

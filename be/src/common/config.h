@@ -376,7 +376,7 @@ CONF_String(ssl_certificate_path, "");
 // Path of private key
 CONF_String(ssl_private_key_path, "");
 // Whether to check authorization
-CONF_Bool(enable_auth, "false");
+CONF_Bool(enable_http_auth, "false");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.

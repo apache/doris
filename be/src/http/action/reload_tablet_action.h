@@ -30,7 +30,7 @@ class HttpRequest;
 
 class ReloadTabletAction : public HttpHandlerWithAuth {
 public:
-    ReloadTabletAction(ExecEnv* exec_env);
+    ReloadTabletAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
 
     ~ReloadTabletAction() override = default;
 

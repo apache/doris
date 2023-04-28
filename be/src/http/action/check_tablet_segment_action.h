@@ -29,7 +29,8 @@ class ExecEnv;
 
 class CheckTabletSegmentAction : public HttpHandlerWithAuth {
 public:
-    CheckTabletSegmentAction(ExecEnv* exec_env);
+    CheckTabletSegmentAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                             TPrivilegeType::type type);
 
     ~CheckTabletSegmentAction() override = default;
 

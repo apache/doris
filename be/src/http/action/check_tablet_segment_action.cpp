@@ -37,8 +37,9 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-CheckTabletSegmentAction::CheckTabletSegmentAction(ExecEnv* exec_env)
-        : HttpHandlerWithAuth(exec_env) {
+CheckTabletSegmentAction::CheckTabletSegmentAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                                   TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {
     _host = BackendOptions::get_localhost();
 }
 

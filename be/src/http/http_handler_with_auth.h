@@ -35,7 +35,7 @@ class TPrivilegeType;
 // Handler for on http request with auth
 class HttpHandlerWithAuth : public HttpHandler {
 public:
-    HttpHandlerWithAuth(ExecEnv* exec_env);
+    HttpHandlerWithAuth(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
 
     ~HttpHandlerWithAuth() override = default;
 
@@ -49,11 +49,6 @@ public:
         auth_request.__set_priv_ctrl(priv_ctrl);
         auth_request.__set_priv_type(_type);
         return true;
-    }
-
-    void auth(TPrivilegeHier::type hier, TPrivilegeType::type type) {
-        _hier = hier;
-        _type = type;
     }
 
 private:

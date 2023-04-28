@@ -29,7 +29,7 @@ class HttpRequest;
 // Get Meta Info
 class MetaAction : public HttpHandlerWithAuth {
 public:
-    MetaAction(ExecEnv* exec_env);
+    MetaAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
 
     ~MetaAction() override = default;
 

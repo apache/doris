@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "http_handler_with_auth.h"
+
 #include <gen_cpp/HeartbeatService_types.h>
 
-#include "http_handler_with_auth.h"
 #include "http/http_channel.h"
 #include "runtime/client_cache.h"
 #include "util/thrift_rpc_helper.h"
@@ -29,18 +30,16 @@ class TPrivilegeType;
 class TPrivilegeHier;
 class ThriftRpcHelper;
 
-HttpHandlerWithAuth::HttpHandlerWithAuth(ExecEnv* exec_env) {
-    _exec_env = exec_env;
-    _hier = TPrivilegeHier::GLOBAL;
-    _type = TPrivilegeType::NONE;
-}
+HttpHandlerWithAuth::HttpHandlerWithAuth(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                         TPrivilegeType::type type)
+        : _exec_env(exec_env), _hier(hier), _type(type) {}
 
 int HttpHandlerWithAuth::on_header(HttpRequest* req) {
     TCheckAuthRequest auth_request;
     TCheckAuthResult auth_result;
     AuthInfo auth_info;
 
-    if (!config::enable_auth) {
+    if (!config::enable_http_auth) {
         return 0;
     }
 
@@ -72,6 +71,8 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
                         client->checkAuth(auth_result, auth_request);
                     }),
             -1, "checkAuth failed");
+#else
+    CHECK(_exec_env == nullptr);
 #endif
     Status status(auth_result.status);
     if (!status.ok()) {

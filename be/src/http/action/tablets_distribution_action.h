@@ -32,7 +32,8 @@ class ExecEnv;
 // Get BE tablets distribution info from http API.
 class TabletsDistributionAction : public HttpHandlerWithAuth {
 public:
-    TabletsDistributionAction(ExecEnv* exec_env);
+    TabletsDistributionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                              TPrivilegeType::type type);
 
     ~TabletsDistributionAction() override = default;
 

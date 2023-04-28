@@ -44,7 +44,8 @@ const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 /// See compaction-action.md for details.
 class CompactionAction : public HttpHandlerWithAuth {
 public:
-    CompactionAction(CompactionActionType type, ExecEnv* exec_env);
+    CompactionAction(CompactionActionType ctype, ExecEnv* exec_env, TPrivilegeHier::type hier,
+                     TPrivilegeType::type ptype);
 
     ~CompactionAction() override = default;
 

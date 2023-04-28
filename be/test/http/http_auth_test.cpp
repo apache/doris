@@ -30,7 +30,8 @@ namespace doris {
 
 class HttpAuthTestHandler : public HttpHandlerWithAuth {
 public:
-    HttpAuthTestHandler(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
+    HttpAuthTestHandler(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type)
+            : HttpHandlerWithAuth(exec_env, hier, type) {}
 
     ~HttpAuthTestHandler() override = default;
 
@@ -42,12 +43,13 @@ private:
     };
 };
 
-static HttpAuthTestHandler s_auth_handler = HttpAuthTestHandler(nullptr);
+static HttpAuthTestHandler s_auth_handler =
+        HttpAuthTestHandler(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
 
 class HttpAuthTest : public testing::Test {};
 
 TEST_F(HttpAuthTest, disable_auth) {
-    EXPECT_FALSE(config::enable_auth);
+    EXPECT_FALSE(config::enable_http_auth);
 
     auto evhttp_req = evhttp_request_new(nullptr, nullptr);
     HttpRequest req(evhttp_req);
@@ -55,8 +57,8 @@ TEST_F(HttpAuthTest, disable_auth) {
     evhttp_request_free(evhttp_req);
 }
 
-TEST_F(HttpAuthTest, enable_auth) {
-    config::enable_auth = true;
+TEST_F(HttpAuthTest, enable_http_auth) {
+    config::enable_http_auth = true;
 
     // 1. empty auth info
     {

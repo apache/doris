@@ -99,7 +99,8 @@ Status HttpService::start() {
                                       error_log_download_action);
 
     // Register BE version action
-    VersionAction* version_action = _pool.add(new VersionAction(_env));
+    VersionAction* version_action =
+            _pool.add(new VersionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::NONE));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_version_info", version_action);
 
     // Register BE health action
@@ -107,20 +108,19 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
     // Register Tablets Info action
-    TabletsInfoAction* tablets_info_action = _pool.add(new TabletsInfoAction(_env));
-    tablets_info_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    TabletsInfoAction* tablets_info_action =
+            _pool.add(new TabletsInfoAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/tablets_json", tablets_info_action);
 
     // Register Tablets Distribution action
-    TabletsDistributionAction* tablets_distribution_action =
-            _pool.add(new TabletsDistributionAction(_env));
-    tablets_distribution_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    TabletsDistributionAction* tablets_distribution_action = _pool.add(
+            new TabletsDistributionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/tablets_distribution",
                                       tablets_distribution_action);
 
     // Register tablet migration action
-    TabletMigrationAction* tablet_migration_action = _pool.add(new TabletMigrationAction(_env));
-    tablet_migration_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    TabletMigrationAction* tablet_migration_action = _pool.add(
+            new TabletMigrationAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/tablet_migration",
                                       tablet_migration_action);
 
@@ -132,51 +132,50 @@ Status HttpService::start() {
 
     // register metrics
     {
-        auto action =
-                _pool.add(new MetricsAction(DorisMetrics::instance()->metric_registry(), _env));
+        auto action = _pool.add(new MetricsAction(DorisMetrics::instance()->metric_registry(), _env,
+                                                  TPrivilegeHier::GLOBAL, TPrivilegeType::NONE));
         _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
     }
 
-    MetaAction* meta_action = _pool.add(new MetaAction(_env));
-    meta_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    MetaAction* meta_action =
+            _pool.add(new MetaAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/{op}/{tablet_id}", meta_action);
 
 #ifndef BE_TEST
     // Register BE checksum action
-    ChecksumAction* checksum_action = _pool.add(new ChecksumAction(_env));
-    checksum_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    ChecksumAction* checksum_action =
+            _pool.add(new ChecksumAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
 
     // Register BE reload tablet action
-    ReloadTabletAction* reload_tablet_action = _pool.add(new ReloadTabletAction(_env));
-    reload_tablet_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    ReloadTabletAction* reload_tablet_action =
+            _pool.add(new ReloadTabletAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/reload_tablet", reload_tablet_action);
 
-    RestoreTabletAction* restore_tablet_action = _pool.add(new RestoreTabletAction(_env));
-    restore_tablet_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    RestoreTabletAction* restore_tablet_action =
+            _pool.add(new RestoreTabletAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/restore_tablet",
                                       restore_tablet_action);
 
     // Register BE snapshot action
-    SnapshotAction* snapshot_action = _pool.add(new SnapshotAction(_env));
-    snapshot_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    SnapshotAction* snapshot_action =
+            _pool.add(new SnapshotAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
 #endif
 
     // 2 compaction actions
-    CompactionAction* show_compaction_action =
-            _pool.add(new CompactionAction(CompactionActionType::SHOW_INFO, _env));
-    show_compaction_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    CompactionAction* show_compaction_action = _pool.add(new CompactionAction(
+            CompactionActionType::SHOW_INFO, _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/show",
                                       show_compaction_action);
     CompactionAction* run_compaction_action =
-            _pool.add(new CompactionAction(CompactionActionType::RUN_COMPACTION, _env));
-    run_compaction_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+            _pool.add(new CompactionAction(CompactionActionType::RUN_COMPACTION, _env,
+                                           TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/compaction/run",
                                       run_compaction_action);
     CompactionAction* run_status_compaction_action =
-            _pool.add(new CompactionAction(CompactionActionType::RUN_COMPACTION_STATUS, _env));
-    run_status_compaction_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+            _pool.add(new CompactionAction(CompactionActionType::RUN_COMPACTION_STATUS, _env,
+                                           TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
 
@@ -188,25 +187,24 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/show_config", show_config_action);
 
     // 3 check action
-    CheckRPCChannelAction* check_rpc_channel_action = _pool.add(new CheckRPCChannelAction(_env));
-    check_rpc_channel_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    CheckRPCChannelAction* check_rpc_channel_action = _pool.add(
+            new CheckRPCChannelAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET,
                                       "/api/check_rpc_channel/{ip}/{port}/{payload_size}",
                                       check_rpc_channel_action);
 
-    ResetRPCChannelAction* reset_rpc_channel_action = _pool.add(new ResetRPCChannelAction(_env));
-    reset_rpc_channel_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    ResetRPCChannelAction* reset_rpc_channel_action = _pool.add(
+            new ResetRPCChannelAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/reset_rpc_channel/{endpoints}",
                                       reset_rpc_channel_action);
 
-    CheckTabletSegmentAction* check_tablet_segment_action =
-            _pool.add(new CheckTabletSegmentAction(_env));
-    check_tablet_segment_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    CheckTabletSegmentAction* check_tablet_segment_action = _pool.add(
+            new CheckTabletSegmentAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/check_tablet_segment_lost",
                                       check_tablet_segment_action);
 
-    PadRowsetAction* pad_rowset_action = _pool.add(new PadRowsetAction(_env));
-    pad_rowset_action->auth(TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    PadRowsetAction* pad_rowset_action =
+            _pool.add(new PadRowsetAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::POST, "api/pad_rowset", pad_rowset_action);
 
     _ev_http_server->start();

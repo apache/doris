@@ -40,7 +40,9 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-TabletsInfoAction::TabletsInfoAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
+TabletsInfoAction::TabletsInfoAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                     TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 
 void TabletsInfoAction::handle(HttpRequest* req) {
     const std::string& tablet_num_to_return = req->param("limit");

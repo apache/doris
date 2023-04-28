@@ -25,7 +25,8 @@ class HttpRequest;
 
 class CheckRPCChannelAction : public HttpHandlerWithAuth {
 public:
-    explicit CheckRPCChannelAction(ExecEnv* exec_env);
+    explicit CheckRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                   TPrivilegeType::type type);
 
     ~CheckRPCChannelAction() override = default;
 

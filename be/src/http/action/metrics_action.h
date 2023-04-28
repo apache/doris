@@ -26,8 +26,9 @@ class MetricRegistry;
 
 class MetricsAction : public HttpHandlerWithAuth {
 public:
-    MetricsAction(MetricRegistry* metric_registry, ExecEnv* exec_env)
-            : HttpHandlerWithAuth(exec_env), _metric_registry(metric_registry) {}
+    MetricsAction(MetricRegistry* metric_registry, ExecEnv* exec_env, TPrivilegeHier::type hier,
+                  TPrivilegeType::type type)
+            : HttpHandlerWithAuth(exec_env, hier, type), _metric_registry(metric_registry) {}
 
     ~MetricsAction() override = default;
 

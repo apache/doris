@@ -30,7 +30,7 @@ class ExecEnv;
 // Get BE tablets info from http API.
 class TabletsInfoAction : public HttpHandlerWithAuth {
 public:
-    TabletsInfoAction(ExecEnv* exec_env);
+    TabletsInfoAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
 
     ~TabletsInfoAction() override = default;
 

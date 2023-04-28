@@ -45,7 +45,8 @@ class ExecEnv;
 // Migrate a tablet from a disk to another.
 class TabletMigrationAction : public HttpHandlerWithAuth {
 public:
-    TabletMigrationAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {
+    TabletMigrationAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type)
+            : HttpHandlerWithAuth(exec_env, hier, type) {
         _init_migration_action();
     }
 

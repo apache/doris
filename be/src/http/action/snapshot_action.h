@@ -30,7 +30,8 @@ class HttpRequest;
 // be_host:be_http_port/api/snapshot?tablet_id=123&schema_hash=456
 class SnapshotAction : public HttpHandlerWithAuth {
 public:
-    explicit SnapshotAction(ExecEnv* exec_env);
+    explicit SnapshotAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                            TPrivilegeType::type type);
 
     ~SnapshotAction() override = default;
 

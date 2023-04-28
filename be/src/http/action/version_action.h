@@ -26,7 +26,7 @@ class HttpRequest;
 // Get BE version info from http API.
 class VersionAction : public HttpHandlerWithAuth {
 public:
-    VersionAction(ExecEnv* exec_env);
+    VersionAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
 
     ~VersionAction() override = default;
 

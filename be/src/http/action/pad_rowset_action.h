@@ -30,7 +30,8 @@ class ExecEnv;
 
 class PadRowsetAction : public HttpHandlerWithAuth {
 public:
-    PadRowsetAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
+    PadRowsetAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type)
+            : HttpHandlerWithAuth(exec_env, hier, type) {}
 
     ~PadRowsetAction() override = default;
 

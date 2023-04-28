@@ -25,7 +25,8 @@ class HttpRequest;
 
 class ResetRPCChannelAction : public HttpHandlerWithAuth {
 public:
-    explicit ResetRPCChannelAction(ExecEnv* exec_env);
+    explicit ResetRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                   TPrivilegeType::type type);
 
     ~ResetRPCChannelAction() override = default;
 
