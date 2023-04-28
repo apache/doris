@@ -79,7 +79,7 @@ CONF_Double(soft_mem_limit_frac, "0.9");
 //
 // P.S. This is also required, because tcmalloc can not allocate a chunk of
 // memory greater than 16 GB.
-CONF_mInt32(mmap_threshold, "134217728"); // bytes
+CONF_mInt64(mmap_threshold, "134217728"); // bytes
 
 // When hash table capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
 // Increase can reduce the number of hash table resize, but may waste more memory.
