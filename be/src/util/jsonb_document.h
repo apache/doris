@@ -1120,8 +1120,8 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
                     break;
                 } else if (left_quotation_marks != nullptr) {
                     if (!key_has_delim) {
-                        key_has_delim = true
-                    };
+                        key_has_delim = true;
+                    }
                 }
             }
         }
