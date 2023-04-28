@@ -481,6 +481,11 @@ visible_functions = [
     [['array_apply'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2', 'VARCHAR', 'DATETIMEV2'], ''],
     [['array_apply'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2', 'VARCHAR', 'DATEV2'], ''],
 
+    [['array_reduce'], 'ARRAY_BOOLEAN',  ['VARCHAR', 'ARRAY_BOOLEAN'],  ''],
+    [['array_reduce'], 'ARRAY_TINYINT',  ['VARCHAR', 'ARRAY_TINYINT'],  ''],
+    [['array_reduce'], 'ARRAY_SMALLINT', ['VARCHAR', 'ARRAY_SMALLINT'], ''],
+    [['array_reduce'], 'ARRAY_INT',      ['VARCHAR', 'ARRAY_INT'], ''],
+
     [['array_concat'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', '...'],  ''],
     [['array_concat'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', '...'],  ''],
     [['array_concat'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', '...'], ''],
