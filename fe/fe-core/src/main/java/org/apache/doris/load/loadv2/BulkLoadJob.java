@@ -19,6 +19,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -375,5 +376,38 @@ public abstract class BulkLoadJob extends LoadJob {
             return properties.get("fs.s3a.access.key");
         }
         return null;
+    }
+
+    // ---------------- for lod stmt ----------------
+    public static BulkLoadJob fromInsertStmt(InsertStmt insertStmt) throws DdlException {
+        // get db id
+        String dbName = insertStmt.getLabelName().getDbName();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        // create job
+        BulkLoadJob bulkLoadJob;
+        try {
+            switch (insertStmt.getLoadType()) {
+                case BROKER_LOAD:
+                    bulkLoadJob = new BrokerLoadJob(db.getId(), insertStmt.getLabelName().getLabelName(),
+                            (BrokerDesc) insertStmt.getDataDescList(),
+                            insertStmt.getOrigStmt(), insertStmt.getUserInfo());
+                    break;
+                case SPARK_LOAD:
+                    bulkLoadJob = new SparkLoadJob(db.getId(), insertStmt.getLabelName().getLabelName(),
+                            insertStmt.getResourceDesc(),
+                            insertStmt.getOrigStmt(), insertStmt.getUserInfo());
+                    break;
+                default:
+                    throw new DdlException("Unknown load job type.");
+            }
+            bulkLoadJob.setComment(insertStmt.getComments());
+            bulkLoadJob.setJobProperties(insertStmt.getProperties());
+            // TODO(tsy): use generic and change the param in checkAndSetDataSourceInfo
+            bulkLoadJob.checkAndSetDataSourceInfo(db, (List<DataDescription>) insertStmt.getDataDescList());
+            return bulkLoadJob;
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
+        }
     }
 }

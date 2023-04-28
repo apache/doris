@@ -17,9 +17,11 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -109,7 +111,7 @@ public class LoadManager implements Writable {
     public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException {
         Database database = checkDb(stmt.getLabel().getDbName());
         long dbId = database.getId();
-        LoadJob loadJob = null;
+        LoadJob loadJob;
         writeLock();
         try {
             if (stmt.getBrokerDesc() != null && stmt.getBrokerDesc().isMultiLoadBroker()) {
@@ -492,13 +494,13 @@ public class LoadManager implements Writable {
     /**
      * This method will return the jobs info which can meet the condition of input param.
      *
-     * @param dbId          used to filter jobs which belong to this db
-     * @param labelValue    used to filter jobs which's label is or like labelValue.
+     * @param dbId used to filter jobs which belong to this db
+     * @param labelValue used to filter jobs which's label is or like labelValue.
      * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
-     * @param statesValue   used to filter jobs which's state within the statesValue set.
+     * @param statesValue used to filter jobs which's state within the statesValue set.
      * @return The result is the list of jobInfo.
-     *         JobInfo is a list which includes the comparable object: jobId, label, state etc.
-     *         The result is unordered.
+     * JobInfo is a list which includes the comparable object: jobId, label, state etc.
+     * The result is unordered.
      */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue, boolean accurateMatch,
             Set<String> statesValue) throws AnalysisException {
@@ -870,5 +872,44 @@ public class LoadManager implements Writable {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
             }
         }
+    }
+
+    // ------------------------ for load refactor ------------------------
+    public long createLoadJobFromStmt(InsertStmt insertStmt) throws DdlException {
+        Database database = checkDb(insertStmt.getLabelName().getDbName());
+        long dbId = database.getId();
+        LoadJob loadJob;
+        writeLock();
+        BrokerDesc brokerDesc = (BrokerDesc) insertStmt.getDataDescList();
+        try {
+            if (brokerDesc != null && brokerDesc.isMultiLoadBroker()) {
+                if (!Env.getCurrentEnv().getLoadInstance()
+                        .isUncommittedLabel(dbId, insertStmt.getLabelName().getLabelName())) {
+                    throw new DdlException("label: " + insertStmt.getLabelName().getLabelName() + " not found!");
+                }
+            } else {
+                checkLabelUsed(dbId, insertStmt.getLabelName().getLabelName());
+                if (brokerDesc == null && insertStmt.getResourceDesc() == null) {
+                    throw new DdlException("LoadManager only support the broker and spark load.");
+                }
+                if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                    throw new DdlException(
+                            "There are more than " + Config.desired_max_waiting_jobs
+                                    + " unfinished load jobs, please retry later. "
+                                    + "You can use `SHOW LOAD` to view submitted jobs");
+                }
+            }
+
+            loadJob = BulkLoadJob.fromInsertStmt(insertStmt);
+            createLoadJob(loadJob);
+        } finally {
+            writeUnlock();
+        }
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
+
+        // The job must be submitted after edit log.
+        // It guarantee that load job has not been changed before edit log.
+        loadJobScheduler.submitJob(loadJob);
+        return loadJob.getId();
     }
 }

@@ -34,6 +34,7 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.LoadType;
 import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
@@ -58,6 +59,7 @@ import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
 import org.apache.doris.analysis.TransactionStmt;
+import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UnlockTablesStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UpdateStmt;
@@ -608,6 +610,20 @@ public class StmtExecutor implements ProfileWriter {
         if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
         }
+        if (parsedStmt instanceof UnifiedLoadStmt) {
+            // glue code for unified load
+            final UnifiedLoadStmt unifiedLoadStmt = (UnifiedLoadStmt) parsedStmt;
+            unifiedLoadStmt.init();
+            final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
+            parsedStmt = proxyStmt;
+            if (proxyStmt instanceof LoadStmt) {
+                handleLoadStmt();
+            } else {
+                Preconditions.checkState(
+                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).isExternalLoad(),
+                        new IllegalStateException("enable_unified_load=true, should be external insert stmt"));
+            }
+        }
 
         try {
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
@@ -620,7 +636,7 @@ public class StmtExecutor implements ProfileWriter {
             if (!context.isTxnModel()) {
                 Span queryAnalysisSpan =
                         context.getTracer().spanBuilder("query analysis").setParent(Context.current()).startSpan();
-                try (Scope scope = queryAnalysisSpan.makeCurrent()) {
+                try (Scope ignored = queryAnalysisSpan.makeCurrent()) {
                     // analyze this query
                     analyze(context.getSessionVariable().toThrift());
                 } catch (Exception e) {
@@ -1814,6 +1830,28 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handleExternalInsertStmt() {
         // TODO(tsy): load refactor, handle external load here
+        try {
+            InsertStmt insertStmt = (InsertStmt) parsedStmt;
+            LoadType loadType = insertStmt.getLoadType();
+            if (loadType == LoadType.UNKNOWN) {
+                throw new DdlException("Unknown load job type");
+            }
+            LoadManager loadManager = context.getEnv().getLoadManager();
+            if (loadType == LoadType.MYSQL_LOAD) {
+                // TODO(tsy): implement mysql load
+            } else {
+                loadManager.createLoadJobFromStmt(insertStmt);
+                context.getState().setOk();
+            }
+        } catch (UserException e) {
+            // Return message to info client what happened.
+            LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        }
     }
 
     private void handleUnsupportedStmt() {

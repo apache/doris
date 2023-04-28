@@ -225,6 +225,7 @@ public class InsertStmt extends DdlStmt {
             case MYSQL_LOAD:
             default:
         }
+        this.isExternalLoad = true;
     }
 
     /**
@@ -323,18 +324,35 @@ public class InsertStmt extends DdlStmt {
 
     @Override
     public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+        if (isExternalLoad) {
+            // TODO(tsy): rm this annoying branch when InsertStmt can work as an abstract class.
+            //  Currently, fuck it we ball
+            proxyStmt.foldConstant(rewriter, tQueryOptions);
+            return;
+        }
         Preconditions.checkState(isAnalyzed());
         queryStmt.foldConstant(rewriter, tQueryOptions);
     }
 
     @Override
     public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
+        if (isExternalLoad) {
+            // TODO(tsy): rm this annoying branch when InsertStmt can work as an abstract class.
+            //  Currently, fuck it we ball
+            proxyStmt.rewriteExprs(rewriter);
+            return;
+        }
         Preconditions.checkState(isAnalyzed());
         queryStmt.rewriteExprs(rewriter);
     }
 
     @Override
     public boolean isExplain() {
+        if (isExternalLoad) {
+            // TODO(tsy): rm this annoying branch when InsertStmt can work as an abstract class.
+            //  Currently, fuck it we ball
+            return proxyStmt.isExplain();
+        }
         return queryStmt.isExplain();
     }
 
@@ -360,6 +378,12 @@ public class InsertStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (isExternalLoad) {
+            // TODO(tsy): rm this annoying branch when InsertStmt can work as an abstract class.
+            //  Currently, fuck it we ball
+            proxyStmt.analyze(analyzer);
+            return;
+        }
         super.analyze(analyzer);
 
         if (targetTable == null) {
@@ -875,6 +899,11 @@ public class InsertStmt extends DdlStmt {
 
     @Override
     public ArrayList<Expr> getResultExprs() {
+        if (isExternalLoad) {
+            // TODO(tsy): rm this annoying branch when InsertStmt can work as an abstract class.
+            //  Currently, fuck it we ball
+            return (ArrayList<Expr>) proxyStmt.getResultExprs();
+        }
         return resultExprs;
     }
 
@@ -885,6 +914,12 @@ public class InsertStmt extends DdlStmt {
 
     @Override
     public void reset() {
+        if (isExternalLoad) {
+            // TODO(tsy): rm this annoying branch when InsertStmt can work as an abstract class.
+            //  Currently, fuck it we ball
+            proxyStmt.reset();
+            return;
+        }
         super.reset();
         if (targetPartitionIds != null) {
             targetPartitionIds.clear();
@@ -899,6 +934,11 @@ public class InsertStmt extends DdlStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
+        if (isExternalLoad) {
+            // TODO(tsy): rm this annoying branch when InsertStmt can work as an abstract class.
+            //  Currently, fuck it we ball
+            return proxyStmt.getRedirectStatus();
+        }
         if (isExplain()) {
             return RedirectStatus.NO_FORWARD;
         } else {
@@ -906,13 +946,22 @@ public class InsertStmt extends DdlStmt {
         }
     }
 
+    @FacadeIf
     public boolean isExternalLoad() {
         return isExternalLoad;
     }
 
+    /**
+     * TODO: will rename to getLabel
+     */
+    @FacadeIf
+    public LabelName getLabelName() {
+        return proxyStmt.getLabel();
+    }
+
     // TODO: data_desc
     @FacadeIf
-    public List<? extends DataDesc> getDataDesc() {
+    public List<? extends DataDesc> getDataDescList() {
         // TODO(tsy): implement
         // (T) proxy.getDataDesc().getImpl()
         return proxyStmt.getDataDescList();
@@ -933,6 +982,31 @@ public class InsertStmt extends DdlStmt {
     public String getComments() {
         // TODO(tsy): implement
         return proxyStmt.getComments();
+    }
+
+    @FacadeIf
+    public LoadType getLoadType() {
+        return proxyStmt.getLoadType();
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        if (isExternalLoad) {
+            // TODO(tsy): rm this annoying branch when InsertStmt can work as an abstract class.
+            //  Currently, fuck it we ball
+            return proxyStmt.needAuditEncryption();
+        }
+        return super.needAuditEncryption();
+    }
+
+    @Override
+    public String toSql() {
+        if (isExternalLoad) {
+            // TODO(tsy): rm this annoying branch when InsertStmt can work as an abstract class.
+            //  Currently, fuck it we ball
+            return proxyStmt.toSql();
+        }
+        return super.toSql();
     }
 
     /**

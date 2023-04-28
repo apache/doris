@@ -300,6 +300,11 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    /**
+     * use insert stmt as the unified backend for all loads
+     */
+    public static final String ENABLE_UNIFIED_LOAD = "enable_unified_load";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -313,7 +318,6 @@ public class SessionVariable implements Serializable, Writable {
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
-
 
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
@@ -798,6 +802,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    /**
+     * determine should we enable unified load (use insert stmt as the backend for all load)
+     */
+    @VariableMgr.VarAttr(name = ENABLE_UNIFIED_LOAD, needForward = true)
+    public boolean enableUnifiedLoad = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1940,5 +1950,9 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return num;
+    }
+
+    public boolean isEnableUnifiedLoad() {
+        return enableUnifiedLoad;
     }
 }
