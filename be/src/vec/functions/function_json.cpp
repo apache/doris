@@ -24,11 +24,6 @@
 #include <vector>
 
 #include "exprs/json_functions.h"
-#ifdef __AVX2__
-#include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
@@ -884,7 +879,7 @@ public:
         vec_to.resize(size);
 
         // parser can be reused for performance
-        JsonbParser parser;
+        JsonbParserSIMD parser;
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (col_from.is_null_at(i)) {
                 null_map->get_data()[i] = 1;
