@@ -197,7 +197,7 @@ Status EngineCloneTask::_do_clone() {
                                                                       _clone_req.schema_hash,
                                                                       tablet_dir, false));
         auto tablet = tablet_manager->get_tablet(_clone_req.tablet_id);
-        if (!tablet) [[unlikely]] {
+        if (!tablet) {
             status = Status::NotFound("tablet not found, tablet_id={}", _clone_req.tablet_id);
             return status;
         }
