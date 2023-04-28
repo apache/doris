@@ -270,15 +270,15 @@ suite("test_incremental_stats") {
         );
     """
 
-    sql """  
-        DELETE FROM __internal_schema.column_statistics
-        WHERE col_id IN (
-                't_1682176142000_user_id', 't_1682176142000_date', 't_1682176142000_city', 
-                't_1682176142000_age', 't_1682176142000_sex', 't_1682176142000_last_visit_date', 
-                't_1682176142000_cost', 't_1682176142000_max_dwell_time', 't_1682176142000_min_dwell_time',
-                't_1682176142000_new_column'
-            );  
-    """
+    // sql """
+    //     DELETE FROM __internal_schema.column_statistics
+    //     WHERE col_id IN (
+    //             't_1682176142000_user_id', 't_1682176142000_date', 't_1682176142000_city',
+    //             't_1682176142000_age', 't_1682176142000_sex', 't_1682176142000_last_visit_date',
+    //             't_1682176142000_cost', 't_1682176142000_max_dwell_time', 't_1682176142000_min_dwell_time',
+    //             't_1682176142000_new_column'
+    //         );
+    // """
 
     sql """
         DELETE FROM __internal_schema.analysis_jobs 
