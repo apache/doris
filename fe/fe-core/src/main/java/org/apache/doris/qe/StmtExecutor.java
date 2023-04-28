@@ -1551,7 +1551,8 @@ public class StmtExecutor implements ProfileWriter {
     private int executeForTxn(InsertStmt insertStmt)
             throws UserException, TException, InterruptedException, ExecutionException, TimeoutException {
         if (context.isTxnIniting()) { // first time, begin txn
-            beginTxn(insertStmt.getDbName(), insertStmt.getTbl());
+            beginTxn(insertStmt.getDbName(),
+                    insertStmt.getTbl());
         }
         if (!context.getTxnEntry().getTxnConf().getDb().equals(insertStmt.getDbName())
                 || !context.getTxnEntry().getTxnConf().getTbl().equals(insertStmt.getTbl())) {

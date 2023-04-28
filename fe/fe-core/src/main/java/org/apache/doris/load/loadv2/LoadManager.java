@@ -876,7 +876,7 @@ public class LoadManager implements Writable {
 
     // ------------------------ for load refactor ------------------------
     public long createLoadJobFromStmt(InsertStmt insertStmt) throws DdlException {
-        Database database = checkDb(insertStmt.getLabelName().getDbName());
+        Database database = checkDb(insertStmt.getLoadLabel().getDbName());
         long dbId = database.getId();
         LoadJob loadJob;
         writeLock();
@@ -884,11 +884,11 @@ public class LoadManager implements Writable {
         try {
             if (brokerDesc != null && brokerDesc.isMultiLoadBroker()) {
                 if (!Env.getCurrentEnv().getLoadInstance()
-                        .isUncommittedLabel(dbId, insertStmt.getLabelName().getLabelName())) {
-                    throw new DdlException("label: " + insertStmt.getLabelName().getLabelName() + " not found!");
+                        .isUncommittedLabel(dbId, insertStmt.getLoadLabel().getLabelName())) {
+                    throw new DdlException("label: " + insertStmt.getLoadLabel().getLabelName() + " not found!");
                 }
             } else {
-                checkLabelUsed(dbId, insertStmt.getLabelName().getLabelName());
+                checkLabelUsed(dbId, insertStmt.getLoadLabel().getLabelName());
                 if (brokerDesc == null && insertStmt.getResourceDesc() == null) {
                     throw new DdlException("LoadManager only support the broker and spark load.");
                 }

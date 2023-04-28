@@ -192,7 +192,7 @@ public class InsertStmtTest {
         };
 
 
-        InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>());
+        InsertStmt stmt = new NativeInsertStmt(target, "label", null, source, new ArrayList<>());
         stmt.setTargetTable(targetTable);
         stmt.setQueryStmt(queryStmt);
 
@@ -257,7 +257,7 @@ public class InsertStmtTest {
         };
 
 
-        InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>());
+        InsertStmt stmt = new NativeInsertStmt(target, "label", null, source, new ArrayList<>());
         stmt.setTargetTable(targetTable);
         stmt.setQueryStmt(queryStmt);
 

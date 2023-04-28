@@ -381,7 +381,7 @@ public abstract class BulkLoadJob extends LoadJob {
     // ---------------- for lod stmt ----------------
     public static BulkLoadJob fromInsertStmt(InsertStmt insertStmt) throws DdlException {
         // get db id
-        String dbName = insertStmt.getLabelName().getDbName();
+        String dbName = insertStmt.getLoadLabel().getDbName();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // create job
@@ -389,12 +389,12 @@ public abstract class BulkLoadJob extends LoadJob {
         try {
             switch (insertStmt.getLoadType()) {
                 case BROKER_LOAD:
-                    bulkLoadJob = new BrokerLoadJob(db.getId(), insertStmt.getLabelName().getLabelName(),
+                    bulkLoadJob = new BrokerLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
                             (BrokerDesc) insertStmt.getResourceDesc(),
                             insertStmt.getOrigStmt(), insertStmt.getUserInfo());
                     break;
                 case SPARK_LOAD:
-                    bulkLoadJob = new SparkLoadJob(db.getId(), insertStmt.getLabelName().getLabelName(),
+                    bulkLoadJob = new SparkLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
                             insertStmt.getResourceDesc(),
                             insertStmt.getOrigStmt(), insertStmt.getUserInfo());
                     break;

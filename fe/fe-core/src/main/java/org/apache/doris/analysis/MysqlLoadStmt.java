@@ -21,40 +21,20 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
-
+import java.io.File;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
-/**
- * @author Steven.T
- * @date 2023/4/26
- */
-public class SparkLoadStmtProxy extends AbstractInsertStmtProxy {
+public class MysqlLoadStmt extends InsertStmt {
 
-    private final DataDescription dataDescription;
-
-    private final ResourceDesc resourceDesc;
-
-    public SparkLoadStmtProxy(LabelName label, List<DataDescription> dataDescList, ResourceDesc resourceDesc,
-            Map<String, String> properties, String comments) {
-        this.label = label;
-        Preconditions.checkState(dataDescList.size() == 1,
-                "spark load could only have one desc");
-        this.dataDescription = dataDescList.get(0);
-        this.resourceDesc = resourceDesc;
-        this.properties = properties;
-        this.comments = comments;
-    }
+    private DataDescription dataDescription;
 
     @Override
     public List<? extends DataDesc> getDataDescList() {
@@ -63,12 +43,13 @@ public class SparkLoadStmtProxy extends AbstractInsertStmtProxy {
 
     @Override
     public ResourceDesc getResourceDesc() {
-        return resourceDesc;
+        // mysql load does not have resource desc
+        return null;
     }
 
     @Override
     public LoadType getLoadType() {
-        return LoadType.SPARK_LOAD;
+        return LoadType.MYSQL_LOAD;
     }
 
     @Override
@@ -77,29 +58,37 @@ public class SparkLoadStmtProxy extends AbstractInsertStmtProxy {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        label.analyze(analyzer);
-        Preconditions.checkNotNull(dataDescription, new AnalysisException("No data file in load statement."));
-        Preconditions.checkNotNull(resourceDesc, new AnalysisException("Resource desc not found"));
         String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
         dataDescription.analyze(fullDbName);
-        resourceDesc.analyze();
         Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(fullDbName);
         OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
         dataDescription.checkKeyTypeForLoad(table);
-        // check resource usage privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
-                resourceDesc.getName(),
-                PrivPredicate.USAGE)) {
-            throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
-                    + "'@'" + ConnectContext.get().getRemoteIP()
-                    + "' for resource '" + resourceDesc.getName() + "'");
+        if (!dataDescription.isClientLocal()) {
+            for (String path : dataDescription.getFilePaths()) {
+                if (Config.mysql_load_server_secure_path.isEmpty()) {
+                    throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
+                            + " plz set the `mysql_load_server_secure_path` for FE to be a right path.");
+                } else {
+                    File file = new File(path);
+                    try {
+                        if (!(file.getCanonicalPath().startsWith(Config.mysql_load_server_secure_path))) {
+                            throw new AnalysisException("Local file should be under the secure path of FE.");
+                        }
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                    if (!file.exists()) {
+                        throw new AnalysisException("File: " + path + " is not exists.");
+                    }
+                }
+            }
         }
     }
 
     @Override
-    public String toSql() {
-        return super.toSql();
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.NO_FORWARD;
     }
 }

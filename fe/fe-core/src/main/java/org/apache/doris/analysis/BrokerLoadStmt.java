@@ -34,7 +34,7 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.List;
 import java.util.Map;
 
-public class BrokerLoadStmtProxy extends AbstractInsertStmtProxy {
+public class BrokerLoadStmt extends InsertStmt {
 
     private final List<DataDescription> dataDescList;
 
@@ -42,7 +42,7 @@ public class BrokerLoadStmtProxy extends AbstractInsertStmtProxy {
 
     private String cluster;
 
-    public BrokerLoadStmtProxy(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
+    public BrokerLoadStmt(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
             Map<String, String> properties, String comments) {
         this.label = label;
         this.dataDescList = dataDescList;
