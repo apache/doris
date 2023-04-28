@@ -868,7 +868,8 @@ public class StmtRewriter {
                     }
                 }
             } else {
-                joinOp = JoinOperator.LEFT_ANTI_JOIN;
+                joinOp = expr instanceof InPredicate ? JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN
+                        : JoinOperator.LEFT_ANTI_JOIN;
             }
         }
 
