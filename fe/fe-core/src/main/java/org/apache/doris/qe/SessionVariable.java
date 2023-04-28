@@ -479,7 +479,7 @@ public class SessionVariable implements Serializable, Writable {
      * 1 means disable this feature
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, fuzzy = true)
-    public int parallelExecInstanceNum = 1;
+    public int parallelExecInstanceNum = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
@@ -1166,9 +1166,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
-        LOG.info("test user set {} , be get {} , mincore {}", parallelExecInstanceNum,
-                (int) BackendInfo.get().getParallelExecInstanceNum(), BackendInfo.get().getMinNumCores());
-        if (parallelExecInstanceNum != 1) {
+        if (parallelExecInstanceNum != 0) {
             return parallelExecInstanceNum;
         }
         return (int) BackendInfo.get().getParallelExecInstanceNum();

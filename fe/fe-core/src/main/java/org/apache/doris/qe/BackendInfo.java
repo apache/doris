@@ -60,7 +60,10 @@ public class BackendInfo {
     }
 
     public long getParallelExecInstanceNum() {
-        return 16;
+        if (getMinNumCores() == Long.MAX_VALUE) {
+            return 1;
+        }
+        return (getMinNumCores() + 1) / 2;
     }
 
     public BackendInfo getBeInfoById(long beId) {
