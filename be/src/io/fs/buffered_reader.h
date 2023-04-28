@@ -356,12 +356,12 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     std::atomic_bool _exceed = false;
     std::function<void(PrefetchBuffer&)> _sync_profile;
     struct Statistics {
-        int64_t copy_time;
-        int64_t read_time;
-        int64_t prefetch_request_io;
-        int64_t prefetch_request_bytes;
-        int64_t request_io;
-        int64_t request_bytes;
+        int64_t copy_time {0};
+        int64_t read_time {0};
+        int64_t prefetch_request_io {0};
+        int64_t prefetch_request_bytes {0};
+        int64_t request_io {0};
+        int64_t request_bytes {0};
     };
     Statistics _statis;
 
