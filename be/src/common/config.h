@@ -67,6 +67,20 @@ CONF_String(mem_limit, "auto");
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
 
+// Many modern allocators (for example, tcmalloc) do not do a mremap for
+// realloc, even in case of large enough chunks of memory. Although this allows
+// you to increase performance and reduce memory consumption during realloc.
+// To fix this, we do mremap manually if the chunk of memory is large enough.
+//
+// The threshold (128 MB, 128 * (1ULL << 20)) is chosen quite large, since changing the address
+// space is very slow, especially in the case of a large number of threads. We
+// expect that the set of operations mmap/something to do/mremap can only be
+// performed about 1000 times per second.
+//
+// P.S. This is also required, because tcmalloc can not allocate a chunk of
+// memory greater than 16 GB.
+CONF_mInt64(mmap_threshold, "134217728"); // bytes
+
 // When hash table capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
 // Increase can reduce the number of hash table resize, but may waste more memory.
 CONF_mInt32(hash_table_double_grow_degree, "31");
