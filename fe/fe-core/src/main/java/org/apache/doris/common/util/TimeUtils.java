@@ -116,8 +116,8 @@ public class TimeUtils {
         }
     }
 
-    public static long getStartTime() {
-        return System.nanoTime();
+    public static long getStartTimeMs() {
+        return System.currentTimeMillis();
     }
 
     public static long getElapsedTimeMs(long startTime) {

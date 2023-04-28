@@ -201,7 +201,7 @@ public class StmtExecutor {
     private String mysqlLoadId;
     // Distinguish from prepare and execute command
     private boolean isExecuteStmt = false;
-
+    // The profile of this execution
     private final Profile profile;
 
     // The result schema if "dry_run_query" is true.
@@ -756,20 +756,18 @@ public class StmtExecutor {
         }
     }
 
-    public void writeProfile(boolean isLastWriteProfile) {
+    public void updateProfile(boolean isFinished) {
         if (!context.getSessionVariable().enableProfile()) {
             return;
         }
-        if (coord != null) {
-            profile.update(context.startTime, getSummaryInfo(isLastWriteProfile), isLastWriteProfile);
-        }
+        profile.update(context.startTime, getSummaryInfo(isFinished), isFinished);
     }
 
     // Analyze one statement to structure in memory.
     public void analyze(TQueryOptions tQueryOptions) throws UserException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("begin to analyze stmt: {}, forwarded stmt id: {}",
-                    context.getStmtId(), context.getForwardedStmtId());
+            LOG.debug("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(),
+                    context.getForwardedStmtId());
         }
 
         parseByLegacy();
@@ -1290,7 +1288,7 @@ public class StmtExecutor {
             queryScheduleSpan.end();
         }
         profile.getSummaryProfile().setQueryScheduleFinishTime();
-        writeProfile(false);
+        updateProfile(false);
         Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
         try (Scope scope = fetchResultSpan.makeCurrent()) {
             while (true) {

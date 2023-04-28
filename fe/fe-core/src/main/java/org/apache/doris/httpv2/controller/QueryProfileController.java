@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.controller;
 
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -70,21 +71,21 @@ public class QueryProfileController extends BaseController {
     private void addFinishedQueryInfo(Map<String, Object> result) {
         List<List<String>> finishedQueries = ProfileManager.getInstance().getAllQueries();
         List<String> columnHeaders = Lists.newLinkedList();
-        columnHeaders.addAll(ProfileManager.PROFILE_HEADERS);
-        columnHeaders.addAll(ProfileManager.EXECUTION_HEADERS);
+        columnHeaders.addAll(SummaryProfile.SUMMARY_KEYS);
+        columnHeaders.addAll(SummaryProfile.EXECUTION_SUMMARY_KEYS);
         int jobIdIndex = -1;
         int queryIdIndex = -1;
         int queryTypeIndex = -1;
         for (int i = 0; i < columnHeaders.size(); ++i) {
-            if (columnHeaders.get(i).equals(ProfileManager.JOB_ID)) {
+            if (columnHeaders.get(i).equals(SummaryProfile.JOB_ID)) {
                 jobIdIndex = i;
                 continue;
             }
-            if (columnHeaders.get(i).equals(ProfileManager.QUERY_ID)) {
+            if (columnHeaders.get(i).equals(SummaryProfile.QUERY_ID)) {
                 queryIdIndex = i;
                 continue;
             }
-            if (columnHeaders.get(i).equals(ProfileManager.QUERY_TYPE)) {
+            if (columnHeaders.get(i).equals(SummaryProfile.QUERY_TYPE)) {
                 queryTypeIndex = i;
                 continue;
             }

@@ -117,41 +117,43 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(ANALYSIS_TIME, getPrettyQueryAnalysisFinishTime());
         executionSummaryProfile.addInfoString(PLAN_TIME, getPrettyQueryPlanFinishTime());
         executionSummaryProfile.addInfoString(SCHEDULE_TIME, getPrettyQueryScheduleFinishTime());
-        executionSummaryProfile.addInfoString(FETCH_RESULT_TIME, RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_NS));
-        executionSummaryProfile.addInfoString(WRITE_RESULT_TIME, RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_NS));
+        executionSummaryProfile.addInfoString(FETCH_RESULT_TIME,
+                RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
+                RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(WAIT_FETCH_RESULT_TIME, getPrettyQueryFetchResultFinishTime());
     }
 
     public void setQueryBeginTime() {
-        this.queryBeginTime = TimeUtils.getStartTime();
+        this.queryBeginTime = TimeUtils.getStartTimeMs();
     }
 
     public void setQueryAnalysisFinishTime() {
-        this.queryAnalysisFinishTime = TimeUtils.getStartTime();
+        this.queryAnalysisFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setQueryPlanFinishTime() {
-        this.queryPlanFinishTime = TimeUtils.getStartTime();
+        this.queryPlanFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setQueryScheduleFinishTime() {
-        this.queryScheduleFinishTime = TimeUtils.getStartTime();
+        this.queryScheduleFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setQueryFetchResultFinishTime() {
-        this.queryFetchResultFinishTime = TimeUtils.getStartTime();
+        this.queryFetchResultFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setTempStartTime() {
-        this.tempStarTime = TimeUtils.getStartTime();
+        this.tempStarTime = TimeUtils.getStartTimeMs();
     }
 
     public void freshFetchResultConsumeTime() {
-        this.queryFetchResultConsumeTime += TimeUtils.getStartTime() - tempStarTime;
+        this.queryFetchResultConsumeTime += TimeUtils.getStartTimeMs() - tempStarTime;
     }
 
     public void freshWriteResultConsumeTime() {
-        this.queryWriteResultConsumeTime += TimeUtils.getStartTime() - tempStarTime;
+        this.queryWriteResultConsumeTime += TimeUtils.getStartTimeMs() - tempStarTime;
     }
 
     public long getQueryBeginTime() {
@@ -245,27 +247,27 @@ public class SummaryProfile {
         if (queryBeginTime == -1 || queryAnalysisFinishTime == -1) {
             return "N/A";
         }
-        return RuntimeProfile.printCounter(queryAnalysisFinishTime - queryBeginTime, TUnit.TIME_NS);
+        return RuntimeProfile.printCounter(queryAnalysisFinishTime - queryBeginTime, TUnit.TIME_MS);
     }
 
     private String getPrettyQueryPlanFinishTime() {
         if (queryAnalysisFinishTime == -1 || queryPlanFinishTime == -1) {
             return "N/A";
         }
-        return RuntimeProfile.printCounter(queryPlanFinishTime - queryAnalysisFinishTime, TUnit.TIME_NS);
+        return RuntimeProfile.printCounter(queryPlanFinishTime - queryAnalysisFinishTime, TUnit.TIME_MS);
     }
 
     private String getPrettyQueryScheduleFinishTime() {
         if (queryPlanFinishTime == -1 || queryScheduleFinishTime == -1) {
             return "N/A";
         }
-        return RuntimeProfile.printCounter(queryScheduleFinishTime - queryPlanFinishTime, TUnit.TIME_NS);
+        return RuntimeProfile.printCounter(queryScheduleFinishTime - queryPlanFinishTime, TUnit.TIME_MS);
     }
 
     private String getPrettyQueryFetchResultFinishTime() {
         if (queryScheduleFinishTime == -1 || queryFetchResultFinishTime == -1) {
             return "N/A";
         }
-        return RuntimeProfile.printCounter(queryFetchResultFinishTime - queryScheduleFinishTime, TUnit.TIME_NS);
+        return RuntimeProfile.printCounter(queryFetchResultFinishTime - queryScheduleFinishTime, TUnit.TIME_MS);
     }
 }
