@@ -1109,22 +1109,24 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
                 left_bracket = key_path;
             } else if (']' == *key_path) {
                 right_bracket = key_path;
-            } else if ('"' == *key_path){
-                if (left_quotation_marks == nullptr){
+            } else if ('"' == *key_path) {
+                if (left_quotation_marks == nullptr) {
                     left_quotation_marks = key_path;
                 } else {
                     right_quotation_marks = key_path;
                 }
-            } else if (*key_path == *delim){
-                if(left_quotation_marks == nullptr || right_quotation_marks != nullptr){
-                    break ;
-                } else if (left_quotation_marks != nullptr){
-                    if(!key_has_delim) key_has_delim = true;
+            } else if (*key_path == *delim) {
+                if (left_quotation_marks == nullptr || right_quotation_marks != nullptr) {
+                    break;
+                } else if (left_quotation_marks != nullptr) {
+                    if (!key_has_delim) {
+                        key_has_delim = true
+                    };
                 }
             }
         }
 
-        if(key_has_delim){
+        if (key_has_delim) {
             key++;
             klen = klen - 2;
         }
