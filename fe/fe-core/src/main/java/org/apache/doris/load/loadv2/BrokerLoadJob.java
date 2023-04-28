@@ -32,6 +32,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.Profile;
+import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -332,7 +333,25 @@ public class BrokerLoadJob extends BulkLoadJob {
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, this.getOriginStmt().originStmt);
         summaryProfile.addInfoString(ProfileManager.IS_CACHED, "N/A");
 
-        jobProfile.update(createTimestamp * 1000, getSummaryInfo(), getExecutionSummaryInfo(), true);
+        jobProfile.update(createTimestamp * 1000, getSummaryInfo(true), true);
+    }
+
+    private Map<String, String> getSummaryInfo(boolean isFinished) {
+        long currentTimestamp = System.currentTimeMillis();
+        SummaryBuilder builder = new SummaryBuilder();
+        builder.startTime(TimeUtils.longToTimeString(createTimestamp));
+        if (isFinished) {
+            builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
+            builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - createTimestamp));
+        }
+        builder.queryState("FINISHED");
+        builder.jobId(String.valueOf(id));
+        builder.queryId(queryId);
+        builder.queryType("LOAD");
+        builder.user(getUserInfo() != null ? getUserInfo().getQualifiedUser() : "N/A");
+        builder.defaultDb(getDefaultDb());
+        builder.sqlStatement(getOriginStmt().originStmt);
+        return builder.build();
     }
 
     private String getDefaultDb() {

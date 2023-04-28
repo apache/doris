@@ -163,16 +163,12 @@ public final class QeProcessorImpl implements QeProcessor {
                 continue;
             }
             final String queryIdStr = DebugUtil.printId(info.getConnectContext().queryId());
-            final QueryStatisticsItem item = new QueryStatisticsItem.Builder()
-                    .queryId(queryIdStr)
-                    .queryStartTime(info.getStartExecTime())
-                    .sql(info.getSql())
-                    .user(context.getQualifiedUser())
-                    .connId(String.valueOf(context.getConnectionId()))
-                    .db(context.getDatabase())
+            final QueryStatisticsItem item = new QueryStatisticsItem.Builder().queryId(queryIdStr)
+                    .queryStartTime(info.getStartExecTime()).sql(info.getSql()).user(context.getQualifiedUser())
+                    .connId(String.valueOf(context.getConnectionId())).db(context.getDatabase())
                     .catalog(context.getDefaultCatalog())
                     .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
-                    .profile(info.getCoord().getQueryProfile())
+                    .profile(info.getCoord().getExecutionProfile().getExecutionProfile())
                     .isReportSucc(context.getSessionVariable().enableProfile()).build();
             querySet.put(queryIdStr, item);
         }
@@ -203,7 +199,7 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         try {
             info.getCoord().updateFragmentExecStatus(params);
-            if (info.getCoord().getProfileWriter() != null && params.isSetProfile()) {
+            if (params.isSetProfile()) {
                 writeProfileExecutor.submit(new WriteProfileTask(params, info));
             }
         } catch (Exception e) {

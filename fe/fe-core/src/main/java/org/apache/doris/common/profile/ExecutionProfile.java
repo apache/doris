@@ -59,6 +59,10 @@ public class ExecutionProfile {
         executionProfile.addChild(loadChannelProfile);
     }
 
+    public RuntimeProfile getExecutionProfile() {
+        return executionProfile;
+    }
+
     public RuntimeProfile getLoadChannelProfile() {
         return loadChannelProfile;
     }

@@ -46,7 +46,7 @@ public class Profile {
     private RuntimeProfile rootProfile;
     private SummaryProfile summaryProfile;
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
-    private boolean isFinished = false;
+    private boolean isFinished;
 
     public Profile(String name, boolean isEnable) {
         this.rootProfile = new RuntimeProfile(name);
@@ -60,18 +60,21 @@ public class Profile {
         executionProfile.addToProfileAsChild(rootProfile);
     }
 
-    public synchronized void update(long startTimeNs, Map<String, String> summaryInfo,
-            Map<String, String> executionSummaryInfo, boolean isFinished) {
+    public synchronized void update(long startTimeNs, Map<String, String> summaryInfo, boolean isFinished) {
         if (this.isFinished) {
             return;
         }
         this.startTimeNs = (this.startTimeNs == 0 && startTimeNs > 0 ? startTimeNs : this.startTimeNs);
-        summaryProfile.update(summaryInfo, executionSummaryInfo);
+        summaryProfile.update(summaryInfo);
         for (ExecutionProfile executionProfile : executionProfiles) {
             executionProfile.update(startTimeNs, isFinished);
         }
         rootProfile.computeTimeInProfile();
         ProfileManager.getInstance().pushProfile(rootProfile);
         this.isFinished = isFinished;
+    }
+
+    public SummaryProfile getSummaryProfile() {
+        return summaryProfile;
     }
 }

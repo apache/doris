@@ -17,14 +17,19 @@
 
 package org.apache.doris.common.profile;
 
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 
 public class SummaryProfile {
     // Summary
+    public static final String DORIS_VERSION = "Doris Version";
     public static final String START_TIME = "Start Time";
     public static final String END_TIME = "End Time";
     public static final String TOTAL_TIME = "Total";
@@ -32,7 +37,6 @@ public class SummaryProfile {
     public static final String JOB_ID = "Job ID";
     public static final String QUERY_ID = "Query ID";
     public static final String QUERY_TYPE = "Query Type";
-    public static final String DORIS_VERSION = "Doris Version";
     public static final String USER = "User";
     public static final String DEFAULT_DB = "Default Db";
     public static final String SQL_STATEMENT = "Sql Statement";
@@ -50,18 +54,29 @@ public class SummaryProfile {
     public static final String WRITE_RESULT_TIME = "Write Result Time";
     public static final String WAIT_FETCH_RESULT_TIME = "Wait and Fetch Result Time";
 
-    private static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(
-            START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, JOB_ID, QUERY_ID, QUERY_TYPE,
-            DORIS_VERSION, USER, DEFAULT_DB, SQL_STATEMENT, IS_CACHED, TOTAL_INSTANCES_NUM,
+    private static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(START_TIME, END_TIME, TOTAL_TIME,
+            QUERY_STATE, JOB_ID, QUERY_ID, QUERY_TYPE, USER, DEFAULT_DB, SQL_STATEMENT, IS_CACHED, TOTAL_INSTANCES_NUM,
             INSTANCES_NUM_PER_BE, PARALLEL_FRAGMENT_EXEC_INSTANCE, TRACE_ID);
 
-    private static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
-            ANALYSIS_TIME, PLAN_TIME, SCHEDULE_TIME, FETCH_RESULT_TIME, WRITE_RESULT_TIME,
-            WAIT_FETCH_RESULT_TIME);
-
+    private static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(ANALYSIS_TIME, PLAN_TIME,
+            SCHEDULE_TIME, FETCH_RESULT_TIME, WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME);
 
     private RuntimeProfile summaryProfile;
     private RuntimeProfile executionSummaryProfile;
+
+    // timestamp of query begin
+    private long queryBeginTime = -1;
+    // Analysis end time
+    private long queryAnalysisFinishTime = -1;
+    // Plan end time
+    private long queryPlanFinishTime = -1;
+    // Fragment schedule and send end time
+    private long queryScheduleFinishTime = -1;
+    // Query result fetch end time
+    private long queryFetchResultFinishTime = -1;
+    private long tempStarTime = -1;
+    private long queryFetchResultConsumeTime = 0;
+    private long queryWriteResultConsumeTime = 0;
 
     public SummaryProfile(RuntimeProfile rootProfile) {
         summaryProfile = new RuntimeProfile("Summary");
@@ -72,6 +87,7 @@ public class SummaryProfile {
     }
 
     private void init() {
+        summaryProfile.addInfoString(DORIS_VERSION, Version.DORIS_BUILD_VERSION);
         for (String key : SUMMARY_KEYS) {
             summaryProfile.addInfoString(key, "N/A");
         }
@@ -80,13 +96,9 @@ public class SummaryProfile {
         }
     }
 
-    public long getStartTime() {
-        return Long.parseLong(summaryProfile.getInfoString(START_TIME));
-    }
-
-    public void update(Map<String, String> summaryInfo, Map<String, String> executionSummaryInfo) {
+    public void update(Map<String, String> summaryInfo) {
         updateSummaryProfile(summaryInfo);
-        updateExecutionSummaryProfile(executionSummaryInfo);
+        updateExecutionSummaryProfile();
     }
 
     private void updateSummaryProfile(Map<String, String> infos) {
@@ -97,11 +109,161 @@ public class SummaryProfile {
         }
     }
 
-    private void updateExecutionSummaryProfile(Map<String, String> infos) {
-        for (String key : infos.keySet()) {
-            if (EXECUTION_SUMMARY_KEYS.contains(key)) {
-                executionSummaryProfile.addInfoString(key, infos.get(key));
-            }
+    private void updateExecutionSummaryProfile() {
+        executionSummaryProfile.addInfoString(ANALYSIS_TIME, getPrettyQueryAnalysisFinishTime());
+        executionSummaryProfile.addInfoString(PLAN_TIME, getPrettyQueryPlanFinishTime());
+        executionSummaryProfile.addInfoString(SCHEDULE_TIME, getPrettyQueryScheduleFinishTime());
+        executionSummaryProfile.addInfoString(FETCH_RESULT_TIME,
+                RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_NS));
+        executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
+                RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_NS));
+        executionSummaryProfile.addInfoString(WAIT_FETCH_RESULT_TIME, getPrettyQueryFetchResultFinishTime());
+    }
+
+    public void setQueryBeginTime() {
+        this.queryBeginTime = TimeUtils.getStartTime();
+    }
+
+    public void setQueryAnalysisFinishTime() {
+        this.queryAnalysisFinishTime = TimeUtils.getStartTime();
+    }
+
+    public void setQueryPlanFinishTime() {
+        this.queryPlanFinishTime = TimeUtils.getStartTime();
+    }
+
+    public void setQueryScheduleFinishTime() {
+        this.queryScheduleFinishTime = TimeUtils.getStartTime();
+    }
+
+    public void setQueryFetchResultFinishTime() {
+        this.queryFetchResultFinishTime = TimeUtils.getStartTime();
+    }
+
+    public void setTempStartTime() {
+        this.tempStarTime = TimeUtils.getStartTime();
+    }
+
+    public void freshFetchResultConsumeTime() {
+        this.queryFetchResultConsumeTime += TimeUtils.getStartTime() - tempStarTime;
+    }
+
+    public void freshWriteResultConsumeTime() {
+        this.queryWriteResultConsumeTime += TimeUtils.getStartTime() - tempStarTime;
+    }
+
+    public long getQueryBeginTime() {
+        return queryBeginTime;
+    }
+
+    public static class SummaryBuilder {
+        private Map<String, String> map = Maps.newHashMap();
+
+        public SummaryBuilder startTime(String val) {
+            map.put(START_TIME, val);
+            return this;
         }
+
+        public SummaryBuilder endTime(String val) {
+            map.put(END_TIME, val);
+            return this;
+        }
+
+        public SummaryBuilder totalTime(String val) {
+            map.put(TOTAL_TIME, val);
+            return this;
+        }
+
+        public SummaryBuilder queryState(String val) {
+            map.put(QUERY_STATE, val);
+            return this;
+        }
+
+        public SummaryBuilder jobId(String val) {
+            map.put(JOB_ID, val);
+            return this;
+        }
+
+        public SummaryBuilder queryId(String val) {
+            map.put(QUERY_ID, val);
+            return this;
+        }
+
+        public SummaryBuilder queryType(String val) {
+            map.put(QUERY_TYPE, val);
+            return this;
+        }
+
+        public SummaryBuilder user(String val) {
+            map.put(USER, val);
+            return this;
+        }
+
+        public SummaryBuilder defaultDb(String val) {
+            map.put(DEFAULT_DB, val);
+            return this;
+        }
+
+        public SummaryBuilder sqlStatement(String val) {
+            map.put(SQL_STATEMENT, val);
+            return this;
+        }
+
+        public SummaryBuilder isCached(String val) {
+            map.put(IS_CACHED, val);
+            return this;
+        }
+
+        public SummaryBuilder totalInstancesNum(String val) {
+            map.put(TOTAL_INSTANCES_NUM, val);
+            return this;
+        }
+
+        public SummaryBuilder instancesNumPerBe(String val) {
+            map.put(INSTANCES_NUM_PER_BE, val);
+            return this;
+        }
+
+        public SummaryBuilder parallelFragmentExecInstance(String val) {
+            map.put(PARALLEL_FRAGMENT_EXEC_INSTANCE, val);
+            return this;
+        }
+
+        public SummaryBuilder traceId(String val) {
+            map.put(TRACE_ID, val);
+            return this;
+        }
+
+        public Map<String, String> build() {
+            return map;
+        }
+    }
+
+    private String getPrettyQueryAnalysisFinishTime() {
+        if (queryBeginTime == -1 || queryAnalysisFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(queryAnalysisFinishTime - queryBeginTime, TUnit.TIME_NS);
+    }
+
+    private String getPrettyQueryPlanFinishTime() {
+        if (queryAnalysisFinishTime == -1 || queryPlanFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(queryPlanFinishTime - queryAnalysisFinishTime, TUnit.TIME_NS);
+    }
+
+    private String getPrettyQueryScheduleFinishTime() {
+        if (queryPlanFinishTime == -1 || queryScheduleFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(queryScheduleFinishTime - queryPlanFinishTime, TUnit.TIME_NS);
+    }
+
+    private String getPrettyQueryFetchResultFinishTime() {
+        if (queryScheduleFinishTime == -1 || queryFetchResultFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(queryFetchResultFinishTime - queryScheduleFinishTime, TUnit.TIME_NS);
     }
 }
