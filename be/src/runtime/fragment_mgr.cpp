@@ -907,7 +907,6 @@ void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancel
     }
     if (exec_state) {
         exec_state->cancel(reason, msg);
-        return;
     }
 
     std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_fragment_ctx;
