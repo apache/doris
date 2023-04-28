@@ -90,7 +90,7 @@ public:
     ~TabletsChannel();
 
     Status open(const PTabletWriterOpenRequest& request);
-    
+
     // Open specific partition all writers
     Status open_all_writers_for_partition(const PartitionOpenRequest& request);
 
@@ -131,7 +131,7 @@ private:
 
     template <typename TabletWriterAddRequest>
     Status _open_all_writers_for_partition(const int64_t& tablet_id,
-                                          const TabletWriterAddRequest& request);
+                                           const TabletWriterAddRequest& request);
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
 

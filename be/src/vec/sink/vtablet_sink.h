@@ -267,8 +267,6 @@ public:
 
     size_t get_pending_bytes() { return _pending_batches_bytes; }
 
-    
-
 protected:
     void _close_check();
     void _cancel_with_msg(const std::string& msg);
@@ -316,7 +314,7 @@ protected:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
-    std::unordered_map<int64_t,RefCountClosure<PartitionOpenResult>*> _partition_open_closures;
+    std::unordered_map<int64_t, RefCountClosure<PartitionOpenResult>*> _partition_open_closures;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in

@@ -303,9 +303,8 @@ public:
     }
 
     void partition_open(google::protobuf::RpcController* controller,
-                                          const PartitionOpenRequest* request,
-                                          PartitionOpenResult* response,
-                                          google::protobuf::Closure* done) override {
+                        const PartitionOpenRequest* request, PartitionOpenResult* response,
+                        google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         Status status;
         status.to_protobuf(response->mutable_status());

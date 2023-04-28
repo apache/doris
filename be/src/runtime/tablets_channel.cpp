@@ -107,9 +107,10 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
     _next_seqs.resize(_num_remaining_senders, 0);
     _closed_senders.Reset(_num_remaining_senders);
 
-    _build_partition_tablets_relation(request);
     if (!config::enable_lazy_open_partition) {
         RETURN_IF_ERROR(_open_all_writers(request));
+    } else {
+        _build_partition_tablets_relation(request);
     }
     _state = kOpened;
     return Status::OK();
@@ -514,8 +515,16 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                 response->mutable_tablet_errors();
         auto tablet_writer_it = _tablet_writers.find(tablet_id);
         if (tablet_writer_it == _tablet_writers.end()) {
-            RETURN_IF_ERROR(_open_all_writers_for_partition(tablet_id, request));
-            tablet_writer_it = _tablet_writers.find(tablet_id);
+            if (!config::enable_lazy_open_partition) {
+                return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+            } else {
+                RETURN_IF_ERROR(_open_all_writers_for_partition(tablet_id, request));
+                tablet_writer_it = _tablet_writers.find(tablet_id);
+                if (tablet_writer_it == _tablet_writers.end()) {
+                    return Status::InternalError("unknown tablet to append data, tablet={}",
+                                                 tablet_id);
+                }
+            }
         }
         Status st = write_func(tablet_writer_it->second);
         if (!st.ok()) {
