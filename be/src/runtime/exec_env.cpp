@@ -21,7 +21,7 @@
 
 namespace doris {
 
-ExecEnv::ExecEnv() : _is_init(false) {}
+ExecEnv::ExecEnv() : _is_init(false), _cancel_timeout_streamloadpipe_latch(1) {}
 
 ExecEnv::~ExecEnv() {}
 

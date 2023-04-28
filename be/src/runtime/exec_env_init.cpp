@@ -77,6 +77,8 @@
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "runtime/stream_load/stream_load_pipe.h"
+#include "util/time.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -177,6 +179,18 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     _init_mem_env();
 
+    RETURN_IF_ERROR(Thread::create(
+                "ExecEnv", "cancel_timeout_streamloadpipe",
+                [this]() {
+                    uint32_t interval = 30;
+                    while (!_cancel_timeout_streamloadpipe_latch.wait_for(std::chrono::seconds(interval))) {
+                        _cancel_timeout_streamloadpipe();
+                    }
+                },
+                &_cancel_timeout_streamloadpipe_thread));
+
+
+
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
@@ -202,6 +216,28 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     RETURN_IF_ERROR(_pipeline_task_group_scheduler->start());
 
     return Status::OK();
+}
+
+extern std::map<UniqueId, StreamLoadPipe*> g_streamloadpipes;
+extern std::mutex g_streamloadpipes_lock;
+
+void ExecEnv::_cancel_timeout_streamloadpipe() {
+    LOG(INFO) << "begin clean timeout streamloadpipe";
+    try {
+        uint64_t now = GetCurrentTimeMicros();
+        std::lock_guard<std::mutex> l(g_streamloadpipes_lock);
+        for (auto& pipe : g_streamloadpipes) {
+            if (pipe.second == nullptr ||
+                pipe.second->is_cancelled()) {
+                continue;
+            }
+            uint64_t diff_s = abs((int64_t)now - (int64_t)pipe.second->last_active()) / 1000000;
+            LOG(INFO) << "execenv polling, pipe=" << pipe.second << " diff_time_from_last_append=" << diff_s;
+
+        }
+    } catch (std::exception& e) {
+        LOG(WARNING) << "cancel timeout streamloadpipe failed. reason:" << e.what();
+    }
 }
 
 Status ExecEnv::_init_mem_env() {
