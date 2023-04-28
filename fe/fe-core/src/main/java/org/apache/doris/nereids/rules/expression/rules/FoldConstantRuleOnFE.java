@@ -98,11 +98,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
      * process constant expression.
      */
     @Override
-    public Expression visit(Expression expr, ExpressionRewriteContext ctx) {
-        return expr;
-    }
-
-    @Override
     public Expression visitSlot(Slot slot, ExpressionRewriteContext context) {
         return slot;
     }

@@ -27,13 +27,14 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class TestFoldConstantByFe {
+public class TestFoldConstantByFe implements MemoPatternMatchSupported {
 
     @Test
     public void testDateTypeDateTimeArithmeticFunctions() {
@@ -319,6 +320,11 @@ public class TestFoldConstantByFe {
         PlanChecker.from(MemoTestUtils.createCascadesContext(sql))
                 .analyze(sql)
                 .applyBottomUp(new ExpressionNormalization())
-                .matches(null);
+                .matches(
+                        logicalOneRowRelation().when(
+                                r -> r.getProjects().size() == 1 &&
+                                        r.getProjects().get(0).child(0).equals(new DateLiteral("2010-04-11"))
+                        )
+                );
     }
 }
