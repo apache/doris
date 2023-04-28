@@ -292,14 +292,15 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @param exprMap
      * @param resultMap
      */
-    private void putBackConstExpr(Map<String, Expr> exprMap, Map<String, Map<String, Expr>> resultMap) {
+    private void putBackConstExpr(Map<String, Expr> exprMap, Map<String, Map<String, Expr>> resultMap)
+            throws AnalysisException {
         for (Map.Entry<String, Map<String, Expr>> entry : resultMap.entrySet()) {
             Expr rewrittenExpr = putBackConstExpr(exprMap.get(entry.getKey()), entry.getValue());
             exprMap.put(entry.getKey(), rewrittenExpr);
         }
     }
 
-    private Expr putBackConstExpr(Expr expr, Map<String, Expr> resultMap) {
+    private Expr putBackConstExpr(Expr expr, Map<String, Expr> resultMap) throws AnalysisException {
         for (Map.Entry<String, Expr> entry : resultMap.entrySet()) {
             if (entry.getValue() instanceof LiteralExpr) {
                 expr = replaceExpr(expr, entry.getKey(), (LiteralExpr) entry.getValue());
