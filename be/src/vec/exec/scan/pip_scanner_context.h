@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "common/logging.h"
 #include "scanner_context.h"
 
 namespace doris {
@@ -125,12 +124,6 @@ public:
     }
 
     bool empty_in_queue(int id) override {
-        if (id >= _queue_mutexs.size() || id >= _blocks_queues.size()) {
-            LOG_WARNING("yxc error")
-                    .tag("id", id)
-                    .tag("_queue_mutexs.size()", _queue_mutexs.size())
-                    .tag("_blocks_queues.size()", _blocks_queues.size());
-        }
         std::unique_lock<std::mutex> l(*_queue_mutexs[id]);
         return _blocks_queues[id].empty();
     }

@@ -48,12 +48,11 @@ public class BackendsProcDir implements ProcDirInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
-            .add("BePort").add("HttpPort").add("BrpcPort").add("NumCores").add("LastStartTime").add("LastHeartbeat")
-            .add("Alive")
+            .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
             .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
-            .add("HeartbeatFailureCounter").add("NodeRole")
+            .add("HeartbeatFailureCounter").add("NodeRole").add("NumCores")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
@@ -129,7 +128,6 @@ public class BackendsProcDir implements ProcDirInterface {
                 backendInfo.add(String.valueOf(backend.getBePort()));
                 backendInfo.add(String.valueOf(backend.getHttpPort()));
                 backendInfo.add(String.valueOf(backend.getBrpcPort()));
-                backendInfo.add(String.valueOf(backend.getNumCores()));
             }
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
@@ -191,6 +189,10 @@ public class BackendsProcDir implements ProcDirInterface {
             // node role, show the value only when backend is alive.
             backendInfo.add(backend.isAlive() ? backend.getNodeRoleTag().value : "");
 
+            // NumCores
+            if (Strings.isNullOrEmpty(clusterName)) {
+                backendInfo.add(String.valueOf(backend.getNumCores()));
+            }
             comparableBackendInfos.add(backendInfo);
         }
 
