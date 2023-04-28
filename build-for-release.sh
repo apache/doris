@@ -58,6 +58,7 @@ eval set -- "${OPTS}"
 
 _USE_AVX2=1
 TAR=0
+HELP=0
 VERSION=
 if [[ "$#" == 1 ]]; then
     _USE_AVX2=1
@@ -94,13 +95,11 @@ fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit
 fi
 
 if [[ -z ${VERSION} ]]; then
     echo "Must specify version"
     usage
-    exit 1
 fi
 
 echo "Get params:

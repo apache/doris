@@ -232,7 +232,6 @@ fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit
 fi
 # build thirdparty libraries if necessary
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
@@ -391,9 +390,9 @@ echo "Build generated code"
 cd "${DORIS_HOME}/gensrc"
 # DO NOT using parallel make(-j) for gensrc
 make
-rm -rf "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/parquet"
-cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris"
-cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/"
+rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"
+cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris"
+cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/"
 
 # Assesmble FE modules
 FE_MODULES=''
@@ -432,7 +431,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_be
     fi
-    MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
+    MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"

@@ -99,13 +99,11 @@ fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit 0
 fi
 
 if [[ "${COMPONENTS}"x == ""x ]]; then
     echo "Invalid arguments"
     usage
-    exit 1
 fi
 
 if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
@@ -150,7 +148,6 @@ for element in "${COMPONENTS_ARR[@]}"; do
     else
         echo "Invalid component: ${element}"
         usage
-        exit 1
     fi
 done
 
