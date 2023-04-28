@@ -52,29 +52,23 @@ struct event_base;
 struct evhttp;
 
 namespace doris {
-std::map<evhttp_connection*, HttpRequest*> g_conn_req_map;
-std::mutex g_conn_req_map_lock;
-// bvar::Adder<int64_t> g_on_close_call_cnt("http_server", "on_close_call_cnt");
-// bvar::Adder<int64_t> g_on_free_call_cnt("http_server", "on_free_call_cnt");
+static std::map<evhttp_connection*, HttpRequest*> g_conn_req_map;
+static std::mutex g_conn_req_map_lock;
 
 static void on_chunked(struct evhttp_request* ev_req, void* param) {
     HttpRequest* request = (HttpRequest*)ev_req->on_free_cb_arg;
-
-    LOG(INFO) << "ev on chunked req=" << ev_req << " HttpRequest=" << request;
     request->handler()->on_chunk_data(request);
 }
 
 static void on_close(evhttp_connection* con, void* arg) {
-    // g_on_close_call_cnt << 1;
     HttpRequest* request = (HttpRequest*)arg;
-    LOG(INFO) << "ev on close connection=" << con << " HttpRequest=" << request;
     {
         std::lock_guard<std::mutex> l(g_conn_req_map_lock);
         auto itr = g_conn_req_map.find(con);
         if (itr != g_conn_req_map.end()) {
             if (itr->second) {
                 if (itr->second != request) {
-                    LOG(WARNING) << " OOXXOO ev on close connection=" << con << " current HttpRequest=" << request
+                    LOG(WARNING) << "close connection. connection=" << con << " current HttpRequest=" << request
                                  << " but orginal HttpRequest=" << itr->second;
                 }
                 delete itr->second;
@@ -86,15 +80,13 @@ static void on_close(evhttp_connection* con, void* arg) {
 
 static void on_free(struct evhttp_request* ev_req, void* arg) {
     HttpRequest* request = (HttpRequest*)arg;
-    LOG(INFO) << "ev on free req=" << ev_req << " HttpRequest=" << request << " ctx=" << request->handler_ctx();
-    // g_on_free_call_cnt << 1;
     {
         std::lock_guard<std::mutex> l(g_conn_req_map_lock);
         auto itr = g_conn_req_map.find(ev_req->evcon);
         if (itr != g_conn_req_map.end()) {
             if (itr->second) {
                 if (itr->second != request) {
-                    LOG(WARNING) << " OOXXOO ev on free connection=" << ev_req->evcon << " current HttpRequest=" << request
+                    LOG(WARNING) << "free request. connection=" << ev_req->evcon << " current HttpRequest=" << request
                                  << " but orginal HttpRequest=" << itr->second;
                 }
                 delete itr->second;
@@ -106,12 +98,13 @@ static void on_free(struct evhttp_request* ev_req, void* arg) {
 
 static void on_request(struct evhttp_request* ev_req, void* arg) {
     auto request = (HttpRequest*)ev_req->on_free_cb_arg;
+#if 0
     {
         std::lock_guard<std::mutex> l(g_conn_req_map_lock);
         g_conn_req_map.erase(ev_req->evcon);
         g_conn_req_map[ev_req->evcon] = request;
     }
-    LOG(INFO) << "ev on request, connection=" << ev_req->evcon << " req=" << ev_req << " HttpRequest=" << request;
+#endif
     if (request == nullptr) {
         // In this case, request's on_header return -1
         return;
@@ -120,8 +113,6 @@ static void on_request(struct evhttp_request* ev_req, void* arg) {
 }
 
 static int on_header(struct evhttp_request* ev_req, void* param) {
-    LOG(INFO) << "ev on header, connection=" << ev_req->evcon << " req=" << ev_req;
-
     EvHttpServer* server = (EvHttpServer*)ev_req->on_complete_cb_arg;
     return server->on_header(ev_req);
 }
@@ -129,12 +120,13 @@ static int on_header(struct evhttp_request* ev_req, void* param) {
 
 // param is pointer of EvHttpServer
 static int on_connection(struct evhttp_request* req, void* param) {
-    LOG(INFO) << "ev on connection, connection=" << req->evcon << " req=" << req;
+#if 0
     {
         std::lock_guard<std::mutex> l(g_conn_req_map_lock);
         g_conn_req_map.erase(req->evcon);
-        g_conn_req_map[req->evcon] = nullptr; //TODO
+        g_conn_req_map[req->evcon] = nullptr;
     }
+#endif
     evhttp_request_set_header_cb(req, on_header);
     // only used on_complete_cb's argument
     evhttp_request_set_on_complete_cb(req, nullptr, param);
@@ -297,12 +289,6 @@ void EvHttpServer::register_static_file_handler(HttpHandler* handler) {
 int EvHttpServer::on_header(struct evhttp_request* ev_req) {
     std::unique_ptr<HttpRequest> request(new HttpRequest(ev_req));
 
-    {
-        std::lock_guard<std::mutex> l(g_conn_req_map_lock);
-        g_conn_req_map.erase(ev_req->evcon);
-        g_conn_req_map[ev_req->evcon] = request.get();
-    }
-
     auto res = request->init_from_evhttp();
     if (res < 0) {
         return -1;
@@ -315,21 +301,10 @@ int EvHttpServer::on_header(struct evhttp_request* ev_req) {
     }
     // set handler before call on_header, because handler_ctx will set in on_header
     request->set_handler(handler);
-
-
     res = handler->on_header(request.get());
     if (res < 0) {
         // reply has already sent by handler's on_header
         evhttp_remove_header(evhttp_request_get_input_headers(ev_req), HttpHeaders::EXPECT);
-
-
-        struct evhttp_connection * httpcon = evhttp_request_get_connection(ev_req);
-        evhttp_connection_set_closecb(httpcon, on_close, request.get());
-        evhttp_request_set_on_free_cb(ev_req, on_free, request.release());
-        struct bufferevent* bufev = evhttp_connection_get_bufferevent(httpcon);
-        if (bufev)
-            bufferevent_enable(bufev, EV_READ);
-
         return 0;
     }
 
@@ -338,6 +313,12 @@ int EvHttpServer::on_header(struct evhttp_request* ev_req) {
     // this can make body read in chunk, not in total
     if (handler->request_will_be_read_progressively()) {
         evhttp_request_set_chunked_cb(ev_req, on_chunked);
+    }
+
+    {
+        std::lock_guard<std::mutex> l(g_conn_req_map_lock);
+        g_conn_req_map.erase(ev_req->evcon);
+        g_conn_req_map[ev_req->evcon] = request.get();
     }
 
     struct evhttp_connection * httpcon = evhttp_request_get_connection(ev_req);

@@ -180,7 +180,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
-    LOG(INFO) << "streamload handle, send_reply complete, req=" << req->get_evhttp_request() << " HttpRequest=" << req << " ctx=" << ctx;
 #ifndef BE_TEST
     if (config::enable_stream_load_record) {
         str = ctx->prepare_stream_load_record(str);
@@ -206,7 +205,6 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
         ctx->body_sink.reset();
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx));
     } else {
-        LOG(INFO) << "streamload _handle before finish, ctx=" << ctx << " pipe=" << ctx->body_sink.get();
         RETURN_IF_ERROR(ctx->body_sink->finish());
     }
 
@@ -227,7 +225,6 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
-    LOG(INFO) << "streamload on header, req=" << req->get_evhttp_request() << " HttpRequest=" << req;
     streaming_load_current_processing->increment(1);
 
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
@@ -382,10 +379,8 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
 void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
     std::shared_ptr<StreamLoadContext> ctx = std::static_pointer_cast<StreamLoadContext>(param);
     if (ctx == nullptr) {
-        LOG(INFO) << "streamload in free handler, ctx=" << ctx;
         return;
     }
-    LOG(INFO) << "streamload in free handler, ctx=" << ctx << " pipe=" << ctx->body_sink.get();
     // sender is gone, make receiver know it
     if (ctx->body_sink != nullptr) {
         ctx->body_sink->cancel("sender is gone");

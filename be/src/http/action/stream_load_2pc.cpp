@@ -79,7 +79,6 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
         status_result = get_success_info(req_txn_id, ctx->txn_operation);
     }
     HttpChannel::send_reply(req, HttpStatus::OK, status_result);
-    LOG(INFO) << "streamload2pc handle, send_reply complete, req=" << req->get_evhttp_request() << " HttpRequest=" << req << " ctx=" << ctx;
 }
 
 std::string StreamLoad2PCAction::get_success_info(const std::string txn_id,
@@ -102,10 +101,8 @@ std::string StreamLoad2PCAction::get_success_info(const std::string txn_id,
 void StreamLoad2PCAction::free_handler_ctx(void* param) {
     StreamLoadContext* ctx = (StreamLoadContext*)param;
     if (ctx == nullptr) {
-        LOG(INFO) << "streamload2pc in free handler, ctx=" << ctx;
         return;
     }
-    LOG(INFO) << "streamload2pc in free handler, ctx=" << ctx << " pipe=" << ctx->body_sink;
     // sender is gone, make receiver know it
     if (ctx->body_sink != nullptr) {
         ctx->body_sink->cancel("sender is gone");

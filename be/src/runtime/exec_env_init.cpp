@@ -79,6 +79,9 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "util/time.h"
+#include "util/uid_util.h"
+#include <mutex>
+#include <map>
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -94,6 +97,11 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_queue_size, MetricUnit::NOUNIT);
+
+std::map<UniqueId, StreamLoadPipe*> g_streamloadpipes;
+std::mutex g_streamloadpipes_lock;
+extern std::map<UniqueId, StreamLoadPipe*> g_streamloadpipes;
+extern std::mutex g_streamloadpipes_lock;
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
@@ -180,14 +188,14 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _init_mem_env();
 
     RETURN_IF_ERROR(Thread::create(
-                "ExecEnv", "cancel_timeout_streamloadpipe",
+                "ExecEnv", "check_streamloadpipe",
                 [this]() {
-                    uint32_t interval = 30;
-                    while (!_cancel_timeout_streamloadpipe_latch.wait_for(std::chrono::seconds(interval))) {
-                        _cancel_timeout_streamloadpipe();
+                    uint32_t interval = 300;
+                    while (!_check_streamloadpipe_latch.wait_for(std::chrono::seconds(interval))) {
+                        _check_streamloadpipe();
                     }
                 },
-                &_cancel_timeout_streamloadpipe_thread));
+                &_check_streamloadpipe_thread));
 
 
 
@@ -218,25 +226,17 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     return Status::OK();
 }
 
-extern std::map<UniqueId, StreamLoadPipe*> g_streamloadpipes;
-extern std::mutex g_streamloadpipes_lock;
-
-void ExecEnv::_cancel_timeout_streamloadpipe() {
+void ExecEnv::_check_streamloadpipe() {
     LOG(INFO) << "begin clean timeout streamloadpipe";
-    try {
-        uint64_t now = GetCurrentTimeMicros();
-        std::lock_guard<std::mutex> l(g_streamloadpipes_lock);
-        for (auto& pipe : g_streamloadpipes) {
-            if (pipe.second == nullptr ||
-                pipe.second->is_cancelled()) {
-                continue;
-            }
-            uint64_t diff_s = abs((int64_t)now - (int64_t)pipe.second->last_active()) / 1000000;
-            LOG(INFO) << "execenv polling, pipe=" << pipe.second << " diff_time_from_last_append=" << diff_s;
-
+    uint64_t now = GetCurrentTimeMicros();
+    std::lock_guard<std::mutex> l(g_streamloadpipes_lock);
+    for (auto& pipe : g_streamloadpipes) {
+        if (pipe.second == nullptr ||
+            pipe.second->is_cancelled()) {
+            continue;
         }
-    } catch (std::exception& e) {
-        LOG(WARNING) << "cancel timeout streamloadpipe failed. reason:" << e.what();
+        uint64_t diff_s = abs((int64_t)now - (int64_t)pipe.second->last_active()) / 1000000;
+        LOG(INFO) << "active StreamLoadPipe=" << pipe.second << " diff_time_from_last_append=" << diff_s;
     }
 }
 
