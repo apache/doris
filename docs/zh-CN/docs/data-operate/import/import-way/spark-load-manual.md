@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Spark Load",
-    "language": "zh-CN"
+"title": "Spark Load",
+"language": "zh-CN"
 }
 ---
 
@@ -28,7 +28,7 @@ under the License.
 
 Spark load 通过外部的 Spark 资源实现对导入数据的预处理，提高 Doris 大数据量的导入性能并且节省 Doris 集群的计算资源。主要用于初次迁移，大数据量导入 Doris 的场景。
 
- Spark load 是利用了 spark 集群的资源对要导入的数据的进行了排序，Doris be 直接写文件，这样能大大降低 Doris 集群的资源使用，对于历史海量数据迁移降低 Doris 集群资源使用及负载有很好的效果。
+Spark load 是利用了 spark 集群的资源对要导入的数据的进行了排序，Doris be 直接写文件，这样能大大降低 Doris 集群的资源使用，对于历史海量数据迁移降低 Doris 集群资源使用及负载有很好的效果。
 
 如果用户在没有 Spark 集群这种资源的情况下，又想方便、快速的完成外部存储历史数据的迁移，可以使用 [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) 。相对 Spark load 导入 Broker load 对 Doris 集群的资源占用会更高。
 
@@ -162,10 +162,10 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 - YARN RM 相关参数如下：
   - 如果 Spark 为单点 RM，则需要配置`spark.hadoop.yarn.resourcemanager.address`，表示单点 ResourceManager 地址。
   - 如果 Spark 为 RM-HA，则需要配置（其中 hostname 和 address 任选一个配置）：
-  - `spark.hadoop.yarn.resourcemanager.ha.enabled`: ResourceManager 启用 HA，设置为 true。
-  - `spark.hadoop.yarn.resourcemanager.ha.rm-ids`: ResourceManager 逻辑 ID 列表。
-  - `spark.hadoop.yarn.resourcemanager.hostname.rm-id`: 对于每个 rm-id，指定 ResourceManager 对应的主机名。
-  - `spark.hadoop.yarn.resourcemanager.address.rm-id`: 对于每个 rm-id，指定 host:port 以供客户端提交作业。
+    - `spark.hadoop.yarn.resourcemanager.ha.enabled`: ResourceManager 启用 HA，设置为 true。
+    - `spark.hadoop.yarn.resourcemanager.ha.rm-ids`: ResourceManager 逻辑 ID 列表。
+    - `spark.hadoop.yarn.resourcemanager.hostname.rm-id`: 对于每个 rm-id，指定 ResourceManager 对应的主机名。
+    - `spark.hadoop.yarn.resourcemanager.address.rm-id`: 对于每个 rm-id，指定 host:port 以供客户端提交作业。
 - HDFS HA 相关参数如下：
   - `spark.hadoop.fs.defaultFS`, hdfs客户端默认路径前缀
   - `spark.hadoop.dfs.nameservices`, hdfs集群逻辑名称
