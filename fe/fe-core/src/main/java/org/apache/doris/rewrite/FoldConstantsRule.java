@@ -316,7 +316,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @param literalExpr
      * @return
      */
-    private Expr replaceExpr(Expr expr, String key, LiteralExpr literalExpr) {
+    private Expr replaceExpr(Expr expr, String key, LiteralExpr literalExpr) throws AnalysisException {
         if (expr.getId().toString().equals(key)) {
             return literalExpr;
         }
@@ -325,7 +325,12 @@ public class FoldConstantsRule implements ExprRewriteRule {
             Expr child = expr.getChild(i);
             if (literalExpr.equals(replaceExpr(child, key, literalExpr))) {
                 literalExpr.setId(child.getId());
-                expr.setChild(i, literalExpr);
+                if (!expr.getChild(i).getType().equals(literalExpr.getType())) {
+                    Expr cast = literalExpr.castTo(expr.getChild(i).getType());
+                    expr.setChild(i, cast);
+                } else {
+                    expr.setChild(i, literalExpr);
+                }
                 break;
             }
         }
