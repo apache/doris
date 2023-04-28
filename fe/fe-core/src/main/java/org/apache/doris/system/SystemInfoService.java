@@ -876,17 +876,19 @@ public class SystemInfoService {
     public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium storageMedium)
             throws DdlException {
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
 
-        int backendNum = getClusterBackendIds(clusterName, true).size();
-        if (backendNum < replicaAlloc.getTotalReplicaNum()) {
+        int aliveBackendNum = copiedBackends.values().stream().filter(Backend::isAlive)
+                .collect(Collectors.toList()).size();
+        if (aliveBackendNum < replicaAlloc.getTotalReplicaNum()) {
             throw new DdlException("replication num should be less than the number of available backends. "
                     + "replication num is " + replicaAlloc.getTotalReplicaNum()
-                    + ", available backend num is " + backendNum);
+                    + ", available backend num is " + aliveBackendNum);
         } else {
-            Map<String, Integer> failedEntries = Maps.newHashMap();
+            List<String> failedEntries = Lists.newArrayList();
 
             for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
                 BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder().setCluster(clusterName)
@@ -898,11 +900,11 @@ public class SystemInfoService {
 
                 BeSelectionPolicy policy = builder.build();
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
-                if (beIds.size() < entry.getValue()) {
+                if (beIds.isEmpty()) {
                     String errorReplication = "replication tag: " + entry.getKey()
                             + ", replication num: " + entry.getValue()
                             + ", storage medium: " + storageMedium;
-                    failedEntries.put(errorReplication, beIds.size());
+                    failedEntries.add(errorReplication);
                 } else {
                     chosenBackendIds.put(entry.getKey(), beIds);
                     totalReplicaNum += beIds.size();
@@ -910,7 +912,7 @@ public class SystemInfoService {
             }
 
             if (!failedEntries.isEmpty()) {
-                String failedMsg = Joiner.on("\n").withKeyValueSeparator(". Satisfy backend num: ").join(failedEntries);
+                String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
                         + "replication tag and storage medium.\n" + "Create failed replications:\n" + failedMsg);
             }
