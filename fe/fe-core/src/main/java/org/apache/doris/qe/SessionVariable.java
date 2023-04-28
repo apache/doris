@@ -826,7 +826,8 @@ public class SessionVariable implements Serializable, Writable {
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
         Random random = new Random(System.currentTimeMillis());
-        this.parallelExecInstanceNum = 0;//it will use be info to set parallelExecInstanceNum
+        // it will use be info to set parallelExecInstanceNum
+        this.parallelExecInstanceNum = 0;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
