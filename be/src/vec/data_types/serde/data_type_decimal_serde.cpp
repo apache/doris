@@ -32,8 +32,7 @@ namespace doris {
 namespace vectorized {
 
 template <typename T>
-void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
-                                                    const PaddedPODArray<UInt8>* null_bytemap,
+void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
                                                     arrow::ArrayBuilder* array_builder, int start,
                                                     int end) const {
     auto& col = reinterpret_cast<const ColumnDecimal<T>&>(column);
@@ -42,7 +41,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(27, 9);
         for (size_t i = start; i < end; ++i) {
-            if (null_bytemap && (*null_bytemap)[i]) {
+            if (null_map && null_map[i]) {
                 checkArrowStatus(builder.AppendNull(), column.get_name(),
                                  array_builder->type()->name());
                 continue;
@@ -59,7 +58,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
         for (size_t i = start; i < end; ++i) {
-            if (null_bytemap && (*null_bytemap)[i]) {
+            if (null_map && null_map[i]) {
                 checkArrowStatus(builder.AppendNull(), column.get_name(),
                                  array_builder->type()->name());
                 continue;
@@ -76,7 +75,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(8, col.get_scale());
         for (size_t i = start; i < end; ++i) {
-            if (null_bytemap && (*null_bytemap)[i]) {
+            if (null_map && null_map[i]) {
                 checkArrowStatus(builder.AppendNull(), column.get_name(),
                                  array_builder->type()->name());
                 continue;
@@ -92,7 +91,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(18, col.get_scale());
         for (size_t i = start; i < end; ++i) {
-            if (null_bytemap && (*null_bytemap)[i]) {
+            if (null_map && null_map[i]) {
                 checkArrowStatus(builder.AppendNull(), column.get_name(),
                                  array_builder->type()->name());
                 continue;

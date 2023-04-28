@@ -51,7 +51,7 @@ public:
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override {
         LOG(FATAL) << "Not support read from jsonb to FixedLengthObject";
     }
-    void write_column_to_arrow(const IColumn& column, const PaddedPODArray<UInt8>* null_bytemap,
+    void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override {
         LOG(FATAL) << "Not support write FixedLengthObject column to arrow";

@@ -41,8 +41,7 @@ void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
     result.writeEndBinary();
 }
 
-void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column,
-                                             const PaddedPODArray<UInt8>* null_bytemap,
+void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
                                              arrow::ArrayBuilder* array_builder, int start,
                                              int end) const {
     LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";

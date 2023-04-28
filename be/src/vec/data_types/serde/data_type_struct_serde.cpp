@@ -43,8 +43,7 @@ void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
-void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column,
-                                                const PaddedPODArray<UInt8>* null_bytemap,
+void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
                                                 int end) const {
     LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";

@@ -26,8 +26,7 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column,
-                                                const PaddedPODArray<UInt8>* null_bytemap,
+void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
                                                 int end) const {
     auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
@@ -35,9 +34,9 @@ void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column,
     for (size_t i = start; i < end; ++i) {
         char buf[64];
         const vectorized::VecDateTimeValue* time_val =
-                (const vectorized::VecDateTimeValue*)(col_data[i]);
+                (const vectorized::VecDateTimeValue*)(&col_data[i]);
         int len = time_val->to_buffer(buf);
-        if (null_bytemap && (*null_bytemap)[i]) {
+        if (null_map && null_map[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
@@ -70,8 +69,6 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
 void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                  int start, int end,
                                                  const cctz::time_zone& ctz) const {
-    std::cout << "column : " << column.get_name() << " data" << getTypeName(column.get_data_type())
-              << " array " << arrow_array->type_id() << std::endl;
     auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;

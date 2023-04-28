@@ -100,8 +100,7 @@ void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const Json
    1/ convert the null_map from doris to arrow null byte map
    2/ pass the arrow null byteamp to nested column , and call AppendValues
 **/
-void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column,
-                                                  const PaddedPODArray<UInt8>* null_bytemap,
+void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
                                                   arrow::ArrayBuilder* array_builder, int start,
                                                   int end) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
@@ -114,8 +113,9 @@ void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column,
                     !(bytemap)[i]); //Invert values since Arrow interprets 1 as a non-null value
         }
     }
-    nested_serde->write_column_to_arrow(column_nullable.get_nested_column(), &res, array_builder,
-                                        start, end);
+    const UInt8* arrow_null_bytemap_raw_ptr = res.empty() ? nullptr : res.data();
+    nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
+                                        arrow_null_bytemap_raw_ptr, array_builder, start, end);
 }
 
 void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,

@@ -81,8 +81,7 @@ public:
     // JSON serializer and deserializer
 
     // Arrow serializer and deserializer
-    virtual void write_column_to_arrow(const IColumn& column,
-                                       const PaddedPODArray<UInt8>* null_bytemap,
+    virtual void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
                                        arrow::ArrayBuilder* array_builder, int start,
                                        int end) const = 0;
     virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,

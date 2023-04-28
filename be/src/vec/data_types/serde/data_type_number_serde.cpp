@@ -65,8 +65,7 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 >;
 
 template <typename T>
-void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column,
-                                                   const PaddedPODArray<UInt8>* null_bytemap,
+void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
                                                    arrow::ArrayBuilder* array_builder, int start,
                                                    int end) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
@@ -75,7 +74,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column,
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(
                 builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
-                                     end - start, reinterpret_cast<const uint8_t*>(null_bytemap)),
+                                     end - start, reinterpret_cast<const uint8_t*>(null_map)),
                 column.get_name(), array_builder->type()->name());
     } else if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, UInt128>) {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
@@ -83,12 +82,12 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column,
         const uint8_t* data_start =
                 reinterpret_cast<const uint8_t*>(col_data.data()) + start * fixed_length;
         checkArrowStatus(builder.AppendValues(data_start, end - start,
-                                              reinterpret_cast<const uint8_t*>(null_bytemap)),
+                                              reinterpret_cast<const uint8_t*>(null_map)),
                          column.get_name(), array_builder->type()->name());
     } else {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(builder.AppendValues(col_data.data() + start, end - start,
-                                              reinterpret_cast<const uint8_t*>(null_bytemap)),
+                                              reinterpret_cast<const uint8_t*>(null_map)),
                          column.get_name(), array_builder->type()->name());
     }
 }
@@ -100,6 +99,14 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     int row_count = end - start;
     auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
 
+    // now uint8 for bool
+    if constexpr (std::is_same_v<T, UInt8>) {
+        auto concrete_array = down_cast<const arrow::BooleanArray*>(arrow_array);
+        for (size_t bool_i = 0; bool_i != static_cast<size_t>(concrete_array->length()); ++bool_i) {
+            col_data.emplace_back(concrete_array->Value(bool_i));
+        }
+        return;
+    }
     /// buffers[0] is a null bitmap and buffers[1] are actual values
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
     const auto* raw_data = reinterpret_cast<const T*>(buffer->data()) + start;

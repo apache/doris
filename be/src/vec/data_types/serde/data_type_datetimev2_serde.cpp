@@ -26,8 +26,7 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
-                                                    const PaddedPODArray<UInt8>* null_bytemap,
+void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
                                                     arrow::ArrayBuilder* array_builder, int start,
                                                     int end) const {
     auto& col_data = static_cast<const ColumnVector<UInt64>&>(column).get_data();
@@ -37,7 +36,7 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
         const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* time_val =
                 (const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*)(col_data[i]);
         int len = time_val->to_buffer(buf);
-        if (null_bytemap && (*null_bytemap)[i]) {
+        if (null_map && null_map[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
