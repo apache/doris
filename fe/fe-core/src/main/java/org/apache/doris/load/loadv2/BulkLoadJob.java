@@ -390,7 +390,7 @@ public abstract class BulkLoadJob extends LoadJob {
             switch (insertStmt.getLoadType()) {
                 case BROKER_LOAD:
                     bulkLoadJob = new BrokerLoadJob(db.getId(), insertStmt.getLabelName().getLabelName(),
-                            (BrokerDesc) insertStmt.getDataDescList(),
+                            (BrokerDesc) insertStmt.getResourceDesc(),
                             insertStmt.getOrigStmt(), insertStmt.getUserInfo());
                     break;
                 case SPARK_LOAD:

@@ -880,7 +880,7 @@ public class LoadManager implements Writable {
         long dbId = database.getId();
         LoadJob loadJob;
         writeLock();
-        BrokerDesc brokerDesc = (BrokerDesc) insertStmt.getDataDescList();
+        BrokerDesc brokerDesc = (BrokerDesc) insertStmt.getResourceDesc();
         try {
             if (brokerDesc != null && brokerDesc.isMultiLoadBroker()) {
                 if (!Env.getCurrentEnv().getLoadInstance()
