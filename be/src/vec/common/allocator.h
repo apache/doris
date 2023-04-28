@@ -73,6 +73,12 @@
  * by more detailed test later.
   */
 static constexpr size_t CHUNK_THRESHOLD = 4096;
+/**
+  * In debug build, use small mmap threshold to reproduce more memory
+  * stomping bugs. Along with ASLR it will hopefully detect more issues than
+  * ASan. The program may fail due to the limit on number of memory mappings.
+  */
+static constexpr size_t MMAP_THRESHOLD_DEBUG = 4096; // delete immediately
 
 static constexpr size_t MMAP_MIN_ALIGNMENT = 4096;
 static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
@@ -105,7 +111,11 @@ public:
         memory_check(size);
         void* buf;
 
+#ifdef NDEBUG
         if (size >= doris::config::mmap_threshold) {
+#else
+        if (size >= MMAP_THRESHOLD_DEBUG) {
+#endif
             if (alignment > MMAP_MIN_ALIGNMENT)
                 throw doris::Exception(
                         doris::ErrorCode::INVALID_ARGUMENT,
@@ -154,7 +164,11 @@ public:
 
     /// Free memory range.
     void free(void* buf, size_t size) {
+#ifdef NDEBUG
         if (size >= doris::config::mmap_threshold) {
+#else
+        if (size >= MMAP_THRESHOLD_DEBUG) {
+#endif
             if (0 != munmap(buf, size)) {
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             } else {
@@ -191,8 +205,12 @@ public:
             if constexpr (clear_memory)
                 if (new_size > old_size)
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
+#ifdef NDEBUG
         } else if (old_size >= doris::config::mmap_threshold &&
                    new_size >= doris::config::mmap_threshold) {
+#else
+        } else if (old_size >= MMAP_THRESHOLD_DEBUG && new_size >= MMAP_THRESHOLD_DEBUG) {
+#endif
             memory_check(new_size);
             /// Resize mmap'd memory region.
             consume_memory(new_size - old_size);
