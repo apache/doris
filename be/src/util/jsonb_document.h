@@ -1102,7 +1102,6 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
         const char* left_quotation_marks = nullptr;
         const char* right_quotation_marks = nullptr;
         size_t idx_len = 0;
-        bool key_has_delim = false;
         // find the current key and [] bracket position
         for (; key_path != fence; ++key_path, ++klen) {
             if ('[' == *key_path) {
@@ -1118,15 +1117,11 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
             } else if (*key_path == *delim) {
                 if (left_quotation_marks == nullptr || right_quotation_marks != nullptr) {
                     break;
-                } else if (left_quotation_marks != nullptr) {
-                    if (!key_has_delim) {
-                        key_has_delim = true;
-                    }
                 }
             }
         }
 
-        if (key_has_delim) {
+        if (left_quotation_marks != nullptr || right_quotation_marks != nullptr) {
             key++;
             klen = klen - 2;
         }
