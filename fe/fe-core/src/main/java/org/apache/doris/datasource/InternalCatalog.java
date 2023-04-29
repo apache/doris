@@ -2137,7 +2137,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                             new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
-
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
                         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                             throw new DdlException(
