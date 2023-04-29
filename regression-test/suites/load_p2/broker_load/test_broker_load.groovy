@@ -257,6 +257,7 @@ suite("test_broker_load_p2", "p2") {
     }
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        sql """ set enable_unified_load=true; """
         def uuids = []
         try {
             def i = 0
@@ -313,6 +314,7 @@ suite("test_broker_load_p2", "p2") {
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
             }
+            sql """ set enable_unified_load=false; """
         }
     }
 }
