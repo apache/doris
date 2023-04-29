@@ -38,7 +38,10 @@ import java.util.Map.Entry;
 import java.util.Set;
 
 /**
- * TODO(tsy): add comments
+ * This is the unified abstract stmt for all load kinds of load in {@link LoadType}
+ * All contents of native InsertStmt is moved to {@link NativeInsertStmt}
+ * Currently this abstract class keep the native insert methods for compatibility, and will eventually be moved
+ * to {@link NativeInsertStmt}
  */
 public abstract class InsertStmt extends DdlStmt {
 
@@ -239,7 +242,7 @@ public abstract class InsertStmt extends DdlStmt {
     }
 
     /**
-     * TODO(tsy): found a shorter way to check props
+     * TODO(tsy): find a shorter way to check props
      */
     private void checkProperties() throws DdlException {
         if (MapUtils.isEmpty(properties)) {

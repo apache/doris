@@ -18,13 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.load.loadv2.LoadTask;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -78,7 +76,6 @@ public class BrokerLoadStmt extends InsertStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        // TODO(tsy): move to base class
         label.analyze(analyzer);
         Preconditions.checkState(!CollectionUtils.isEmpty(dataDescList),
                 new AnalysisException("No data file in load statement."));
@@ -94,14 +91,7 @@ public class BrokerLoadStmt extends InsertStmt {
             Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(fullDbName);
             OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
             // TODO(tsy): add a static method to DataDesc
-            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND) {
-                if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
-                    throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
-                } else if (!table.hasDeleteSign()) {
-                    throw new AnalysisException(
-                            "load by MERGE or DELETE need to upgrade table to support batch delete.");
-                }
-            }
+            dataDescription.checkKeyTypeForLoad(table);
             if (!brokerDesc.isMultiLoadBroker()) {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
                     String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
