@@ -264,7 +264,7 @@ public class NativeInsertStmt extends InsertStmt {
         // set target table and
         analyzeTargetTable(analyzer);
 
-        analyzeSubQuery(analyzer);
+        analyzeSubquery(analyzer);
 
         analyzePlanHints();
 
@@ -278,7 +278,7 @@ public class NativeInsertStmt extends InsertStmt {
         db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getExecTimeout();
-        if (Strings.isNullOrEmpty(label.getLabelName())) {
+        if (label == null || Strings.isNullOrEmpty(label.getLabelName())) {
             label = new LabelName(db.getFullName(),
                     "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_"));
         }
@@ -381,7 +381,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
     }
 
-    private void analyzeSubQuery(Analyzer analyzer) throws UserException {
+    private void analyzeSubquery(Analyzer analyzer) throws UserException {
         // Analyze columns mentioned in the statement.
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         if (targetColumnNames == null) {

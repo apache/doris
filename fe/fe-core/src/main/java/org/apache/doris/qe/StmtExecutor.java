@@ -768,7 +768,8 @@ public class StmtExecutor implements ProfileWriter {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 // The transaction of an insert operation begin at analyze phase.
                 // So we should abort the transaction at this finally block if it encounters exception.
-                if (insertStmt.isTransactionBegin() && context.getState().getStateType() == MysqlStateType.ERR) {
+                if (!insertStmt.isExternalLoad() && insertStmt.isTransactionBegin()
+                        && context.getState().getStateType() == MysqlStateType.ERR) {
                     try {
                         String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
                         Env.getCurrentGlobalTransactionMgr().abortTransaction(
