@@ -38,12 +38,12 @@ namespace io {
 
 IFileCache::IFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings)
         : _cache_base_path(cache_base_path),
-          _max_size(cache_settings.max_size),
-          _max_element_size(cache_settings.max_elements),
-          _persistent_max_size(cache_settings.persistent_max_size),
-          _persistent_max_element_size(cache_settings.persistent_max_elements),
+          _total_size(cache_settings.total_size),
           _max_file_segment_size(cache_settings.max_file_segment_size),
-          _max_query_cache_size(cache_settings.max_query_cache_size) {}
+          _max_query_cache_size(cache_settings.max_query_cache_size) {
+    _cur_size_metrics =
+            std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(), "cur_size", 0);
+}
 
 std::string IFileCache::Key::to_string() const {
     return vectorized::get_hex_uint_lowercase(key);
@@ -55,16 +55,34 @@ IFileCache::Key IFileCache::hash(const std::string& path) {
     return Key(key);
 }
 
-std::string IFileCache::get_path_in_local_cache(const Key& key, size_t offset,
-                                                bool is_persistent) const {
-    auto key_str = key.to_string();
-    std::string suffix = is_persistent ? "_persistent" : "";
-    if constexpr (USE_CACHE_VERSION2) {
-        return fs::path(_cache_base_path) / key_str.substr(0, KEY_PREFIX_LENGTH) / key_str /
-               (std::to_string(offset) + suffix);
-    } else {
-        return fs::path(_cache_base_path) / key_str / (std::to_string(offset) + suffix);
+std::string IFileCache::cache_type_to_string(CacheType type) {
+    switch (type) {
+    case CacheType::INDEX:
+        return "_idx";
+    case CacheType::DISPOSABLE:
+        return "_disposable";
+    case CacheType::NORMAL:
+        return "";
     }
+    return "";
+}
+
+CacheType IFileCache::string_to_cache_type(const std::string& str) {
+    switch (str[0]) {
+    case 'i':
+        return CacheType::INDEX;
+    case 'd':
+        return CacheType::DISPOSABLE;
+    default:
+        DCHECK(false);
+    }
+    return CacheType::DISPOSABLE;
+}
+
+std::string IFileCache::get_path_in_local_cache(const Key& key, size_t offset,
+                                                CacheType type) const {
+    return get_path_in_local_cache(key) + "/" +
+           (std::to_string(offset) + cache_type_to_string(type));
 }
 
 std::string IFileCache::get_path_in_local_cache(const Key& key) const {
@@ -125,20 +143,23 @@ IFileCache::QueryFileCacheContextPtr IFileCache::get_or_set_query_context(
     return query_iter->second;
 }
 
-void IFileCache::QueryFileCacheContext::remove(const Key& key, size_t offset, bool is_presistent,
-                                               size_t size,
+void IFileCache::QueryFileCacheContext::remove(const Key& key, size_t offset,
                                                std::lock_guard<std::mutex>& cache_lock) {
-    auto record = records.find({key, offset, is_presistent});
+    auto pair = std::make_pair(key, offset);
+    auto record = records.find(pair);
     DCHECK(record != records.end());
-    lru_queue.remove(record->second, cache_lock);
-    records.erase({key, offset, is_presistent});
+    auto iter = record->second;
+    records.erase(pair);
+    lru_queue.remove(iter, cache_lock);
 }
 
-void IFileCache::QueryFileCacheContext::reserve(const Key& key, size_t offset, bool is_presistent,
-                                                size_t size,
+void IFileCache::QueryFileCacheContext::reserve(const Key& key, size_t offset, size_t size,
                                                 std::lock_guard<std::mutex>& cache_lock) {
-    auto queue_iter = lru_queue.add(key, offset, is_presistent, size, cache_lock);
-    records.insert({{key, offset, is_presistent}, queue_iter});
+    auto pair = std::make_pair(key, offset);
+    if (records.find(pair) == records.end()) {
+        auto queue_iter = lru_queue.add(key, offset, size, cache_lock);
+        records.insert({pair, queue_iter});
+    }
 }
 
 } // namespace io

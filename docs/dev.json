@@ -15,11 +15,11 @@
     "message": "安装部署",
     "description": "The label for category Install And Deploy in sidebar docs"
   },
-  "sidebar.docs.category.Construct Docker": {
-    "message": "构建 Docker 集群",
+  "sidebar.docs.category.Docker Deployment": {
+    "message": "Docker 部署",
     "description": "Make docker image and quickly start Doris's Docker cluster"
   },
-  "sidebar.docs.category.Compile": {
+  "sidebar.docs.category.Source Code Compilation": {
     "message": "源码编译",
     "description": "The label for category Compile in sidebar docs"
   },
@@ -78,6 +78,10 @@
   "sidebar.docs.category.Best Practice": {
     "message": "最佳实践",
     "description": "The label for category Best Practice in sidebar docs"
+  },
+  "sidebar.docs.category.Query Acceleration": {
+    "message": "查询加速",
+    "description": "The label for category Query Acceleration in sidebar docs"
   },
   "sidebar.docs.category.Ecosystem": {
     "message": "生态扩展",

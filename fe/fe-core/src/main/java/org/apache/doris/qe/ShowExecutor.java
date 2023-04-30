@@ -2160,7 +2160,7 @@ public class ShowExecutor {
             }
             case FRAGMENTS: {
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getJobId(),
-                        showStmt.getJobId());
+                        showStmt.getTaskId());
                 if (treeRoot == null) {
                     throw new AnalysisException("Failed to get fragment tree for load: " + showStmt.getJobId());
                 }

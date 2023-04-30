@@ -27,7 +27,7 @@ under the License.
 ### description
 #### Syntax
 
-`round(x), round(x, d)`
+`T round(T x[, d])`
 将`x`四舍五入后保留d位小数，d默认为0。如果d为负数，则小数点左边d位为0。如果x或d为null，返回null。
 
 ### example

@@ -55,6 +55,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
+import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -151,7 +152,6 @@ public class ExportJob implements Writable {
     private ExportFailMsg failMsg;
     private String outfileInfo;
 
-
     private TableRef tableRef;
 
     private Expr whereExpr;
@@ -175,6 +175,8 @@ public class ExportJob implements Writable {
     private SessionVariable sessionVariables;
 
     private Thread doExportingThread;
+
+    private ExportExportingTask task;
 
     private List<TScanRangeLocations> tabletLocations = Lists.newArrayList();
     // backend_address => snapshot path
@@ -442,6 +444,14 @@ public class ExportJob implements Writable {
         return sql;
     }
 
+    public ExportExportingTask getTask() {
+        return task;
+    }
+
+    public void setTask(ExportExportingTask task) {
+        this.task = task;
+    }
+
     public TableName getTableName() {
         return tableName;
     }
@@ -484,6 +494,7 @@ public class ExportJob implements Writable {
         if (isFinalState() || (isReplay && newState == JobState.EXPORTING)) {
             return false;
         }
+        ExportJob.JobState oldState = state;
         state = newState;
         switch (newState) {
             case PENDING:
@@ -501,6 +512,10 @@ public class ExportJob implements Writable {
                 // if isReplay == true, finishTimeMs will be read from log
                 if (!isReplay) {
                     finishTimeMs = System.currentTimeMillis();
+                    // maybe user cancel this job
+                    if (task != null && oldState == JobState.EXPORTING && task.getStmtExecutor() != null) {
+                        task.getStmtExecutor().cancel();
+                    }
                 }
                 progress = 100;
                 break;

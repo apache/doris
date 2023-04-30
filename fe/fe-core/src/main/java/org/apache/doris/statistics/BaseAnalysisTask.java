@@ -99,9 +99,9 @@ public abstract class BaseAnalysisTask {
 
     protected StmtExecutor stmtExecutor;
 
-    protected AnalysisState analysisState;
-
     protected Set<PrimitiveType> unsupportedType = new HashSet<>();
+
+    protected volatile boolean killed;
 
     @VisibleForTesting
     public BaseAnalysisTask() {
@@ -162,6 +162,9 @@ public abstract class BaseAnalysisTask {
         if (stmtExecutor != null) {
             stmtExecutor.cancel();
         }
+        if (killed) {
+            return;
+        }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
                         String.format("Job has been cancelled: %s", info.toString()), -1);
@@ -173,10 +176,6 @@ public abstract class BaseAnalysisTask {
 
     public long getJobId() {
         return info.jobId;
-    }
-
-    public AnalysisState getAnalysisState() {
-        return analysisState;
     }
 
     protected String getDataSizeFunction(Column column) {
@@ -200,5 +199,10 @@ public abstract class BaseAnalysisTask {
         } else {
             return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
         }
+    }
+
+    public void markAsKilled() {
+        this.killed = true;
+        cancel();
     }
 }

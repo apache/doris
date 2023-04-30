@@ -46,7 +46,7 @@ After Doris supports FQDN, you can directly specify the domain name when adding 
 ### Deployment of Doris for K8S
 
 After an accidental restart of a pod, the K8S cannot ensure that the pod's IP address does not change, but it can ensure that the domain name remains unchanged. Based on this feature, when Doris starts fqdn, it can ensure that the pod can still provide services normally after an accidental restart.
-For the method of deploying Doris on the K8S, please refer to [K8s Deployment Doris](../../install/construct-docker/k8s-deploy.md)
+For the method of deploying Doris on the K8S, please refer to [K8s Deployment Doris](../../install/k8s-deploy.md)
 
 ### Server switching network card
 

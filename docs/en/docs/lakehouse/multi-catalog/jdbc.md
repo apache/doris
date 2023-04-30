@@ -33,7 +33,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 ## Usage
 
-1. Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse and Doris.
+1. Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse, Doris, SAP HANA, Trino and OceanBase.
 
 ## Create Catalog
 
@@ -179,7 +179,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 
 8. Trino
 
-<version since="dev"></version>
+<version since="1.2.4"></version>
 
 ```sql
 CREATE CATALOG trino_catalog PROPERTIES (
@@ -200,19 +200,45 @@ When Trino is mapped, Doris's Database corresponds to a Schema in Trino that spe
 | Database | Schema  |
 | Table    | Table   |
 
+9. OceanBase
+
+<version since="dev"></version>
+
+```sql
+CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "oceanbase_mode" = "mysql"
+)
+
+CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "oceanbase_mode" = "oracle"
+)
+```
+
 ### Parameter Description
 
-| Parameter       | Required or Not | Default Value | Description                                        |
-| --------------- | --------------- | ------------- | -------------------------------------------------- |
-| `user`          | Yes             |               | Username in relation to the corresponding database |
-| `password`      | Yes             |               | Password for the corresponding database            |
-| `jdbc_url `     | Yes             |               | JDBC connection string                             |
-| `driver_url `   | Yes             |               | JDBC Driver Jar                                    |
-| `driver_class ` | Yes             |               | JDBC Driver Class                                  |
-| `only_specified_database` | No             |     "false"          | Whether only the database specified to be synchronized.                                  |
-| `lower_case_table_names` | No             |     "false"          | Whether to synchronize jdbc external data source table names in lower case. |
-| `specified_database_list` | No             |     ""          | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.|
-
+| Parameter                 | Required or Not | Default Value | Description                                        |
+|---------------------------|-----------------|---------------| -------------------------------------------------- |
+| `user`                    | Yes             |               | Username in relation to the corresponding database |
+| `password`                | Yes             |               | Password for the corresponding database            |
+| `jdbc_url `               | Yes             |               | JDBC connection string                             |
+| `driver_url `             | Yes             |               | JDBC Driver Jar                                    |
+| `driver_class `           | Yes             |               | JDBC Driver Class                                  |
+| `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                  |
+| `lower_case_table_names`  | No              | "false"       | Whether to synchronize jdbc external data source table names in lower case. |
+| `specified_database_list` | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.|
+| `oceanbase_mode`          | No              | ""            | When the connected external data source is OceanBase, the mode must be specified as mysql or oracle                        |
 > `driver_url` can be specified in three ways:
 >
 > 1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
@@ -442,11 +468,16 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 **Note:**
 Currently, only Hive connected to Trino has been tested. Other data sources connected to Trino have not been tested.
 
+### OceanBase
+
+For MySQL mode, please refer to [MySQL type mapping](#MySQL)
+For Oracle mode, please refer to [Oracle type mapping](#Oracle)
+
 ## FAQ
 
-1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse and SAP HANA?
+1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase?
 
-   Currently, Doris supports MySQL, Oracle, PostgreSQL, SQLServer, and ClickHouse. We are planning to expand this list. Technically, any databases that support JDBC access can be connected to Doris in the form of JDBC external tables. You are more than welcome to be a Doris contributor to expedite this effort.
+   Currently, Doris supports MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase. We are planning to expand this list. Technically, any databases that support JDBC access can be connected to Doris in the form of JDBC external tables. You are more than welcome to be a Doris contributor to expedite this effort.
 
 2. Why does Mojibake occur when Doris tries to read emojis from MySQL external tables?
 

@@ -15,16 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <fmt/format.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <iostream>
+#include <map>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "runtime/exec_env.h"
 #include "util/s3_uri.h"
+#include "util/s3_util.h"
 
 namespace doris {
 
@@ -392,6 +412,12 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
 }
 
 TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
+    std::unique_ptr<ThreadPool> _pool;
+    ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+            .set_min_threads(5)
+            .set_max_threads(10)
+            .build(&_pool);
+    ExecEnv::GetInstance()->_buffered_reader_prefetch_thread_pool = std::move(_pool);
     S3Conf s3_conf;
     S3URI s3_uri(s3_location);
     CHECK_STATUS_OK(s3_uri.parse());
