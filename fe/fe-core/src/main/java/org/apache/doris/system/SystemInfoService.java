@@ -870,10 +870,30 @@ public class SystemInfoService {
     public List<Long> selectBackendIdsRoundRobinByPolicy(BeSelectionPolicy policy, int number,
             int nextIndex) {
         Preconditions.checkArgument(number >= -1);
-        List<Backend> candidates = policy.getCandidateBackends(idToBackendRef.values());
-
-        if ((number != -1 && candidates.size() < number) || candidates.isEmpty()) {
+        List<Backend> candidates = getCandidates(policy);
+        if (number != -1 && candidates.size() < number) {
             LOG.info("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            return Lists.newArrayList();
+        }
+
+        int realIndex = nextIndex % candidates.size();
+        List<Long> partialOrderList = new ArrayList<Long>();
+        partialOrderList.addAll(candidates.subList(realIndex, candidates.size())
+                .stream().map(b -> b.getId()).collect(Collectors.toList()));
+        partialOrderList.addAll(candidates.subList(0, realIndex)
+                .stream().map(b -> b.getId()).collect(Collectors.toList()));
+
+        if (number == -1) {
+            return partialOrderList;
+        } else {
+            return partialOrderList.subList(0, number);
+        }
+    }
+
+    public List<Backend> getCandidates(BeSelectionPolicy policy) {
+        List<Backend> candidates = policy.getCandidateBackends(idToBackendRef.values());
+        if (candidates.isEmpty()) {
+            LOG.info("Not match policy: {}. candidates num: {}", policy, candidates.size());
             return Lists.newArrayList();
         }
 
@@ -894,25 +914,39 @@ public class SystemInfoService {
             }
         }
 
-        if (number != -1 && candidates.size() < number) {
-            LOG.info("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+        if (candidates.isEmpty()) {
+            LOG.info("Not match policy: {}. candidates num: {}", policy, candidates.size());
             return Lists.newArrayList();
         }
 
         Collections.sort(candidates, new BeComparator());
-        int realIndex = nextIndex % candidates.size();
+        return candidates;
+    }
 
-        List<Long> partialOrderList = new ArrayList<Long>();
-        partialOrderList.addAll(candidates.subList(realIndex, candidates.size())
-                .stream().map(b -> b.getId()).collect(Collectors.toList()));
-        partialOrderList.addAll(candidates.subList(0, realIndex)
-                .stream().map(b -> b.getId()).collect(Collectors.toList()));
-
-        if (number == -1) {
-            return partialOrderList;
-        } else {
-            return partialOrderList.subList(0, number);
+    // Select the smallest number of tablets as the starting position of
+    // round robin in the BE that match the policy
+    public int getStartPosOfRoundRobin(Tag tag, String clusterName, TStorageMedium storageMedium) {
+        BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder().setCluster(clusterName)
+                .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(tag))
+                .setStorageMedium(storageMedium);
+        if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
+            builder.allowOnSameHost();
         }
+
+        BeSelectionPolicy policy = builder.build();
+        List<Backend> candidates = getCandidates(policy);
+
+        long minBeTabletsNum = Long.MAX_VALUE;
+        int minIndex = -1;
+        for (int i = 0; i < candidates.size(); ++i) {
+            long tabletsNum = Env.getCurrentInvertedIndex()
+                    .getTabletIdsByBackendId(candidates.get(i).getId()).size();
+            if (tabletsNum < minBeTabletsNum) {
+                minBeTabletsNum = tabletsNum;
+                minIndex = i;
+            }
+        }
+        return minIndex;
     }
 
     public Map<Tag, List<Long>> getBeIdRoundRobinForReplicaCreation(

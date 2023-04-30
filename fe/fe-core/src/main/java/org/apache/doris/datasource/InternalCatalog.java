@@ -2544,8 +2544,12 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         Map<Tag, Integer> nextIndexs = new HashMap<>();
         for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
-            // TODO: random roundrobin starting position
-            nextIndexs.put(entry.getKey(), 0);
+            int startPos = Env.getCurrentSystemInfo().getStartPosOfRoundRobin(entry.getKey(), clusterName,
+                    tabletMeta.getStorageMedium());
+            if (startPos == -1) {
+                throw new DdlException("The number of BEs that match the policy is insufficient");
+            }
+            nextIndexs.put(entry.getKey(), startPos);
         }
 
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
