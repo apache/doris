@@ -2284,7 +2284,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     for (int i = 0, new_schema_size = new_tablet->tablet_schema()->num_columns();
          i < new_schema_size; ++i) {
         const TabletColumn& new_column = new_tablet->tablet_schema()->column(i);
-        const string& column_name = new_column.name();
+        const std::string& column_name = new_column.name();
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
 
@@ -2310,6 +2310,11 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             continue;
         }
 
+        if (column_name.find("__doris_shadow_") == 0) {
+            // Should delete in the future, just a protection for bug.
+            LOG(INFO) << "a shadow column is encountered " << column_name;
+            return Status::InternalError("failed due to operate on shadow column");
+        }
         // Newly added column go here
         column_mapping->ref_column = -1;
 
@@ -2319,8 +2324,9 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         RETURN_IF_ERROR(
                 _init_column_mapping(column_mapping, new_column, new_column.default_value()));
 
-        VLOG_TRACE << "A column with default value will be added after schema changing. "
-                   << "column=" << column_name << ", default_value=" << new_column.default_value();
+        LOG(INFO) << "A column with default value will be added after schema changing. "
+                  << "column=" << column_name << ", default_value=" << new_column.default_value()
+                  << " to table " << new_tablet->get_table_id();
     }
 
     // Check if re-aggregation is needed.

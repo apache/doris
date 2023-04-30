@@ -381,6 +381,8 @@ public:
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
+    int64_t get_table_id() { return _tablet_meta->table_id(); }
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;

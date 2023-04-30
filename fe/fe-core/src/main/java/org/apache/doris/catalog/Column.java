@@ -227,6 +227,10 @@ public class Column implements Writable, GsonPostProcessable {
         return this.name;
     }
 
+    public String getNonShadowName() {
+        return removeNamePrefix(name);
+    }
+
     public String getDisplayName() {
         if (defineExpr == null) {
             return name;
