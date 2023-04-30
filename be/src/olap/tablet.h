@@ -483,6 +483,8 @@ public:
         return config::max_tablet_io_errors > 0 && _io_error_times >= config::max_tablet_io_errors;
     }
 
+    int64_t get_table_id() { return _tablet_meta->table_id(); }
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
