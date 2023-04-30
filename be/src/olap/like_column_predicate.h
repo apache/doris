@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "olap/column_predicate.h"
+#include "olap/itoken_extractor.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
@@ -72,9 +73,17 @@ public:
     }
     bool is_opposite() const { return _opposite; }
 
-    void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter> src) override {
-        _page_ng_bf = std::move(src);
+    void set_page_ng_bf(int32_t gram_bf_size, int32_t gram_size) override {
+        std::string pattern = get_search_str();
+        std::unique_ptr<segment_v2::BloomFilter> ng_bf;
+        segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
+
+        NgramTokenExtractor _token_extractor(gram_size);
+        if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(), *ng_bf)) {
+            _page_ng_bf = std::move(ng_bf);
+        }
     }
+
     bool evaluate_and(const BloomFilter* bf) const override {
         if (_page_ng_bf) {
             return bf->contains(*_page_ng_bf);
@@ -166,7 +175,7 @@ private:
     // Hyperscan API. So here _like_state is separate for each instance of
     // LikeColumnPredicate.
     vectorized::LikeSearchState _like_state;
-    std::unique_ptr<segment_v2::BloomFilter> _page_ng_bf; // for ngram-bf index
+    std::shared_ptr<segment_v2::BloomFilter> _page_ng_bf; // for ngram-bf index
 };
 
 } // namespace doris

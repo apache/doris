@@ -36,6 +36,7 @@ public:
     using UnderType = uint64_t;
     NGramBloomFilter(size_t size);
     void add_bytes(const char* data, uint32_t len) override;
+    bool test_bytes(const char* buf, uint32_t size) const override { return true; }
     bool contains(const BloomFilter& bf_) const override;
     Status init(const char* buf, uint32_t size, HashStrategyPB strategy) override;
     char* data() const override {

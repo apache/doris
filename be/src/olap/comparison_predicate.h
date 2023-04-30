@@ -20,6 +20,7 @@
 #include <cstdint>
 
 #include "olap/column_predicate.h"
+#include "olap/itoken_extractor.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h" // IWYU pragma: keep
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -43,12 +44,28 @@ public:
         cloned->_cache_code_enabled = true;
         cloned->predicate_params()->marked_by_runtime_filter =
                 _predicate_params->marked_by_runtime_filter;
+        cloned->_page_ng_bf = _page_ng_bf;
         *to = cloned;
+    }
+
+    void set_page_ng_bf(int32_t gram_bf_size, int32_t gram_size) override {
+        if constexpr (PT == PredicateType::EQ) {
+            if constexpr (std::is_same_v<T, StringRef>) {
+                std::unique_ptr<segment_v2::BloomFilter> ng_bf;
+                segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
+
+                NgramTokenExtractor _token_extractor(gram_size);
+                _token_extractor.string_to_bloom_filter(_value.data, _value.size, *ng_bf);
+                _page_ng_bf = std::move(ng_bf);
+            }
+        }
     }
 
     bool need_to_clone() const override { return true; }
 
     PredicateType type() const override { return PT; }
+
+    const T& value() const { return _value; }
 
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
@@ -243,6 +260,9 @@ public:
 #undef COMPARE_TO_MIN_OR_MAX
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+        if (_page_ng_bf) {
+            return bf->contains(*_page_ng_bf);
+        }
         if constexpr (PT == PredicateType::EQ) {
             if constexpr (std::is_same_v<T, StringRef>) {
                 return bf->test_bytes(_value.data, _value.size);
@@ -581,6 +601,7 @@ private:
     mutable int32_t _cached_code;
     bool _cache_code_enabled = false;
     T _value;
+    std::shared_ptr<segment_v2::BloomFilter> _page_ng_bf;
 };
 
 } //namespace doris

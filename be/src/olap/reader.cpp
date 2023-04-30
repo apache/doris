@@ -478,6 +478,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
                 _value_col_predicates.push_back(predicate);
             } else {
                 _col_predicates.push_back(predicate);
+                _init_conditions_ng_bf_param(predicate);
             }
         }
     }
@@ -485,6 +486,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     // Only key column bloom filter will push down to storage engine
     for (const auto& filter : read_params.bloom_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
+        auto* pred = _col_predicates.back();
+        _init_conditions_ng_bf_param(pred);
     }
 
     for (const auto& filter : read_params.bitmap_filters) {
@@ -499,40 +502,44 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             predicate_params->marked_by_runtime_filter = true;
         }
         _col_predicates.emplace_back(predicate);
+        _init_conditions_ng_bf_param(predicate);
     }
-
-    // Function filter push down to storage engine
-    auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate*>(_pred)) {
-            return true;
-        }
-
-        return false;
-    };
 
     for (const auto& filter : read_params.function_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
         auto* pred = _col_predicates.back();
-        const auto& col = _tablet->tablet_schema()->column(pred->column_id());
-        auto is_like = is_like_predicate(pred);
-        auto* tablet_index = _tablet->tablet_schema()->get_ngram_bf_index(col.unique_id());
-
-        if (is_like && tablet_index && config::enable_query_like_bloom_filter) {
-            std::unique_ptr<segment_v2::BloomFilter> ng_bf;
-            std::string pattern = pred->get_search_str();
-            auto gram_bf_size = tablet_index->get_gram_bf_size();
-            auto gram_size = tablet_index->get_gram_size();
-
-            segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
-            NgramTokenExtractor _token_extractor(gram_size);
-
-            if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),
-                                                             *ng_bf)) {
-                pred->set_page_ng_bf(std::move(ng_bf));
-            }
-        }
+        _init_conditions_ng_bf_param(pred);
     }
     return Status::OK();
+}
+
+void TabletReader::_init_conditions_ng_bf_param(ColumnPredicate* pred) {
+    if (pred == nullptr) {
+        return;
+    }
+
+    const auto& col = _tablet->tablet_schema()->column(pred->column_id());
+    auto* tablet_index = _tablet->tablet_schema()->get_ngram_bf_index(col.unique_id());
+
+    LOG(WARNING) << "aaaaaaaaaaaa xxxx   ";
+    // ngram bloom filter
+    if (tablet_index) {
+        int32_t gram_bf_size = tablet_index->get_gram_bf_size();
+        int32_t gram_size = tablet_index->get_gram_size();
+
+        std::unique_ptr<segment_v2::BloomFilter> ng_bf;
+        segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
+
+        if (dynamic_cast<LikeColumnPredicate*>(pred)) {
+            // like predicate condition
+            if (config::enable_query_like_bloom_filter) {
+                pred->set_page_ng_bf(gram_bf_size, gram_size);
+            }            
+        } else if (pred->type() == PredicateType::EQ ||
+            pred->type() == PredicateType::IN_LIST){
+            pred->set_page_ng_bf(gram_bf_size, gram_size);    
+        }
+    }
 }
 
 void TabletReader::_init_conditions_param_except_leafnode_of_andnode(

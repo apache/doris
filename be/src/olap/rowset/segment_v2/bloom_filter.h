@@ -127,7 +127,7 @@ public:
         add_hash(code);
     }
 
-    bool test_bytes(const char* buf, uint32_t size) const {
+    virtual bool test_bytes(const char* buf, uint32_t size) const {
         if (buf == nullptr) {
             return *_has_null;
         }
@@ -185,6 +185,8 @@ protected:
 private:
     std::function<void(const void*, const int, const uint64_t, void*)> _hash_func;
 };
+
+using BloomFilterList = std::vector<std::shared_ptr<segment_v2::BloomFilter>>;
 
 } // namespace segment_v2
 } // namespace doris

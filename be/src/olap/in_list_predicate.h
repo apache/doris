@@ -23,6 +23,7 @@
 #include "decimal12.h"
 #include "exprs/hybrid_set.h"
 #include "olap/column_predicate.h"
+#include "olap/itoken_extractor.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h" // IWYU pragma: keep
@@ -181,6 +182,25 @@ public:
     ~InListPredicateBase() override = default;
 
     PredicateType type() const override { return PT; }
+
+    void set_page_ng_bf(int32_t gram_bf_size, int32_t gram_size) override {
+        std::shared_ptr<BloomFilterList> bloom_filter_list(new BloomFilterList());
+
+        HybridSetBase::IteratorBase* iter = _values->begin();
+        while (iter->has_next()) {
+            if constexpr (std::is_same_v<T, StringRef>) {
+                const StringRef* value = (const StringRef*)iter->get_value();  
+                std::unique_ptr<segment_v2::BloomFilter> ng_bf;
+                segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
+                
+                NgramTokenExtractor _token_extractor(gram_size);
+                _token_extractor.string_to_bloom_filter(value->data, value->size, *ng_bf);
+                bloom_filter_list->emplace_back(std::move(ng_bf));
+            }
+            iter->next();
+        }
+        _page_ng_bf_list = bloom_filter_list;
+    }
 
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
@@ -365,6 +385,14 @@ public:
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
+            if (_page_ng_bf_list) {
+                for (auto _page_ng_bf : *_page_ng_bf_list) {
+                    if (bf->contains(*_page_ng_bf)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
                 if constexpr (std::is_same_v<T, StringRef>) {
@@ -393,6 +421,10 @@ public:
     }
 
     bool can_do_bloom_filter() const override { return PT == PredicateType::IN_LIST; }
+
+    std::shared_ptr<HybridSetBase> values() const {
+        return _values;
+    }    
 
 private:
     template <typename LeftT, typename RightT>
@@ -574,6 +606,8 @@ private:
 
     // temp string for char type column
     std::list<std::string> _temp_datas;
+
+    std::shared_ptr<BloomFilterList> _page_ng_bf_list;
 };
 
 template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc,
