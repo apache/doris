@@ -44,10 +44,11 @@ class VScanNode;
 
 // Counter for load
 struct ScannerCounter {
-    ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
+    ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0), size_rows_bytes_read(0) {}
 
     int64_t num_rows_filtered;   // unqualified rows (unmatched the dest schema, or no partition)
     int64_t num_rows_unselected; // rows filtered by predicates
+    int64_t size_rows_bytes_read; // scanner the size during process
 };
 
 class VScanner {

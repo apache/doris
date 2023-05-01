@@ -64,7 +64,7 @@ public class ShowStreamLoadStmt extends ShowStmt {
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Label").add("Db").add("Table")
             .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
-            .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")
+            .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes").add("ScannerBytes")
             .add("StartTime").add("FinishTime").add("User").add("Comment")
             .build();
 

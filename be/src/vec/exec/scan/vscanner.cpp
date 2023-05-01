@@ -91,6 +91,8 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             }
             // record rows return (after filter) for _limit check
             _num_rows_return += block->rows();
+            // record the size during process
+            _counter.size_rows_bytes_read += block->bytes();
         } while (!state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
@@ -169,6 +171,7 @@ void VScanner::_update_counters_before_close() {
     // Update stats for load
     _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    _state->update_num_bytes_load_scanner_total(_counter.size_rows_bytes_read);
 }
 
 } // namespace doris::vectorized

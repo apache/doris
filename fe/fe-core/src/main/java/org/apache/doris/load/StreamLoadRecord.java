@@ -39,14 +39,16 @@ public class StreamLoadRecord {
     private String filteredRows;
     private String unselectedRows;
     private String loadBytes;
+    private String scannerBytes;
     private String startTime;
     private String finishTime;
     private String comment;
 
 
     public StreamLoadRecord(String label, String db, String table, String clientIp, String status,
-            String message, String url, String totalRows, String loadedRows, String filteredRows, String unselectedRows,
-            String loadBytes, String startTime, String finishTime, String user, String comment) {
+                            String message, String url, String totalRows, String loadedRows, String filteredRows,
+                            String unselectedRows, String loadBytes, String startTime, String finishTime, String user,
+                            String comment, String scannerBytes) {
         this.label = label;
         this.db = db;
         this.table = table;
@@ -60,6 +62,7 @@ public class StreamLoadRecord {
         this.filteredRows = filteredRows;
         this.unselectedRows = unselectedRows;
         this.loadBytes = loadBytes;
+        this.scannerBytes = scannerBytes;
         this.startTime = startTime;
         this.finishTime = finishTime;
         this.comment = comment;

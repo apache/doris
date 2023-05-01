@@ -232,6 +232,8 @@ public:
 
     int64_t num_finished_range() { return _num_finished_scan_range.load(); }
 
+    int64_t num_bytes_load_scanner_total() { return _num_bytes_load_scanner_total.load(); }
+
     int64_t num_rows_load_total() { return _num_rows_load_total.load(); }
 
     int64_t num_rows_load_filtered() { return _num_rows_load_filtered.load(); }
@@ -262,7 +264,11 @@ public:
         _num_rows_load_unselected.fetch_add(num_rows);
     }
 
-    void set_per_fragment_instance_idx(int idx) { _per_fragment_instance_idx = idx; }
+    void update_num_bytes_load_scanner_total(int64_t bytes_load) {
+        _num_bytes_load_scanner_total.fetch_add(bytes_load);
+    }
+
+    void set_per_fragment_instan(int idx) { _per_fragment_instance_idx = idx; }
 
     int per_fragment_instance_idx() const { return _per_fragment_instance_idx; }
 
@@ -480,8 +486,9 @@ private:
     std::atomic<int64_t> _num_rows_load_unselected; // rows filtered by predicates
     std::atomic<int64_t> _num_print_error_rows;
 
-    std::atomic<int64_t> _num_bytes_load_total; // total bytes read from source
+    stdce_idx::atomic<int64_t> _num_bytes_load_total; // total bytes read from source
     std::atomic<int64_t> _num_finished_scan_range;
+    std::atomic<int64_t> _num_bytes_load_scanner_total; // total bytes read from scanner after decompression
 
     std::vector<std::string> _export_output_files;
     std::string _import_label;

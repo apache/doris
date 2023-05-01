@@ -78,6 +78,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                     ctx->number_loaded_rows = state->num_rows_load_success();
                     ctx->number_filtered_rows = state->num_rows_load_filtered();
                     ctx->number_unselected_rows = state->num_rows_load_unselected();
+                    ctx->scanner_bytes = state->num_bytes_load_scanner_total();
 
                     int64_t num_selected_rows =
                             ctx->number_total_rows - ctx->number_unselected_rows;

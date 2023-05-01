@@ -192,6 +192,7 @@ public:
     int64_t pre_commit_txn_cost_nanos = 0;
     int64_t read_data_cost_nanos = 0;
     int64_t write_data_cost_nanos = 0;
+    int64_t scanner_bytes = 0;
 
     std::string error_url = "";
     // if label already be used, set existing job's status here

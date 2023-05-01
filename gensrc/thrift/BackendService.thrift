@@ -104,6 +104,7 @@ struct TStreamLoadRecord {
     17: required i64 start_time
     18: required i64 finish_time
     19: optional string comment
+    20: required i64 scanner_bytes
 }
 
 struct TStreamLoadRecordResult {
