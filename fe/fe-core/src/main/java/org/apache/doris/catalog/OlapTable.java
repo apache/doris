@@ -88,6 +88,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Internal representation of tableFamilyGroup-related metadata. A OlaptableFamilyGroup contains several tableFamily.
@@ -766,7 +767,11 @@ public class OlapTable extends Table {
 
     // This is a private method.
     // Call public "dropPartitionAndReserveTablet" and "dropPartition"
-    private Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, boolean reserveTablets) {
+    private Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, boolean reserveTablets,
+            @Nullable String indexName) {
+        // 1. If indexName is not null, only drop the specific index for this partition. Otherwise, drop all index
+        //    for this partition.
+        // 2. Only if all index of this partition is dropped, then delete this partition.
         // 1. If "isForceDrop" is false, the partition will be added to the Catalog Recyle bin, and all tablets of this
         //    partition will not be deleted.
         // 2. If "ifForceDrop" is true, the partition will be dropped immediately, but whether to drop the tablets
@@ -774,60 +779,78 @@ public class OlapTable extends Table {
         //    If "reserveTablets" is true, the tablets of this partition will not be deleted.
         //    Otherwise, the tablets of this partition will be deleted immediately.
         Partition partition = nameToPartition.get(partitionName);
-        if (partition != null) {
-            idToPartition.remove(partition.getId());
-            nameToPartition.remove(partitionName);
-
-            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE
-                    || partitionInfo.getType() == PartitionType.LIST);
-
-            if (!isForceDrop) {
-                // recycle partition
-                if (partitionInfo.getType() == PartitionType.RANGE) {
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
-                            partitionInfo.getItem(partition.getId()).getItems(),
-                            new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
-                            partitionInfo.getDataProperty(partition.getId()),
-                            partitionInfo.getReplicaAllocation(partition.getId()),
-                            partitionInfo.getIsInMemory(partition.getId()),
-                            partitionInfo.getIsMutable(partition.getId()));
-
-                } else if (partitionInfo.getType() == PartitionType.LIST) {
-                    // construct a dummy range
-                    List<Column> dummyColumns = new ArrayList<>();
-                    dummyColumns.add(new Column("dummy", PrimitiveType.INT));
-                    PartitionKey dummyKey = null;
-                    try {
-                        dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
-                    } catch (AnalysisException e) {
-                        LOG.warn("should not happen", e);
-                    }
-                    Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
-
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
-                            dummyRange,
-                            partitionInfo.getItem(partition.getId()),
-                            partitionInfo.getDataProperty(partition.getId()),
-                            partitionInfo.getReplicaAllocation(partition.getId()),
-                            partitionInfo.getIsInMemory(partition.getId()),
-                            partitionInfo.getIsMutable(partition.getId()));
-                }
-            } else if (!reserveTablets) {
-                Env.getCurrentEnv().onErasePartition(partition);
-            }
-
-            // drop partition info
-            partitionInfo.dropPartition(partition.getId());
+        if (partition == null) {
+            return null;
         }
+
+        Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE
+                || partitionInfo.getType() == PartitionType.LIST);
+
+        if (indexName != null) {
+            long indexId = Preconditions.checkNotNull(indexNameToId.get(indexName));
+            if (!reserveTablets) {
+                Env.getCurrentEnv().onErasePartitionFromIndex(partition, indexId);
+            }
+            partition.deleteIndex(indexId);
+            if (!partition.getMaterializedIndices(IndexExtState.ALL).isEmpty()) {
+                // This partition also has other indices, no need to delete it.
+                return null;
+            }
+        }
+
+        idToPartition.remove(partition.getId());
+        nameToPartition.remove(partitionName);
+        if (!isForceDrop) {
+            // recycle partition
+            if (partitionInfo.getType() == PartitionType.RANGE) {
+                Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                        partitionInfo.getItem(partition.getId()).getItems(),
+                        new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
+                        partitionInfo.getDataProperty(partition.getId()),
+                        partitionInfo.getReplicaAllocation(partition.getId()),
+                        partitionInfo.getIsInMemory(partition.getId()),
+                        partitionInfo.getIsMutable(partition.getId()));
+
+            } else if (partitionInfo.getType() == PartitionType.LIST) {
+                // construct a dummy range
+                List<Column> dummyColumns = new ArrayList<>();
+                dummyColumns.add(new Column("dummy", PrimitiveType.INT));
+                PartitionKey dummyKey = null;
+                try {
+                    dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
+                } catch (AnalysisException e) {
+                    LOG.warn("should not happen", e);
+                }
+                Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
+
+                Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                        dummyRange,
+                        partitionInfo.getItem(partition.getId()),
+                        partitionInfo.getDataProperty(partition.getId()),
+                        partitionInfo.getReplicaAllocation(partition.getId()),
+                        partitionInfo.getIsInMemory(partition.getId()),
+                        partitionInfo.getIsMutable(partition.getId()));
+            }
+        } else if (!reserveTablets) {
+            Env.getCurrentEnv().onErasePartition(partition);
+        }
+
+        // drop partition info
+        partitionInfo.dropPartition(partition.getId());
+
         return partition;
     }
 
     public Partition dropPartitionAndReserveTablet(String partitionName) {
-        return dropPartition(-1, partitionName, true, true);
+        return dropPartition(-1, partitionName, true, true, null);
     }
 
     public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
-        return dropPartition(dbId, partitionName, isForceDrop, !isForceDrop);
+        return dropPartition(dbId, partitionName, isForceDrop, null);
+    }
+
+    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, String indexName) {
+        return dropPartition(dbId, partitionName, isForceDrop, !isForceDrop, indexName);
     }
 
     /*
@@ -1831,11 +1854,17 @@ public class OlapTable extends Table {
 
     // drop temp partition. if needDropTablet is true, tablets of this temp partition
     // will be dropped from tablet inverted index.
-    public void dropTempPartition(String partitionName, boolean needDropTablet) {
+    public void dropTempPartition(String partitionName, boolean needDropTablet, String indexName) {
         Partition partition = getPartition(partitionName, true);
-        if (partition != null) {
-            partitionInfo.dropPartition(partition.getId());
+        if (partition == null) {
+            return;
+        }
+        if (indexName == null) {
             tempPartitions.dropPartition(partitionName, needDropTablet);
+            partitionInfo.dropPartition(partition.getId());
+        } else if (tempPartitions.dropIndexFromPartition(partitionName, indexNameToId.get(indexName),
+                needDropTablet)) {
+            partitionInfo.dropPartition(partition.getId());
         }
     }
 

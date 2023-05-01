@@ -5141,6 +5141,15 @@ public class Env {
         }
     }
 
+    public void onErasePartitionFromIndex(Partition partition, long indexId) {
+        // remove tablet in inverted index
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        MaterializedIndex index = partition.getIndex(indexId);
+        for (Tablet tablet : index.getTablets()) {
+            invertedIndex.deleteTablet(tablet.getId());
+        }
+    }
+
     public void cleanTrash(AdminCleanTrashStmt stmt) {
         List<Backend> backends = stmt.getBackends();
         for (Backend backend : backends) {

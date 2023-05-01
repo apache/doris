@@ -35,6 +35,7 @@ import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -1628,12 +1629,26 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
         }
 
+        String indexName = null;
+        if (clause instanceof DropPartitionFromIndexClause) {
+            indexName = ((DropPartitionFromIndexClause) clause).getIndexName();
+            if (StringUtils.isEmpty(indexName) || !olapTable.hasMaterializedIndex(indexName)) {
+                if (clause.isSetIfExists()) {
+                    LOG.info("drop partition from index[{}] which does not exist", indexName);
+                    return;
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_DROP_PARTITION_FROM_INDEX_NON_EXISTENT, indexName,
+                            partitionName);
+                }
+            }
+        }
+
         // drop
         long recycleTime = 0;
         if (isTempPartition) {
-            olapTable.dropTempPartition(partitionName, true);
+            olapTable.dropTempPartition(partitionName, true, indexName);
         } else {
-            Partition partition = null;
+            Partition partition;
             if (!clause.isForceDrop()) {
                 partition = olapTable.getPartition(partitionName);
                 if (partition != null) {
@@ -1647,19 +1662,24 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
             }
-            olapTable.dropPartition(db.getId(), partitionName, clause.isForceDrop());
-            if (!clause.isForceDrop() && partition != null) {
-                recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(partition.getId());
+            Partition droppedPartition = olapTable.dropPartition(db.getId(), partitionName, clause.isForceDrop(),
+                    indexName);
+            if (!clause.isForceDrop() && droppedPartition != null) {
+                recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(droppedPartition.getId());
             }
         }
 
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
-                clause.isForceDrop(), recycleTime);
+                clause.isForceDrop(), recycleTime, indexName);
         Env.getCurrentEnv().getEditLog().logDropPartition(info);
 
-        LOG.info("succeed in dropping partition[{}], is temp : {}, is force : {}", partitionName, isTempPartition,
-                clause.isForceDrop());
+        if (indexName == null) {
+            LOG.info("succeed in dropping partition[{}], is temp : {}, is force : {}", partitionName, isTempPartition,
+                    clause.isForceDrop());
+        } else {
+            LOG.info("succeed in dropping partition[{}] from index[{}]", partitionName, indexName);
+        }
     }
 
     public void replayDropPartition(DropPartitionInfo info) throws MetaNotFoundException {
@@ -1668,10 +1688,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.writeLock();
         try {
             if (info.isTempPartition()) {
-                olapTable.dropTempPartition(info.getPartitionName(), true);
+                olapTable.dropTempPartition(info.getPartitionName(), true, info.getIndexName());
             } else {
                 Partition partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(),
-                        info.isForceDrop());
+                        info.isForceDrop(), info.getIndexName());
                 if (!info.isForceDrop() && partition != null && info.getRecycleTime() != 0) {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
                 }

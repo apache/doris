@@ -71,4 +71,39 @@ public class DropPartitionInfoTest {
         dis.close();
         file.delete();
     }
+
+    @Test
+    public void testSerializationWithIndexName() throws Exception {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        // 1. Write objects to file
+        File file = new File("./dropPartitionInfo");
+        file.createNewFile();
+        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+
+        DropPartitionInfo info1 = new DropPartitionInfo(1L, 2L, "test_partition", false, true, 0, "test_index");
+        info1.write(dos);
+
+        dos.flush();
+        dos.close();
+
+        // 2. Read objects from file
+        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+
+        DropPartitionInfo rInfo1 = DropPartitionInfo.read(dis);
+
+        Assert.assertEquals(Long.valueOf(1L), rInfo1.getDbId());
+        Assert.assertEquals(Long.valueOf(2L), rInfo1.getTableId());
+        Assert.assertEquals("test_partition", rInfo1.getPartitionName());
+        Assert.assertFalse(rInfo1.isTempPartition());
+        Assert.assertTrue(rInfo1.isForceDrop());
+        Assert.assertEquals("test_index", rInfo1.getIndexName());
+        Assert.assertEquals(rInfo1, info1);
+
+        // 3. delete files
+        dis.close();
+        file.delete();
+    }
 }

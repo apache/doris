@@ -88,6 +88,33 @@ public class TempPartitions implements Writable, GsonPostProcessable {
         }
     }
 
+    /**
+     * Drop index from partition, if all index of this partition is dropped, just drop this partition.
+     * If needDropTablet is true, also drop the tablet from tablet inverted index.
+     *
+     * @return Does the partition still have an index.
+     */
+    public boolean dropIndexFromPartition(String partitionName, long indexId, boolean needDropTablet) {
+        Partition partition = nameToPartition.get(partitionName);
+        if (partition != null) {
+            if (!Env.isCheckpointThread() && needDropTablet) {
+                TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+                MaterializedIndex index = partition.getIndex(indexId);
+                for (Tablet tablet : index.getTablets()) {
+                    invertedIndex.deleteTablet(tablet.getId());
+                }
+            }
+
+            partition.deleteIndex(indexId);
+            if (partition.getMaterializedIndices(IndexExtState.ALL).isEmpty()) {
+                idToPartition.remove(partition.getId());
+                nameToPartition.remove(partitionName);
+                return true;
+            }
+        }
+        return false;
+    }
+
     public Partition getPartition(long partitionId) {
         return idToPartition.get(partitionId);
     }

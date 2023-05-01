@@ -195,6 +195,15 @@ public class Partition extends MetaObject implements Writable {
         }
     }
 
+    public MaterializedIndex deleteIndex(long indexId) {
+        if (baseIndex != null && baseIndex.getId() == indexId) {
+            MaterializedIndex previousBaseIndex = baseIndex;
+            baseIndex = null;
+            return previousBaseIndex;
+        }
+        return deleteRollupIndex(indexId);
+    }
+
     public MaterializedIndex deleteRollupIndex(long indexId) {
         if (this.idToVisibleRollupIndex.containsKey(indexId)) {
             LOG.info("delete visible rollup index {} in partition {}-{}", indexId, id, name);
@@ -236,12 +245,16 @@ public class Partition extends MetaObject implements Writable {
         List<MaterializedIndex> indices = Lists.newArrayList();
         switch (extState) {
             case ALL:
-                indices.add(baseIndex);
+                if (baseIndex != null) {
+                    indices.add(baseIndex);
+                }
                 indices.addAll(idToVisibleRollupIndex.values());
                 indices.addAll(idToShadowIndex.values());
                 break;
             case VISIBLE:
-                indices.add(baseIndex);
+                if (baseIndex != null) {
+                    indices.add(baseIndex);
+                }
                 indices.addAll(idToVisibleRollupIndex.values());
                 break;
             case SHADOW:
@@ -405,7 +418,9 @@ public class Partition extends MetaObject implements Writable {
         buffer.append("name: ").append(name).append("; ");
         buffer.append("partition_state.name: ").append(state.name()).append("; ");
 
-        buffer.append("base_index: ").append(baseIndex.toString()).append("; ");
+        if (baseIndex != null) {
+            buffer.append("base_index: ").append(baseIndex.toString()).append("; ");
+        }
 
         int rollupCount = (idToVisibleRollupIndex != null) ? idToVisibleRollupIndex.size() : 0;
         buffer.append("rollup count: ").append(rollupCount).append("; ");

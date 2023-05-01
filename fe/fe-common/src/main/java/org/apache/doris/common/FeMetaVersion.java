@@ -63,6 +63,8 @@ public final class FeMetaVersion {
     // For BackendHbResponse node type
     public static final int VERSION_121 = 121;
 
+    public static final int VERSION_121 = 121;
+
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
     public static final int VERSION_CURRENT = VERSION_121;
 

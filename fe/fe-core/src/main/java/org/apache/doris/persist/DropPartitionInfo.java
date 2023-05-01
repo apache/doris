@@ -26,6 +26,8 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
+import javax.annotation.Nullable;
 
 public class DropPartitionInfo implements Writable {
     @SerializedName(value = "dbId")
@@ -41,17 +43,26 @@ public class DropPartitionInfo implements Writable {
     @SerializedName(value = "recycleTime")
     private long recycleTime = 0;
 
+    @SerializedName(value = "indexName")
+    private String indexName;
+
     private DropPartitionInfo() {
     }
 
     public DropPartitionInfo(Long dbId, Long tableId, String partitionName,
             boolean isTempPartition, boolean forceDrop, long recycleTime) {
+        this(dbId, tableId, partitionName, isTempPartition, forceDrop, recycleTime, null);
+    }
+
+    public DropPartitionInfo(Long dbId, Long tableId, String partitionName,
+            boolean isTempPartition, boolean forceDrop, long recycleTime, @Nullable String indexName) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionName = partitionName;
         this.isTempPartition = isTempPartition;
         this.forceDrop = forceDrop;
         this.recycleTime = recycleTime;
+        this.indexName = indexName;
     }
 
     public Long getDbId() {
@@ -75,7 +86,12 @@ public class DropPartitionInfo implements Writable {
     }
 
     public Long getRecycleTime() {
-        return  recycleTime;
+        return recycleTime;
+    }
+
+    @Nullable
+    public String getIndexName() {
+        return indexName;
     }
 
     @Deprecated
@@ -112,6 +128,7 @@ public class DropPartitionInfo implements Writable {
                 && (partitionName.equals(info.partitionName))
                 && (isTempPartition == info.isTempPartition)
                 && (forceDrop == info.forceDrop)
-                && (recycleTime == info.recycleTime);
+                && (recycleTime == info.recycleTime)
+                && Objects.equals(indexName, info.indexName);
     }
 }

@@ -1192,7 +1192,9 @@ public enum ErrorCode {
      + " table supports time travel in current version"),
 
     ERR_NONSSL_HANDSHAKE_RESPONSE(5091, new byte[] {'4', '2', '0', '0'},
-            "SSL mode on but received non-ssl handshake response from client.");
+            "SSL mode on but received non-ssl handshake response from client."),
+
+    ERR_DROP_PARTITION_FROM_INDEX_NON_EXISTENT(5092, new byte[]{'H', 'Y', '0', '0', '0'}, "Index '%s' is not existent for partition %s.");
 
     // This is error code
     private final int code;

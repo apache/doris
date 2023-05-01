@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -27,46 +26,23 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // clause which is used to drop a partition from specified index
-public class DropPartitionFromIndexClause extends AlterTableClause {
-    private boolean ifExists;
-    private String partitionName;
-    // true if this is to drop a temp partition
-    private boolean isTempPartition;
-    private boolean forceDrop;
+public class DropPartitionFromIndexClause extends DropPartitionClause {
     private String indexName;
 
     public DropPartitionFromIndexClause(boolean ifExists, String partitionName, boolean isTempPartition,
             boolean forceDrop, String indexName) {
-        super(AlterOpType.DROP_PARTITION);
-        this.ifExists = ifExists;
-        this.partitionName = partitionName;
-        this.isTempPartition = isTempPartition;
-        this.needTableStable = false;
-        this.forceDrop = forceDrop;
+        super(ifExists, partitionName, isTempPartition, forceDrop);
         this.indexName = indexName;
     }
 
-    public boolean isSetIfExists() {
-        return ifExists;
-    }
-
-    public String getPartitionName() {
-        return partitionName;
-    }
-
-    public boolean isTempPartition() {
-        return isTempPartition;
-    }
-
-    public boolean isForceDrop() {
-        return forceDrop;
+    public String getIndexName() {
+        return indexName;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(partitionName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_PARTITION_NAME, partitionName);
-        }
+        super.analyze(analyzer);
+
         if (Strings.isNullOrEmpty(indexName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FOR_INDEX, indexName);
         }
@@ -80,13 +56,8 @@ public class DropPartitionFromIndexClause extends AlterTableClause {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP PARTITION " + partitionName);
+        sb.append("DROP PARTITION " + getPartitionName());
         sb.append(" FROM INDEX " + indexName);
         return sb.toString();
-    }
-
-    @Override
-    public String toString() {
-        return toSql();
     }
 }
