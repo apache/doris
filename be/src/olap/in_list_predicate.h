@@ -423,8 +423,6 @@ public:
 
     bool can_do_bloom_filter() const override { return PT == PredicateType::IN_LIST; }
 
-    std::shared_ptr<HybridSetBase> values() const { return _values; }
-
 private:
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {

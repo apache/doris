@@ -68,8 +68,6 @@ public:
 
     PredicateType type() const override { return PT; }
 
-    const T& value() const { return _value; }
-
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {

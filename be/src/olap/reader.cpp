@@ -518,6 +518,12 @@ void TabletReader::_init_conditions_ng_bf_param(ColumnPredicate* pred) {
         return;
     }
 
+    // check if predicate contains column_id
+    if (pred->column_id() >= _tablet->tablet_schema()->num_columns()) {
+        return;
+    }
+
+    // check if exists ngram_bf index
     const auto& col = _tablet->tablet_schema()->column(pred->column_id());
     auto* tablet_index = _tablet->tablet_schema()->get_ngram_bf_index(col.unique_id());
 
@@ -525,9 +531,6 @@ void TabletReader::_init_conditions_ng_bf_param(ColumnPredicate* pred) {
     if (tablet_index) {
         int32_t gram_bf_size = tablet_index->get_gram_bf_size();
         int32_t gram_size = tablet_index->get_gram_size();
-
-        std::unique_ptr<segment_v2::BloomFilter> ng_bf;
-        segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
 
         if (dynamic_cast<LikeColumnPredicate*>(pred)) {
             // like predicate condition
