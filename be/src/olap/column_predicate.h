@@ -147,10 +147,6 @@ public:
 
     virtual PredicateType type() const = 0;
 
-    virtual void set_page_ng_bf(int32_t gram_bf_size, int32_t gram_size) {
-        DCHECK(false) << "should not reach here";
-    }
-
     //evaluate predicate on Bitmap
     virtual Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* roaring) const = 0;
@@ -199,6 +195,10 @@ public:
     virtual std::string get_search_str() const {
         DCHECK(false) << "should not reach here";
         return "";
+    }
+
+    virtual void set_page_ng_bf(int32_t gram_bf_size, int32_t gram_size) {
+        DCHECK(false) << "should not reach here";
     }
 
     uint32_t column_id() const { return _column_id; }

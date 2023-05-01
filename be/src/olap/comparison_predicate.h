@@ -52,7 +52,8 @@ public:
         if constexpr (PT == PredicateType::EQ) {
             if constexpr (std::is_same_v<T, StringRef>) {
                 std::unique_ptr<segment_v2::BloomFilter> ng_bf;
-                segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
+                segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf,
+                                                gram_bf_size);
 
                 NgramTokenExtractor _token_extractor(gram_size);
                 _token_extractor.string_to_bloom_filter(_value.data, _value.size, *ng_bf);

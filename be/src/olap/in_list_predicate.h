@@ -189,10 +189,11 @@ public:
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
             if constexpr (std::is_same_v<T, StringRef>) {
-                const StringRef* value = (const StringRef*)iter->get_value();  
+                const StringRef* value = (const StringRef*)iter->get_value();
                 std::unique_ptr<segment_v2::BloomFilter> ng_bf;
-                segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
-                
+                segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf,
+                                                gram_bf_size);
+
                 NgramTokenExtractor _token_extractor(gram_size);
                 _token_extractor.string_to_bloom_filter(value->data, value->size, *ng_bf);
                 bloom_filter_list->emplace_back(std::move(ng_bf));
@@ -422,9 +423,7 @@ public:
 
     bool can_do_bloom_filter() const override { return PT == PredicateType::IN_LIST; }
 
-    std::shared_ptr<HybridSetBase> values() const {
-        return _values;
-    }    
+    std::shared_ptr<HybridSetBase> values() const { return _values; }
 
 private:
     template <typename LeftT, typename RightT>

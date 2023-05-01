@@ -521,7 +521,6 @@ void TabletReader::_init_conditions_ng_bf_param(ColumnPredicate* pred) {
     const auto& col = _tablet->tablet_schema()->column(pred->column_id());
     auto* tablet_index = _tablet->tablet_schema()->get_ngram_bf_index(col.unique_id());
 
-    LOG(WARNING) << "aaaaaaaaaaaa xxxx   ";
     // ngram bloom filter
     if (tablet_index) {
         int32_t gram_bf_size = tablet_index->get_gram_bf_size();
@@ -534,10 +533,9 @@ void TabletReader::_init_conditions_ng_bf_param(ColumnPredicate* pred) {
             // like predicate condition
             if (config::enable_query_like_bloom_filter) {
                 pred->set_page_ng_bf(gram_bf_size, gram_size);
-            }            
-        } else if (pred->type() == PredicateType::EQ ||
-            pred->type() == PredicateType::IN_LIST){
-            pred->set_page_ng_bf(gram_bf_size, gram_size);    
+            }
+        } else if (pred->type() == PredicateType::EQ || pred->type() == PredicateType::IN_LIST) {
+            pred->set_page_ng_bf(gram_bf_size, gram_size);
         }
     }
 }

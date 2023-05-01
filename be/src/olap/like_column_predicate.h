@@ -79,7 +79,8 @@ public:
         segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
 
         NgramTokenExtractor _token_extractor(gram_size);
-        if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(), *ng_bf)) {
+        if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),
+                                                         *ng_bf)) {
             _page_ng_bf = std::move(ng_bf);
         }
     }
