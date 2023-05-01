@@ -37,19 +37,26 @@ NGram BloomFilter can accelerate the calculation of like query, equals query, an
 During create table：
 
 ```sql
-CREATE TABLE `table3` (
-  `siteid` int(11) NULL DEFAULT "10" COMMENT "",
-  `citycode` smallint(6) NULL COMMENT "",
-  `username` varchar(100) NULL DEFAULT "" COMMENT "",
-  INDEX idx_ngrambf (`username`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256") COMMENT 'username ngram_bf index'
+CREATE TABLE `hits_url` (
+  `UserID` bigint(20) NOT NULL,
+  `url` text NULL DEFAULT "",
+  `url_ngram3` text NULL DEFAULT "",
+  `url_ngram6` text NULL DEFAULT "",
+  `url_inverted` text NULL DEFAULT "",
+  INDEX idx_ngrambf (`url_ngram3`) USING NGRAM_BF PROPERTIES("gram_size" = "3", "bf_size" = "2048") COMMENT 'url_ngram ngram_bf index',
+  INDEX idx_ngrambf2 (`url_ngram6`) USING NGRAM_BF PROPERTIES("gram_size" = "6", "bf_size" = "2048") COMMENT 'url_ngram ngram_bf index',
+  INDEX idx_inverted (`url_inverted`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'url_inverted index'
 ) ENGINE=OLAP
-AGGREGATE KEY(`siteid`, `citycode`, `username`) COMMENT "OLAP"
-DISTRIBUTED BY HASH(`siteid`) BUCKETS 10
+DUPLICATE KEY(`UserID`)
+COMMENT 'OLAP'
+DISTRIBUTED BY HASH(`UserID`) BUCKETS 1
 PROPERTIES (
-"replication_num" = "1"
+"replication_allocation" = "tag.location.default: 1",
+"storage_format" = "V2",
+"light_schema_change" = "true"
 );
 
--- PROPERTIES("gram_size"="3", "bf_size"="1024")，indicate the number of gram and bytes of bloom filter respectively.
+-- PROPERTIES("gram_size"="3", "bf_size"="2048")，indicate the number of gram and bytes of bloom filter respectively.
 -- the gram size set to same as the like query pattern string length. and the suitable bytes of bloom filter can be get by test, more larger more better, 256 maybe is a good start.
 -- Usually, if the data's cardinality is small, you can increase the bytes of bloom filter to improve the efficiency.
 -- the value range of gram_size is [1, 256], and the value range of bf_size is [64, 65536].
@@ -58,14 +65,14 @@ PROPERTIES (
 ## Show NGram BloomFilter Index
 
 ```sql
-show index from example_db.table3;
+show index from clickbench.hits_url;
 ```
 
 ## Drop NGram BloomFilter Index
 
 
 ```sql
-alter table example_db.table3 drop index idx_ngrambf;
+alter table clickbench.hits_url drop index idx_ngrambf;
 ```
 
 ## Add NGram BloomFilter Index
@@ -73,7 +80,7 @@ alter table example_db.table3 drop index idx_ngrambf;
 Add NGram BloomFilter Index for old column:
 
 ```sql
-alter table example_db.table3 add index idx_ngrambf(username) using NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="512")comment 'username ngram_bf index' 
+alter table clickbench.hits_url add index idx_ngrambf(`url_ngram3`) using NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="2048")comment 'url_ngram3 ngram_bf index' 
 ```
 
 ## Query Example
@@ -83,7 +90,7 @@ Use clickbench 20 million pieces of data to display equivalent query, in query, 
 ### Equivalent Query
 - Equivalent query with index takes 0.08s, which is 3.5 times that of equivalent query without index.
 ```sql
-MySQL [clickbench]> select count(*)  from hits_url4 where url_ngram6 = 'http://lk.wildberries.ru/with_video';
+MySQL [clickbench]> select count(*)  from hits_url where url_ngram6 = 'http://lk.wildberries.ru/with_video';
 +----------+
 | count(*) |
 +----------+
@@ -94,7 +101,7 @@ MySQL [clickbench]> select count(*)  from hits_url4 where url_ngram6 = 'http://l
 
 - Equivalent query without index takes 0.28s
 ```sql
-MySQL [clickbench]> select count(*)  from hits_url4 where url = 'http://lk.wildberries.ru/with_video';
+MySQL [clickbench]> select count(*)  from hits_url where url = 'http://lk.wildberries.ru/with_video';
 +----------+
 | count(*) |
 +----------+
@@ -106,7 +113,7 @@ MySQL [clickbench]> select count(*)  from hits_url4 where url = 'http://lk.wildb
 ### In Query
 - In query with index takes 0.08s, which is 3.5 times that of in query without index
 ```sql
-MySQL [clickbench]> select count(*)  from hits_url4 where url_ngram6 in ('http://lk.wildberries.ru/with_video');
+MySQL [clickbench]> select count(*)  from hits_url where url_ngram6 in ('http://lk.wildberries.ru/with_video');
 +----------+
 | count(*) |
 +----------+
@@ -117,7 +124,7 @@ MySQL [clickbench]> select count(*)  from hits_url4 where url_ngram6 in ('http:/
 
 - In query without index takes 0.29s
 ```sql
-MySQL [clickbench]> select count(*)  from hits_url4 where url in ('http://lk.wildberries.ru/with_video');
+MySQL [clickbench]> select count(*)  from hits_url where url in ('http://lk.wildberries.ru/with_video');
 +----------+
 | count(*) |
 +----------+
@@ -129,7 +136,7 @@ MySQL [clickbench]> select count(*)  from hits_url4 where url in ('http://lk.wil
 ### Like Query
 - Like query with index takes 0.10s, which is 8.3 times that of like query without index, and can support case sensitivity.
 ```sql
-MySQL [clickbench]> select count(*) from hits_url4 where url_ngram3 like '%google%';
+MySQL [clickbench]> select count(*) from hits_url where url_ngram3 like '%google%';
 +----------+
 | count(*) |
 +----------+
@@ -140,7 +147,7 @@ MySQL [clickbench]> select count(*) from hits_url4 where url_ngram3 like '%googl
 
 - Like query without index takes 0.83s
 ```sql
-MySQL [clickbench]> select count(*) from hits_url4 where url like '%google%';
+MySQL [clickbench]> select count(*) from hits_url where url like '%google%';
 +----------+
 | count(*) |
 +----------+
