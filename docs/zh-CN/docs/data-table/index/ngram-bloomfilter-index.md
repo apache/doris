@@ -123,7 +123,7 @@ MySQL [clickbench]> select count(*)  from hits_url where url_ngram6 in ('http://
 1 row in set (0.08 sec)
 ```
 
-- 无索引in查询，耗时0.28s
+- 无索引in查询，耗时0.29s
 ```sql
 MySQL [clickbench]> select count(*)  from hits_url where url in ('http://lk.wildberries.ru/with_video');
 +----------+
