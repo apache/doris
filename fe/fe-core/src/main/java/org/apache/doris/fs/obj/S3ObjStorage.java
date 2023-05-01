@@ -87,6 +87,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         setProperties(properties);
     }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
     protected void setProperties(Map<String, String> properties) {
         this.properties.putAll(properties);
         try {

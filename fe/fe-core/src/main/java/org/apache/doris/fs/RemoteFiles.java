@@ -21,15 +21,15 @@ import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
 
-public class FileLocations {
+public class RemoteFiles {
 
-    private final List<RemoteFile> locations;
+    private final List<RemoteFile> files;
 
-    public FileLocations(List<RemoteFile> locations) {
-        this.locations = locations;
+    public RemoteFiles(List<RemoteFile> files) {
+        this.files = files;
     }
 
     public List<RemoteFile> locations() {
-        return locations;
+        return files;
     }
 }

@@ -41,14 +41,22 @@ import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * use for unit test
  */
 public class MockedS3Client implements S3Client {
+
+    private byte[] mockedData;
+    private boolean canMakeData;
+    private final List<S3Object> mockedObjectList = new ArrayList<>();
 
     @Override
     public String serviceName() {
@@ -57,6 +65,14 @@ public class MockedS3Client implements S3Client {
 
     @Override
     public void close() {}
+
+    public void setMockedData(byte[] mockedData) {
+        this.mockedData = mockedData;
+    }
+
+    public void setCanMakeData(boolean canMakeData) {
+        this.canMakeData = canMakeData;
+    }
 
     @Override
     public HeadObjectResponse headObject(HeadObjectRequest headObjectRequest) throws NoSuchKeyException,
@@ -68,18 +84,28 @@ public class MockedS3Client implements S3Client {
     public GetObjectResponse getObject(GetObjectRequest getObjectRequest, Path destinationPath) throws
                 NoSuchKeyException, InvalidObjectStateException,
                 AwsServiceException, SdkClientException, S3Exception {
+        if (canMakeData) {
+            try (OutputStream os = Files.newOutputStream(destinationPath)) {
+                os.write(mockedData);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
         return GetObjectResponse.builder().eTag("get-etag").build();
     }
 
     @Override
     public PutObjectResponse putObject(PutObjectRequest putObjectRequest, RequestBody requestBody)
                 throws AwsServiceException, SdkClientException, S3Exception {
+        Long size = requestBody.optionalContentLength().orElse(0L);
+        mockedObjectList.add(S3Object.builder().key(putObjectRequest.key()).size(size).build());
         return PutObjectResponse.builder().eTag("put-etag").build();
     }
 
     @Override
     public DeleteObjectResponse deleteObject(DeleteObjectRequest deleteObjectRequest) throws AwsServiceException,
             SdkClientException, S3Exception {
+        mockedObjectList.removeIf(e -> Objects.equals(e.key(), deleteObjectRequest.key()));
         return DeleteObjectResponse.builder().deleteMarker(true).build();
     }
 
@@ -93,12 +119,8 @@ public class MockedS3Client implements S3Client {
     @Override
     public ListObjectsV2Response listObjectsV2(ListObjectsV2Request listObjectsV2Request) throws NoSuchBucketException,
             AwsServiceException, SdkClientException, S3Exception {
-        List<S3Object> s3ObjectList = new ArrayList<>();
-        for (int i = 0; i < 5; i++) {
-            s3ObjectList.add(S3Object.builder().key("keys/key" + i).eTag("obj-etag" + i).size(123L + i).build());
-        }
         return ListObjectsV2Response.builder()
-                .contents(s3ObjectList)
+                .contents(mockedObjectList)
                 .isTruncated(true)
                 .delimiter(",")
                 .nextContinuationToken("next-token")

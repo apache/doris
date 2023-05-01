@@ -237,7 +237,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3_old");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 20);
+        Assertions.assertEquals(properties.size(), 11);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(hdProps.size(), 20);

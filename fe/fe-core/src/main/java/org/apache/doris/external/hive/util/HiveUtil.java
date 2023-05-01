@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.fs.FileSystemFactory;
 
 import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.FileSystem;
@@ -205,7 +206,7 @@ public final class HiveUtil {
         }
         try {
             method.setAccessible(true);
-            return (boolean) method.invoke(inputFormat, path.getFileSystem(jobConf), path);
+            return (boolean) method.invoke(inputFormat, FileSystemFactory.getNativeByPath(path, jobConf), path);
         } catch (InvocationTargetException | IllegalAccessException | IOException e) {
             throw new RuntimeException(e);
         }

@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -42,6 +43,12 @@ public class S3FileSystem extends ObjFileSystem {
     public S3FileSystem(Map<String, String> properties) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, new S3ObjStorage(properties));
         this.properties.putAll(properties);
+    }
+
+    @VisibleForTesting
+    public S3FileSystem(S3ObjStorage storage) {
+        super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, storage);
+        this.properties.putAll(storage.getProperties());
     }
 
     @Override

@@ -29,8 +29,8 @@ import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.external.hive.util.HiveUtil;
-import org.apache.doris.fs.FileLocations;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.RemoteFiles;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.ListPartitionPrunerV2;
@@ -195,11 +195,10 @@ public class HiveSplitter implements Splitter {
     public static HiveMetaStoreCache.FileCacheValue getFileCache(String location, InputFormat<?, ?> inputFormat,
                                                                  JobConf jobConf,
                                                                  List<String> partitionValues) throws UserException {
-        boolean splittable = HiveUtil.isSplittable(inputFormat, new Path(location), jobConf);
         HiveMetaStoreCache.FileCacheValue result = new HiveMetaStoreCache.FileCacheValue();
-        result.setSplittable(splittable);
-        RemoteFileSystem fs = FileSystemFactory.getByConf(location, jobConf);
-        FileLocations locatedFiles = fs.listLocations(location, true, false);
+        result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
+        RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
+        RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
         locatedFiles.locations().forEach(result::addFile);
         result.setPartitionValues(partitionValues);
         return result;

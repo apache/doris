@@ -38,6 +38,8 @@ import java.util.Map;
 class S3ObjStorageTest {
     private S3ObjStorage storage;
 
+    private MockedS3Client mockedClient;
+
     @BeforeAll
     public void beforeAll() throws Exception {
         Map<String, String> properties = new HashMap<>();
@@ -47,7 +49,8 @@ class S3ObjStorageTest {
         storage = new S3ObjStorage(properties);
         Field client = storage.getClass().getDeclaredField("client");
         client.setAccessible(true);
-        client.set(storage, new MockedS3Client());
+        mockedClient = new MockedS3Client();
+        client.set(storage, mockedClient);
         Assertions.assertTrue(storage.getClient("mocked") instanceof MockedS3Client);
     }
 
@@ -63,12 +66,14 @@ class S3ObjStorageTest {
         Status st = storage.headObject("s3://bucket/key");
         Assertions.assertEquals(Status.OK, st);
 
+        mockedClient.setMockedData(new byte[0]);
         st = storage.getObject("s3://bucket/key", new File("/mocked/file"));
         Assertions.assertEquals(Status.OK, st);
 
-        st = storage.putObject("s3://bucket/key",  RequestBody.empty());
-        Assertions.assertEquals(Status.OK, st);
-
+        for (int i = 0; i < 5; i++) {
+            st = storage.putObject("s3://bucket/keys/key" + i,  RequestBody.fromString("mocked"));
+            Assertions.assertEquals(Status.OK, st);
+        }
         st = storage.copyObject("s3://bucket/key", "s3://bucket/key1");
         Assertions.assertEquals(Status.OK, st);
 
@@ -83,7 +88,6 @@ class S3ObjStorageTest {
         List<RemoteObject> objectList = remoteObjects.getObjectList();
         for (int i = 0; i < objectList.size(); i++) {
             RemoteObject remoteObject = objectList.get(i);
-            Assertions.assertEquals("obj-etag" + i, remoteObject.getEtag());
             Assertions.assertEquals("key" + i, remoteObject.getRelativePath());
         }
 
@@ -96,10 +100,5 @@ class S3ObjStorageTest {
             RemoteObject remoteObject = list.get(i);
             Assertions.assertTrue(remoteObject.getRelativePath().startsWith("keys/key" + i));
         }
-    }
-
-    @Test
-    public void testRepository() throws UserException {
-
     }
 }

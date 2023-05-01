@@ -19,8 +19,8 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.UserException;
-import org.apache.doris.fs.FileLocations;
 import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.RemoteFiles;
 
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
@@ -42,7 +42,7 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
     }
 
     @Override
-    public FileLocations listLocations(String remotePath, boolean onlyFiles, boolean recursive) throws UserException {
+    public RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException {
         org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(remotePath);
         try {
             Path locatedPath = new Path(remotePath);
@@ -54,7 +54,7 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
         }
     }
 
-    private FileLocations getFileLocations(RemoteIterator<LocatedFileStatus> locatedFiles) throws IOException {
+    private RemoteFiles getFileLocations(RemoteIterator<LocatedFileStatus> locatedFiles) throws IOException {
         List<RemoteFile> locations = new ArrayList<>();
         while (locatedFiles.hasNext()) {
             LocatedFileStatus fileStatus = locatedFiles.next();
@@ -62,6 +62,6 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
                     fileStatus.getLen(), fileStatus.getBlockSize(), fileStatus.getBlockLocations());
             locations.add(location);
         }
-        return new FileLocations(locations);
+        return new RemoteFiles(locations);
     }
 }

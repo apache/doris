@@ -36,8 +36,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.fs.FileLocations;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.RemoteFiles;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -179,7 +179,7 @@ public class HiveMetaStoreClientHelper {
             List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl, StorageBackend.StorageType type)
             throws DdlException {
         RemoteFileSystem fs = FileSystemFactory.get("HiveMetaStore", type, hiveTable.getHiveProperties());
-        List<FileLocations> remoteLocationsList = new ArrayList<>();
+        List<RemoteFiles> remoteLocationsList = new ArrayList<>();
         try {
             if (remoteHiveTbl.getPartitionKeys().size() > 0) {
                 String metaStoreUris = hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS);
@@ -188,12 +188,12 @@ public class HiveMetaStoreClientHelper {
                         hivePartitionPredicate);
                 for (Partition p : hivePartitions) {
                     String location = normalizeS3LikeSchema(p.getSd().getLocation());
-                    remoteLocationsList.add(fs.listLocations(location));
+                    remoteLocationsList.add(fs.listLocatedFiles(location));
                 }
             } else {
                 // hive non-partitioned table, get file iterator from table sd info
                 String location = normalizeS3LikeSchema(remoteHiveTbl.getSd().getLocation());
-                remoteLocationsList.add(fs.listLocations(location));
+                remoteLocationsList.add(fs.listLocatedFiles(location));
             }
             return getAllFileStatus(fileStatuses, remoteLocationsList, fs);
         } catch (UserException e) {
@@ -213,12 +213,12 @@ public class HiveMetaStoreClientHelper {
     }
 
     private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
-                                           List<FileLocations> remoteLocationsList, RemoteFileSystem fs)
+                                           List<RemoteFiles> remoteLocationsList, RemoteFileSystem fs)
                 throws UserException {
         String hdfsUrl = "";
-        Queue<FileLocations> queue = Queues.newArrayDeque(remoteLocationsList);
+        Queue<RemoteFiles> queue = Queues.newArrayDeque(remoteLocationsList);
         while (queue.peek() != null) {
-            FileLocations locs = queue.poll();
+            RemoteFiles locs = queue.poll();
             try {
                 for (RemoteFile fileLocation : locs.locations()) {
                     Path filePath = fileLocation.getPath();
@@ -226,7 +226,7 @@ public class HiveMetaStoreClientHelper {
                     String fullUri = filePath.toString();
                     if (fileLocation.isDirectory()) {
                         // recursive visit the directory to get the file path.
-                        queue.add(fs.listLocations(fullUri));
+                        queue.add(fs.listLocatedFiles(fullUri));
                         continue;
                     }
                     TBrokerFileStatus brokerFileStatus = new TBrokerFileStatus();
