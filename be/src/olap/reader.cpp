@@ -518,7 +518,7 @@ void TabletReader::_init_conditions_ng_bf_param(ColumnPredicate* pred) {
         return;
     }
 
-    // check if predicate contains column_id
+    // check if predicate contains column
     if (pred->column_id() >= _tablet->tablet_schema()->num_columns()) {
         return;
     }
