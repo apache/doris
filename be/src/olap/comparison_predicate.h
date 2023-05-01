@@ -44,7 +44,9 @@ public:
         cloned->_cache_code_enabled = true;
         cloned->predicate_params()->marked_by_runtime_filter =
                 _predicate_params->marked_by_runtime_filter;
-        cloned->_page_ng_bf = _page_ng_bf;
+        if (_page_ng_bf) {
+            cloned->_page_ng_bf = _page_ng_bf;
+        }
         *to = cloned;
     }
 
