@@ -1689,6 +1689,11 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
 Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* block,
                                       Bitmap* filter_bitmap, int* filtered_rows,
                                       bool* stop_processing) {
+    DCHECK(_output_tuple_desc->slots().size() <= block->columns()) << fmt::format(
+            "The block's column numbers {} is bigger than tables' column numbers {}. query-id "
+            "is {}",
+            block->columns(), _output_tuple_desc->slots().size(), print_id(state->query_id()));
+
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         block->get_by_position(i).column =
