@@ -106,7 +106,7 @@ public class SystemInfoServiceTest {
             // Read objects from file
             try(DataInputStream dis = new DataInputStream(new FileInputStream(file1))) {
                 BackendHbResponse readResponse = BackendHbResponse.read(dis);
-                // Before meta version 121, nodeRole was not read, so readResponse is not equal to writeResponse
+                // Before meta version 121, nodeRole will not be read, so readResponse is not equal to writeResponse
                 Assert.assertFalse(readResponse.toString().equals(writeResponse.toString()));
                 Assert.assertTrue(Tag.VALUE_MIX.equals(readResponse.getNodeRole()));
             }
@@ -132,7 +132,7 @@ public class SystemInfoServiceTest {
             // Read objects from file
             try(DataInputStream dis = new DataInputStream(new FileInputStream(file2))) {
                 BackendHbResponse readResponse = BackendHbResponse.read(dis);
-                // After meta version 121, nodeRole was read, so readResponse is equal to writeResponse
+                // After meta version 121, nodeRole will be read, so readResponse is equal to writeResponse
                 Assert.assertTrue(readResponse.toString().equals(writeResponse.toString()));
             }
 
