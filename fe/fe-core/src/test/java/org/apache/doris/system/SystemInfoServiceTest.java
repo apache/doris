@@ -109,6 +109,9 @@ public class SystemInfoServiceTest {
                 // Before meta version 121, nodeRole will not be read, so readResponse is not equal to writeResponse
                 Assert.assertFalse(readResponse.toString().equals(writeResponse.toString()));
                 Assert.assertTrue(Tag.VALUE_MIX.equals(readResponse.getNodeRole()));
+            } catch (IOException e) {
+                e.printStackTrace();
+                Assert.fail();
             }
 
         } finally {
@@ -134,6 +137,9 @@ public class SystemInfoServiceTest {
                 BackendHbResponse readResponse = BackendHbResponse.read(dis);
                 // After meta version 121, nodeRole will be read, so readResponse is equal to writeResponse
                 Assert.assertTrue(readResponse.toString().equals(writeResponse.toString()));
+            } catch (IOException e) {
+                e.printStackTrace();
+                Assert.fail();
             }
 
         } finally {
