@@ -86,7 +86,7 @@ public:
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
 
-    void partition_open(google::protobuf::RpcController* controller,
+    void open_partition(google::protobuf::RpcController* controller,
                         const PartitionOpenRequest* request, PartitionOpenResult* response,
                         google::protobuf::Closure* done) override;
 

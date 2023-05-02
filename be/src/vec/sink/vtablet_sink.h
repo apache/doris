@@ -79,6 +79,9 @@ class TupleDescriptor;
 template <typename T>
 class RefCountClosure;
 
+template <typename T>
+class PartitionOpenClosure;
+
 namespace vectorized {
 class VExprContext;
 }
@@ -211,7 +214,9 @@ public:
 
     void open();
 
-    void open_partition(int64_t partition_id);
+    PartitionOpenClosure<PartitionOpenResult>* open_partition(int64_t partition_id);
+
+    Status open_partition_wait(PartitionOpenClosure<PartitionOpenResult>* open_partition_closure);
 
     Status init(RuntimeState* state);
 
@@ -605,7 +610,7 @@ private:
 
     RuntimeState* _state = nullptr;
 
-    std::unordered_set<int64_t> _partition_opened;
+    std::unordered_map<int64_t,bool> _partition_opened;
     std::mutex _partition_opened_mutex;
 };
 

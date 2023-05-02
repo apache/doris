@@ -473,7 +473,8 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-void VNodeChannel::open_partition(int64_t partition_id) {
+PartitionOpenClosure<PartitionOpenResult>* VNodeChannel::open_partition(int64_t partition_id) {
+    _timeout_watch.reset();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     PartitionOpenRequest request;
     auto load_id = std::make_shared<PUniqueId>(_parent->_load_id);
@@ -487,19 +488,57 @@ void VNodeChannel::open_partition(int64_t partition_id) {
         }
     }
 
-    PartitionOpenClosure<PartitionOpenResult>* partition_open_closure =
+    PartitionOpenClosure<PartitionOpenResult>* open_partition_closure =
             new PartitionOpenClosure<PartitionOpenResult>(this);
-    partition_open_closure->ref();
+    open_partition_closure->ref();
 
     // This ref is for RPC's reference
-    partition_open_closure->ref();
-    partition_open_closure->cntl.set_timeout_ms(config::partition_open_rpc_timeout_sec * 1000);
-    if (config::partition_open_ignore_eovercrowded) {
-        partition_open_closure->cntl.ignore_eovercrowded();
+    open_partition_closure->ref();
+
+    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
+    if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
+        if (remain_ms <= 0) {
+            cancel(fmt::format("{}, err: timeout", channel_info()));
+            return;
+        } else {
+            remain_ms = config::min_load_rpc_timeout_ms;
+        }
     }
-    _stub->partition_open(&partition_open_closure->cntl, &request, &partition_open_closure->result,
-                          partition_open_closure);
+    open_partition_closure->cntl.set_timeout_ms(remain_ms);
+    open_partition_closure->cntl.set_max_retry(10);
+    if (config::partition_open_ignore_eovercrowded) {
+        open_partition_closure->cntl.ignore_eovercrowded();
+    }
+    _stub->open_partition(&open_partition_closure->cntl, &request, &open_partition_closure->result,
+                          open_partition_closure);
     request.release_id();
+    return open_partition_closure;
+}
+
+Status VNodeChannel::open_partition_wait(PartitionOpenClosure<PartitionOpenResult>* open_partition_closure) {
+    open_partition_closure ->join();
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    if (open_partition_closure->cntl.Failed()) {
+        if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
+                    _stub, _node_info.host, _node_info.brpc_port)) {
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    open_partition_closure->cntl.remote_side());
+        }
+        std::stringstream ss;
+        ss << "failed to open partition, error=" << berror(open_partition_closure->cntl.ErrorCode())
+           << ", error_text=" << open_partition_closure->cntl.ErrorText();
+        _cancelled = true;
+        LOG(WARNING) << ss.str() << " " << channel_info();
+        return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
+                                     berror(open_partition_closure->cntl.ErrorCode()),
+                                     open_partition_closure->cntl.ErrorText());
+    }
+    Status status(open_partition_closure->result.status());
+
+    if (!status.ok()) {
+        _cancelled = true;
+        return status;
+    }
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
@@ -1102,15 +1141,20 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
             if (it != _partition_opened.end()) {
                 return;
             }
-            _partition_opened.insert(id);
+            _partition_opened.insert(std::pair(id,false));
         }
         for (int j = 0; j < partition->indexes.size(); ++j) {
             for (const auto& tid : partition->indexes[j].tablets) {
                 auto it = _channels[j]->_channels_by_tablet.find(tid);
                 for (const auto& channel : it->second) {
-                    channel->open_partition(partition->id);
+                    auto open_partition_closure = channel->open_partition(partition->id);
+                    channel->open_partition_wait(open_partition_closure);
                 }
             }
+        }
+        {
+            std::unique_lock<std::mutex> l(_partition_opened_mutex);
+            _partition_opened.insert(std::pair(id,true));
         }
     }
 }

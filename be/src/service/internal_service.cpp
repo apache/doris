@@ -244,7 +244,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     }
 }
 
-void PInternalServiceImpl::partition_open(google::protobuf::RpcController* controller,
+void PInternalServiceImpl::open_partition(google::protobuf::RpcController* controller,
                                           const PartitionOpenRequest* request,
                                           PartitionOpenResult* response,
                                           google::protobuf::Closure* done) {
