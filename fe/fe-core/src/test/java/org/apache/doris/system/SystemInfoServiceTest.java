@@ -20,6 +20,8 @@ package org.apache.doris.system;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
@@ -34,6 +36,12 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -71,6 +79,66 @@ public class SystemInfoServiceTest {
     private void addBackend(long beId, String host, int hbPort) {
         Backend backend = new Backend(beId, host, hbPort);
         infoService.addBackend(backend);
+    }
+
+    @Test
+    public void testBackendHbResponseSerialization() throws IOException {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_120);
+        metaContext.setThreadLocalInfo();
+
+        BackendHbResponse writeResponse = new BackendHbResponse(1L, 1234, 1234, 1234,
+            1234, 1234, "test", Tag.VALUE_COMPUTATION);
+
+        // Write objects to file
+        File file1 = new File("./SystemInfoServiceTest1");
+        try {
+            file1.createNewFile();
+
+            try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(file1))) {
+                writeResponse.write(dos);
+                dos.flush();
+            } catch (IOException e) {
+                e.printStackTrace();
+                Assert.fail();
+            }
+
+            // Read objects from file
+            try(DataInputStream dis = new DataInputStream(new FileInputStream(file1))) {
+                BackendHbResponse readResponse = BackendHbResponse.read(dis);
+                // Before meta version 121, nodeRole was not read, so readResponse is not equal to writeResponse
+                Assert.assertFalse(readResponse.toString().equals(writeResponse.toString()));
+                Assert.assertTrue(Tag.VALUE_MIX.equals(readResponse.getNodeRole()));
+            }
+
+        } finally {
+            file1.delete();
+        }
+
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_121);
+        // Write objects to file
+        File file2 = new File("./SystemInfoServiceTest2");
+        try {
+            file2.createNewFile();
+
+            try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(file2))) {
+                writeResponse.write(dos);
+                dos.flush();
+            } catch (IOException e) {
+                e.printStackTrace();
+                Assert.fail();
+            }
+
+            // Read objects from file
+            try(DataInputStream dis = new DataInputStream(new FileInputStream(file2))) {
+                BackendHbResponse readResponse = BackendHbResponse.read(dis);
+                // After meta version 121, nodeRole was read, so readResponse is equal to writeResponse
+                Assert.assertTrue(readResponse.toString().equals(writeResponse.toString()));
+            }
+
+        } finally {
+            file2.delete();
+        }
     }
 
     @Test
