@@ -37,7 +37,7 @@ namespace doris::vectorized {
 
 class Arena;
 
-// array_reduce("sum", [1,2,3,4])
+// array_reduce("sum", [1,2,3,4]) -> 10
 class FunctionArrayReduce : public IFunction {
 public:
     static constexpr auto name = "array_reduce";
@@ -50,53 +50,17 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2}; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName & arguments) const override {
-        std::cout << "----test1" << std::endl;
-        // DCHECK(is_array(arguments[1]))
-        //         << "first argument for function: " << name << " should be DataTypeArray"
-        //         << " and arguments[0] is " << arguments[1]->get_name();
-        // vectorized::AggregateFunctionPtr function = TabletColumn::get_aggregate_function(arguments, "_reader");
-
-        // std::string agg_name = TabletColumn::get_string_by_aggregation_type(_aggregation) + s"_reader";
-        // std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
-        //             [](unsigned char c) { return std::tolower(c); });
-        // vectorized::AggregateFunctionPtr function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-        //         "sum", arguments, arguments.back()->is_nullable());
-
-        // if (function->is_state()) {
-        //     std::cout << "有问题没" << std::endl;
-        // }
-        // std::cout << "----test1" << std::endl;
-        // string a = arguments[0].name;
-        // std::cout << a << std::endl;
-        // a = arguments[1].name;
-        // std::cout << a << std::endl;
-
-        // auto x = arguments[0].column.get();
-        // const ColumnConst& aggregate_function_name_column = static_cast<const ColumnConst&>(*x);
-
-        // const ColumnConst * aggregate_function_name_column = check_and_get_column_const<ColumnString>(arguments[0].column.get());
-
-
-
-
-        std::cout << "----test2" << std::endl;
-
         DataTypes argument_types(arguments.size() - 1);
-        std::cout << "----test3" << std::endl;
         const DataTypeArray * arg = check_and_get_data_type<DataTypeArray>(arguments[1].type.get());
-        std::cout << "----test4" << std::endl;
         argument_types[0] = arg->get_nested_type();
-        std::cout << "----test5" << std::endl;
 
-        test = arguments[1];
+        columnWithTypeAndName = arguments[1];
         
 
         if (!aggregate_function)
         {
-            // std::cout << "----" <
             aggregate_function = vectorized::AggregateFunctionSimpleFactory::instance().get(
                     "sum", argument_types);
-            std::cout << "----test8" << std::endl;
         }
 
         std::cout << "YEAH" << std::endl;
@@ -106,7 +70,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-
+        // 获取函数名                        
         const ColumnConst& rhs_value_column =
                 static_cast<const ColumnConst&>(*block.get_by_position(arguments[0]).column.get());
 
@@ -176,32 +140,48 @@ public:
         //         throw;
         //     }
         // }
-
-        // auto guard = AggregateFunctionGuard(aggregate_function.get());
+ 
+  
 
         const IColumn ** aggregate_arguments = aggregate_arguments_vec.data();
 
         std::unique_ptr<vectorized::Arena> arena = std::make_unique<vectorized::Arena>();
 
-        std::unique_ptr<char[]> memory(new char[aggregate_function->size_of_data()]);
-        AggregateDataPtr places;
-        places = memory.get();
+        // std::unique_ptr<char[]> memory(new char[aggregate_function->size_of_data()]);
+        // AggregateDataPtr places;
+        // places = memory.get();
 
-        const DataTypeArray * arg = check_and_get_data_type<DataTypeArray>(test.type.get());
-        std::cout << "----test4" << std::endl;
+        AggregateDataPtr places = arena->aligned_alloc(aggregate_function->size_of_data(), aggregate_function->align_of_data()); 
+
+        const DataTypeArray * arg = check_and_get_data_type<DataTypeArray>(columnWithTypeAndName.type.get());
+
         DataTypes argument_types(arguments.size() - 1);
         argument_types[0] = arg->get_nested_type();
         auto datatype = block.get_by_position(arguments[1]).type;
 
         auto column_result = datatype->create_column();
 
-        agg_function->add_batch_range(0, input_rows_count, places, aggregate_arguments, arena.get(), false);
+        // 聚合方式一
+        aggregate_function->add_batch_range(0, input_rows_count, places, aggregate_arguments, arena.get(), false);
+        std::cout << "--" << std::endl;
 
+        // 聚合方式二
         // for (int i = 0; i < input_rows_count; i++) {
         //     aggregate_function->add(places, aggregate_arguments, i, nullptr);
         // }
         
         aggregate_function->insert_result_into(places, *column_result);
+
+        /*
+            在 aggregate_function_sum.h 中
+            void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+                auto& column = static_cast<ColVecResult&>(to);
+                column.get_data().push_back(this->data(place).get());
+            }
+            执行 push_back 出现 堆溢出 
+                ==945776==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6030004c4610 at pc 0x55557000cf9b bp 0x7ffce1667740 sp 0x7ffce1667730
+                READ of size 8 at 0x6030004c4610 thread T357 (FragmentMgrThre)
+        */
 
         ColumnPtr res_column = (*column_result).get_ptr();
 
@@ -212,7 +192,7 @@ public:
         return Status::OK();
     }
 
-    mutable ColumnWithTypeAndName test;
+    mutable ColumnWithTypeAndName columnWithTypeAndName;
     const DataTypeArray * arg;
     mutable AggregateFunctionPtr aggregate_function;
 };
