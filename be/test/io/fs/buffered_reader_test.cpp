@@ -124,7 +124,8 @@ TEST_F(BufferedReaderTest, normal_use) {
     io::global_local_filesystem()->open_file(
             "./be/test/io/fs/test_data/buffered_reader/buffered_reader_test_file", &local_reader);
     auto sync_local_reader = std::make_shared<SyncLocalFileReader>(std::move(local_reader));
-    io::PrefetchBufferedReader reader(std::move(sync_local_reader), io::PrefetchRange(0, 1024));
+    io::PrefetchBufferedReader reader(nullptr, std::move(sync_local_reader),
+                                      io::PrefetchRange(0, 1024));
     uint8_t buf[1024];
     Slice result {buf, 1024};
     MonotonicStopWatch watch;
@@ -143,7 +144,8 @@ TEST_F(BufferedReaderTest, test_validity) {
             "./be/test/io/fs/test_data/buffered_reader/buffered_reader_test_file.txt",
             &local_reader);
     auto sync_local_reader = std::make_shared<SyncLocalFileReader>(std::move(local_reader));
-    io::PrefetchBufferedReader reader(std::move(sync_local_reader), io::PrefetchRange(0, 1024));
+    io::PrefetchBufferedReader reader(nullptr, std::move(sync_local_reader),
+                                      io::PrefetchRange(0, 1024));
     Status st;
     uint8_t buf[10];
     Slice result {buf, 10};
@@ -192,7 +194,8 @@ TEST_F(BufferedReaderTest, test_seek) {
             "./be/test/io/fs/test_data/buffered_reader/buffered_reader_test_file.txt",
             &local_reader);
     auto sync_local_reader = std::make_shared<SyncLocalFileReader>(std::move(local_reader));
-    io::PrefetchBufferedReader reader(std::move(sync_local_reader), io::PrefetchRange(0, 1024));
+    io::PrefetchBufferedReader reader(nullptr, std::move(sync_local_reader),
+                                      io::PrefetchRange(0, 1024));
 
     Status st;
     uint8_t buf[10];
@@ -238,7 +241,8 @@ TEST_F(BufferedReaderTest, test_miss) {
             "./be/test/io/fs/test_data/buffered_reader/buffered_reader_test_file.txt",
             &local_reader);
     auto sync_local_reader = std::make_shared<SyncLocalFileReader>(std::move(local_reader));
-    io::PrefetchBufferedReader reader(std::move(sync_local_reader), io::PrefetchRange(0, 1024));
+    io::PrefetchBufferedReader reader(nullptr, std::move(sync_local_reader),
+                                      io::PrefetchRange(0, 1024));
     uint8_t buf[128];
     Slice result {buf, 128};
     size_t bytes_read;
