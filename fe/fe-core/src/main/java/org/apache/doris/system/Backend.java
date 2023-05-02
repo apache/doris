@@ -49,6 +49,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -507,13 +508,15 @@ public class Backend implements Writable {
          * we ignore the change of capacity, because capacity info is only used in master FE.
          */
         boolean isChanged = false;
+        Backend.BeInfoCollector beinfoCollector  = Backend.getBeInfoCollector();
         for (TDisk tDisk : backendDisks.values()) {
             String rootPath = tDisk.getRootPath();
             long totalCapacityB = tDisk.getDiskTotalCapacity();
             long dataUsedCapacityB = tDisk.getDataUsedCapacity();
             long diskAvailableCapacityB = tDisk.getDiskAvailableCapacity();
             boolean isUsed = tDisk.isUsed();
-
+            int numCores = tDisk.getNumCores();
+            beinfoCollector.addBeInfo(id, numCores);
             DiskInfo diskInfo = disks.get(rootPath);
             if (diskInfo == null) {
                 diskInfo = new DiskInfo(rootPath);
@@ -798,5 +801,65 @@ public class Backend implements Writable {
 
     public String getTagMapString() {
         return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
+    }
+
+    public static BeInfoCollector getBeInfoCollector() {
+        return BeInfoCollector.get();
+    }
+
+    public static class BeInfoCollector {
+        private int numCores = 1;
+        private static volatile BeInfoCollector instance = null;
+        private static final Map<Long, BeInfoCollector> Info = new ConcurrentHashMap<>();
+
+        private BeInfoCollector(int numCores) {
+            this.numCores = numCores;
+        }
+
+        public static BeInfoCollector get() {
+            if (instance == null) {
+                synchronized (BeInfoCollector.class) {
+                    if (instance == null) {
+                        instance = new BeInfoCollector(Integer.MAX_VALUE);
+                    }
+                }
+            }
+            return instance;
+        }
+
+        public int getNumCores() {
+            return numCores;
+        }
+
+        public void clear() {
+            Info.clear();
+        }
+
+        public void addBeInfo(long beId, int numCores) {
+            Info.put(beId, new BeInfoCollector(numCores));
+        }
+
+        public void dropBeInfo(long beId) {
+            Info.remove(beId);
+        }
+
+        public int getMinNumCores() {
+            int minNumCores = Integer.MAX_VALUE;
+            for (BeInfoCollector beinfo : Info.values()) {
+                minNumCores = Math.min(minNumCores, beinfo.getNumCores());
+            }
+            return Math.max(1, minNumCores);
+        }
+
+        public int getParallelExecInstanceNum() {
+            if (getMinNumCores() == Integer.MAX_VALUE) {
+                return 1;
+            }
+            return (getMinNumCores() + 1) / 2;
+        }
+
+        public BeInfoCollector getBeInfoCollectorById(long beId) {
+            return Info.get(beId);
+        }
     }
 }

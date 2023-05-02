@@ -28,6 +28,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.qe.VariableMgr.VarAttr;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -481,7 +482,7 @@ public class SessionVariable implements Serializable, Writable {
      * 1 means disable this feature
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, fuzzy = true)
-    public int parallelExecInstanceNum = 1;
+    public int parallelExecInstanceNum = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
@@ -845,7 +846,7 @@ public class SessionVariable implements Serializable, Writable {
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
         Random random = new Random(System.currentTimeMillis());
-        this.parallelExecInstanceNum = random.nextInt(8) + 1;
+        this.parallelExecInstanceNum = 0;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
@@ -1186,7 +1187,12 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
-        return parallelExecInstanceNum;
+        if (parallelExecInstanceNum != 0) {
+            return parallelExecInstanceNum;
+        }
+        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
+        LOG.info("yxc test without fuzzy : ParallelExecInstanceNum {} ", beinfoCollector.getParallelExecInstanceNum());
+        return beinfoCollector.getParallelExecInstanceNum();
     }
 
     public int getExchangeInstanceParallel() {
@@ -1712,7 +1718,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
-        tResult.setParallelInstance(parallelExecInstanceNum);
+        tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
