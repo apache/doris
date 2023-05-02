@@ -141,7 +141,7 @@ public:
         //         throw;
         //     }
         // }
- 
+        // 
 
         const IColumn ** aggregate_arguments = aggregate_arguments_vec.data();
 
