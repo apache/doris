@@ -74,20 +74,20 @@ public:
         const ColumnConst& rhs_value_column =
                 static_cast<const ColumnConst&>(*block.get_by_position(arguments[0]).column.get());
 
-        String aggregate_function_name_with_params = rhs_value_column.get_value<String>();
-        std::cout << aggregate_function_name_with_params << std::endl;
+        // String aggregate_function_name_with_params = rhs_value_column.get_value<String>();
+        // std::cout << aggregate_function_name_with_params << std::endl;
 
         ColumnPtr haystack_ptr = block.get_by_position(arguments[0]).column;
 
         const ColumnConst* col_haystack_const =
                 check_and_get_column_const<ColumnString>(&*haystack_ptr);
 
-        String aggregate_function_name_with_param = col_haystack_const->get_value<String>();
+        // String aggregate_function_name_with_param = col_haystack_const->get_value<String>();
         
-        std::cout << aggregate_function_name_with_param << std::endl;
+        // std::cout << aggregate_function_name_with_param << std::endl;
 
-        AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get(aggregate_function_name_with_params, {block.get_data_type(1)});
+        // AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+        // auto agg_function = factory.get(aggregate_function_name_with_params, {block.get_data_type(1)});
 
         std::cout << "----" << std::endl;
         // const IAggregateFunction & agg_func = *agg_function;
@@ -98,9 +98,10 @@ public:
 
         std::cout << "----" << std::endl;
         // for (size_t i = 0; i < num_arguments_columns; ++i) {
-        auto col = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        // const ColumnArray::Offsets64 * offsets_i = nullptr;
-
+            // ->convert_to_full_column_if_const();
+        // const IColumn * col = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto& col = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        
         if (const ColumnArray * arr = check_and_get_column<ColumnArray>(*col)) {
             aggregate_arguments_vec[0] = &arr->get_data();
             std::cout << "YEAH" << std::endl;
@@ -141,7 +142,6 @@ public:
         //     }
         // }
  
-  
 
         const IColumn ** aggregate_arguments = aggregate_arguments_vec.data();
 
@@ -152,6 +152,7 @@ public:
         // places = memory.get();
 
         AggregateDataPtr places = arena->aligned_alloc(aggregate_function->size_of_data(), aggregate_function->align_of_data()); 
+        aggregate_function->create(places);
 
         const DataTypeArray * arg = check_and_get_data_type<DataTypeArray>(columnWithTypeAndName.type.get());
 
@@ -162,16 +163,17 @@ public:
         auto column_result = datatype->create_column();
 
         // 聚合方式一
-        aggregate_function->add_batch_range(0, input_rows_count, places, aggregate_arguments, arena.get(), false);
+        // aggregate_function->add_batch_range(0, input_rows_count, places, aggregate_arguments, arena.get(), false);
         std::cout << "--" << std::endl;
 
         // 聚合方式二
-        // for (int i = 0; i < input_rows_count; i++) {
-        //     aggregate_function->add(places, aggregate_arguments, i, nullptr);
-        // }
-        
+        for (int i = 0; i < input_rows_count; i++) {
+            aggregate_function->add(places, aggregate_arguments, i, nullptr);
+        }
+        std::cout << "-1-" << std::endl;
+        // places 差不多就包含着聚合结果， 这个函数将places中的聚合结果insert到 column_result 中
         aggregate_function->insert_result_into(places, *column_result);
-
+        std::cout << "-2-" << std::endl;
         /*
             在 aggregate_function_sum.h 中
             void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -184,11 +186,11 @@ public:
         */
 
         ColumnPtr res_column = (*column_result).get_ptr();
-
+        std::cout << "-3-" << std::endl;
         // doris::vectorized::ColumnPtr = doris::vectorized::IColumn::Ptr
         block.replace_by_position(result, std::move(res_column));
 
-
+        std::cout << "-4-" << std::endl;
         return Status::OK();
     }
 
