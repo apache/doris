@@ -822,11 +822,11 @@ public class StmtRewriter {
             if (expr instanceof ExistsPredicate) {
                 joinOp = ((ExistsPredicate) expr).isNotExists() ? JoinOperator.LEFT_ANTI_JOIN :
                         JoinOperator.LEFT_SEMI_JOIN;
-            } else if (expr instanceof InPredicate) {
+            } else if (expr instanceof InPredicate && !(joinConjunct instanceof BitmapFilterPredicate)) {
                 joinOp = ((InPredicate) expr).isNotIn() ? JoinOperator.LEFT_ANTI_JOIN : JoinOperator.LEFT_SEMI_JOIN;
-                if (joinConjunct instanceof FunctionCallExpr
+                if ((joinConjunct instanceof FunctionCallExpr
                         && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
-                        .equalsIgnoreCase(BITMAP_CONTAINS))) {
+                        .equalsIgnoreCase(BITMAP_CONTAINS)))) {
                     isInBitmap = true;
                 }
             } else {
