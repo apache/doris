@@ -284,6 +284,9 @@ public class SystemInfoService {
         }
 
         dropBackend(backend.getIp(), backend.getHostName(), backend.getHeartbeatPort());
+        // update BeInfoCollector
+        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
+        beinfoCollector.dropBeInfo(backendId);
     }
 
     // final entry of dropping backend
@@ -1250,6 +1253,10 @@ public class SystemInfoService {
         } else {
             LOG.error("Cluster " + backend.getOwnerClusterName() + " no exist.");
         }
+
+        // update BeInfoCollector
+        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
+        beinfoCollector.dropBeInfo(backend.getId());
     }
 
     public void updateBackendState(Backend be) {

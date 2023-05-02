@@ -30,7 +30,7 @@ public class StatisticConstants {
 
     public static final int ID_LEN = 4096;
 
-    public static final int STATISTIC_PARALLEL_EXEC_INSTANCE_NUM = 1;
+    public static final int STATISTIC_PARALLEL_EXEC_INSTANCE_NUM = 0;
 
     public static final int STATISTICS_CACHE_VALID_DURATION_IN_HOURS = 24 * 2;
 
