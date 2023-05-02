@@ -52,7 +52,6 @@ import java.util.stream.Stream;
  */
 public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
         extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
-
     private final JoinType joinType;
     private final List<Expression> otherJoinConjuncts;
     private final List<Expression> hashJoinConjuncts;
@@ -60,7 +59,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     // When the predicate condition contains subqueries and disjunctions, the join will be marked as MarkJoin.
     private final Optional<MarkJoinSlotReference> markJoinSlotReference;
-
+    private final Optional<Expression> subQueryCombinedHavingExpr;
     // Use for top-to-down join reorder
     private final JoinReorderContext joinReorderContext = new JoinReorderContext();
 
@@ -93,6 +92,19 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), Optional.empty(), leftChild, rightChild);
     }
 
+    public LogicalJoin(
+        JoinType joinType,
+        List<Expression> hashJoinConjuncts,
+        List<Expression> otherJoinConjuncts,
+        JoinHint hint,
+        Optional<MarkJoinSlotReference> markJoinSlotReference,
+        Optional<Expression> subQueryCombinedHavingExpr,
+        LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts,
+            otherJoinConjuncts, hint, markJoinSlotReference,
+            Optional.empty(), Optional.empty(), subQueryCombinedHavingExpr, leftChild, rightChild);
+    }
+
     /**
      * Just use in withXXX method.
      */
@@ -105,7 +117,27 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
+        this.subQueryCombinedHavingExpr = Optional.empty();
         this.joinReorderContext.copyFrom(joinReorderContext);
+        this.markJoinSlotReference = markJoinSlotReference;
+    }
+
+    private LogicalJoin(
+        JoinType joinType,
+        List<Expression> hashJoinConjuncts,
+        List<Expression> otherJoinConjuncts,
+        JoinHint hint,
+        Optional<MarkJoinSlotReference> markJoinSlotReference,
+        Optional<GroupExpression> groupExpression,
+        Optional<LogicalProperties> logicalProperties,
+        LEFT_CHILD_TYPE leftChild,
+        RIGHT_CHILD_TYPE rightChild) {
+        super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
+        this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
+        this.subQueryCombinedHavingExpr = Optional.empty();
+        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
+        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
+        this.hint = Objects.requireNonNull(hint, "hint can not be null");
         this.markJoinSlotReference = markJoinSlotReference;
     }
 
@@ -117,10 +149,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
+            Optional<Expression> subQueryCombinedHavingExpr,
             LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
+        this.subQueryCombinedHavingExpr = subQueryCombinedHavingExpr;
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
@@ -159,6 +193,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public JoinType getJoinType() {
         return joinType;
+    }
+
+    public Optional<Expression> getSubQueryCombinedHavingExpr() {
+        return subQueryCombinedHavingExpr;
     }
 
     public JoinHint getHint() {

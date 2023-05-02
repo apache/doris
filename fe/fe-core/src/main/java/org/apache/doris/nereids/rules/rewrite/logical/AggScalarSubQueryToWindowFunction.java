@@ -29,8 +29,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionIdenticalChecker;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -92,7 +91,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     private final List<LogicalPlan> outerPlans = Lists.newArrayList();
     private final List<LogicalPlan> innerPlans = Lists.newArrayList();
     private final List<AggregateFunction> functions = Lists.newArrayList();
-    private final Map<Expression, Expression> innerOuterSlotMap = Maps.newHashMap();
+    private Map<Expression, Expression> innerOuterSlotMap = Maps.newHashMap();
 
     /**
      * the entrance of this rule. we only override one visitor: visitLogicalFilter
@@ -268,7 +267,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
             return false;
         }
 
-        createSlotMapping(outerTables, innerTables);
+        innerOuterSlotMap = PlanUtils.createSlotMapping(innerTables, outerTables);
 
         Set<ExprId> correlatedRelationOutput = outerTables.stream()
                 .filter(node -> outerIds.contains(node.getTable().getId()))
@@ -276,24 +275,6 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         return ExpressionUtils.collect(correlatedSlots, NamedExpression.class::isInstance).stream()
                 .map(NamedExpression.class::cast)
                 .allMatch(e -> correlatedRelationOutput.contains(e.getExprId()));
-    }
-
-    private void createSlotMapping(List<LogicalRelation> outerTables, List<LogicalRelation> innerTables) {
-        for (LogicalRelation outerTable : outerTables) {
-            for (LogicalRelation innerTable : innerTables) {
-                if (innerTable.getTable().getId() == outerTable.getTable().getId()) {
-                    for (Slot innerSlot : innerTable.getOutput()) {
-                        for (Slot outerSlot : outerTable.getOutput()) {
-                            if (innerSlot.getName().equals(outerSlot.getName())) {
-                                innerOuterSlotMap.put(innerSlot, outerSlot);
-                                break;
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
-        }
     }
 
     private Plan rewrite(LogicalFilter<? extends Plan> filter, LogicalApply<Plan, Plan> apply) {
@@ -362,49 +343,5 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // partition by clause is set by all the correlated slots.
         Preconditions.checkArgument(correlatedSlots.stream().allMatch(Slot.class::isInstance));
         return new WindowExpression(function, correlatedSlots, Collections.emptyList());
-    }
-
-    private static class ExpressionIdenticalChecker extends DefaultExpressionVisitor<Boolean, Expression> {
-        public static final ExpressionIdenticalChecker INSTANCE = new ExpressionIdenticalChecker();
-
-        public boolean check(Expression expression, Expression expression1) {
-            return expression.accept(this, expression1);
-        }
-
-        private boolean isClassMatch(Object o1, Object o2) {
-            return o1.getClass().equals(o2.getClass());
-        }
-
-        private boolean isSameChild(Expression expression, Expression expression1) {
-            if (expression.children().size() != expression1.children().size()) {
-                return false;
-            }
-            for (int i = 0; i < expression.children().size(); ++i) {
-                if (!expression.children().get(i).accept(this, expression1.children().get(i))) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        @Override
-        public Boolean visit(Expression expression, Expression expression1) {
-            return isClassMatch(expression, expression1) && isSameChild(expression, expression1);
-        }
-
-        @Override
-        public Boolean visitSlotReference(SlotReference slotReference, Expression other) {
-            return slotReference.equals(other);
-        }
-
-        @Override
-        public Boolean visitLiteral(Literal literal, Expression other) {
-            return literal.equals(other);
-        }
-
-        @Override
-        public Boolean visitComparisonPredicate(ComparisonPredicate cp, Expression other) {
-            return cp.equals(other) || cp.commute().equals(other);
-        }
     }
 }

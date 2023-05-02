@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Adjust the order of Project and apply in correlated subqueries.
@@ -57,7 +58,7 @@ public class PullUpProjectUnderApply extends OneRewriteRuleFactory {
                 .then(apply -> {
                     LogicalProject<Plan> project = apply.right();
                     LogicalApply newCorrelate = new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
-                                apply.getCorrelationFilter(), apply.getMarkJoinSlotReference(),
+                                apply.getCorrelationFilter(), Optional.empty(), apply.getMarkJoinSlotReference(),
                                 apply.getSubCorrespondingConjunct(), apply.isNeedAddSubOutputToProjects(),
                                 apply.left(), project.child());
                     List<NamedExpression> newProjects = new ArrayList<>();

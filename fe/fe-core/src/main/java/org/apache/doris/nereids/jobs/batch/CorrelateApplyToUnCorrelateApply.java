@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyAggregateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyProjectFilter;
+import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyHavingProjectFilter;
 
 import com.google.common.collect.ImmutableList;
 
@@ -43,6 +44,7 @@ public class CorrelateApplyToUnCorrelateApply implements BatchRewriteRuleFactory
             new UnCorrelatedApplyFilter(),
             new UnCorrelatedApplyProjectFilter(),
             new UnCorrelatedApplyAggregateFilter(),
+            new UnCorrelatedApplyHavingProjectFilter(),
             new PullUpCorrelatedFilterUnderApplyAggregateProject()
     );
 

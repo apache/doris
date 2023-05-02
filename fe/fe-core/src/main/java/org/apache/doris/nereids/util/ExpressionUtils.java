@@ -21,19 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
-import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.IsNull;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.*;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -72,6 +60,16 @@ public class ExpressionUtils {
     public static Set<Expression> extractConjunctionToSet(Expression expr) {
         Set<Expression> exprSet = Sets.newHashSet();
         extract(And.class, expr, exprSet);
+        return exprSet;
+    }
+    public static Set<SlotReference> extractSlotToSet(Expression expr) {
+        Set<SlotReference> exprSet = Sets.newHashSet();
+        extract(expr, exprSet);
+        return exprSet;
+    }
+    public static Set<SlotReference> extractSlotToSet(Expression expr) {
+        Set<SlotReference> exprSet = Sets.newHashSet();
+        extract(expr, exprSet);
         return exprSet;
     }
 

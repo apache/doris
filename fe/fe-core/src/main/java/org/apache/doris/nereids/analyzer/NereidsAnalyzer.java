@@ -20,6 +20,7 @@ package org.apache.doris.nereids.analyzer;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.RewriteJob;
 import org.apache.doris.nereids.jobs.batch.BatchRewriteJob;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
+import org.apache.doris.nereids.rules.analysis.SubqueryCombine;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 import org.apache.doris.nereids.rules.rewrite.logical.HideOneRowRelationUnderUnion;
 
@@ -76,6 +78,8 @@ public class NereidsAnalyzer extends BatchRewriteJob {
                 // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
                 new NormalizeRepeat()
             ),
+            // combine SubQueries first and then transform the rest to apply
+            custom(RuleType.SUBQUERY_COMBINE, SubqueryCombine::new),
             bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
             bottomUp(new CheckAnalysis())

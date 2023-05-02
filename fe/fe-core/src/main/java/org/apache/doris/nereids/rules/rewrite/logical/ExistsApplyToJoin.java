@@ -107,7 +107,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                         ? ExpressionUtils.extractConjunction(predicate)
                         : ExpressionUtils.EMPTY_CONDITION,
                     JoinHint.NONE,
-                    apply.getMarkJoinSlotReference(),
+                    apply.getMarkJoinSlotReference(), null,
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         } else {
             return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,
@@ -115,7 +115,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                         ? ExpressionUtils.extractConjunction(predicate)
                         : ExpressionUtils.EMPTY_CONDITION,
                     JoinHint.NONE,
-                    apply.getMarkJoinSlotReference(),
+                    apply.getMarkJoinSlotReference(), apply.getSubQueryCombinedHavingExpr(),
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         }
     }
@@ -136,7 +136,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
         LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
                 unapply.getSubCorrespondingConjunct().isPresent()
                     ? ExpressionUtils.extractConjunction((Expression) unapply.getSubCorrespondingConjunct().get())
-                    : ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, unapply.getMarkJoinSlotReference(),
+                    : ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, unapply.getMarkJoinSlotReference(), Optional.empty(),
                 (LogicalPlan) unapply.left(), newAgg);
         return new LogicalFilter<>(ImmutableSet.of(new EqualTo(newAgg.getOutput().get(0),
                 new IntegerLiteral(0))), newJoin);
@@ -148,6 +148,6 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
             unapply.getSubCorrespondingConjunct().isPresent()
                 ? ExpressionUtils.extractConjunction((Expression) unapply.getSubCorrespondingConjunct().get())
                 : ExpressionUtils.EMPTY_CONDITION,
-            JoinHint.NONE, unapply.getMarkJoinSlotReference(), (LogicalPlan) unapply.left(), newLimit);
+            JoinHint.NONE, unapply.getMarkJoinSlotReference(), Optional.empty(), (LogicalPlan) unapply.left(), newLimit);
     }
 }

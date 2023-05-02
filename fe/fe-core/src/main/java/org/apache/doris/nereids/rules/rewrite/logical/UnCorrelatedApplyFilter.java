@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -68,7 +69,7 @@ public class UnCorrelatedApplyFilter extends OneRewriteRuleFactory {
 
             Plan child = PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child());
             return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
-                    ExpressionUtils.optionalAnd(correlatedPredicate), apply.getMarkJoinSlotReference(),
+                    ExpressionUtils.optionalAnd(correlatedPredicate), Optional.empty(), apply.getMarkJoinSlotReference(),
                     apply.getSubCorrespondingConjunct(), apply.isNeedAddSubOutputToProjects(),
                     apply.left(), child);
         }).toRule(RuleType.UN_CORRELATED_APPLY_FILTER);

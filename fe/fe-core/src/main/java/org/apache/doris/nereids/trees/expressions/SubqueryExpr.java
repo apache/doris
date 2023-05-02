@@ -17,45 +17,71 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.PlanTypeUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-
+import java.util.*;
 /**
  * Subquery Expression.
  */
 public abstract class SubqueryExpr extends Expression {
     protected final LogicalPlan queryPlan;
     protected final List<Slot> correlateSlots;
-
     protected final Optional<Expression> typeCoercionExpr;
-
+    protected final Optional<Expression> subQueryCombinedHavingExpr;
     public SubqueryExpr(LogicalPlan subquery) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
         this.correlateSlots = ImmutableList.of();
         this.typeCoercionExpr = Optional.empty();
+        this.subQueryCombinedHavingExpr = Optional.empty();
     }
 
     public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
         this.correlateSlots = ImmutableList.copyOf(correlateSlots);
         this.typeCoercionExpr = typeCoercionExpr;
+        this.subQueryCombinedHavingExpr = Optional.empty();
+    }
+
+    public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr, Optional<Expression> subQueryCombinedHavingExpr) {
+        this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
+        this.correlateSlots = ImmutableList.copyOf(correlateSlots);
+        this.typeCoercionExpr = typeCoercionExpr;
+        this.subQueryCombinedHavingExpr = subQueryCombinedHavingExpr;
+    }
+
+    public boolean isSpj() {
+        return PlanTypeUtils.isSpj(queryPlan);
+    }
+
+    public Set<Expression> getSpjPredicate() {
+        LogicalFilter filter = PlanTypeUtils.getSpjFilter(queryPlan);
+        return filter.getConjuncts();
     }
 
     public List<Slot> getCorrelateSlots() {
         return correlateSlots;
     }
 
+    public List<Expression> getCorrelateExpressions() {
+        List<Expression> expressionList = new ArrayList<>();
+        expressionList.addAll(correlateSlots);
+        return expressionList;
+    }
     public Optional<Expression> getTypeCoercionExpr() {
         return typeCoercionExpr;
+    }
+
+    public Optional<Expression> getSubQueryCombinedHavingExpr() {
+        return subQueryCombinedHavingExpr;
     }
 
     public Expression getSubqueryOutput() {
@@ -82,7 +108,8 @@ public abstract class SubqueryExpr extends Expression {
         return Utils.toSqlString("SubqueryExpr",
                 "QueryPlan", queryPlan,
                 "CorrelatedSlots", correlateSlots,
-                "typeCoercionExpr", typeCoercionExpr.isPresent() ? typeCoercionExpr.get() : "null");
+                "typeCoercionExpr", typeCoercionExpr.isPresent() ? typeCoercionExpr.get() : "null",
+                "subQueryCombinedHavingExpr", subQueryCombinedHavingExpr.isPresent() ? subQueryCombinedHavingExpr.get() : "null");
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -109,12 +136,13 @@ public abstract class SubqueryExpr extends Expression {
         SubqueryExpr other = (SubqueryExpr) o;
         return Objects.equals(correlateSlots, other.correlateSlots)
                 && queryPlan.deepEquals(other.queryPlan)
-                && Objects.equals(typeCoercionExpr, other.typeCoercionExpr);
+                && Objects.equals(typeCoercionExpr, other.typeCoercionExpr)
+                && Objects.equals(subQueryCombinedHavingExpr, other.subQueryCombinedHavingExpr);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(queryPlan, correlateSlots, typeCoercionExpr);
+        return Objects.hash(queryPlan, correlateSlots, typeCoercionExpr, subQueryCombinedHavingExpr);
     }
 
     public List<Slot> getOutput() {

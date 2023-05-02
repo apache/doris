@@ -47,15 +47,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
-import java.util.Collection;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 /**
  * SubqueryToApply. translate from subquery to LogicalApply.
@@ -191,9 +185,15 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         ctx.setSubqueryExprIsAnalyzed(subquery, true);
         boolean needAddSubOutputToProjects = isScalarAndFilterContainsSubqueryOutput(
                 subquery, conjunct, isProject, singleSubquery);
+        Optional<Expression> subQueryCombinedHavingExpr = subquery.getSubQueryCombinedHavingExpr();
+        boolean needAddCombinedHaving = subQueryCombinedHavingExpr.isPresent();
+        Set<SlotReference> extractedSlotsInHaving = new HashSet<>();
+        if (needAddCombinedHaving) {
+            extractedSlotsInHaving = ExpressionUtils.extractSlotToSet(subQueryCombinedHavingExpr.get());
+        }
         LogicalApply newApply = new LogicalApply(
                 subquery.getCorrelateSlots(),
-                subquery, Optional.empty(),
+                subquery, Optional.empty(), Optional.empty(),
                 subqueryToMarkJoinSlot.get(subquery),
                 mergeScalarSubConjectAndFilterConject(
                     subquery, subqueryCorrespondingConject,
@@ -209,6 +209,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     // scalarSubquery output
                     .addAll(needAddSubOutputToProjects
                         ? ImmutableList.of(subquery.getQueryPlan().getOutput().get(0)) : ImmutableList.of())
+                    // combined having expr output
+                    .addAll(needAddCombinedHaving ? extractedSlotsInHaving : ImmutableList.of())
                     .build();
 
         return new LogicalProject(projects, newApply);

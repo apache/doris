@@ -72,6 +72,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTransposeProjec
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiToInner;
 import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
 
@@ -158,6 +159,9 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             topic("Rewrite join",
+                // transform semi join to inner join followed by gby
+                custom(RuleType.SEMI_TO_INNER, SemiToInner::new),
+
                 // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
                 topDown(
                     new InferAggNotNull(),
