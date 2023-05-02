@@ -499,13 +499,12 @@ PartitionOpenClosure<PartitionOpenResult>* VNodeChannel::open_partition(int64_t 
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0) {
             cancel(fmt::format("{}, err: timeout", channel_info()));
-            return;
+            return nullptr;
         } else {
             remain_ms = config::min_load_rpc_timeout_ms;
         }
     }
     open_partition_closure->cntl.set_timeout_ms(remain_ms);
-    open_partition_closure->cntl.set_max_retry(10);
     if (config::partition_open_ignore_eovercrowded) {
         open_partition_closure->cntl.ignore_eovercrowded();
     }
@@ -539,6 +538,7 @@ Status VNodeChannel::open_partition_wait(PartitionOpenClosure<PartitionOpenResul
         _cancelled = true;
         return status;
     }
+    return status;
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
