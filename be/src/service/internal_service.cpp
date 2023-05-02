@@ -89,6 +89,7 @@
 #include "util/doris_metrics.h"
 #include "util/md5.h"
 #include "util/metrics.h"
+#include "util/network_util.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
@@ -1213,9 +1214,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             }
 
             std::stringstream ss;
-            ss << "http://" << host << ":" << http_port << "/api/_tablet/_download?token=" << token
-               << "&file=" << rowset_path << "/" << remote_rowset_id << "_" << segment.first
-               << ".dat";
+            ss << "http://" << get_host_port(host, http_port)
+               << "/api/_tablet/_download?token=" << token << "&file=" << rowset_path << "/"
+               << remote_rowset_id << "_" << segment.first << ".dat";
             std::string remote_file_url = ss.str();
             ss.str("");
             ss << tablet->tablet_path() << "/" << rowset_meta->rowset_id() << "_" << segment.first
