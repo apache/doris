@@ -485,6 +485,7 @@ visible_functions = [
     [['array_reduce'], 'ARRAY_TINYINT',  ['VARCHAR', 'ARRAY_TINYINT'],  ''],
     [['array_reduce'], 'ARRAY_SMALLINT', ['VARCHAR', 'ARRAY_SMALLINT'], ''],
     [['array_reduce'], 'ARRAY_INT',      ['VARCHAR', 'ARRAY_INT'], ''],
+    [['array_reduce'], 'ARRAY_INT',      ['VARCHAR', 'ARRAY_BIGINT'], ''],
 
     [['array_concat'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', '...'],  ''],
     [['array_concat'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', '...'],  ''],
