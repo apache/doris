@@ -386,13 +386,7 @@ echo "Get params:
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
 fi
-echo "Build generated code"
-cd "${DORIS_HOME}/gensrc"
-# DO NOT using parallel make(-j) for gensrc
-make
-rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"
-cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris"
-cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/"
+./generated-source.sh
 
 # Assesmble FE modules
 FE_MODULES=''
