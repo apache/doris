@@ -31,21 +31,21 @@ import java.util.Map;
  * ProgressManager manage the progress of loading and exporting tasks
  */
 public class ProgressManager {
-    private static final Logger LOG = LogManager.getLogger(LoadManager.class);
+    private static final Logger LOG = LogManager.getLogger(ProgressManager.class);
 
-    private Map<Long, Progress> idToProgress = Maps.newConcurrentMap();
+    private Map<String, Progress> idToProgress = Maps.newConcurrentMap();
 
-    public void registerProgress(Long id, int scannerNum) {
-        LOG.info("create " + id + " with initial scannerNum " + scannerNum);
+    public void registerProgress(String id, int scannerNum) {
+        LOG.debug("create {} with initial scannerNum {}", id, scannerNum);
         idToProgress.remove(id);
         idToProgress.put(id, new Progress(scannerNum));
     }
 
-    public void registerProgressSimple(Long id) {
+    public void registerProgressSimple(String id) {
         registerProgress(id, 0);
     }
 
-    public void updateProgress(Long id, TUniqueId queryId, TUniqueId fragmentId, int finishedScannerNum) {
+    public void updateProgress(String id, TUniqueId queryId, TUniqueId fragmentId, int finishedScannerNum) {
         Progress progress = idToProgress.get(id);
         if (progress != null) {
             progress.updateFinishedScanNums(queryId, fragmentId, finishedScannerNum);
@@ -54,27 +54,43 @@ public class ProgressManager {
         }
     }
 
-    public void addTotalScanNums(Long id, int num) {
+    public void addTotalScanNums(String id, int num) {
         Progress progress = idToProgress.get(id);
         if (progress != null) {
             progress.addTotalScanNums(num);
         }
     }
 
-    public void deregisterProgress(Long id) {
+    public void deregisterProgress(String id) {
         // TODO: deregister the progress
         idToProgress.remove(id);
     }
 
-    public Progress getProgressClass(Long id) {
+    public Progress getProgressClass(String id) {
         return idToProgress.get(id);
     }
 
-    public double getProgress(Long id) {
+    public double getProgress(String id) {
         return idToProgress.get(id).getProgress();
     }
 
+    public String getProgressInfo(String id) {
+        String progressResult = "ERROR";
+        Progress progress = idToProgress.get(id);
+        if (progress != null) {
+            int finish = progress.getFinishedScanNums();
+            int total = progress.getTotalScanNums();
+            String currentProgress = String.format("%.2f", progress.getProgress());
+            progressResult = currentProgress + "% (" + finish + "/" + total + ")";
+        }
+        return progressResult;
+    }
+
     static class Progress {
+        // one job have multiple query, and the query can be divided into
+        // separate fragments. finished scan ranges reported from BE is bound
+        // to the query, so we need to store them all to save status.
+        // table: queryId -> fragmentId -> scan ranges
         private Table<TUniqueId, TUniqueId, Integer> finishedScanNums = HashBasedTable.create();
         private int totalScanNums = 0;
 
@@ -83,11 +99,7 @@ public class ProgressManager {
         }
 
         public synchronized void updateFinishedScanNums(TUniqueId queryId, TUniqueId fragmentId, int finishedScanNum) {
-            if (finishedScanNums.contains(queryId, fragmentId)) {
-                finishedScanNums.put(queryId, fragmentId, finishedScanNum);
-            } else {
-                finishedScanNums.put(queryId, fragmentId, finishedScanNum);
-            }
+            finishedScanNums.put(queryId, fragmentId, finishedScanNum);
         }
 
         public int getTotalScanNums() {
@@ -103,6 +115,10 @@ public class ProgressManager {
         }
 
         public double getProgress() {
+            // if no scan range found, the progress should be finished(100%)
+            if (totalScanNums == 0) {
+                return 100.0;
+            }
             return getFinishedScanNums() * 100 / (double) totalScanNums;
         }
 

@@ -191,7 +191,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true);
         ProgressManager progressManager = Env.getCurrentProgressManager();
-        progressManager.registerProgressSimple(id);
+        progressManager.registerProgressSimple(String.valueOf(id));
         MetaLockUtils.readLockTables(tableList);
         try {
             for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry

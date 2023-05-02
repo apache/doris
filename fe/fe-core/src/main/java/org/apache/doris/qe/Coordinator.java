@@ -615,7 +615,7 @@ public class Coordinator {
             List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
             Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
                     relatedBackendIds);
-            Env.getCurrentEnv().getProgressManager().addTotalScanNums(jobId, scanRangeNum);
+            Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
         executionProfile.markInstances(instanceIds);
@@ -2095,9 +2095,6 @@ public class Coordinator {
     private void updateScanRangeNumByScanRange(TScanRangeParams param) {
         TScanRange scanRange = param.getScanRange();
         if (scanRange == null) {
-            LOG.warn("null scan range");
-        }
-        if (scanRange == null) {
             return;
         }
         TBrokerScanRange brokerScanRange = scanRange.getBrokerScanRange();
@@ -2225,7 +2222,7 @@ public class Coordinator {
             Env.getCurrentEnv().getLoadManager().updateJobProgress(
                     jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
                     params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
-            Env.getCurrentEnv().getProgressManager().updateProgress(jobId,
+            Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
                     params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
         }
     }
