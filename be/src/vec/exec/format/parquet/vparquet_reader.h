@@ -69,6 +69,8 @@ struct TypeDescriptor;
 namespace doris::vectorized {
 
 class ParquetReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(ParquetReader);
+
 public:
     struct Statistics {
         int32_t filtered_row_groups = 0;
@@ -200,6 +202,8 @@ private:
     Status _process_bloom_filter(bool* filter_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
+    std::vector<io::PrefetchRange> _generate_random_access_ranges(
+            const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
 
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
@@ -225,7 +229,6 @@ private:
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
-
     // should turn off filtering by page index and lazy read if having complex type
     bool _has_complex_type = false;
 

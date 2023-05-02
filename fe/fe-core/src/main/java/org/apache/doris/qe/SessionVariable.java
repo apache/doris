@@ -171,6 +171,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
 
+    public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
+
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
 
     // If user set a very small value, use this value instead.
@@ -532,6 +534,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
+    public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
     public boolean enablePipelineEngine = false;
@@ -649,7 +653,7 @@ public class SessionVariable implements Serializable, Writable {
     private double broadcastRightTableScaleFactor = 10.0;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
-    private double broadcastRowCountLimit = 15000000;
+    private double broadcastRowCountLimit = 30000000;
 
     @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE, needForward = true)
     private double broadcastHashtableMemLimitPercentage = 0.2;
@@ -863,10 +867,12 @@ public class SessionVariable implements Serializable, Writable {
             this.enablePipelineEngine = true;
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
+            this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
         } else {
             // this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
+            this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
         }
 
         if (Config.fuzzy_test_type.equals("p0")) {
@@ -878,7 +884,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         // set random 1, 10, 100, 1000, 10000
-        this.topnOptLimitThreshold = 10 ^ (random.nextInt(5));
+        this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
     }
 
     public String printFuzzyVariables() {

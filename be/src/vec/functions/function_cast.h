@@ -75,6 +75,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
@@ -110,7 +111,98 @@ inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column
     named_column.column->get(0, field);
     return field.get<UInt32>();
 }
+/** Cast from string or number to Time.
+  * In Doris, the underlying storage type of the Time class is Float64.
+  */
+struct TimeCast {
+    // Cast from string
+    // Some examples of conversions.
+    // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
+    template <typename T>
+    static bool try_parse_time(char* s, size_t len, T& x) {
+        /// TODO: Maybe we can move Timecast to the io_helper.
+        if (VecDateTimeValue dv {}; dv.from_date_str(s, len)) {
+            // can be parse as a datetime
+            x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
+            return true;
+        }
+        char* first_char = s;
+        char* end_char = s + len;
+        int hour = 0, minute = 0, second = 0;
+        auto parse_from_str_to_int = [](char* begin, size_t len, auto& num) {
+            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+            auto int_value = StringParser::string_to_unsigned_int<uint64_t>(
+                    reinterpret_cast<char*>(begin), len, &parse_result);
+            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
+                return false;
+            }
+            num = int_value;
+            return true;
+        };
+        if (char* first_colon {nullptr};
+            (first_colon = (char*)memchr(first_char, ':', len)) != nullptr) {
+            if (char* second_colon {nullptr};
+                (second_colon = (char*)memchr(first_colon + 1, ':', end_char - first_colon - 1)) !=
+                nullptr) {
+                // find two colon
+                // parse hour
+                if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
+                    // hour  failed
+                    return false;
+                }
+                // parse minute
+                if (!parse_from_str_to_int(first_colon + 1, second_colon - first_colon - 1,
+                                           minute)) {
+                    return false;
+                }
+                // parse second
+                if (!parse_from_str_to_int(second_colon + 1, end_char - second_colon - 1, second)) {
+                    return false;
+                }
+            } else {
+                // find one colon
+                // parse hour
+                if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
+                    return false;
+                }
+                // parse minute
+                if (!parse_from_str_to_int(first_colon + 1, end_char - first_colon - 1, minute)) {
+                    return false;
+                }
+            }
+        } else {
+            // no colon ,so try to parse as a number
+            size_t from {};
+            if (!parse_from_str_to_int(first_char, len, from)) {
+                return false;
+            }
+            return try_parse_time(from, x);
+        }
+        // minute second must be < 60
+        if (minute >= 60 || second >= 60) {
+            return false;
+        }
+        x = hour * 3600 + minute * 60 + second;
+        return true;
+    }
 
+    // Cast from number
+    template <typename T, typename S>
+    static bool try_parse_time(T from, S& x) {
+        int64 seconds = from / 100;
+        int64 hour = 0, minute = 0, second = 0;
+        second = from - 100 * seconds;
+        from /= 100;
+        seconds = from / 100;
+        minute = from - 100 * seconds;
+        hour = seconds;
+        if (minute >= 60 || second >= 60) {
+            return false;
+        }
+        x = hour * 3600 + minute * 60 + second;
+        return true;
+    }
+};
 /** Conversion of number types to each other, enums to numbers, dates and datetimes to numbers and back: done by straight assignment.
   *  (Date is represented internally as number of days from some day; DateTime - as unix timestamp)
   */
@@ -275,11 +367,25 @@ struct ConvertImpl {
                     }
                 }
             } else {
-                for (size_t i = 0; i < size; ++i) {
-                    vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                if constexpr (IsDataTypeNumber<FromDataType> &&
+                              std::is_same_v<ToDataType, DataTypeTime>) {
+                    // 300 -> 00:03:00  360 will be parse failed , so value maybe null
+                    ColumnUInt8::MutablePtr col_null_map_to;
+                    ColumnUInt8::Container* vec_null_map_to = nullptr;
+                    col_null_map_to = ColumnUInt8::create(size);
+                    vec_null_map_to = &col_null_map_to->get_data();
+                    for (size_t i = 0; i < size; ++i) {
+                        (*vec_null_map_to)[i] = !TimeCast::try_parse_time(vec_from[i], vec_to[i]);
+                    }
+                    block.get_by_position(result).column =
+                            ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
+                    return Status::OK();
+                } else {
+                    for (size_t i = 0; i < size; ++i) {
+                        vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                    }
                 }
             }
-
             // TODO: support boolean cast more reasonable
             if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
                 for (int i = 0; i < size; ++i) {
@@ -699,7 +805,7 @@ struct NameToDateTime {
     static constexpr auto name = "toDateTime";
 };
 
-template <typename DataType, typename Additions = void*>
+template <typename DataType, typename Additions = void*, typename FromDataType = void*>
 bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateLUTImpl*,
                     Additions additions [[maybe_unused]] = Additions()) {
     if constexpr (IsDateTimeType<DataType>) {
@@ -717,6 +823,15 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
     if constexpr (IsDateTimeV2Type<DataType>) {
         UInt32 scale = additions;
         return try_read_datetime_v2_text(x, rb, scale);
+    }
+
+    if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
+                  std::is_same_v<DataTypeTime, DataType>) {
+        // cast from string to time(float64)
+        auto len = rb.count();
+        auto s = rb.position();
+        rb.position() = rb.end(); // make is_all_read = true
+        return TimeCast::try_parse_time(s, len, x);
     }
 
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
@@ -1002,6 +1117,8 @@ using FunctionToFloat32 =
         FunctionConvert<DataTypeFloat32, NameToFloat32, ToNumberMonotonicity<Float32>>;
 using FunctionToFloat64 =
         FunctionConvert<DataTypeFloat64, NameToFloat64, ToNumberMonotonicity<Float64>>;
+
+using FunctionToTime = FunctionConvert<DataTypeTime, NameToFloat64, ToNumberMonotonicity<Float64>>;
 using FunctionToString = FunctionConvert<DataTypeString, NameToString, ToStringMonotonicity>;
 using FunctionToDecimal32 =
         FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32, UnknownMonotonicity>;
@@ -1096,7 +1213,10 @@ template <>
 struct FunctionTo<DataTypeDateTimeV2> {
     using Type = FunctionToDateTimeV2;
 };
-
+template <>
+struct FunctionTo<DataTypeTime> {
+    using Type = FunctionToTime;
+};
 class PreparedFunctionCast : public PreparedFunctionImpl {
 public:
     using WrapperType = std::function<Status(FunctionContext* context, Block&, const ColumnNumbers&,
@@ -1186,7 +1306,6 @@ struct ConvertThroughParsing {
         }
 
         size_t current_offset = 0;
-
         for (size_t i = 0; i < size; ++i) {
             size_t next_offset = std::is_same_v<FromDataType, DataTypeString>
                                          ? (*offsets)[i]
@@ -1207,7 +1326,8 @@ struct ConvertThroughParsing {
                 parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
                                                     type->get_scale());
             } else {
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone);
+                parsed = try_parse_impl<ToDataType, void*, FromDataType>(vec_to[i], read_buffer,
+                                                                         local_time_zone);
             }
             (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
 
@@ -1837,7 +1957,8 @@ private:
                           std::is_same_v<ToDataType, DataTypeDate> ||
                           std::is_same_v<ToDataType, DataTypeDateTime> ||
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
-                          std::is_same_v<ToDataType, DataTypeDateTimeV2>) {
+                          std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
+                          std::is_same_v<ToDataType, DataTypeTime>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
                 return true;

@@ -21,6 +21,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
     def tbName = "test_agg_keys_schema_change_decimalv3"
     def getJobState = { tableName ->
          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+         logger.info(jobStateResult.toString());
          return jobStateResult[0][9]
     }
 

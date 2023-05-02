@@ -123,6 +123,10 @@ public:
                       const ::doris::PPublishFilterRequest* request,
                       ::doris::PPublishFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
+    void apply_filterv2(::google::protobuf::RpcController* controller,
+                        const ::doris::PPublishFilterRequestV2* request,
+                        ::doris::PPublishFilterResponse* response,
+                        ::google::protobuf::Closure* done) override;
     void transmit_block(::google::protobuf::RpcController* controller,
                         const ::doris::PTransmitDataParams* request,
                         ::doris::PTransmitDataResult* response,

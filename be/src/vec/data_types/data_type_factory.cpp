@@ -286,6 +286,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::DateV2:
         nested = std::make_shared<vectorized::DataTypeDateV2>();
         break;
+    case TypeIndex::Time:
+        nested = std::make_shared<DataTypeTime>();
+        break;
     case TypeIndex::DateTimeV2:
         nested = std::make_shared<DataTypeDateTimeV2>();
         break;
@@ -520,6 +523,10 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     }
     case PGenericType::QUANTILE_STATE: {
         nested = std::make_shared<DataTypeQuantileStateDouble>();
+        break;
+    }
+    case PGenericType::TIME: {
+        nested = std::make_shared<DataTypeTime>();
         break;
     }
     default: {

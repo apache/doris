@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -112,6 +113,10 @@ public class AnalyzeStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (!Config.enable_stats) {
+            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
+                    + "in your FE conf file");
+        }
         super.analyze(analyzer);
 
         tableName.analyze(analyzer);
@@ -214,7 +219,7 @@ public class AnalyzeStmt extends DdlStmt {
 
         if (properties.containsKey(PROPERTY_SAMPLE_PERCENT)) {
             checkNumericProperty(PROPERTY_SAMPLE_PERCENT, properties.get(PROPERTY_SAMPLE_PERCENT),
-                    0, 100, false, "should be > 0 and < 100");
+                    1, 100, true, "should be >= 1 and <= 100");
         }
 
         if (properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
@@ -337,7 +342,7 @@ public class AnalyzeStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ANALYZE");
+        sb.append("ANALYZE TABLE ");
 
         if (tableName != null) {
             sb.append(" ");

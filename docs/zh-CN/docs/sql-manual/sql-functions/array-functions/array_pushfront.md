@@ -34,9 +34,7 @@ array_pushfront
 
 #### Syntax
 
-```sql
-Array<T> array_pushfront(Array<T> arr, T value)
-```
+`Array<T> array_pushfront(Array<T> arr, T value)`
 将value添加到数组的开头.
 
 #### Returned value

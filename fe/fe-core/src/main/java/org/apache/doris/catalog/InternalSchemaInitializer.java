@@ -190,8 +190,9 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("state", TypeDef.createVarchar(32)));
         columnDefs.add(new ColumnDef("schedule_type", TypeDef.createVarchar(32)));
         String engineName = "olap";
-        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS,
-                Lists.newArrayList("job_id", "task_id"));
+        ArrayList<String> uniqueKeys = Lists.newArrayList("job_id", "task_id",
+                "catalog_name", "db_name", "tbl_name", "col_name", "index_id");
+        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
 
         DistributionDesc distributionDesc = new HashDistributionDesc(
                 StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT,

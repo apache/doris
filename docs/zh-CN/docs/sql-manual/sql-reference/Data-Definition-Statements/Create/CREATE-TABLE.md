@@ -314,11 +314,7 @@ distribution_desc
 
     * `in_memory` 
 
-        Doris 是没有内存表的概念。
-
-        这个属性设置成 `true`, Doris 会尽量将该表的数据块缓存在存储引擎的 PageCache 中，已减少磁盘IO。但这个属性不会保证数据块常驻在内存中，仅作为一种尽力而为的标识。
-
-        `"in_memory" = "true"`
+        已弃用。只支持设置为'false'。
 
     * `compression`
 
@@ -492,7 +488,7 @@ distribution_desc
     );
     ```
 
-7. 创建一个带有 bitmap 索引以及 bloom filter 索引的内存表
+7. 创建一个带有 bitmap 索引以及 bloom filter 索引的表
 
     ```sql
     CREATE TABLE example_db.table_hash
@@ -506,8 +502,7 @@ distribution_desc
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-        "bloom_filter_columns" = "k2",
-        "in_memory" = "true"
+        "bloom_filter_columns" = "k2"
     );
     ```
 
@@ -695,7 +690,7 @@ Doris 中的表可以分为分区表和无分区的表。这个属性在建表�
 
 如果在之后的使用过程中添加物化视图，如果表中已有数据，则物化视图的创建时间取决于当前数据量大小。
 
-关于物化视图的介绍，请参阅文档 [物化视图](../../../../advanced/materialized-view.md)。
+关于物化视图的介绍，请参阅文档 [物化视图](../../../../query-acceleration/materialized-view.md)。
 
 #### 索引
 
@@ -703,6 +698,3 @@ Doris 中的表可以分为分区表和无分区的表。这个属性在建表�
 
 如果在之后的使用过程中添加索引，如果表中已有数据，则需要重写所有数据，因此索引的创建时间取决于当前数据量。
 
-#### in_memory 属性
-
-当建表时指定了 `"in_memory" = "true"` 属性。则 Doris 会尽量将该表的数据块缓存在存储引擎的 PageCache 中，已减少磁盘IO。但这个属性不会保证数据块常驻在内存中，仅作为一种尽力而为的标识。

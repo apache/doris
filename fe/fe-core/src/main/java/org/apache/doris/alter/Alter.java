@@ -27,6 +27,7 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
@@ -242,6 +243,11 @@ public class Alter {
                     }
                     Map<String, String> properties = clause.getProperties();
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+                        boolean isInMemory =
+                                        Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
+                        if (isInMemory == true) {
+                            throw new UserException("Not support set 'in_memory'='true' now!");
+                        }
                         needProcessOutsideTableLock = true;
                     } else {
                         List<String> partitionNames = clause.getPartitionNames();
@@ -252,6 +258,8 @@ public class Alter {
                             needProcessOutsideTableLock = true;
                         }
                     }
+                } else if (alterClause instanceof DropPartitionFromIndexClause) {
+                    // do nothing
                 } else if (alterClause instanceof AddPartitionClause) {
                     needProcessOutsideTableLock = true;
                 } else {

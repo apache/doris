@@ -33,6 +33,7 @@ import java.util.Objects;
  * e.g. group_concat(id, ',' order by num desc), the num desc is order expression
  */
 public class OrderExpression extends Expression implements UnaryExpression, PropagateNullable {
+
     private final OrderKey orderKey;
 
     public OrderExpression(OrderKey orderKey) {

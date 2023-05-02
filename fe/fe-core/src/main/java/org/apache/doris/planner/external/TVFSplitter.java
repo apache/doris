@@ -58,7 +58,7 @@ public class TVFSplitter implements Splitter {
                 splitSize = splitSize > DEFAULT_SPLIT_SIZE ? splitSize : DEFAULT_SPLIT_SIZE;
                 addFileSplits(path, fileLength, splitSize, splits);
             } else {
-                Split split = new FileSplit(path, 0, fileLength, fileLength, new String[0]);
+                Split split = new FileSplit(path, 0, fileLength, fileLength, new String[0], null);
                 splits.add(split);
             }
         }
@@ -69,10 +69,10 @@ public class TVFSplitter implements Splitter {
         long bytesRemaining;
         for (bytesRemaining = fileSize; (double) bytesRemaining / (double) splitSize > 1.1D;
                 bytesRemaining -= splitSize) {
-            splits.add(new FileSplit(path, fileSize - bytesRemaining, splitSize, fileSize, new String[0]));
+            splits.add(new FileSplit(path, fileSize - bytesRemaining, splitSize, fileSize, new String[0], null));
         }
         if (bytesRemaining != 0L) {
-            splits.add(new FileSplit(path, fileSize - bytesRemaining, bytesRemaining, fileSize, new String[0]));
+            splits.add(new FileSplit(path, fileSize - bytesRemaining, bytesRemaining, fileSize, new String[0], null));
         }
     }
 

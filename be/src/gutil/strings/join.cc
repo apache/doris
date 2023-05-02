@@ -2,7 +2,10 @@
 
 #include "gutil/strings/join.h"
 
-#include <common/logging.h>
+#include "common/logging.h"
+#include <string.h>
+#include <algorithm>
+#include <ostream>
 
 #include "gutil/gscoped_ptr.h"
 #include "gutil/strings/ascii_ctype.h"

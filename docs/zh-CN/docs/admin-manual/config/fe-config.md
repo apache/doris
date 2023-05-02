@@ -173,13 +173,13 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 元数据会同步写入到多个 Follower FE，这个参数用于控制 Master FE 等待 Follower FE 发送 ack 的超时时间。当写入的数据较大时，可能 ack 时间较长，如果超时，会导致写元数据失败，FE 进程退出。此时可以适当调大这个参数。
 
-### grpc_threadmgr_threads_nums
+### `grpc_threadmgr_threads_nums`
 
 默认值: 4096
 
 在grpc_threadmgr中处理grpc events的线程数量。
 
-#### `bdbje_lock_timeout_second`>>>>>>> 1b46f49ad0 (use customed threadpool instead of the default threadpool of grpc java to get better metrics)
+#### `bdbje_lock_timeout_second`
 
 默认值：1
 
@@ -418,6 +418,12 @@ FE https 端口，当前所有 FE https 端口都必须相同
 
 FE https 使能标志位，false 表示支持 http，true 表示同时支持 http 与 https，并且会自动将 http 请求重定向到 https
 如果 enable_https 为 true，需要在 fe.conf 中配置 ssl 证书信息
+
+#### `enable_ssl`
+
+默认值: true
+
+如果设置为 ture，doris 将与 mysql服务 建立基于 SSL 协议的加密通道。
 
 #### `qe_max_connection`
 
@@ -1778,6 +1784,24 @@ show data （其他用法：HELP SHOW DATA）
 在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。 
 
 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
+
+#### `recover_with_skip_missing_version`
+
+默认值：disable
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+有些场景下集群出现了不可恢复的元数据问题，数据已的visibleversion 已经和be 不匹配，
+
+这种情况下仍然需要恢复剩余的数据（可能能会导致数据的正确性有问题），这个配置同`recover_with_empty_tablet` 一样只能在紧急情况下使用
+
+这个配置有三个值：
+
+   * disable ：出现异常会正常报错。
+   * ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version 
+   * ignore_all: 除了ignore_version， 在遇到找不到可查询的replica 时，直接跳过而不是抛出异常
 
 #### `min_clone_task_timeout_sec`  和 `max_clone_task_timeout_sec`
 

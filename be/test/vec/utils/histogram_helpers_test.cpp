@@ -17,11 +17,15 @@
 
 #include "vec/utils/histogram_helpers.hpp"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <algorithm>
 #include <map>
-#include <numeric>
 #include <vector>
+
+#include "gtest/gtest_pred_impl.h"
+#include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 
