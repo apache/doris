@@ -45,17 +45,6 @@ import java.util.Set;
  */
 public abstract class InsertStmt extends DdlStmt {
 
-    // --------------------- hints ---------------------
-
-    private static final String SHUFFLE_HINT = "SHUFFLE";
-    private static final String NOSHUFFLE_HINT = "NOSHUFFLE";
-    private static final String STREAMING = "STREAMING";
-
-    protected InsertStmt() {
-    }
-
-    // -------------------------------------------------
-
     public static class Properties {
 
         public static final String EXEC_MEM_LIMIT = "exec_mem_limit";

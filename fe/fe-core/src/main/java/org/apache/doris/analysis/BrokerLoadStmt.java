@@ -80,9 +80,7 @@ public class BrokerLoadStmt extends InsertStmt {
         Preconditions.checkState(!CollectionUtils.isEmpty(dataDescList),
                 new AnalysisException("No data file in load statement."));
         Preconditions.checkNotNull(brokerDesc, "No broker desc found.");
-        // check data descriptions, support 2 cases bellow:
-        // case 1: multi file paths, multi data descriptions
-        // case 2: one hive table, one data description
+        // check data descriptions
         for (DataDescription dataDescription : dataDescList) {
             final String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
             dataDescription.analyze(fullDbName);
@@ -90,7 +88,6 @@ public class BrokerLoadStmt extends InsertStmt {
                     new AnalysisException("Load from table should use Spark Load"));
             Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(fullDbName);
             OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
-            // TODO(tsy): add a static method to DataDesc
             dataDescription.checkKeyTypeForLoad(table);
             if (!brokerDesc.isMultiLoadBroker()) {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {

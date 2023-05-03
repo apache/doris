@@ -625,9 +625,7 @@ public class StmtExecutor implements ProfileWriter {
             unifiedLoadStmt.init();
             final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
             parsedStmt = proxyStmt;
-            if (proxyStmt instanceof LoadStmt) {
-                handleLoadStmt();
-            } else {
+            if (!(proxyStmt instanceof LoadStmt)) {
                 Preconditions.checkState(
                         parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).isExternalLoad(),
                         new IllegalStateException("enable_unified_load=true, should be external insert stmt"));
