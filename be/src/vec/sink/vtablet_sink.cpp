@@ -514,8 +514,13 @@ PartitionOpenClosure<PartitionOpenResult>* VNodeChannel::open_partition(int64_t 
     return open_partition_closure;
 }
 
-Status VNodeChannel::open_partition_wait(PartitionOpenClosure<PartitionOpenResult>* open_partition_closure) {
-    open_partition_closure ->join();
+Status VNodeChannel::open_partition_wait(
+        PartitionOpenClosure<PartitionOpenResult>* open_partition_closure) {
+    if (open_partition_closure == nullptr) {
+        Status status(open_partition_closure->result.status());
+        return status;
+    }
+    open_partition_closure->join();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     if (open_partition_closure->cntl.Failed()) {
         if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
@@ -536,7 +541,6 @@ Status VNodeChannel::open_partition_wait(PartitionOpenClosure<PartitionOpenResul
 
     if (!status.ok()) {
         _cancelled = true;
-        return status;
     }
     return status;
 }
@@ -1141,20 +1145,27 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
             if (it != _partition_opened.end()) {
                 return;
             }
-            _partition_opened.insert(std::pair(id,false));
+            _partition_opened.insert(std::pair(id, false));
         }
         for (int j = 0; j < partition->indexes.size(); ++j) {
             for (const auto& tid : partition->indexes[j].tablets) {
                 auto it = _channels[j]->_channels_by_tablet.find(tid);
                 for (const auto& channel : it->second) {
                     auto open_partition_closure = channel->open_partition(partition->id);
-                    channel->open_partition_wait(open_partition_closure);
+                    auto st = channel->open_partition_wait(open_partition_closure);
+                    if (!st.ok()) {
+                        _channels[j]->mark_as_failed(
+                                channel->node_id(), channel->host(),
+                                fmt::format("{}, open failed, err: {}", channel->channel_info(),
+                                            st.to_string()),
+                                -1);
+                    }
                 }
             }
         }
         {
             std::unique_lock<std::mutex> l(_partition_opened_mutex);
-            _partition_opened.insert(std::pair(id,true));
+            _partition_opened.insert(std::pair(id, true));
         }
     }
 }

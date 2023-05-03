@@ -610,7 +610,7 @@ private:
 
     RuntimeState* _state = nullptr;
 
-    std::unordered_map<int64_t,bool> _partition_opened;
+    std::unordered_map<int64_t, bool> _partition_opened;
     std::mutex _partition_opened_mutex;
 };
 

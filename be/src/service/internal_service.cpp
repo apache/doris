@@ -249,7 +249,7 @@ void PInternalServiceImpl::open_partition(google::protobuf::RpcController* contr
                                           PartitionOpenResult* response,
                                           google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
-        VLOG_RPC << "delta writer open"
+        VLOG_RPC << "partition open"
                  << ", index_id=" << request->index_id();
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->open_partition(*request);
