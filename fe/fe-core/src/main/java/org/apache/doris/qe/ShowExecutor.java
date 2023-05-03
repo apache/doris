@@ -134,6 +134,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.clone.DynamicPartitionScheduler;
@@ -173,6 +174,8 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
@@ -1567,10 +1570,42 @@ public class ShowExecutor {
 
     private void handleShowPartitions() throws AnalysisException {
         ShowPartitionsStmt showStmt = (ShowPartitionsStmt) stmt;
-        ProcNodeInterface procNodeI = showStmt.getNode();
-        Preconditions.checkNotNull(procNodeI);
-        List<List<String>> rows = ((PartitionsProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
-                showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
+        if (showStmt.getCatalog().isInternalCatalog()) {
+            ProcNodeInterface procNodeI = showStmt.getNode();
+            Preconditions.checkNotNull(procNodeI);
+            List<List<String>> rows = ((PartitionsProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+                    showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
+            resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+        } else {
+            handleShowHMSTablePartitions(showStmt);
+        }
+    }
+
+    private void handleShowHMSTablePartitions(ShowPartitionsStmt showStmt) throws AnalysisException {
+        CatalogIf catalog = showStmt.getCatalog();
+        DatabaseIf database = catalog.getDbOrAnalysisException(showStmt.getTableName().getDb());
+        HMSExternalTable hmsTable = (HMSExternalTable) database.getTableNullable(showStmt.getTableName().getTbl());
+        List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
+
+        List<List<String>> rows = new ArrayList<>();
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) catalog);
+        if (!partitionColumnTypes.isEmpty()) {
+            HiveMetaStoreCache.HivePartitionValues hivePartitionValues =
+                    cache.getPartitionValues(hmsTable.getDbName(), hmsTable.getName(), partitionColumnTypes);
+            Set<String> partitions = hivePartitionValues.getPartitionNameToIdMap().keySet();
+            for (String partition : partitions) {
+                List<String> list = new ArrayList<>();
+                list.add(partition);
+                rows.add(list);
+            }
+
+            // sort by partition name
+            rows.sort((x, y) -> {
+                return x.get(0).compareTo(y.get(0));
+            });
+        }
+
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
