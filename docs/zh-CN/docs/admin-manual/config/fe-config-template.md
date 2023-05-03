@@ -123,4 +123,10 @@ FE 的配置项有两种方式进行配置：
 
 ## 配置项列表
 
+> 注：
+> 
+> 以下内容由 `docs/generate-config-and-variable-doc.sh` 自动生成。
+> 
+> 如需修改，请修改 `fe/fe-common/src/main/java/org/apache/doris/common/Config.java` 中的描述信息。
+
 <--DOC_PLACEHOLDER-->

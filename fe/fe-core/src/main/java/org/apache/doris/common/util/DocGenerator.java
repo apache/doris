@@ -21,10 +21,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.ConfField;
 import org.apache.doris.common.ExperimentalUtil;
 import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
+import com.google.common.collect.Maps;
 import org.apache.commons.io.output.FileWriterWithEncoding;
+import org.apache.parquet.Strings;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -32,6 +36,7 @@ import java.io.FileReader;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Map;
 
 /**
  * This class is used to generate doc for FE config and session variable.
@@ -131,24 +136,31 @@ public class DocGenerator {
         }
     }
 
+    // generate doc for FE configs.
+    // Content will be sorted by config name.
     private String genFEConfigDoc(Lang lang) throws IllegalAccessException {
-        StringBuilder sb = new StringBuilder();
+        Map<String, String> sortedDoc = Maps.newTreeMap();
         Class confClass = Config.class;
         for (Field field : confClass.getFields()) {
             try {
-                genSingleConfFieldDoc(field, sb, lang);
+                String res = genSingleConfFieldDoc(field, lang);
+                if (!Strings.isNullOrEmpty(res)) {
+                    sortedDoc.put(field.getName(), res);
+                }
             } catch (Exception e) {
                 System.out.println("Failed to generate doc for field: " + field.getName());
                 throw e;
             }
         }
-        return sb.toString();
+        return printSortedMap(sortedDoc);
     }
 
-    private void genSingleConfFieldDoc(Field field, StringBuilder sb, Lang lang) throws IllegalAccessException {
+    // Generate doc for a single config field.
+    private String genSingleConfFieldDoc(Field field, Lang lang) throws IllegalAccessException {
+        StringBuilder sb = new StringBuilder();
         ConfField confField = field.getAnnotation(ConfField.class);
         if (confField == null) {
-            return;
+            return null;
         }
         String configName = field.getName();
         if (confField.expType() == ExperimentalType.EXPERIMENTAL) {
@@ -170,6 +182,7 @@ public class DocGenerator {
         }
         sb.append(CONF_MUTABLE[lang.idx]).append("`").append(confField.mutable()).append("`\n\n");
         sb.append(CONF_MASTER_ONLY[lang.idx]).append("`").append(confField.masterOnly()).append("`\n\n");
+        return sb.toString();
     }
 
     private static String getStringValue(Field field, Object instance) throws IllegalAccessException {
@@ -180,27 +193,56 @@ public class DocGenerator {
         }
     }
 
+    // generate doc for Session Variables
+    // Content will be sorted by variables' name.
     private String genSessionVariableDoc(Lang lang) throws IllegalAccessException {
-        StringBuilder sb = new StringBuilder();
+        Map<String, String> sortedDoc = Maps.newTreeMap();
+        // 1. session variables
         SessionVariable sv = new SessionVariable();
         Class svClass = SessionVariable.class;
         for (Field field : svClass.getFields()) {
             try {
-                genSingleSessionVariableDoc(sv, field, sb, lang);
+                String res = genSingleSessionVariableDoc(sv, field, lang);
+                if (!Strings.isNullOrEmpty(res)) {
+                    sortedDoc.put(field.getAnnotation(VariableMgr.VarAttr.class).name(), res);
+                }
             } catch (Exception e) {
                 System.out.println("Failed to generate doc for " + field.getName());
                 throw e;
             }
         }
+        // 2. global variables
+        Class gvClass = GlobalVariable.class;
+        for (Field field : gvClass.getFields()) {
+            try {
+                String res = genSingleSessionVariableDoc(null, field, lang);
+                if (!Strings.isNullOrEmpty(res)) {
+                    sortedDoc.put(field.getAnnotation(VariableMgr.VarAttr.class).name(), res);
+                }
+            } catch (Exception e) {
+                System.out.println("Failed to generate doc for field: " + field.getName());
+                throw e;
+            }
+        }
+        return printSortedMap(sortedDoc);
+    }
+
+    @NotNull
+    private static String printSortedMap(Map<String, String> sortedDoc) {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> entry : sortedDoc.entrySet()) {
+            sb.append(entry.getValue());
+        }
         return sb.toString();
     }
 
-    private void genSingleSessionVariableDoc(SessionVariable sv, Field field, StringBuilder sb, Lang lang)
+    private String genSingleSessionVariableDoc(SessionVariable sv, Field field, Lang lang)
             throws IllegalAccessException {
         VariableMgr.VarAttr varAttr = field.getAnnotation(VariableMgr.VarAttr.class);
         if (varAttr == null) {
-            return;
+            return null;
         }
+        StringBuilder sb = new StringBuilder();
         String varName = varAttr.name();
         if (varAttr.expType() == ExperimentalType.EXPERIMENTAL) {
             varName = ExperimentalUtil.EXPERIMENTAL_PREFIX + varName;
@@ -221,6 +263,7 @@ public class DocGenerator {
         }
         sb.append(VAR_READ_ONLY[lang.idx]).append("`").append(varAttr.flag() == VariableMgr.READ_ONLY).append("`\n\n");
         sb.append(VAR_GLOBAL_ONLY[lang.idx]).append("`").append(varAttr.flag() == VariableMgr.GLOBAL).append("`\n\n");
+        return sb.toString();
     }
 
     /**
@@ -254,6 +297,7 @@ public class DocGenerator {
             System.out.println("Done!");
         } catch (Exception e) {
             e.printStackTrace();
+            System.exit(-1);
         }
     }
 }

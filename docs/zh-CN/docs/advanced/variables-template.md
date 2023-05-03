@@ -105,5 +105,11 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 ## 支持的变量
 
+> 注：
+> 
+> 以下内容由 `docs/generate-config-and-variable-doc.sh` 自动生成。
+> 
+> 如需修改，请修改 `fe/fe-core/src/main/java/org/apache/doris/qe/SessionVariable.java` 和 `fe/fe-core/src/main/java/org/apache/doris/qe/GlobalVariable.java` 中的描述信息。
+
 <--DOC_PLACEHOLDER-->
 
