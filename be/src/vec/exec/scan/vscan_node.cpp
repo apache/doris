@@ -467,10 +467,10 @@ void VScanNode::release_resource(RuntimeState* state) {
     }
 
     for (auto& ctx : _stale_vexpr_ctxs) {
-        (*ctx)->close(state);
+        ctx->close(state);
     }
     if (_common_vexpr_ctxs_pushdown) {
-        (*_common_vexpr_ctxs_pushdown)->close(state);
+        _common_vexpr_ctxs_pushdown->close(state);
     }
 
     ExecNode::release_resource(state);
