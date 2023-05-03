@@ -1,3 +1,4 @@
+SET runtime_filter_type="BLOOM_FILTER";
 SELECT
   i_item_desc
 , w_warehouse_name
