@@ -41,7 +41,9 @@ public:
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        if constexpr (has_variadic_argument) {
+            return Transform::get_variadic_argument_types();
+        }
         return {};
     }
 

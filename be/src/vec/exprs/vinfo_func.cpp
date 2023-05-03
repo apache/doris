@@ -17,11 +17,26 @@
 
 #include "vec/exprs/vinfo_func.h"
 
-#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
 
-#include "util/string_parser.hpp"
+#include <algorithm>
+#include <iostream>
+#include <memory>
+
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "vec/core/block.h"
 #include "vec/core/field.h"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+
+namespace doris {
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

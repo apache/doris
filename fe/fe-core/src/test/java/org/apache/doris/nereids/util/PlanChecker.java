@@ -204,7 +204,7 @@ public class PlanChecker {
         double now = System.currentTimeMillis();
         Group root = cascadesContext.getMemo().getRoot();
         boolean changeRoot = false;
-        if (root.isJoinGroup()) {
+        if (root.isInnerJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a dummy project operator above join
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
@@ -393,7 +393,7 @@ public class PlanChecker {
     public PlanChecker orderJoin() {
         Group root = cascadesContext.getMemo().getRoot();
         boolean changeRoot = false;
-        if (root.isJoinGroup()) {
+        if (root.isInnerJoinGroup()) {
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
             // FIXME: can't match type, convert List<Slot> to List<NamedExpression>
             GroupExpression newExpr = new GroupExpression(

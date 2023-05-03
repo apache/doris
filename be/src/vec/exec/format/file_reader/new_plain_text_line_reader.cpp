@@ -17,10 +17,18 @@
 
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+
 #include "common/status.h"
 #include "exec/decompressor.h"
 #include "io/fs/file_reader.h"
-#include "olap/iterators.h"
+#include "util/slice.h"
 
 // INPUT_CHUNK must
 //  larger than 15B for correct lz4 file decompressing

@@ -276,6 +276,15 @@ public class StructType extends Type {
         return Lists.newArrayList(this);
     }
 
+    public StructType replaceFieldsWithNames(List<String> names) {
+        Preconditions.checkState(names.size() == fields.size());
+        ArrayList<StructField> newFields = Lists.newArrayList();
+        for (int i = 0; i < names.size(); i++) {
+            newFields.add(new StructField(names.get(i), fields.get(i).type));
+        }
+        return new StructType(newFields);
+    }
+
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof StructType)) {

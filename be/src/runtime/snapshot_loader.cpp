@@ -17,25 +17,43 @@
 
 #include "runtime/snapshot_loader.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <cstring>
+#include <filesystem>
+#include <istream>
+#include <utility>
 
 #include "common/logging.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/TPaloBrokerService.h"
 #include "io/fs/broker_file_system.h"
+#include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
+#include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "olap/data_dir.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "runtime/broker_mgr.h"
+#include "olap/tablet_manager.h"
+#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/s3_uri.h"
+#include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {

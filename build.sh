@@ -225,13 +225,13 @@ else
         BUILD_META_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
+        BUILD_JAVA_UDF=1
         CLEAN=0
     fi
 fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit
 fi
 # build thirdparty libraries if necessary
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
@@ -243,6 +243,19 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
         "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
     else
         "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+    fi
+fi
+
+if [[ ! -f "${DORIS_HOME}/be/src/apache-orc/README.md" ]]; then
+    echo "apache-orc not exists, need to update submodules ..."
+    set +e
+    cd "${DORIS_HOME}"
+    git submodule update --init --recursive be/src/apache-orc
+    exit_code=$?
+    set -e
+    if [[ "${exit_code}" -ne 0 ]]; then
+        mkdir -p "${DORIS_HOME}/be/src/apache-orc"
+        curl -L https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz | tar -xz -C "${DORIS_HOME}/be/src/apache-orc" --strip-components=1
     fi
 fi
 
@@ -373,10 +386,7 @@ echo "Get params:
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
 fi
-echo "Build generated code"
-cd "${DORIS_HOME}/gensrc"
-# DO NOT using parallel make(-j) for gensrc
-make
+./generated-source.sh
 
 # Assesmble FE modules
 FE_MODULES=''
@@ -415,7 +425,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_be
     fi
-    MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
+    MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"

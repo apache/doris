@@ -16,9 +16,11 @@
 // under the License.
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "common/status.h"
 #include "exec/data_sink.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -26,7 +28,12 @@ class RowDescriptor;
 class TExpr;
 class RuntimeState;
 class RuntimeProfile;
+class ObjectPool;
+class TDataSink;
+
 namespace vectorized {
+class Block;
+class VExprContext;
 
 class VTableSink : public DataSink {
 public:

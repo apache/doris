@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <mutex>
 #include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "runtime/runtime_state.h"
 #include "util/lru_cache.hpp"
 

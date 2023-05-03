@@ -19,25 +19,16 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
-import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.JsonType;
-import org.apache.doris.nereids.types.MapType;
-import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Optional;
@@ -49,11 +40,10 @@ import java.util.stream.Collectors;
  */
 public class Validator extends PlanPostProcessor {
 
-    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(
-            MapType.class, StructType.class, JsonType.class, ArrayType.class);
-
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
+        Preconditions.checkArgument(!project.getProjects().isEmpty(), "Project list can't be empty");
+
         Plan child = project.child();
         // Forbidden project-project, we must merge project.
         if (child instanceof PhysicalProject) {
@@ -66,7 +56,7 @@ public class Validator extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         Preconditions.checkArgument(!filter.getConjuncts().isEmpty()
-                && filter.getPredicate() != BooleanLiteral.TRUE);
+                && filter.getPredicate() != BooleanLiteral.TRUE, "Filter predicate can't be empty or true");
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
@@ -80,7 +70,6 @@ public class Validator extends PlanPostProcessor {
 
     @Override
     public Plan visit(Plan plan, CascadesContext context) {
-        plan.getExpressions().forEach(ExpressionChecker.INSTANCE::check);
         plan.children().forEach(child -> child.accept(this, context));
         Optional<Slot> opt = checkAllSlotFromChildren(plan);
         if (opt.isPresent()) {
@@ -119,28 +108,5 @@ public class Validator extends PlanPostProcessor {
         }
         return Optional.empty();
     }
-
-    private static class ExpressionChecker extends DefaultExpressionVisitor<Expression, Void> {
-        public static final ExpressionChecker INSTANCE = new ExpressionChecker();
-
-        public void check(Expression expression) {
-            expression.accept(this, null);
-        }
-
-        public Expression visit(Expression expr, Void unused) {
-            try {
-                checkTypes(expr.getDataType());
-            } catch (UnboundException ignored) {
-                return expr;
-            }
-            expr.children().forEach(child -> child.accept(this, null));
-            return expr;
-        }
-
-        private void checkTypes(DataType dataType) {
-            if (UNSUPPORTED_TYPE.contains(dataType.getClass())) {
-                throw new AnalysisException(String.format("type %s is unsupported for Nereids", dataType));
-            }
-        }
-    }
 }
+

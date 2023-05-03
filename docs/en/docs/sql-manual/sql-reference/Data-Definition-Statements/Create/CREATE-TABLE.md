@@ -317,11 +317,7 @@ distribution_desc
 
     * `in_memory`
 
-        Doris has no concept of memory tables.
-
-        When this property is set to `true`, Doris will try to cache the data blocks of the table in the PageCache of the storage engine, which has reduced disk IO. But this property does not guarantee that the data block is resident in memory, it is only used as a best-effort identification.
-
-        `"in_memory" = "true"`
+        Deprecated.
 
     * `function_column.sequence_col`
 
@@ -377,12 +373,6 @@ distribution_desc
         * `dynamic_partition.history_partition_num`: Specify the number of historical partitions to be created.
         * `dynamic_partition.reserved_history_periods`: Used to specify the range of reserved history periods.
     
-    * Data Sort Info
-    
-        The relevant parameters of data sort info are as follows:
-    
-        * `data_sort.sort_type`: the method of data sorting, options: z-order/lexical, default is lexical
-        * `data_sort.col_num`:  the first few columns to sort, col_num muster less than total key counts
 ### Example
 
 1. Create a detailed model table
@@ -501,7 +491,7 @@ distribution_desc
     );
     ```
 
-7. Create a memory table with bitmap index and bloom filter index
+7. Create a table with bitmap index and bloom filter index
 
     ```sql
     CREATE TABLE example_db.table_hash
@@ -515,8 +505,7 @@ distribution_desc
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-        "bloom_filter_columns" = "k2",
-        "in_memory" = "true"
+        "bloom_filter_columns" = "k2"
     );
     ```
 
@@ -704,7 +693,7 @@ If the materialized view is created when the table is created, all subsequent da
 
 If you add a materialized view in the subsequent use process, if there is data in the table, the creation time of the materialized view depends on the current amount of data.
 
-For the introduction of materialized views, please refer to the document [materialized views](../../../../advanced/materialized-view.md).
+For the introduction of materialized views, please refer to the document [materialized views](../../../../query-acceleration/materialized-view.md).
 
 #### Index
 
@@ -712,6 +701,3 @@ Users can create indexes on multiple columns while building a table. Indexes can
 
 If you add an index in the subsequent use process, if there is data in the table, you need to rewrite all the data, so the creation time of the index depends on the current data volume.
 
-#### in_memory property
-
-The `"in_memory" = "true"` attribute was specified when the table was created. Doris will try to cache the data blocks of the table in the PageCache of the storage engine, which has reduced disk IO. However, this attribute does not guarantee that the data block is permanently resident in memory, and is only used as a best-effort identification.

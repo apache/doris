@@ -33,9 +33,11 @@ Usage: $0 <options>
      --run                build and run ut
 
   Eg.
-    $0                      build and run ut
-    $0 --coverage           build and run coverage statistic
-    $0 --run xxx            build and run the specified class
+    $0                                                                      build and run ut
+    $0 --coverage                                                           build and run coverage statistic
+    $0 --run org.apache.doris.utframe.Demo                                  build and run the test named Demo
+    $0 --run org.apache.doris.utframe.Demo#testCreateDbAndTable+test2       build and run testCreateDbAndTable in Demo test
+    $0 --run org.apache.doris.Demo,org.apache.doris.Demo2                   build and run Demo and Demo2 test
   "
     exit 1
 }
@@ -94,6 +96,14 @@ cd "${DORIS_HOME}/docs"
 cp build/help-resource.zip "${DORIS_HOME}"/fe/fe-core/src/test/resources/real-help-resource.zip
 cd "${DORIS_HOME}"
 
+echo "Build generated code"
+cd "${DORIS_HOME}/gensrc"
+make
+rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"
+cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris"
+cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/"
+cd "${DORIS_HOME}"
+
 cd "${DORIS_HOME}/fe"
 mkdir -p build/compile
 
@@ -110,11 +120,11 @@ else
     if [[ "${RUN}" -eq 1 ]]; then
         echo "Run the specified class: $1"
         # eg:
-        # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo
-        # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo#testCreateDbAndTable+test2
-        "${MVN_CMD}" test -DfailIfNoTests=false -D test="$1"
+        # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest
+        # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -D test="$1"
     else
         echo "Run Frontend UT"
-        "${MVN_CMD}" test -DfailIfNoTests=false
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false
     fi
 fi

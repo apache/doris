@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -25,6 +24,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.remote.S3FileSystem;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -86,9 +86,6 @@ public class S3Resource extends Resource {
     @Override
     protected void setProperties(Map<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
-
-        // compatible with old version
-        S3Properties.convertToStdProperties(properties);
         // check properties
         S3Properties.requiredS3PingProperties(properties);
         // default need check resource conf valid, so need fix ut and regression case
@@ -131,17 +128,17 @@ public class S3Resource extends Resource {
         propertiesPing.put(S3Properties.Env.REGION, credential.getRegion());
         propertiesPing.put(PropertyConverter.USE_PATH_STYLE, "false");
         properties.putAll(propertiesPing);
-        S3Storage storage = new S3Storage(properties);
+        S3FileSystem fileSystem = new S3FileSystem(properties);
         String testFile = bucket + rootPath + "/test-object-valid.txt";
         String content = "doris will be better";
         try {
-            Status status = storage.directUpload(content, testFile);
+            Status status = fileSystem.directUpload(content, testFile);
             if (status != Status.OK) {
                 LOG.warn("ping update file status: {}, properties: {}", status, propertiesPing);
                 return false;
             }
         } finally {
-            Status delete = storage.delete(testFile);
+            Status delete = fileSystem.delete(testFile);
             if (delete != Status.OK) {
                 LOG.warn("ping delete file status: {}, properties: {}", delete, propertiesPing);
                 return false;
@@ -164,7 +161,7 @@ public class S3Resource extends Resource {
                 throw new DdlException("current not support modify property : " + any.get());
             }
         }
-        // compatible with old version
+        // compatible with old version, Need convert if modified properties map uses old properties.
         S3Properties.convertToStdProperties(properties);
         boolean needCheck = isNeedCheck(properties);
         LOG.debug("s3 info need check validity : {}", needCheck);

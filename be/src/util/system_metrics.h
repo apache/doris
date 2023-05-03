@@ -17,8 +17,14 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <memory>
+#include <set>
+#include <string>
+#include <vector>
 
 #include "util/metrics.h"
 

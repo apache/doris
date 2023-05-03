@@ -137,7 +137,6 @@ public class LoadLoadingTask extends LoadTask {
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
-        curCoordinator.setExecVecEngine(Config.enable_vectorized_load);
         curCoordinator.setExecPipEngine(Config.enable_pipeline_load);
         /*
          * For broker load job, user only need to set mem limit by 'exec_mem_limit' property.

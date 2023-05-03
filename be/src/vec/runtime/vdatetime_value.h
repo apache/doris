@@ -17,18 +17,27 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <re2/re2.h>
 #include <stdint.h>
+#include <string.h>
 
-#include <chrono>
-#include <climits>
+#include <algorithm>
 #include <cstddef>
 #include <iostream>
+#include <iterator>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <type_traits>
 
-#include "cctz/time_zone.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
 
 namespace doris {
 
@@ -1119,6 +1128,10 @@ public:
 
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
+    static constexpr int MAX_DATE_PARTS = 7;
+    static constexpr uint32_t MAX_TIME_PART_VALUE[3] = {23, 59, 59};
+
+    void format_datetime(uint32_t* date_v, bool* carry_bits) const;
 
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,

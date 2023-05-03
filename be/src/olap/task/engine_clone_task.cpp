@@ -17,25 +17,51 @@
 
 #include "olap/task/engine_clone_task.h"
 
-#include <memory>
-#include <set>
-#include <system_error>
+#include <fcntl.h>
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/BackendService.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_constants.h>
+#include <sys/stat.h>
 
-#include "gen_cpp/BackendService.h"
-#include "gen_cpp/Types_constants.h"
+#include <filesystem>
+#include <memory>
+#include <mutex>
+#include <ostream>
+#include <set>
+#include <shared_mutex>
+#include <system_error>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+
+#include "common/config.h"
+#include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/stringpiece.h"
+#include "gutil/strings/strip.h"
 #include "http/http_client.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
+#include "olap/data_dir.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_factory.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "runtime/client_cache.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/network_util.h"
+#include "util/stopwatch.hpp"
 #include "util/thrift_rpc_helper.h"
 
 using std::set;
@@ -255,9 +281,15 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             // TODO(zc): if snapshot path has been returned from source, it is some strange to
             // concat tablet_id and schema hash here.
             std::stringstream ss;
-            ss << "http://" << get_host_port(src.host, src.http_port) << HTTP_REQUEST_PREFIX
-               << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
-               << "/" << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+            if (snapshot_path->back() == '/') {
+                ss << "http://" << src.host << ":" << src.http_port << HTTP_REQUEST_PREFIX
+                   << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
+                   << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+            } else {
+                ss << "http://" << src.host << ":" << src.http_port << HTTP_REQUEST_PREFIX
+                   << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
+                   << "/" << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+            }
 
             remote_url_prefix = ss.str();
         }

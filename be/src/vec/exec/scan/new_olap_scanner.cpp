@@ -17,9 +17,40 @@
 
 #include "vec/exec/scan/new_olap_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stdlib.h>
+
+#include <algorithm>
+#include <iterator>
+#include <ostream>
+#include <set>
+#include <shared_mutex>
+
+#include "common/config.h"
+#include "common/consts.h"
+#include "exec/olap_utils.h"
+#include "exprs/function_filter.h"
 #include "io/cache/block/block_file_cache_profile.h"
+#include "io/io_common.h"
+#include "olap/olap_common.h"
+#include "olap/olap_tuple.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "service/backend_options.h"
+#include "util/doris_metrics.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
+#include "vec/exec/scan/vscan_node.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/olap/block_reader.h"
 
 namespace doris::vectorized {
@@ -44,6 +75,10 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
                                           const std::vector<uint32_t>& read_columns) {
+    // avoid too long for one line,
+    // it is hard to display in `show profile` stmt if one line is too long.
+    const int col_per_line = 10;
+    int i = 0;
     std::string read_columns_string;
     read_columns_string += "[";
     for (auto it = read_columns.cbegin(); it != read_columns.cend(); it++) {
@@ -51,6 +86,12 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
             read_columns_string += ", ";
         }
         read_columns_string += tablet_schema->columns().at(*it).name();
+        if (i >= col_per_line) {
+            read_columns_string += "\n";
+            i = 0;
+        } else {
+            ++i;
+        }
     }
     read_columns_string += "]";
     return read_columns_string;

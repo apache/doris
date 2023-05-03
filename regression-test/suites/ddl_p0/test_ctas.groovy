@@ -107,6 +107,77 @@ suite("test_ctas") {
             rowNum 6
         }
 
+        sql """
+            create table if not exists test_tbl_81748325
+            (
+                `col1`        varchar(66) not null ,
+                `col2`      bigint      not null ,
+                `col3`  varchar(66) not null ,
+                `col4`  varchar(42) not null ,
+                `col5` bigint      not null ,
+                `col6`         bigint      not null ,
+                `col7`        datetime    not null ,
+                `col8`            varchar(66) not null, 
+                `col9`            varchar(66)          ,
+                `col10`            varchar(66)          ,
+                `col11`            varchar(66)          ,
+                `col12`              text                 
+            )
+            UNIQUE KEY (`col1`,`col2`,`col3`,`col4`,`col5`,`col6`)
+            DISTRIBUTED BY HASH(`col4`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+
+        sql """
+            create table `test_tbl_3156019`
+            UNIQUE KEY (col4,col3,from_address,to_address)
+            DISTRIBUTED BY HASH (col4) BUCKETS 1
+            PROPERTIES (
+                  "replication_allocation" = "tag.location.default: 1"
+            )
+           as 
+            select
+                col4                                as col4,
+                col3                                as col3,
+                concat('0x', substring(col9, 27))             as from_address,
+                concat('0x', substring(col10, 27))             as to_address,
+                col7                                      as date_time,
+                now()                                           as update_time,
+                '20230318'                                      as pt,
+                col8                                            as amount
+            from test_tbl_81748325
+            where col4 = '43815251'
+              and substring(col8, 1, 10) = '1451601';
+        """
+
+        sql """
+            DROP TABLE IF EXISTS tbl_3210581
+        """
+
+        sql """
+            CREATE TABLE tbl_3210581 (col1 varchar(11451) not null, col2 int not null, col3 int not null)
+            UNIQUE KEY(`col1`)
+            DISTRIBUTED BY HASH(col1)
+            BUCKETS 3
+            PROPERTIES(
+                "replication_num"="1"
+            )
+        """
+
+        sql """
+            DROP TABLE IF EXISTS ctas_113815;
+        """
+
+        sql """
+            create table ctas_113815
+            PROPERTIES('replication_num' = '1')
+            as 
+            select     group_concat(col1 ORDER BY col1) from     `tbl_3210581`
+            group by `col2`;
+        """
+
     } finally {
         sql """ DROP TABLE IF EXISTS test_ctas """
 
@@ -119,6 +190,18 @@ suite("test_ctas") {
         sql """ DROP TABLE IF EXISTS test_ctas_json_object1 """
 
         sql """drop table if exists a"""
+
+        sql """DROP TABLE IF EXISTS test_tbl_81748325"""
+
+        sql """DROP TABLE IF EXISTS test_tbl_3156019"""
+
+        sql """
+            DROP TABLE IF EXISTS tbl_3210581
+        """
+
+        sql """
+            DROP TABLE IF EXISTS ctas_113815
+        """
     }
 
 }

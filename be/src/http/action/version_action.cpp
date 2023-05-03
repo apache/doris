@@ -17,14 +17,13 @@
 
 #include "http/action/version_action.h"
 
-#include <sstream>
+#include <gen_cpp/version.h>
+
 #include <string>
 
-#include "gen_cpp/version.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 #include "util/easy_json.h"
 

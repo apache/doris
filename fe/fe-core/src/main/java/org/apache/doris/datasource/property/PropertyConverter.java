@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property;
 
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
@@ -126,10 +127,13 @@ public class PropertyConverter {
                                                                 CloudCredentialWithEndpoint credential) {
         // Old properties to new properties
         properties.put(S3Properties.ENDPOINT, credential.getEndpoint());
-        properties.put(S3Properties.REGION, credential.getRegion());
+        properties.put(S3Properties.REGION,
+                    checkRegion(credential.getEndpoint(), credential.getRegion(), S3Properties.Env.REGION));
         properties.put(S3Properties.ACCESS_KEY, credential.getAccessKey());
         properties.put(S3Properties.SECRET_KEY, credential.getSecretKey());
-        properties.put(S3Properties.SESSION_TOKEN, credential.getSessionToken());
+        if (properties.containsKey(S3Properties.Env.TOKEN)) {
+            properties.put(S3Properties.SESSION_TOKEN, credential.getSessionToken());
+        }
         if (properties.containsKey(S3Properties.Env.MAX_CONNECTIONS)) {
             properties.put(S3Properties.MAX_CONNECTIONS, properties.get(S3Properties.Env.MAX_CONNECTIONS));
         }
@@ -147,7 +151,8 @@ public class PropertyConverter {
         Map<String, String> s3Properties = Maps.newHashMap();
         String endpoint = properties.get(S3Properties.ENDPOINT);
         s3Properties.put(Constants.ENDPOINT, endpoint);
-        s3Properties.put(Constants.AWS_REGION, S3Properties.getRegionOfEndpoint(endpoint));
+        s3Properties.put(Constants.AWS_REGION,
+                    checkRegion(endpoint, properties.get(S3Properties.REGION), S3Properties.REGION));
         if (properties.containsKey(S3Properties.MAX_CONNECTIONS)) {
             s3Properties.put(Constants.MAXIMUM_CONNECTIONS, properties.get(S3Properties.MAX_CONNECTIONS));
         }
@@ -158,7 +163,19 @@ public class PropertyConverter {
             s3Properties.put(Constants.SOCKET_TIMEOUT, properties.get(S3Properties.CONNECTION_TIMEOUT_MS));
         }
         setS3FsAccess(s3Properties, properties, credential);
+        s3Properties.putAll(properties);
         return s3Properties;
+    }
+
+    private static String checkRegion(String endpoint, String region, String regionKey) {
+        if (Strings.isNullOrEmpty(region)) {
+            region = S3Properties.getRegionOfEndpoint(endpoint);
+        }
+        if (Strings.isNullOrEmpty(region)) {
+            String errorMsg = String.format("Required property '%s' when region is not in endpoint.", regionKey);
+            Util.logAndThrowRuntimeException(LOG, errorMsg, new IllegalArgumentException(errorMsg));
+        }
+        return region;
     }
 
     private static void setS3FsAccess(Map<String, String> s3Properties, Map<String, String> properties,
@@ -315,7 +332,6 @@ public class PropertyConverter {
             String endpoint = props.get(GlueProperties.ENDPOINT);
             props.put(AWSGlueConfig.AWS_GLUE_ENDPOINT, endpoint);
             String region = S3Properties.getRegionOfEndpoint(endpoint);
-            props.put(GlueProperties.REGION, region);
             props.put(AWSGlueConfig.AWS_REGION, region);
             if (credential.isWhole()) {
                 props.put(AWSGlueConfig.AWS_GLUE_ACCESS_KEY, credential.getAccessKey());
@@ -357,7 +373,7 @@ public class PropertyConverter {
         //  "s3.secret_key" = "yy"
         // )
         String endpoint = props.get(GlueProperties.ENDPOINT);
-        String region = props.getOrDefault(GlueProperties.REGION, S3Properties.getRegionOfEndpoint(endpoint));
+        String region = S3Properties.getRegionOfEndpoint(endpoint);
         if (!Strings.isNullOrEmpty(region)) {
             props.put(S3Properties.REGION, region);
             String s3Endpoint = "s3." + region + ".amazonaws.com";

@@ -43,6 +43,7 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
@@ -234,6 +235,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Override
     public String getType() {
         return "internal";
+    }
+
+    @Override
+    public String getComment() {
+        return "Doris internal catalog";
     }
 
     @Override
@@ -974,7 +980,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
+        if (table instanceof MaterializedView) {
             List<Long> dropIds = Env.getCurrentEnv().getMTMVJobManager().showJobs(db.getFullName(), table.getName())
                     .stream().map(MTMVJob::getId).collect(Collectors.toList());
             Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, isReplay);
@@ -1107,6 +1113,11 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check if db exists
         Database db = (Database) getDbOrDdlException(dbName);
+        // InfoSchemaDb can not create table
+        if (db instanceof InfoSchemaDb) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
+                    ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
+        }
 
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
@@ -1211,6 +1222,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             List<String> columnNames = stmt.getColumnNames();
             CreateTableStmt createTableStmt = stmt.getCreateTableStmt();
             QueryStmt queryStmt = stmt.getQueryStmt();
+            KeysDesc keysDesc = createTableStmt.getKeysDesc();
             ArrayList<Expr> resultExprs = queryStmt.getResultExprs();
             ArrayList<String> colLabels = queryStmt.getColLabels();
             int size = resultExprs.size();
@@ -1232,7 +1244,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
                 Type resultType = resultExpr.getType();
-                if (resultType.isStringType()) {
+                if (resultExpr instanceof FunctionCallExpr
+                        && resultExpr.getType().getPrimitiveType().equals(PrimitiveType.VARCHAR)) {
+                    resultType = ScalarType.createVarchar(65533);
+                }
+                if (resultType.isStringType() && (keysDesc == null || !keysDesc.containsCol(name))) {
                     // Use String for varchar/char/string type,
                     // to avoid char-length-vs-byte-length issue.
                     typeDef = new TypeDef(ScalarType.createStringType());
@@ -1838,9 +1854,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         String tableName = stmt.getTableName();
         LOG.debug("begin create olap table: {}", tableName);
 
+        // get keys type
+        KeysDesc keysDesc = stmt.getKeysDesc();
+        Preconditions.checkNotNull(keysDesc);
+        KeysType keysType = keysDesc.getKeysType();
+        int keysColumnSize = keysDesc.keysColumnSize();
+        boolean isKeysRequired = !(keysType == KeysType.DUP_KEYS && keysColumnSize == 0);
+
         // create columns
         List<Column> baseSchema = stmt.getColumns();
-        validateColumns(baseSchema);
+        validateColumns(baseSchema, isKeysRequired);
 
         // analyze replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(stmt.getProperties(), "");
@@ -1872,18 +1895,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo = new SinglePartitionInfo();
         }
 
-        // get keys type
-        KeysDesc keysDesc = stmt.getKeysDesc();
-        Preconditions.checkNotNull(keysDesc);
-        KeysType keysType = keysDesc.getKeysType();
-
         // create distribution info
         DistributionDesc distributionDesc = stmt.getDistributionDesc();
         Preconditions.checkNotNull(distributionDesc);
         DistributionInfo defaultDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
 
         // calc short key column count
-        short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties());
+        short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties(), isKeysRequired);
         LOG.debug("create table[{}] short key column count: {}", tableName, shortKeyColumnCount);
 
         // create table
@@ -1951,11 +1969,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                 keysDesc.keysColumnSize(), storageFormat);
         olapTable.setDataSortInfo(dataSortInfo);
 
-        boolean enableUniqueKeyMergeOnWrite;
-        try {
-            enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
+        boolean enableUniqueKeyMergeOnWrite = false;
+        if (keysType == KeysType.UNIQUE_KEYS) {
+            try {
+                enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
@@ -1998,7 +2018,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set in memory
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY,
                 false);
-        olapTable.setIsInMemory(isInMemory);
+        if (isInMemory == true) {
+            throw new AnalysisException("Not support set 'in_memory'='true' now!");
+        }
+        olapTable.setIsInMemory(false);
 
         boolean storeRowColumn = false;
         try {
@@ -2117,7 +2140,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             // set rollup index meta to olap table
             List<Column> rollupColumns = Env.getCurrentEnv().getMaterializedViewHandler()
                     .checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
-            short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
+            short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties(),
+                                                        true/*isKeysRequired*/);
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
@@ -2213,7 +2237,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                             new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
-
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
                         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                             throw new DdlException(
@@ -2318,8 +2341,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
 
-        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework
-                && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
+        if (olapTable instanceof MaterializedView && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
             List<MTMVJob> jobs = MTMVJobFactory.buildJob((MaterializedView) olapTable, db.getFullName());
             for (MTMVJob job : jobs) {
                 Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
@@ -2367,7 +2389,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (baseSchema.isEmpty()) {
             baseSchema = esTable.genColumnsFromEs();
         }
-        validateColumns(baseSchema);
+        validateColumns(baseSchema, true);
         esTable.setNewFullSchema(baseSchema);
 
         // create partition info
@@ -2573,7 +2595,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     /*
      * generate and check columns' order and key's existence
      */
-    private void validateColumns(List<Column> columns) throws DdlException {
+    private void validateColumns(List<Column> columns, boolean isKeysRequired) throws DdlException {
         if (columns.isEmpty()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
@@ -2591,7 +2613,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        if (!hasKey) {
+        if (!hasKey && isKeysRequired) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_MUST_HAVE_KEYS);
         }
     }
@@ -3511,5 +3533,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         getEsRepository().loadTableFromCatalog();
         LOG.info("finished replay databases from image");
         return newChecksum;
+    }
+
+    public ConcurrentHashMap<Long, Database> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
     }
 }

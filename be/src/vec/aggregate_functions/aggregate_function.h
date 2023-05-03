@@ -20,9 +20,10 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
+#include "util/defer_op.h"
 #include "vec/columns/column_complex.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
@@ -46,6 +47,16 @@ using DataTypes = std::vector<DataTypePtr>;
 
 using AggregateDataPtr = char*;
 using ConstAggregateDataPtr = const char*;
+
+#define SAFE_CREATE(create, destroy) \
+    do {                             \
+        try {                        \
+            create;                  \
+        } catch (...) {              \
+            destroy;                 \
+            throw;                   \
+        }                            \
+    } while (0)
 
 /** Aggregate functions interface.
   * Instances of classes with this interface do not contain the data itself for aggregation,
@@ -221,7 +232,7 @@ public:
                       std::is_same_v<Derived,
                                      AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>>) {
             if (agg_many) {
-                phmap::flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
+                flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
                 for (int i = 0; i < batch_size; ++i) {
                     auto iter = place_rows.find(places[i] + place_offset);
                     if (iter == place_rows.end()) {
@@ -307,10 +318,10 @@ public:
         char place[size_of_data()];
         for (size_t i = 0; i != num_rows; ++i) {
             static_cast<const Derived*>(this)->create(place);
+            DEFER({ static_cast<const Derived*>(this)->destroy(place); });
             static_cast<const Derived*>(this)->add(place, columns, i, arena);
             static_cast<const Derived*>(this)->serialize(place, buf);
             buf.commit();
-            static_cast<const Derived*>(this)->destroy(place);
         }
     }
 
@@ -331,10 +342,18 @@ public:
                          size_t num_rows) const override {
         const auto size_of_data = static_cast<const Derived*>(this)->size_of_data();
         for (size_t i = 0; i != num_rows; ++i) {
-            auto place = places + size_of_data * i;
-            VectorBufferReader buffer_reader(column->get_data_at(i));
-            static_cast<const Derived*>(this)->create(place);
-            static_cast<const Derived*>(this)->deserialize(place, buffer_reader, arena);
+            try {
+                auto place = places + size_of_data * i;
+                VectorBufferReader buffer_reader(column->get_data_at(i));
+                static_cast<const Derived*>(this)->create(place);
+                static_cast<const Derived*>(this)->deserialize(place, buffer_reader, arena);
+            } catch (...) {
+                for (int j = 0; j < i; ++j) {
+                    auto place = places + size_of_data * j;
+                    static_cast<const Derived*>(this)->destroy(place);
+                }
+                throw;
+            }
         }
     }
 
@@ -391,7 +410,10 @@ public:
     /// NOTE: Currently not used (structures with aggregation state are put without alignment).
     size_t align_of_data() const override { return alignof(Data); }
 
-    void reset(AggregateDataPtr place) const override {}
+    void reset(AggregateDataPtr place) const override {
+        destroy(place);
+        create(place);
+    }
 
     void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
                                Arena* arena) const override {
@@ -400,9 +422,9 @@ public:
 
         auto derived = static_cast<const Derived*>(this);
         derived->create(deserialized_place);
+        DEFER({ derived->destroy(deserialized_place); });
         derived->deserialize(deserialized_place, buf, arena);
         derived->merge(place, deserialized_place, arena);
-        derived->destroy(deserialized_place);
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,

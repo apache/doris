@@ -17,8 +17,18 @@
 
 #pragma once
 
-#include <mutex>
+#include <stdint.h>
 
+#include <filesystem>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "util/s3_util.h"
 
@@ -31,6 +41,7 @@ class PooledThreadExecutor;
 
 namespace doris {
 namespace io {
+struct FileInfo;
 
 // File system for S3 compatible object storage
 // When creating S3FileSystem, all required info should be set in S3Conf,

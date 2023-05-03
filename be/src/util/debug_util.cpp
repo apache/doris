@@ -17,14 +17,14 @@
 
 #include "util/debug_util.h"
 
-#include <iomanip>
-#include <sstream>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/version.h>
+#include <stdint.h>
 
-#include "common/logging.h"
-#include "gen_cpp/Opcodes_types.h"
-#include "gen_cpp/types.pb.h"
-#include "gen_cpp/version.h"
-#include "util/cpu_info.h"
+#include <iomanip>
+#include <map>
+#include <sstream> // IWYU pragma: keep
+#include <utility>
 
 namespace doris {
 

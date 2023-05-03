@@ -99,6 +99,7 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implem
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     EsExternalTable table = idToTbl.get(tblId);
+                    table.unsetObjectCreated();
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addRefreshTable(tblId);
                 } else {

@@ -21,6 +21,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.fs.obj.BrokerStorage;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 

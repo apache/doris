@@ -17,12 +17,16 @@
 
 #pragma once
 
-#include "gen_cpp/AgentService_types.h"
+#include <stdint.h>
+
+#include <string>
+
 #include "http/http_handler.h"
 
 namespace doris {
 
 class ExecEnv;
+class HttpRequest;
 
 class ReloadTabletAction : public HttpHandler {
 public:

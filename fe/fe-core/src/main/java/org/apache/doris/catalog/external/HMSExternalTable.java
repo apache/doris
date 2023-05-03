@@ -20,11 +20,9 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisTaskInfo;
-import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HiveAnalysisTask;
 import org.apache.doris.statistics.IcebergAnalysisTask;
@@ -34,6 +32,7 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -90,12 +89,9 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     protected synchronized void makeSureInitialized() {
+        super.makeSureInitialized();
         if (!objectCreated) {
-            try {
-                getRemoteTable();
-            } catch (MetaNotFoundException e) {
-                // CHECKSTYLE IGNORE THIS LINE
-            }
+            remoteTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
             if (remoteTable == null) {
                 dlaType = DLAType.UNKNOWN;
             } else {
@@ -151,14 +147,8 @@ public class HMSExternalTable extends ExternalTable {
     /**
      * Get the related remote hive metastore table.
      */
-    public org.apache.hadoop.hive.metastore.api.Table getRemoteTable() throws MetaNotFoundException {
-        if (remoteTable == null) {
-            synchronized (this) {
-                if (remoteTable == null) {
-                    remoteTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
-                }
-            }
-        }
+    public org.apache.hadoop.hive.metastore.api.Table getRemoteTable() {
+        makeSureInitialized();
         return remoteTable;
     }
 
@@ -252,16 +242,36 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
         makeSureInitialized();
         switch (dlaType) {
             case HIVE:
-                return new HiveAnalysisTask(scheduler, info);
+                return new HiveAnalysisTask(info);
             case ICEBERG:
-                return new IcebergAnalysisTask(scheduler, info);
+                return new IcebergAnalysisTask(info);
             default:
                 throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
         }
+    }
+
+    public String getViewText() {
+        String viewText = getViewExpandedText();
+        if (StringUtils.isNotEmpty(viewText)) {
+            return viewText;
+        }
+        return getViewOriginalText();
+    }
+
+    public String getViewExpandedText() {
+        LOG.debug("View expanded text of hms table [{}.{}.{}] : {}",
+                this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewExpandedText());
+        return remoteTable.getViewExpandedText();
+    }
+
+    public String getViewOriginalText() {
+        LOG.debug("View original text of hms table [{}.{}.{}] : {}",
+                this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewOriginalText());
+        return remoteTable.getViewOriginalText();
     }
 
     public String getMetastoreUri() {

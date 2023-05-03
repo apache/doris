@@ -19,17 +19,48 @@
 // and modified by Doris
 
 #pragma once
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
 #include <cmath>
+#include <limits>
+#include <memory>
+#include <ostream>
+#include <string>
 #include <type_traits>
 
-#include "common/config.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "serde/data_type_decimal_serde.h"
+#include "util/binary_cast.hpp"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+class DecimalV2Value;
+class PColumnMeta;
+
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+template <typename T>
+struct TypeId;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -198,6 +229,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeDecimalSerDe<T>>();
+    };
 
     /// Decimal specific
 
@@ -243,7 +277,7 @@ public:
 
     static T get_scale_multiplier(UInt32 scale);
 
-    T parse_from_string(const std::string& str) const;
+    bool parse_from_string(const std::string& str, T* res) const;
 
 private:
     const UInt32 precision;
@@ -376,9 +410,11 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
 
 template <typename FromDataType, typename ToDataType>
 void convert_decimal_cols(
-        const typename ColumnDecimal<typename FromDataType::FieldType>::Container& vec_from,
-        typename ColumnDecimal<typename ToDataType::FieldType>::Container& vec_to,
-        UInt32 scale_from, UInt32 scale_to, UInt8* overflow_flag = nullptr) {
+        const typename ColumnDecimal<
+                typename FromDataType::FieldType>::Container::value_type* __restrict vec_from,
+        typename ColumnDecimal<typename ToDataType::FieldType>::Container::value_type* vec_to,
+        const UInt32 scale_from, const UInt32 scale_to, const size_t sz,
+        UInt8* overflow_flag = nullptr) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
     using MaxFieldType =
@@ -391,31 +427,37 @@ void convert_decimal_cols(
     using MaxNativeType = typename MaxFieldType::NativeType;
 
     if (scale_to > scale_from) {
-        MaxNativeType multiplier =
+        const MaxNativeType multiplier =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
         MaxNativeType res;
-        for (size_t i = 0; i < vec_from.size(); i++) {
-            if (common::mul_overflow(static_cast<MaxNativeType>(vec_from[i]), multiplier, res)) {
-                if (overflow_flag) {
-                    overflow_flag[i] = 1;
-                }
-                VLOG_DEBUG << "Decimal convert overflow";
-                vec_to[i] = res < 0 ? std::numeric_limits<typename ToFieldType::NativeType>::min()
+        for (size_t i = 0; i < sz; i++) {
+            if (std::is_same_v<MaxNativeType, Int128>) {
+                if (common::mul_overflow(static_cast<MaxNativeType>(vec_from[i]), multiplier,
+                                         res)) {
+                    if (overflow_flag) {
+                        overflow_flag[i] = 1;
+                    }
+                    VLOG_DEBUG << "Decimal convert overflow";
+                    vec_to[i] =
+                            res < 0 ? std::numeric_limits<typename ToFieldType::NativeType>::min()
                                     : std::numeric_limits<typename ToFieldType::NativeType>::max();
+                } else {
+                    vec_to[i] = res;
+                }
             } else {
-                vec_to[i] = res;
+                vec_to[i] = vec_from[i] * multiplier;
             }
         }
     } else {
         MaxNativeType multiplier =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
-        for (size_t i = 0; i < vec_from.size(); i++) {
+        for (size_t i = 0; i < sz; i++) {
             vec_to[i] = vec_from[i] / multiplier;
         }
     }
 
     if constexpr (sizeof(FromFieldType) > sizeof(ToFieldType)) {
-        for (size_t i = 0; i < vec_from.size(); i++) {
+        for (size_t i = 0; i < sz; i++) {
             if (vec_to[i] < std::numeric_limits<typename ToFieldType::NativeType>::min()) {
                 if (overflow_flag) {
                     *overflow_flag = 1;

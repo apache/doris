@@ -17,16 +17,38 @@
 
 #pragma once
 
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <atomic>
+#include <functional>
+#include <memory>
 #include <string>
+#include <vector>
 
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/exec_node.h"
+#include "util/runtime_profile.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/common/arena.h"
 #include "vec/core/block.h"
-#include "vec/exprs/vectorized_agg_fn.h"
-#include "vec/exprs/vexpr_context.h"
+#include "vec/data_types/data_type.h"
+
+namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TupleDescriptor;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 struct BlockRowPos {
@@ -46,6 +68,7 @@ struct BlockRowPos {
 };
 
 class AggFnEvaluator;
+
 class VAnalyticEvalNode : public ExecNode {
 public:
     ~VAnalyticEvalNode() override = default;
@@ -142,6 +165,7 @@ private:
     int64_t _rows_start_offset = 0;
     int64_t _rows_end_offset = 0;
     size_t _agg_functions_size = 0;
+    bool _agg_functions_created = false;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;

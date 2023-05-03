@@ -125,7 +125,7 @@ public class FunctionCallExpr extends Expr {
                 }
                 int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
                 return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                        Math.max(scaleArg, 0));
+                        Math.min(Math.max(scaleArg, 0), ((ScalarType) children.get(0).getType()).decimalScale()));
             } else {
                 return returnType;
             }
@@ -150,6 +150,19 @@ public class FunctionCallExpr extends Expr {
                             ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())) {
                         return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
                                 ((ScalarType) ((ArrayType) children.get(0).getType()).getItemType()).getScalarScale());
+                    } else {
+                        return returnType;
+                    }
+                };
+        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayDecimal128ArrayRule
+                = (children, returnType) -> {
+                    Preconditions.checkArgument(children != null && children.size() > 0);
+                    if (children.get(0).getType().isArrayType() && (
+                            ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())) {
+                        ArrayType childArrayType = (ArrayType) children.get(0).getType();
+                        Type itemType = ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
+                                ((ScalarType) childArrayType.getItemType()).getScalarScale());
+                        return ArrayType.create(itemType, childArrayType.getContainsNull());
                     } else {
                         return returnType;
                     }
@@ -192,6 +205,7 @@ public class FunctionCallExpr extends Expr {
         PRECISION_INFER_RULE.put("array_avg", arrayDecimal128Rule);
         PRECISION_INFER_RULE.put("array_sum", arrayDecimal128Rule);
         PRECISION_INFER_RULE.put("array_product", arrayDecimal128Rule);
+        PRECISION_INFER_RULE.put("array_cum_sum", arrayDecimal128ArrayRule);
         PRECISION_INFER_RULE.put("round", roundRule);
         PRECISION_INFER_RULE.put("round_bankers", roundRule);
         PRECISION_INFER_RULE.put("ceil", roundRule);
@@ -1089,6 +1103,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_product")
                 || fnName.getFunction().equalsIgnoreCase("array_union")
                 || fnName.getFunction().equalsIgnoreCase("array_except")
+                || fnName.getFunction().equalsIgnoreCase("array_cum_sum")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
                 || fnName.getFunction().equalsIgnoreCase("arrays_overlap")
                 || fnName.getFunction().equalsIgnoreCase("array_concat")) {
@@ -1444,8 +1459,43 @@ public class FunctionCallExpr extends Expr {
                                 .toSql());
             }
         }
+        if (fnName.getFunction().equalsIgnoreCase("char")) {
+            if (!getChild(0).isConstant()) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " charset name must be a constant: " + this
+                                .toSql());
+            }
+            LiteralExpr literal = (LiteralExpr) getChild(0);
+            if (!literal.getStringValue().equalsIgnoreCase("utf8")) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " function currently only support charset name 'utf8': " + this
+                                .toSql());
+            }
+        }
         if (fn.getFunctionName().getFunction().equals("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("map")) {
+            if ((children.size() & 1) == 1) {
+                throw new AnalysisException("map can't be odd parameters, need even parameters: "
+                        + this.toSql());
+            }
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("named_struct")) {
+            if ((children.size() & 1) == 1) {
+                throw new AnalysisException("named_struct can't be odd parameters, need even parameters: "
+                        + this.toSql());
+            }
+            for (int i = 0; i < children.size(); i++) {
+                if ((i & 1) == 0) {
+                    if (!(getChild(i) instanceof StringLiteral)) {
+                        throw new AnalysisException(
+                                "named_struct only allows constant string parameter in odd position: " + this.toSql());
+                    }
+                }
+            }
         }
 
         if (isAggregateFunction()) {
@@ -1485,6 +1535,10 @@ public class FunctionCallExpr extends Expr {
                     ix = i % 2 == 0 ? 0 : 1;
                 }
 
+                if (i == 0 && (fnName.getFunction().equalsIgnoreCase("char"))) {
+                    continue;
+                }
+
                 if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
                         .equalsIgnoreCase("histogram")
                         || fnName.getFunction().equalsIgnoreCase("hist"))
@@ -1515,6 +1569,7 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_popback")
                         || fnName.getFunction().equalsIgnoreCase("array_popfront")
                         || fnName.getFunction().equalsIgnoreCase("array_pushfront")
+                        || fnName.getFunction().equalsIgnoreCase("array_cum_sum")
                         || fnName.getFunction().equalsIgnoreCase("reverse")
                         || fnName.getFunction().equalsIgnoreCase("%element_slice%")
                         || fnName.getFunction().equalsIgnoreCase("array_concat")
@@ -1527,10 +1582,9 @@ public class FunctionCallExpr extends Expr {
                         && (args[ix].isArrayType())
                         && ((ArrayType) args[ix]).getItemType().isDecimalV3()))) {
                     continue;
-                } else if (!argTypes[i].matchesType(args[ix]) && !(
-                        argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
+                } else if (!argTypes[i].matchesType(args[ix])
                         && (!fn.getReturnType().isDecimalV3()
-                        || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
+                                || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
                     uncheckedCastChild(args[ix], i);
                 }
             }
@@ -1590,7 +1644,9 @@ public class FunctionCallExpr extends Expr {
             fn.setReturnType(Type.MAX_DECIMALV2_TYPE);
         }
 
-        if (this.type.isDecimalV3() || (this.type.isDatetimeV2()
+        if (this.type.isDecimalV3() || (this.type.isArrayType()
+                && ((ArrayType) this.type).getItemType().isDecimalV3())
+                || (this.type.isDatetimeV2()
                 && !TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase()))) {
             // TODO(gabriel): If type exceeds max precision of DECIMALV3, we should change
             // it to a double function
@@ -1620,6 +1676,15 @@ public class FunctionCallExpr extends Expr {
                             .getType()).getItemType().isDatetimeV2())) {
                 this.type = children.get(1).getType();
             }
+        } else if (fnName.getFunction().equalsIgnoreCase("named_struct")) {
+            List<String> fieldNames = Lists.newArrayList();
+            for (int i = 0; i < children.size(); i++) {
+                if ((i & 1) == 0) {
+                    StringLiteral nameLiteral = (StringLiteral) children.get(i);
+                    fieldNames.add(nameLiteral.getStringValue());
+                }
+            }
+            this.type = ((StructType) type).replaceFieldsWithNames(fieldNames);
         } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                 .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
                 || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")

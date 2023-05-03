@@ -279,6 +279,12 @@ public class OperationType {
     // cooldown related
     public static final short OP_UPDATE_COOLDOWN_CONF = 401;
     public static final short OP_COOLDOWN_DELETE = 402;
+    public static final short OP_ALTER_LIGHT_SCHEMA_CHANGE = 403;
+
+    // resource group 410 ~ 419
+    public static final short OP_CREATE_RESOURCE_GROUP = 410;
+    public static final short OP_DROP_RESOURCE_GROUP = 411;
+    public static final short OP_ALTER_RESOURCE_GROUP = 412;
 
     /**
      * Get opcode name by op code.

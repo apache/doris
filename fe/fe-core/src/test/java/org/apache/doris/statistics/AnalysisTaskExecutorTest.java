@@ -26,7 +26,6 @@ import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.statistics.util.BlockingCounter;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -34,6 +33,7 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.concurrent.BlockingQueue;
 
 public class AnalysisTaskExecutorTest extends TestWithFeService {
@@ -66,7 +66,7 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(
                         AnalysisType.COLUMN)
                 .build();
-        OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisTaskScheduler, analysisJobInfo);
+        OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
 
         new MockUp<AnalysisTaskScheduler>() {
             public synchronized BaseAnalysisTask getPendingTasks() {
@@ -94,11 +94,11 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
         AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
-                .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(
-                        AnalysisType.COLUMN)
-                .setPartitionNames(Sets.newHashSet("t1"))
+                .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL)
+                .setAnalysisType(AnalysisType.COLUMN)
+                .setPartitionNames(Collections.singleton("t1"))
                 .build();
-        OlapAnalysisTask task = new OlapAnalysisTask(analysisTaskScheduler, analysisTaskInfo);
+        OlapAnalysisTask task = new OlapAnalysisTask(analysisTaskInfo);
         new MockUp<AnalysisTaskScheduler>() {
             @Mock
             public synchronized BaseAnalysisTask getPendingTasks() {

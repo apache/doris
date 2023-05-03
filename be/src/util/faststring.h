@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include <butil/macros.h>
+
 #include <cstdint>
 #include <cstring>
 #include <string>
 
 #include "gutil/dynamic_annotations.h"
-#include "gutil/macros.h"
 #include "gutil/port.h"
 #include "gutil/strings/fastmem.h"
 #include "util/slice.h"

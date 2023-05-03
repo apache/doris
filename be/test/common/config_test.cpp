@@ -16,10 +16,18 @@
 // under the License.
 
 #define __IN_CONFIGBASE_CPP__
-#include "common/configbase.h"
-#undef __IN_CONFIGBASE_CPP__
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <gtest/gtest.h>
+#include <map>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/configbase.h"
+#include "gtest/gtest_pred_impl.h"
+
+#undef __IN_CONFIGBASE_CPP__
 
 #include "common/status.h"
 

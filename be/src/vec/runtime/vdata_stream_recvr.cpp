@@ -17,8 +17,18 @@
 
 #include "vec/runtime/vdata_stream_recvr.h"
 
-#include "gen_cpp/data.pb.h"
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+
+#include <algorithm>
+#include <functional>
+#include <string>
+
+#include "common/logging.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
@@ -103,9 +113,6 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) 
 void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                               int64_t packet_seq,
                                               ::google::protobuf::Closure** done) {
-    // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
-    // limit memory via DataStreamRecvr::exceeds_limit.
-    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
@@ -140,7 +147,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     int64_t deserialize_time = 0;
     {
         SCOPED_RAW_TIMER(&deserialize_time);
-        block.reset(new Block(pblock));
+        block = Block::create_unique(pblock);
     }
 
     auto block_byte_size = block->allocated_bytes();
@@ -170,9 +177,6 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
 }
 
 void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
-    // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
-    // limit memory via DataStreamRecvr::exceeds_limit.
-    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     {
         std::unique_lock<std::mutex> l(_lock);
         if (_is_cancelled || !block->rows()) {
@@ -182,7 +186,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
 
     auto block_bytes_received = block->bytes();
     // Has to use unique ptr here, because clone column may failed if allocate memory failed.
-    BlockUPtr nblock = std::make_unique<Block>(block->get_columns_with_type_and_name());
+    BlockUPtr nblock = Block::create_unique(block->get_columns_with_type_and_name());
 
     // local exchange should copy the block contented if use move == false
     if (use_move) {
@@ -323,7 +327,7 @@ VDataStreamRecvr::VDataStreamRecvr(
     }
 
     // Initialize the counters
-    auto* memory_usage = _profile->create_child("MemoryUsage", true, true);
+    auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
     _profile->add_child(memory_usage, false, nullptr);
     _blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
     _bytes_received_counter = ADD_COUNTER(_profile, "BytesReceived", TUnit::BYTES);

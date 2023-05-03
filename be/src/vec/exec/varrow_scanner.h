@@ -17,22 +17,38 @@
 
 #pragma once
 
-#include <arrow/array.h>
-#include <exec/arrow/arrow_reader.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <map>
 #include <memory>
-#include <sstream>
-#include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
-#include "exec/arrow/parquet_reader.h"
 #include "exec/base_scanner.h"
-#include "gen_cpp/Types_types.h"
 #include "io/file_factory.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
+
+namespace arrow {
+class RecordBatch;
+} // namespace arrow
+namespace doris {
+class ArrowReaderWrap;
+class RuntimeState;
+class SlotDescriptor;
+class TBrokerRangeDesc;
+class TBrokerScanRangeParams;
+class TExpr;
+class TNetworkAddress;
+
+namespace io {
+class FileSystem;
+} // namespace io
+namespace vectorized {
+class Block;
+} // namespace vectorized
+struct Statistics;
+} // namespace doris
 
 namespace doris::vectorized {
 

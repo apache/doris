@@ -17,21 +17,51 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <string.h>
+
+#include <algorithm>
+#include <mutex>
+#include <ostream>
+#include <variant>
+
+#include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/status.h"
+#include "exec/olap_utils.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/types.h"
 #include "vec/exec/scan/pip_scanner_context.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/exec/scan/vscanner.h"
 #include "vec/exprs/vcompound_pred.h"
-#include "vec/exprs/vdirect_in_predicate.h"
+#include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/in.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -67,7 +97,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _state = state;
     _is_pipeline_scan = state->enable_pipeline_exec();
-    _shared_scan_opt = state->shared_scan_opt();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -82,7 +111,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(_register_runtime_filter());
-    RETURN_IF_ERROR(_init_profile());
 
     return Status::OK();
 }
@@ -91,14 +119,16 @@ Status VScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
     // init profile for runtime filter
+    std::stringstream ss;
     for (auto& rf_ctx : _runtime_filter_ctxs) {
         rf_ctx.runtime_filter->init_profile(_runtime_profile.get());
+        ss << rf_ctx.runtime_filter->get_name() << ", ";
     }
+    _runtime_profile->add_info_string("RuntimeFilters: ", ss.str());
 
     if (_is_pipeline_scan) {
         if (_shared_scan_opt) {
-            _shared_scanner_controller =
-                    state->get_query_fragments_ctx()->get_shared_scanner_controller();
+            _shared_scanner_controller = state->get_query_ctx()->get_shared_scanner_controller();
             auto [should_create_scanner, queue_id] =
                     _shared_scanner_controller->should_build_scanner_and_queue_id(id());
             _should_create_scanner = should_create_scanner;
@@ -109,6 +139,17 @@ Status VScanNode::prepare(RuntimeState* state) {
         }
     }
 
+    // 1: running at not pipeline mode will init profile.
+    // 2: the scan node should create scanner at pipeline mode will init profile.
+    // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
+    // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
+    if (!_is_pipeline_scan || _should_create_scanner) {
+        RETURN_IF_ERROR(_init_profile());
+    }
+    // if you want to add some profile in scan node, even it have not new VScanner object
+    // could add here, not in the _init_profile() function
+    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
+    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
     return Status::OK();
 }
 
@@ -224,14 +265,12 @@ Status VScanNode::_init_profile() {
     _total_throughput_counter =
             runtime_profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
-    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
-    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
 
     // 2. counters for scanners
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
-    auto* memory_usage = _scanner_profile->create_child("MemoryUsage", true, true);
+    auto* memory_usage = _scanner_profile->create_child("PeakMemoryUsage", true, true);
     _runtime_profile->add_child(memory_usage, false, nullptr);
     _queued_blocks_memory_usage =
             memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
@@ -259,15 +298,15 @@ Status VScanNode::_init_profile() {
     return Status::OK();
 }
 
-Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
+Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners) {
     if (_is_pipeline_scan) {
-        _scanner_ctx.reset(new pipeline::PipScannerContext(_state, this, _input_tuple_desc,
-                                                           _output_tuple_desc, scanners, limit(),
-                                                           _state->query_options().mem_limit / 20));
+        _scanner_ctx = pipeline::PipScannerContext::create_shared(
+                _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
+                _state->query_options().mem_limit / 20, _col_distribute_ids);
     } else {
-        _scanner_ctx.reset(new ScannerContext(_state, this, _input_tuple_desc, _output_tuple_desc,
-                                              scanners, limit(),
-                                              _state->query_options().mem_limit / 20));
+        _scanner_ctx = ScannerContext::create_shared(_state, this, _input_tuple_desc,
+                                                     _output_tuple_desc, scanners, limit(),
+                                                     _state->query_options().mem_limit / 20);
     }
     RETURN_IF_ERROR(_scanner_ctx->init());
     return Status::OK();
@@ -280,10 +319,23 @@ Status VScanNode::_register_runtime_filter() {
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
-        RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_filter(
-                RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id()));
-        RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
-                                                                         &runtime_filter));
+        if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
+            DCHECK(filter_desc.type == TRuntimeFilterType::BLOOM && filter_desc.has_remote_targets);
+            // Optimize merging phase iff:
+            // 1. All BE and FE has been upgraded (e.g. opt_remote_rf)
+            // 2. This filter is bloom filter (only bloom filter should be used for merging)
+            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_filter(
+                    RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id(),
+                    false));
+            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
+                    filter_desc.filter_id, &runtime_filter));
+        } else {
+            RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_filter(
+                    RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id(),
+                    false));
+            RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
+                                                                             &runtime_filter));
+        }
         _runtime_filter_ctxs.emplace_back(runtime_filter);
         _runtime_filter_ready_flag.emplace_back(false);
     }
@@ -309,13 +361,6 @@ Status VScanNode::_acquire_runtime_filter(bool wait) {
     std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
-        // If all targets are local, scan node will use hash node's runtime filter, and we don't
-        // need to allocate memory again
-        if (runtime_filter->has_remote_target()) {
-            if (auto bf = runtime_filter->get_bloomfilter()) {
-                RETURN_IF_ERROR(bf->init_with_fixed_length());
-            }
-        }
         bool ready = runtime_filter->is_ready();
         if (!ready && wait) {
             ready = runtime_filter->await();
@@ -376,14 +421,14 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
         texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
         texpr_node.__set_fn(fn);
         texpr_node.__set_is_nullable(last_expr->is_nullable() || vexprs[j]->is_nullable());
-        VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
+        VExpr* new_node = _pool->add(VcompoundPred::create_unique(texpr_node).release());
         new_node->add_child(last_expr);
         DCHECK((vexprs[j])->get_impl() != nullptr);
         new_node->add_child(vexprs[j]);
         last_expr = new_node;
         _rf_vexpr_set.insert(vexprs[j]);
     }
-    auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
+    auto new_vconjunct_ctx_ptr = _pool->add(VExprContext::create_unique(last_expr).release());
     if (_vconjunct_ctx_ptr) {
         (*_vconjunct_ctx_ptr)->clone_fn_contexts(new_vconjunct_ctx_ptr);
     }
@@ -428,7 +473,6 @@ void VScanNode::release_resource(RuntimeState* state) {
     if (_common_vexpr_ctxs_pushdown) {
         (*_common_vexpr_ctxs_pushdown)->close(state);
     }
-    _scanner_pool.clear();
 
     ExecNode::release_resource(state);
 }
@@ -630,6 +674,16 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                 *output_expr = conjunct_expr_root;
                 return Status::OK();
             } else {
+                if (left_child == nullptr) {
+                    conjunct_expr_root->children()[0]->close(
+                            _state, *_vconjunct_ctx_ptr,
+                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                }
+                if (right_child == nullptr) {
+                    conjunct_expr_root->children()[1]->close(
+                            _state, *_vconjunct_ctx_ptr,
+                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
                 conjunct_expr_root->close(_state, *_vconjunct_ctx_ptr,
@@ -1283,7 +1337,8 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
             ++current_arrived_rf_num;
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
-            _runtime_filter_ctxs[i].runtime_filter->get_prepared_vexprs(&vexprs, _row_descriptor);
+            _runtime_filter_ctxs[i].runtime_filter->get_prepared_vexprs(&vexprs, _row_descriptor,
+                                                                        _state);
             ++current_arrived_rf_num;
             _runtime_filter_ctxs[i].apply_mark = true;
         }
@@ -1355,7 +1410,7 @@ VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* 
 }
 
 Status VScanNode::_prepare_scanners() {
-    std::list<VScanner*> scanners;
+    std::list<VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     if (scanners.empty()) {
         _eos = true;

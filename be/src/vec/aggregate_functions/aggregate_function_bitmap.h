@@ -17,17 +17,34 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <string>
 #include <vector>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

@@ -174,9 +174,9 @@ PROPERTIES (
 | 22           | clickhouse-jdbc-0.3.2-patch11-all.jar |
 | 22           | clickhouse-jdbc-0.4.1-all.jar         |
 
-#### 6.Sap_Hana测试
+#### 6.Sap Hana测试
 
-| Sap_Hana版本 | Sap_Hana JDBC驱动版本 |
+| Sap Hana版本 | Sap Hana JDBC驱动版本 |
 |------------|-------------------|
 | 2.0        | ngdbc.jar         |
 
@@ -200,6 +200,64 @@ PROPERTIES (
     "table_type"="sap_hana"
 );
 ```
+
+#### 7.Trino测试
+
+| Trino版本 | Trino JDBC驱动版本     |
+|----------|--------------------|
+| 389      | trino-jdbc-389.jar |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_trino
+properties (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:trino://localhost:8080/hive",
+    "driver_url" = "file:///path/to/trino-jdbc-389.jar",
+    "driver_class" = "io.trino.jdbc.TrinoDriver"
+);
+
+CREATE EXTERNAL TABLE `ext_trino` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_trino",
+    "table" = "hive.test",
+    "table_type"="trino"
+);
+```
+
+#### 8.OceanBase测试
+
+| OceanBase 版本 | OceanBase JDBC驱动版本 |
+|--------------|--------------------|
+| 3.2.3        | oceanbase-client-2.4.2.jar |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_oceanbase
+properties (
+    "type"="jdbc",
+    "user"="root",
+    "password"="",
+    "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
+    "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
+    "oceanbase_mode" = "mysql" or "oracle"
+);
+
+CREATE EXTERNAL TABLE `ext_oceanbase` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_oceanbase",
+    "table" = "test.test",
+    "table_type"="oceanbase"
+);
+```
+> **注意：**
+>
+> 在创建OceanBase外表时，只需在创建Resource时指定`oceanbase_mode`参数，创建外表的table_type为oceanbase。
 
 ## 类型匹配
 
@@ -317,6 +375,30 @@ PROPERTIES (
 |  SHORTTEXT   |        TEXT         |
 |     CHAR     |        CHAR         |
 |    NCHAR     |        CHAR         |
+
+### Trino
+
+|   Trino   |        Doris        |
+|:---------:|:-------------------:|
+|  boolean  |       BOOLEAN       |
+|  tinyint  |       TINYINT       |
+| smallint  |      SMALLINT       |
+|  integer  |         INT         |
+|  bigint   |       BIGINT        |
+|  decimal  |  DECIMAL/DECIMALV3  |
+|   real    |        FLOAT        |
+|  double   |       DOUBLE        |
+|   date    |     DATE/DATEV2     |
+| timestamp | DATETIME/DATETIMEV2 |
+|  varchar  |        TEXT         |
+|   char    |        CHAR         |
+|   array   |        ARRAY        |
+|  others   |     UNSUPPORTED     |
+
+### OceanBase
+
+MySQL 模式请参考 [MySQL类型映射](#MySQL)
+Oracle 模式请参考 [Oracle类型映射](#Oracle)
 
 ## Q&A
 

@@ -20,8 +20,25 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <ostream>
+#include <string>
+
+#include "runtime/define_primitive_type.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -68,6 +85,9 @@ public:
 
     bool have_subtypes() const override { return false; }
     bool cannot_be_stored_in_tables() const override { return true; }
+    DataTypeSerDeSPtr get_serde() const override {
+        LOG(FATAL) << get_name() << " not support serde";
+    };
 };
 
 } // namespace doris::vectorized

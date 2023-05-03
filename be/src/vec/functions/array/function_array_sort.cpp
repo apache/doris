@@ -17,6 +17,8 @@
 
 #include "vec/functions/array/function_array_sort.h"
 
+#include <algorithm>
+
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {

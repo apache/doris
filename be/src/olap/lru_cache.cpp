@@ -4,17 +4,14 @@
 
 #include "olap/lru_cache.h"
 
-#include <rapidjson/document.h>
-#include <stdio.h>
 #include <stdlib.h>
 
+#include <mutex>
+#include <new>
 #include <sstream>
 #include <string>
 
 #include "gutil/bits.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/utils.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 
@@ -373,6 +370,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     // The memory of the parameter value should be recorded in the tls mem tracker,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
     THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
+    DorisMetrics::instance()->lru_cache_memory_bytes->increment(e->bytes);
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);

@@ -21,8 +21,8 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -86,12 +86,10 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                    logicalProject(
-                        logicalFilter(
-                            logicalAggregate(
-                                logicalOlapScan()
-                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))
-                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(a1, new TinyIntLiteral((byte) 0)))))));
+                    logicalFilter(
+                        logicalAggregate(
+                            logicalOlapScan()
+                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))));
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
         a1 = new SlotReference(
@@ -100,7 +98,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias value = new Alias(new ExprId(3), a1, "value");
         PlanChecker.from(connectContext).analyze(sql)
-                .applyBottomUp(new ExpressionRewrite(TypeCoercion.INSTANCE))
+                .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
                 .matchesFromRoot(
                     logicalProject(
                         logicalFilter(
@@ -111,14 +109,13 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
-                .applyBottomUp(new ExpressionRewrite(TypeCoercion.INSTANCE))
+                .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
                 .matchesFromRoot(
-                    logicalProject(
                         logicalFilter(
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value)))
-                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0)))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
 
         sql = "SELECT SUM(a2) FROM t1 GROUP BY a1 HAVING a1 > 0";
         a1 = new SlotReference(
@@ -131,7 +128,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
         PlanChecker.from(connectContext).analyze(sql)
-                .applyBottomUp(new ExpressionRewrite(TypeCoercion.INSTANCE))
+                .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
                 .matchesFromRoot(
                     logicalProject(
                         logicalFilter(
@@ -197,12 +194,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                    logicalProject(
                         logicalFilter(
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
-                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), Literal.of(0L)))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), Literal.of(0L))))));
 
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
         a1 = new SlotReference(

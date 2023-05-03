@@ -30,12 +30,15 @@ public class AnalysisTaskInfoBuilder {
     private String catalogName;
     private String dbName;
     private String tblName;
-    private String colName;
     private Set<String> partitionNames;
+    private String colName;
     private Long indexId;
     private JobType jobType;
     private AnalysisMethod analysisMethod;
     private AnalysisType analysisType;
+    private int maxBucketNum;
+    private int samplePercent;
+    private int sampleRows;
     private String message;
     private int lastExecTimeInMs;
     private AnalysisState state;
@@ -66,13 +69,13 @@ public class AnalysisTaskInfoBuilder {
         return this;
     }
 
-    public AnalysisTaskInfoBuilder setColName(String colName) {
-        this.colName = colName;
+    public AnalysisTaskInfoBuilder setPartitionNames(Set<String> partitionNames) {
+        this.partitionNames = partitionNames;
         return this;
     }
 
-    public AnalysisTaskInfoBuilder setPartitionNames(Set<String> partitionNames) {
-        this.partitionNames = partitionNames;
+    public AnalysisTaskInfoBuilder setColName(String colName) {
+        this.colName = colName;
         return this;
     }
 
@@ -93,6 +96,21 @@ public class AnalysisTaskInfoBuilder {
 
     public AnalysisTaskInfoBuilder setAnalysisType(AnalysisType analysisType) {
         this.analysisType = analysisType;
+        return this;
+    }
+
+    public AnalysisTaskInfoBuilder setMaxBucketNum(int maxBucketNum) {
+        this.maxBucketNum = maxBucketNum;
+        return this;
+    }
+
+    public AnalysisTaskInfoBuilder setSamplePercent(int samplePercent) {
+        this.samplePercent = samplePercent;
+        return this;
+    }
+
+    public AnalysisTaskInfoBuilder setSampleRows(int sampleRows) {
+        this.sampleRows = sampleRows;
         return this;
     }
 
@@ -117,7 +135,30 @@ public class AnalysisTaskInfoBuilder {
     }
 
     public AnalysisTaskInfo build() {
-        return new AnalysisTaskInfo(jobId, taskId, catalogName, dbName, tblName, colName, partitionNames,
-                indexId, jobType, analysisMethod, analysisType, message, lastExecTimeInMs, state, scheduleType);
+        return new AnalysisTaskInfo(jobId, taskId, catalogName, dbName, tblName, partitionNames,
+                colName, indexId, jobType, analysisMethod, analysisType, samplePercent,
+                sampleRows, maxBucketNum, message, lastExecTimeInMs, state, scheduleType);
+    }
+
+    public AnalysisTaskInfoBuilder copy() {
+        return new AnalysisTaskInfoBuilder()
+                .setJobId(jobId)
+                .setTaskId(taskId)
+                .setCatalogName(catalogName)
+                .setDbName(dbName)
+                .setTblName(tblName)
+                .setPartitionNames(partitionNames)
+                .setColName(colName)
+                .setIndexId(indexId)
+                .setJobType(jobType)
+                .setAnalysisMethod(analysisMethod)
+                .setAnalysisType(analysisType)
+                .setSamplePercent(samplePercent)
+                .setSampleRows(sampleRows)
+                .setMaxBucketNum(maxBucketNum)
+                .setMessage(message)
+                .setLastExecTimeInMs(lastExecTimeInMs)
+                .setState(state)
+                .setScheduleType(scheduleType);
     }
 }

@@ -15,14 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <cstdint>
-#include <functional>
+#include "olap/rowset/segment_v2/bloom_filter.h"
 
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/strings/substitute.h"
+#include <gen_cpp/segment_v2.pb.h>
+#include <math.h>
+
+#include <cstdint>
+#include <memory>
+
+#include "common/status.h"
 #include "olap/rowset/segment_v2/block_split_bloom_filter.h"
 #include "olap/rowset/segment_v2/ngram_bloom_filter.h"
-#include "olap/utils.h"
 
 namespace doris {
 namespace segment_v2 {

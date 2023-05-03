@@ -17,14 +17,29 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <algorithm>
+#include <vector>
+
 #include "common/status.h"
 #include "olap/tablet.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "vec/exprs/vexpr_context.h"
+#include "util/stopwatch.hpp"
+#include "vec/core/block.h"
+
+namespace doris {
+class RuntimeProfile;
+class TupleDescriptor;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
-class Block;
 class VScanNode;
 
 // Counter for load
@@ -48,6 +63,8 @@ public:
     Status get_block(RuntimeState* state, Block* block, bool* eos);
 
     virtual Status close(RuntimeState* state);
+
+    virtual std::string get_name() { return ""; }
 
 protected:
     // Subclass should implement this to return data.
@@ -188,5 +205,7 @@ protected:
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
 };
+
+using VScannerSPtr = std::shared_ptr<VScanner>;
 
 } // namespace doris::vectorized

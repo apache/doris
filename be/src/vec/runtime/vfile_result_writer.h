@@ -17,12 +17,34 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <iosfwd>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "io/fs/file_writer.h"
+#include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/runtime/vparquet_writer.h"
-#include "vec/sink/vresult_sink.h"
+#include "vec/sink/vresult_writer.h"
+
+namespace doris {
+class BufferControlBlock;
+class RuntimeState;
+
+namespace vectorized {
+class VExprContext;
+struct ResultFileOptions;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
-class VFileWriterWrapper;
 
 // write result to file
 class VFileResultWriter final : public VResultWriter {

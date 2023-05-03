@@ -16,19 +16,30 @@
 // under the License.
 #pragma once
 
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
-#include "io/fs/file_reader.h"
-#include "io/fs/file_writer.h"
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <map>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/factory_creator.h"
+#include "common/status.h"
+#include "io/fs/file_reader_options.h"
+#include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
 namespace io {
 class FileSystem;
-class FileReaderOptions;
+class FileWriter;
 } // namespace io
 class ExecEnv;
-class TNetworkAddress;
 class RuntimeProfile;
+class RuntimeState;
 
 struct FileSystemProperties {
     TFileType::type system_type;
@@ -44,6 +55,8 @@ struct FileDescription {
 };
 
 class FileFactory {
+    ENABLE_FACTORY_CREATOR(FileFactory);
+
 public:
     static io::FileCachePolicy get_cache_policy(RuntimeState* state);
 

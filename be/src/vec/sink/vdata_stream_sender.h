@@ -17,36 +17,54 @@
 
 #pragma once
 
-#include <memory>
+#include <brpc/controller.h>
+#include <butil/errno.h>
+#include <fmt/format.h>
+#include <gen_cpp/Partitions_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <stdint.h>
 
+#include <atomic>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/config.h"
 #include "common/global_types.h"
+#include "common/logging.h"
+#include "common/status.h"
 #include "exec/data_sink.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/data.pb.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "pipeline/exec/exchange_sink_buffer.h"
-#include "runtime/descriptors.h"
 #include "service/backend_options.h"
 #include "util/ref_count_closure.h"
+#include "util/runtime_profile.h"
 #include "util/uid_util.h"
-#include "vec/exprs/vexpr.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
 class ObjectPool;
 class RuntimeState;
-class RuntimeProfile;
-class BufferControlBlock;
 class MemTracker;
+class RowDescriptor;
+class TDataSink;
+class TDataStreamSink;
+class TPlanFragmentDestination;
+
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
 
 namespace pipeline {
 class ExchangeSinkOperator;
 }
 
 namespace vectorized {
-class VExprContext;
 class Channel;
 
 template <typename T>
@@ -426,6 +444,9 @@ public:
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
     Status send_block(PBlock* block, bool eos = false) override {
+        std::unique_ptr<PBlock> pblock_ptr;
+        pblock_ptr.reset(block);
+
         if (eos) {
             if (_eos_send) {
                 return Status::OK();
@@ -434,8 +455,7 @@ public:
             }
         }
         if (eos || block->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block(
-                    {this, block ? std::make_unique<PBlock>(*block) : nullptr, eos}));
+            RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos}));
         }
         return Status::OK();
     }
@@ -460,15 +480,14 @@ public:
             return send_local_block(eos);
         }
 
-        PBlock* block_ptr = nullptr;
+        auto block_ptr = std::make_unique<PBlock>();
         if (_mutable_block) {
-            block_ptr = new PBlock(); // TODO: need a pool of PBlock()
             auto block = _mutable_block->to_block();
-            RETURN_IF_ERROR(_parent->serialize_block(&block, block_ptr));
+            RETURN_IF_ERROR(_parent->serialize_block(&block, block_ptr.get()));
             block.clear_column_data();
             _mutable_block->set_muatable_columns(block.mutate_columns());
         }
-        RETURN_IF_ERROR(send_block(block_ptr, eos));
+        RETURN_IF_ERROR(send_block(block_ptr.release(), eos));
         return Status::OK();
     }
 

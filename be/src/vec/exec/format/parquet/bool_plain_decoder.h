@@ -17,8 +17,23 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"
+#include "util/slice.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/decoder.h"
+
+namespace doris {
+namespace vectorized {
+class ColumnSelectVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 /// Decoder bit-packed boolean-encoded values.
@@ -38,6 +53,10 @@ public:
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter) override;
+
+    template <bool has_filter>
+    Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                          ColumnSelectVector& select_vector, bool is_dict_filter);
 
     Status skip_values(size_t num_values) override;
 

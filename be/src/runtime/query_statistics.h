@@ -17,15 +17,20 @@
 
 #pragma once
 
-#include <mutex>
+#include <stdint.h>
 
-#include "gen_cpp/data.pb.h"
+#include <map>
+#include <mutex>
+#include <unordered_map>
+#include <utility>
+
 #include "util/spinlock.h"
 
 namespace doris {
 
-class QueryStatistics;
 class QueryStatisticsRecvr;
+class PNodeStatistics;
+class PQueryStatistics;
 
 class NodeStatistics {
 public:

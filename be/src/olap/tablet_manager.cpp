@@ -17,33 +17,55 @@
 
 #include "olap/tablet_manager.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <re2/re2.h>
+#include <unistd.h>
 
 #include <algorithm>
-#include <cstdint>
-#include <cstdio>
-#include <filesystem>
+#include <list>
+#include <ostream>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
+#include "gutil/integral_types.h"
 #include "gutil/strings/strcat.h"
-#include "olap/base_compaction.h"
-#include "olap/cumulative_compaction.h"
+#include "gutil/strings/substitute.h"
+#include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
-#include "olap/push_handler.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
-#include "rapidjson/prettywriter.h"
-#include "rapidjson/stringbuffer.h"
+#include "olap/tablet_schema.h"
+#include "olap/txn_manager.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/histogram.h"
+#include "util/metrics.h"
 #include "util/path_util.h"
 #include "util/scoped_cleanup.h"
+#include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"
+#include "util/uid_util.h"
+
+namespace doris {
+class CumulativeCompactionPolicy;
+} // namespace doris
 
 using std::list;
 using std::map;
@@ -61,7 +83,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTE
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
         : _mem_tracker(std::make_shared<MemTracker>(
                   "TabletManager", ExecEnv::GetInstance()->experimental_mem_tracker())),
-          _tablet_meta_mem_tracker(std::make_shared<MemTracker>("TabletMeta")),
+          _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
+                  "TabletMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);

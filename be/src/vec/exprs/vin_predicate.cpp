@@ -17,15 +17,28 @@
 
 #include "vec/exprs/vin_predicate.h"
 
-#include <string_view>
+#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <vector>
 
 #include "common/status.h"
-#include "exprs/create_predicate_function.h"
-#include "vec/columns/column_set.h"
-#include "vec/core/field.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 

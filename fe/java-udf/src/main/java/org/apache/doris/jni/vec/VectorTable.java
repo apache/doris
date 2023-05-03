@@ -17,6 +17,7 @@
 
 package org.apache.doris.jni.vec;
 
+import org.apache.doris.jni.utils.OffHeap;
 import org.apache.doris.jni.vec.ColumnType.Type;
 
 /**
@@ -24,12 +25,16 @@ import org.apache.doris.jni.vec.ColumnType.Type;
  */
 public class VectorTable {
     private final VectorColumn[] columns;
+    private final ColumnType[] columnTypes;
     private final String[] fields;
     private final ScanPredicate[] predicates;
     private final VectorColumn meta;
     private int numRows;
 
+    private final boolean isRestoreTable;
+
     public VectorTable(ColumnType[] types, String[] fields, ScanPredicate[] predicates, int capacity) {
+        this.columnTypes = types;
         this.fields = fields;
         this.columns = new VectorColumn[types.length];
         this.predicates = predicates;
@@ -40,13 +45,51 @@ public class VectorTable {
         }
         this.meta = new VectorColumn(new ColumnType("#meta", Type.BIGINT), metaSize);
         this.numRows = 0;
+        this.isRestoreTable = false;
+    }
+
+    public VectorTable(ColumnType[] types, String[] fields, long metaAddress) {
+        long address = metaAddress;
+        this.columnTypes = types;
+        this.fields = fields;
+        this.columns = new VectorColumn[types.length];
+        this.predicates = new ScanPredicate[0];
+
+        this.numRows = (int) OffHeap.getLong(null, address);
+        address += 8;
+        int metaSize = 1; // number of rows
+        for (int i = 0; i < types.length; i++) {
+            columns[i] = new VectorColumn(types[i], numRows, address);
+            metaSize += types[i].metaSize();
+            address += types[i].metaSize() * 8L;
+        }
+        this.meta = new VectorColumn(metaAddress, metaSize, new ColumnType("#meta", Type.BIGINT));
+        this.isRestoreTable = true;
     }
 
     public void appendData(int fieldId, ColumnValue o) {
+        assert (!isRestoreTable);
         columns[fieldId].appendValue(o);
     }
 
+    public VectorColumn[] getColumns() {
+        return columns;
+    }
+
+    public VectorColumn getColumn(int fieldId) {
+        return columns[fieldId];
+    }
+
+    public ColumnType[] getColumnTypes() {
+        return columnTypes;
+    }
+
+    public String[] getFields() {
+        return fields;
+    }
+
     public void releaseColumn(int fieldId) {
+        assert (!isRestoreTable);
         columns[fieldId].close();
     }
 
@@ -59,15 +102,18 @@ public class VectorTable {
     }
 
     public long getMetaAddress() {
-        meta.reset();
-        meta.appendLong(numRows);
-        for (VectorColumn c : columns) {
-            c.updateMeta(meta);
+        if (!isRestoreTable) {
+            meta.reset();
+            meta.appendLong(numRows);
+            for (VectorColumn c : columns) {
+                c.updateMeta(meta);
+            }
         }
         return meta.dataAddress();
     }
 
     public void reset() {
+        assert (!isRestoreTable);
         for (VectorColumn column : columns) {
             column.reset();
         }
@@ -75,6 +121,7 @@ public class VectorTable {
     }
 
     public void close() {
+        assert (!isRestoreTable);
         for (int i = 0; i < columns.length; i++) {
             releaseColumn(i);
         }

@@ -51,7 +51,7 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
 import com.google.common.collect.TreeRangeMap;
 import lombok.Data;
-import org.apache.commons.lang.math.NumberUtils;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.LocatedFileStatus;
@@ -59,7 +59,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
@@ -261,7 +260,7 @@ public class HiveMetaStoreCache {
                     sd.getInputFormat(), sd.getLocation(), key, catalog.getName());
         }
         // TODO: more info?
-        return new HivePartition(sd.getInputFormat(), sd.getLocation(), key.values);
+        return new HivePartition(key.dbName, key.tblName, false, sd.getInputFormat(), sd.getLocation(), key.values);
     }
 
     private FileCacheValue loadFiles(FileCacheKey key) {
@@ -285,7 +284,8 @@ public class HiveMetaStoreCache {
                 InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
                 // TODO: This is a temp config, will remove it after the HiveSplitter is stable.
                 if (key.useSelfSplitter) {
-                    result = HiveSplitter.getFileCache(new Path(finalLocation), inputFormat, jobConf);
+                    result = HiveSplitter.getFileCache(new Path(finalLocation), inputFormat,
+                        jobConf, key.getPartitionValues());
                 } else {
                     InputSplit[] splits;
                     String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
@@ -300,7 +300,7 @@ public class HiveMetaStoreCache {
                     // Convert the hadoop split to Doris Split.
                     for (int i = 0; i < splits.length; i++) {
                         org.apache.hadoop.mapred.FileSplit fs = ((org.apache.hadoop.mapred.FileSplit) splits[i]);
-                        result.addSplit(new FileSplit(fs.getPath(), fs.getStart(), fs.getLength(), -1, null));
+                        result.addSplit(new FileSplit(fs.getPath(), fs.getStart(), fs.getLength(), -1, null, null));
                     }
                 }
 
@@ -358,7 +358,14 @@ public class HiveMetaStoreCache {
     public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions, boolean useSelfSplitter) {
         long start = System.currentTimeMillis();
         List<FileCacheKey> keys = Lists.newArrayListWithExpectedSize(partitions.size());
-        partitions.stream().forEach(p -> keys.add(new FileCacheKey(p.getPath(), p.getInputFormat(), useSelfSplitter)));
+        partitions.stream().forEach(p -> {
+            FileCacheKey fileCacheKey = p.isDummyPartition()
+                    ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(), p.getPath(),
+                    p.getInputFormat(), useSelfSplitter)
+                    : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues());
+            fileCacheKey.setUseSelfSplitter(useSelfSplitter);
+            keys.add(fileCacheKey);
+        });
 
         Stream<FileCacheKey> stream;
         if (partitions.size() < MIN_BATCH_FETCH_PARTITION_NUM) {
@@ -368,7 +375,14 @@ public class HiveMetaStoreCache {
         }
         List<FileCacheValue> fileLists = stream.map(k -> {
             try {
-                return fileCacheRef.get().get(k);
+                FileCacheValue fileCacheValue = fileCacheRef.get().get(k);
+                // Replace default hive partition with a null_string.
+                for (int i = 0; i < fileCacheValue.getValuesSize(); i++) {
+                    if (HIVE_DEFAULT_PARTITION.equals(fileCacheValue.getPartitionValues().get(i))) {
+                        fileCacheValue.getPartitionValues().set(i, FeConstants.null_string);
+                    }
+                }
+                return fileCacheValue;
             } catch (ExecutionException e) {
                 throw new RuntimeException(e);
             }
@@ -412,7 +426,8 @@ public class HiveMetaStoreCache {
                 PartitionCacheKey partKey = new PartitionCacheKey(dbName, tblName, values);
                 HivePartition partition = partitionCache.getIfPresent(partKey);
                 if (partition != null) {
-                    fileCacheRef.get().invalidate(new FileCacheKey(partition.getPath(), null));
+                    fileCacheRef.get().invalidate(new FileCacheKey(partition.getPath(),
+                            null, partition.getPartitionValues()));
                     partitionCache.invalidate(partKey);
                 }
             }
@@ -425,12 +440,13 @@ public class HiveMetaStoreCache {
              * A file cache entry can be created reference to
              * {@link org.apache.doris.planner.external.HiveSplitter#getSplits},
              * so we need to invalidate it if this is a non-partitioned table.
-             *
+             * We use {@link org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheKey#createDummyCacheKey}
+             * to avoid invocation by Hms Client, because this method may be invoked when salve FE replay journal logs,
+             * and FE will exit if some network problems occur.
              * */
-            Table table = catalog.getClient().getTable(dbName, tblName);
-            // we just need to assign the `location` filed because the `equals` method of `FileCacheKey`
-            // just compares the value of `location`
-            fileCacheRef.get().invalidate(new FileCacheKey(table.getSd().getLocation(), null));
+            FileCacheKey fileCacheKey = FileCacheKey.createDummyCacheKey(
+                    dbName, tblName, null, null, false);
+            fileCacheRef.get().invalidate(fileCacheKey);
         }
     }
 
@@ -443,7 +459,8 @@ public class HiveMetaStoreCache {
             PartitionCacheKey partKey = new PartitionCacheKey(dbName, tblName, values);
             HivePartition partition = partitionCache.getIfPresent(partKey);
             if (partition != null) {
-                fileCacheRef.get().invalidate(new FileCacheKey(partition.getPath(), null));
+                fileCacheRef.get().invalidate(new FileCacheKey(partition.getPath(),
+                        null, partition.getPartitionValues()));
                 partitionCache.invalidate(partKey);
             }
         }
@@ -685,23 +702,31 @@ public class HiveMetaStoreCache {
 
     @Data
     public static class FileCacheKey {
+        private String dummyKey;
         private String location;
         // not in key
         private String inputFormat;
         // Temp variable, use self file splitter or use InputFormat.getSplits.
         // Will remove after self splitter is stable.
         private boolean useSelfSplitter;
+        // The values of partitions.
+        // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
+        // partitionValues would be ["part1", "part2"]
+        protected List<String> partitionValues;
 
-        public FileCacheKey(String location, String inputFormat) {
+        public FileCacheKey(String location, String inputFormat, List<String> partitionValues) {
             this.location = location;
             this.inputFormat = inputFormat;
+            this.partitionValues = partitionValues == null ? Lists.newArrayList() : partitionValues;
             this.useSelfSplitter = true;
         }
 
-        public FileCacheKey(String location, String inputFormat, boolean useSelfSplitter) {
-            this.location = location;
-            this.inputFormat = inputFormat;
-            this.useSelfSplitter = useSelfSplitter;
+        public static FileCacheKey createDummyCacheKey(String dbName, String tblName, String location,
+                                                       String inputFormat, boolean useSelfSplitter) {
+            FileCacheKey fileCacheKey = new FileCacheKey(location, inputFormat, null);
+            fileCacheKey.dummyKey = dbName + "." + tblName;
+            fileCacheKey.useSelfSplitter = useSelfSplitter;
+            return fileCacheKey;
         }
 
         @Override
@@ -712,12 +737,19 @@ public class HiveMetaStoreCache {
             if (!(obj instanceof FileCacheKey)) {
                 return false;
             }
-            return location.equals(((FileCacheKey) obj).location);
+            if (dummyKey != null) {
+                return dummyKey.equals(((FileCacheKey) obj).dummyKey);
+            }
+            return location.equals(((FileCacheKey) obj).location)
+                && partitionValues.equals(((FileCacheKey) obj).partitionValues);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(location);
+            if (dummyKey != null) {
+                return Objects.hash(dummyKey);
+            }
+            return Objects.hash(location, partitionValues);
         }
 
         @Override
@@ -733,6 +765,10 @@ public class HiveMetaStoreCache {
         // File split cache for old splitter. This is a temp variable.
         private List<Split> splits;
         private boolean isSplittable;
+        // The values of partitions.
+        // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
+        // partitionValues would be ["part1", "part2"]
+        protected List<String> partitionValues;
 
         public void addFile(LocatedFileStatus file) {
             if (files == null) {
@@ -751,6 +787,10 @@ public class HiveMetaStoreCache {
                 splits = Lists.newArrayList();
             }
             splits.add(split);
+        }
+
+        public int getValuesSize() {
+            return partitionValues == null ? 0 : partitionValues.size();
         }
     }
 

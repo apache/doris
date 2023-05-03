@@ -17,13 +17,19 @@
 
 #include "olap/tablet_meta_manager.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 #include <json2pb/json_to_pb.h>
 
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <memory>
+#include <new>
 #include <string>
+
+#include "gtest/gtest_pred_impl.h"
+#include "olap/data_dir.h"
 
 using std::string;
 

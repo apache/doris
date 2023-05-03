@@ -70,7 +70,7 @@ public:
         // If the page is full, should stop adding more items.
         while (!is_page_full() && i < *count) {
             auto src = reinterpret_cast<const Slice*>(vals);
-            if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
+            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(src->data)));
                 }
@@ -220,7 +220,7 @@ public:
             const uint32_t start_offset = last_offset;
             last_offset = guarded_offset(_cur_idx + 1);
             offsets[i + 1] = last_offset;
-            if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
+            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + start_offset)));
                 }
@@ -228,7 +228,7 @@ public:
         }
         _cur_idx++;
         offsets[max_fetch] = offset(_cur_idx);
-        if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
+        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
             if (_options.need_check_bitmap) {
                 RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
             }

@@ -17,18 +17,31 @@
 
 #include "runtime/load_path_mgr.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <string.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
+#include <algorithm>
 #include <boost/algorithm/string/join.hpp>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <memory>
+#include <ostream>
 #include <string>
 
-#include "gen_cpp/Types_types.h"
+#include "common/config.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
+#include "olap/options.h"
 #include "runtime/exec_env.h"
+#include "util/thread.h"
 
 namespace doris {
 using namespace ErrorCode;
