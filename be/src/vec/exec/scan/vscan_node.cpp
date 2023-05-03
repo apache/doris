@@ -617,23 +617,23 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                                         is_runtimer_filter_predicate);
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
-                                    cur_expr, *_vconjunct_ctx_ptr, slot, value_range, &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
-                                    cur_expr, *_vconjunct_ctx_ptr, slot, value_range, &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
-                                    cur_expr, *_vconjunct_ctx_ptr, slot, value_range, &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
-                                    cur_expr, *_vconjunct_ctx_ptr, slot, value_range, &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_match_predicate(
-                                    cur_expr, *_vconjunct_ctx_ptr, slot, value_range, &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             if (_is_key_column(slot->col_name())) {
                                 RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
-                                        cur_expr, *_vconjunct_ctx_ptr, slot, &pdt));
+                                        cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
                                 RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
-                                        cur_expr, *_vconjunct_ctx_ptr, slot, &pdt));
+                                        cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
                                 if (_state->enable_function_pushdown()) {
                                     RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                            cur_expr, *_vconjunct_ctx_ptr, slot, &pdt));
+                                            cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
                                 }
                             }
                         },
