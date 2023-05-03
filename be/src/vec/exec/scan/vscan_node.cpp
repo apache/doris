@@ -642,7 +642,7 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
 
             if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, *_vconjunct_ctx_ptr, &pdt,
+                _normalize_compound_predicate(cur_expr, _vconjunct_ctx_ptr, &pdt,
                                               is_runtimer_filter_predicate, in_predicate_checker,
                                               eq_predicate_checker);
                 *output_expr = conjunct_expr_root; // remaining in conjunct tree
