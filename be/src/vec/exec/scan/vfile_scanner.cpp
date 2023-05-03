@@ -127,11 +127,10 @@ Status VFileScanner::prepare(
                                               std::vector<bool>({false})));
         // prepare pre filters
         if (_params.__isset.pre_filter_exprs) {
-            _pre_conjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
             RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(
-                    _state->obj_pool(), _params.pre_filter_exprs, _pre_conjunct_ctx_ptr.get()));
-            RETURN_IF_ERROR((*_pre_conjunct_ctx_ptr)->prepare(_state, *_src_row_desc));
-            RETURN_IF_ERROR((*_pre_conjunct_ctx_ptr)->open(_state));
+                    _state->obj_pool(), _params.pre_filter_exprs, &_pre_conjunct_ctx_ptr));
+            RETURN_IF_ERROR(_pre_conjunct_ctx_ptr->prepare(_state, *_src_row_desc));
+            RETURN_IF_ERROR(_pre_conjunct_ctx_ptr->open(_state));
         }
     }
 
@@ -851,7 +850,7 @@ Status VFileScanner::close(RuntimeState* state) {
     }
 
     if (_pre_conjunct_ctx_ptr) {
-        (*_pre_conjunct_ctx_ptr)->close(state);
+        _pre_conjunct_ctx_ptr->close(state);
     }
 
     if (_push_down_expr) {
