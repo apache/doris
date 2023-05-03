@@ -127,17 +127,6 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
     return Block::filter_block(block, result_column_id, column_to_keep);
 }
 
-Status VExprContext::filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr, Block* block,
-                                  int column_to_keep) {
-    if (vexpr_ctx_ptr == nullptr || block->rows() == 0) {
-        return Status::OK();
-    }
-    DCHECK((*vexpr_ctx_ptr) != nullptr);
-    int result_column_id = -1;
-    RETURN_IF_ERROR((*vexpr_ctx_ptr)->execute(block, &result_column_id));
-    return Block::filter_block(block, result_column_id, column_to_keep);
-}
-
 Block VExprContext::get_output_block_after_execute_exprs(
         const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs, const Block& input_block,
         Status& status) {
