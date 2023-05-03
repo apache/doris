@@ -269,7 +269,6 @@ protected:
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
     doris::Mutex _rf_locks;
-    std::map<int, RuntimeFilterContext*> _conjunct_id_to_runtime_filter_ctxs;
     phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;
