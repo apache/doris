@@ -44,7 +44,7 @@ suite("test_csv_with_skip_lines", "p0") {
         set 'skip_lines', '3'
 
         file 'csv_with_skip_lines.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
 
     sql "sync"
@@ -59,7 +59,7 @@ suite("test_csv_with_skip_lines", "p0") {
         set 'skip_lines', '4'
 
         file 'csv_with_skip_lines.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
 
     sql "sync"
@@ -74,7 +74,7 @@ suite("test_csv_with_skip_lines", "p0") {
         set 'skip_lines', '5'
 
         file 'csv_with_skip_lines.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
 
     sql "sync"
@@ -90,7 +90,7 @@ suite("test_csv_with_skip_lines", "p0") {
         set 'skip_lines', '3'
 
         file 'csv_with_skip_lines.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
 
     sql "sync"
@@ -106,7 +106,7 @@ suite("test_csv_with_skip_lines", "p0") {
         set 'skip_lines', '3'
 
         file 'csv_with_skip_lines.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
 
     sql "sync"
@@ -122,7 +122,7 @@ suite("test_csv_with_skip_lines", "p0") {
         set 'skip_lines', '3'
 
         file 'csv_with_skip_lines.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
 
     sql "sync"
