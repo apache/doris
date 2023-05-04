@@ -808,11 +808,13 @@ public class StmtRewriter {
             if (expr instanceof ExistsPredicate) {
                 joinOp = ((ExistsPredicate) expr).isNotExists() ? JoinOperator.LEFT_ANTI_JOIN :
                         JoinOperator.LEFT_SEMI_JOIN;
-            } else if (expr instanceof InPredicate && joinConjunct instanceof FunctionCallExpr
-                    && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
-                    .equalsIgnoreCase(BITMAP_CONTAINS))) {
+            } else if (expr instanceof InPredicate && !(joinConjunct instanceof BitmapFilterPredicate)) {
                 joinOp = ((InPredicate) expr).isNotIn() ? JoinOperator.LEFT_ANTI_JOIN : JoinOperator.LEFT_SEMI_JOIN;
-                isInBitmap = true;
+                if ((joinConjunct instanceof FunctionCallExpr
+                        && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
+                        .equalsIgnoreCase(BITMAP_CONTAINS)))) {
+                    isInBitmap = true;
+                }
             } else {
                 joinOp = JoinOperator.CROSS_JOIN;
                 // We can equal the aggregate subquery using a cross join. All conjuncts
