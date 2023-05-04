@@ -21,6 +21,7 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 
@@ -49,6 +50,10 @@ static IAggregateFunction* create_aggregate_function_min_max_by_impl(
     }
     if (which.idx == TypeIndex::DateV2) {
         return new AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt32>>, false>(
+                value_arg_type, key_arg_type);
+    }
+    if (which.idx == TypeIndex::DateTimeV2) {
+        return new AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt64>>, false>(
                 value_arg_type, key_arg_type);
     }
     if (which.idx == TypeIndex::Decimal32) {
@@ -103,6 +108,11 @@ static IAggregateFunction* create_aggregate_function_min_max_by(const String& na
                                                          SingleValueDataFixed<UInt32>>(
                 argument_types);
     }
+    if (which.idx == TypeIndex::DateTimeV2) {
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<UInt64>>(
+                argument_types);
+    }
     if (which.idx == TypeIndex::Decimal128) {
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
                                                          SingleValueDataDecimal<Decimal128>>(
@@ -121,16 +131,6 @@ static IAggregateFunction* create_aggregate_function_min_max_by(const String& na
     if (which.idx == TypeIndex::Decimal128I) {
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
                                                          SingleValueDataDecimal<Decimal128I>>(
-                argument_types);
-    }
-    if (which.idx == TypeIndex::DateV2) {
-        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<UInt32>>(
-                argument_types);
-    }
-    if (which.idx == TypeIndex::DateTimeV2) {
-        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<UInt64>>(
                 argument_types);
     }
     return nullptr;
