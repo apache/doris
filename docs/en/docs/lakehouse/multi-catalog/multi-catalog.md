@@ -301,6 +301,18 @@ Access from Doris to databases and tables in an External Catalog is not under th
 
 Along with the new Multi-Catalog feature, we also added privilege management at the Catalog level (See [Privilege Management](https://doris.apache.org/docs/dev/admin-manual/privilege-ldap/user-privilege/) for details).
 
+## Database synchronizing management
+
+Setting `include_database_list` and `exclude_database_list` in Catalog properties to specify databases to synchronize.
+
+`include_database_list`: Only synchronize the specified databases. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+
+`exclude_database_list`: Specify databases that do not need to synchronize. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+
+> When `include_database_list` and `exclude_database_list` specify overlapping databases, `exclude_database_list` would take effect with higher privilege over `include_database_list`.
+>
+> To connect JDBC, these two properties should work with `only_specified_database`, see [JDBC](./jdbc.md) for more detail.
+
 ## Metadata Update
 
 ### Manual Update

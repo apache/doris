@@ -303,6 +303,18 @@ select k1, k4 from table;           // Query OK.
 
 Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参阅 [权限管理](../../admin-manual/privilege-ldap/user-privilege.md) 文档。
 
+## 指定需要同步的数据库
+
+通过在 Catalog 配置中设置 `include_database_list` 和 `exclude_database_list` 可以指定需要同步的数据库。
+
+`include_database_list`: 支持只同步指定的多个database，以','分隔。默认为''，同步所有database。db名称是大小写敏感的。
+
+`exclude_database_list`: 支持指定不需要同步的多个database，以','分割。默认为''，即不做任何过滤，同步所有database。db名称是大小写敏感的。
+
+> 当 `include_database_list` 和 `exclude_database_list` 有重合的database配置时，`exclude_database_list`会优先生效。
+>
+> 连接 JDBC 时，上述 2 个配置需要和配置 `only_specified_database` 搭配使用，详见 [JDBC](./jdbc.md)
+
 ## 元数据更新
 
 ### 手动刷新
