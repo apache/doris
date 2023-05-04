@@ -323,8 +323,8 @@ public class TestFoldConstantByFe implements MemoPatternMatchSupported {
                 .applyBottomUp(new ExpressionNormalization())
                 .matches(
                         logicalOneRowRelation().when(
-                                r -> r.getProjects().size() == 1 &&
-                                        r.getProjects().get(0).child(0).equals(new DateLiteral("2010-04-11"))
+                                r -> r.getProjects().size() == 1
+                                        && r.getProjects().get(0).child(0).equals(new DateLiteral("2010-04-11"))
                         )
                 );
 
@@ -334,8 +334,8 @@ public class TestFoldConstantByFe implements MemoPatternMatchSupported {
                 .applyBottomUp(new ExpressionNormalization())
                 .matches(
                         logicalOneRowRelation().when(
-                                r -> r.getProjects().size() == 1 &&
-                                        r.getProjects().get(0).child(0).equals(new BigIntLiteral(4))
+                                r -> r.getProjects().size() == 1
+                                        && r.getProjects().get(0).child(0).equals(new BigIntLiteral(4))
                         )
                 );
     }
