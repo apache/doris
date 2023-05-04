@@ -352,7 +352,8 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "from_days", argTypes = {"INT"}, returnType = "DATE")
     public static DateLiteral fromDays(IntegerLiteral n) {
-        return DateLiteral.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 0, 0).plusDays(n.getValue()));
+        return DateLiteral.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 0, 0)
+                .plusDays(n.getValue() - 1));
     }
 
     @ExecFunction(name = "last_day", argTypes = {"DATE"}, returnType = "DATE")
