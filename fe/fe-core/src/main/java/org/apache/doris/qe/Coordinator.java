@@ -96,7 +96,7 @@ import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
-import org.apache.doris.thrift.TRuntimeFilterTargetParams;
+import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -1357,8 +1357,8 @@ public class Coordinator {
 
                 // when left table is empty, it's bucketset is empty.
                 // set right table destination address to the address of left table
-                if (destParams.instanceExecParams.size() == 1
-                        && destParams.instanceExecParams.get(0).bucketSeqSet.isEmpty()) {
+                if (destParams.instanceExecParams.size() == 1 && (bucketNum == 0
+                        || destParams.instanceExecParams.get(0).bucketSeqSet.isEmpty())) {
                     bucketNum = 1;
                     destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
                 }
@@ -3122,12 +3122,24 @@ public class Coordinator {
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     for (Map.Entry<RuntimeFilterId, List<FRuntimeFilterTargetParam>> entry
                             : ridToTargetParam.entrySet()) {
-                        List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
+                        Map<TNetworkAddress, TRuntimeFilterTargetParamsV2> targetParams = new HashMap<>();
                         for (FRuntimeFilterTargetParam targetParam : entry.getValue()) {
-                            targetParams.add(new TRuntimeFilterTargetParams(targetParam.targetFragmentInstanceId,
-                                    targetParam.targetFragmentInstanceAddr));
+                            if (targetParams.containsKey(targetParam.targetFragmentInstanceAddr)) {
+                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
+                                        .add(targetParam.targetFragmentInstanceId);
+                            } else {
+                                targetParams.put(targetParam.targetFragmentInstanceAddr,
+                                        new TRuntimeFilterTargetParamsV2());
+                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_addr
+                                        = targetParam.targetFragmentInstanceAddr;
+                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
+                                        = new ArrayList<>();
+                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
+                                        .add(targetParam.targetFragmentInstanceId);
+                            }
                         }
-                        params.params.runtime_filter_params.putToRidToTargetParam(entry.getKey().asInt(), targetParams);
+                        params.params.runtime_filter_params.putToRidToTargetParamv2(entry.getKey().asInt(),
+                                new ArrayList<TRuntimeFilterTargetParamsV2>(targetParams.values()));
                     }
                     for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
                         params.params.runtime_filter_params.putToRuntimeFilterBuilderNum(
@@ -3197,12 +3209,25 @@ public class Coordinator {
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     for (Map.Entry<RuntimeFilterId, List<FRuntimeFilterTargetParam>> entry
                             : ridToTargetParam.entrySet()) {
-                        List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
+                        Map<TNetworkAddress, TRuntimeFilterTargetParamsV2> targetParams = new HashMap<>();
                         for (FRuntimeFilterTargetParam targetParam : entry.getValue()) {
-                            targetParams.add(new TRuntimeFilterTargetParams(targetParam.targetFragmentInstanceId,
-                                    targetParam.targetFragmentInstanceAddr));
+                            if (targetParams.containsKey(targetParam.targetFragmentInstanceAddr)) {
+                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
+                                        .add(targetParam.targetFragmentInstanceId);
+                            } else {
+                                targetParams.put(targetParam.targetFragmentInstanceAddr,
+                                        new TRuntimeFilterTargetParamsV2());
+                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_addr
+                                        = targetParam.targetFragmentInstanceAddr;
+                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
+                                        = new ArrayList<>();
+                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
+                                        .add(targetParam.targetFragmentInstanceId);
+                            }
                         }
-                        localParams.runtime_filter_params.putToRidToTargetParam(entry.getKey().asInt(), targetParams);
+
+                        localParams.runtime_filter_params.putToRidToTargetParamv2(entry.getKey().asInt(),
+                                new ArrayList<TRuntimeFilterTargetParamsV2>(targetParams.values()));
                     }
                     for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
                         localParams.runtime_filter_params.putToRuntimeFilterBuilderNum(

@@ -66,7 +66,6 @@ public class TwoPhaseReadOpt extends PlanPostProcessor {
     @Override
     public PhysicalTopN visitPhysicalTopN(PhysicalTopN<? extends Plan> mergeTopN, CascadesContext ctx) {
         mergeTopN.child().accept(this, ctx);
-        Plan child = mergeTopN.child();
         if (mergeTopN.getSortPhase() != SortPhase.MERGE_SORT || !(mergeTopN.child() instanceof PhysicalDistribute)) {
             return mergeTopN;
         }
@@ -92,6 +91,7 @@ public class TwoPhaseReadOpt extends PlanPostProcessor {
         PhysicalOlapScan olapScan;
         PhysicalProject<Plan> project = null;
         PhysicalFilter<Plan> filter = null;
+        Plan child = localTopN.child();
         while (child instanceof Project || child instanceof Filter) {
             if (child instanceof Filter) {
                 filter = (PhysicalFilter<Plan>) child;

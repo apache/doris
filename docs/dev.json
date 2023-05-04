@@ -79,6 +79,10 @@
     "message": "最佳实践",
     "description": "The label for category Best Practice in sidebar docs"
   },
+  "sidebar.docs.category.Query Acceleration": {
+    "message": "查询加速",
+    "description": "The label for category Query Acceleration in sidebar docs"
+  },
   "sidebar.docs.category.Ecosystem": {
     "message": "生态扩展",
     "description": "The label for category Ecosystem in sidebar docs"

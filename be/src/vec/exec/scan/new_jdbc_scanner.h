@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 
+#include "common/factory_creator.h"
 #include "common/global_types.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
@@ -39,6 +40,8 @@ class NewJdbcScanNode;
 class VExprContext;
 
 class NewJdbcScanner : public VScanner {
+    ENABLE_FACTORY_CREATOR(NewJdbcScanner);
+
 public:
     friend class JdbcConnector;
 

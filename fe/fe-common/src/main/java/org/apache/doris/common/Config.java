@@ -1440,6 +1440,20 @@ public class Config extends ConfigBase {
     public static boolean recover_with_empty_tablet = false;
 
     /**
+     * In some scenarios, there is an unrecoverable metadata problem in the cluster,
+     * and the visibleVersion of the data does not match be. In this case, it is still
+     * necessary to restore the remaining data (which may cause problems with the correctness of the data).
+     * This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
+     * This configuration has three values:
+     *   disable : If an exception occurs, an error will be reported normally.
+     *   ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
+     *   ignore_all: In addition to ignore_version, when encountering no queryable replica,
+     *   skip it directly instead of throwing an exception
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static String recover_with_skip_missing_version = "disable";
+
+    /**
      * Whether to add a delete sign column when create unique table
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -2155,5 +2169,24 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean enable_stats = true;
+
+    /**
+     * Whether create a duplicate table without keys by default
+     * when creating a table which not set key type and key columns
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean experimental_enable_duplicate_without_keys_by_default = false;
+
+    /**
+     * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
+     * we may delete the DecimalV2 and DateV1 types in the future.
+     * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
+     * to determine whether these two types take effect.
+     */
+    @ConfField(mutable = true)
+    public static boolean disable_decimalv2  = true;
+
+    @ConfField(mutable = true)
+    public static boolean disable_datev1  = true;
 }
 

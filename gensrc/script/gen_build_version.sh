@@ -76,7 +76,7 @@ build_time="${date}"
 build_info="${hostname}"
 
 if [[ -z "${JAVA_HOME}" ]]; then
-    java_cmd="$(which java)"
+    java_cmd="$(command -v java)"
 else
     java_cmd="${JAVA_HOME}/bin/java"
 fi

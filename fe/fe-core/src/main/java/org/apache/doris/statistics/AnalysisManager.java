@@ -54,11 +54,14 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Collectors;
 
 public class AnalysisManager {
 
@@ -104,11 +107,22 @@ public class AnalysisManager {
         if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
             throw new DdlException("Stats table not available, please make sure your cluster status is normal");
         }
+
+        Map<String, Set<String>> columnToPartitions = validateAndGetPartitions(stmt);
+        if (columnToPartitions.isEmpty()) {
+            // No statistics need to be collected or updated
+            return;
+        }
+
         long jobId = Env.getCurrentEnv().getNextId();
+        TableIf table = stmt.getTable();
+        AnalysisType analysisType = stmt.getAnalysisType();
+        boolean isSync = stmt.isSync();
+
         AnalysisTaskInfoBuilder taskInfoBuilder = buildCommonTaskInfo(stmt, jobId);
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
-        createTaskForEachColumns(stmt.getColumnNames(), taskInfoBuilder, analysisTaskInfos, stmt.isSync());
-        createTaskForMVIdx(stmt.getTable(), taskInfoBuilder, analysisTaskInfos, stmt.getAnalysisType(), stmt.isSync());
+        createTaskForEachColumns(columnToPartitions, taskInfoBuilder, analysisTaskInfos, analysisType, isSync);
+        createTaskForMVIdx(table, taskInfoBuilder, analysisTaskInfos, analysisType, isSync);
 
         if (stmt.isSync()) {
             syncExecute(analysisTaskInfos.values());
@@ -135,6 +149,81 @@ public class AnalysisManager {
         } catch (Throwable t) {
             LOG.warn("Failed to send job id to user", t);
         }
+    }
+
+    /**
+     * Gets the partitions for which statistics are to be collected. First verify that
+     * there are partitions that have been deleted but have historical statistics(invalid statistics),
+     * if there are these partitions, we need to delete them to avoid errors in summary table level statistics.
+     * Then get the partitions for which statistics need to be collected based on collection mode (incremental/full).
+     * <p>
+     * note:
+     * If there is no invalid statistics, it does not need to collect/update
+     * statistics if the following conditions are met:
+     * - in full collection mode, the partitioned table does not have partitions
+     * - in incremental collection mode, partition statistics already exist
+     * <p>
+     * TODO Supports incremental collection of statistics from materialized views
+     */
+    private Map<String, Set<String>> validateAndGetPartitions(AnalyzeStmt stmt) throws DdlException {
+        TableIf table = stmt.getTable();
+        long tableId = table.getId();
+        Set<String> columnNames = stmt.getColumnNames();
+        Set<String> partitionNames = table.getPartitionNames();
+
+        Map<String, Set<String>> columnToPartitions = columnNames.stream()
+                .collect(Collectors.toMap(
+                        columnName -> columnName,
+                        columnName -> new HashSet<>(partitionNames)
+                ));
+
+        if (stmt.getAnalysisType() == AnalysisType.HISTOGRAM) {
+            // Collecting histograms does not need to support incremental collection,
+            // and will automatically cover historical statistics
+            return columnToPartitions;
+        }
+
+        // Get the partition granularity statistics that have been collected
+        Map<String, Set<Long>> existColAndPartsForStats = StatisticsRepository
+                .fetchColAndPartsForStats(tableId);
+
+        if (existColAndPartsForStats.isEmpty()) {
+            // There is no historical statistical information, no need to do validation
+            return columnToPartitions;
+        }
+
+        Set<Long> existPartIdsForStats = new HashSet<>();
+        existColAndPartsForStats.values().forEach(existPartIdsForStats::addAll);
+        Map<Long, String> idToPartition = StatisticsUtil.getPartitionIdToName(table);
+        // Get an invalid set of partitions (those partitions were deleted)
+        Set<Long> invalidPartIds = existPartIdsForStats.stream()
+                .filter(id -> !idToPartition.containsKey(id)).collect(Collectors.toSet());
+
+        if (!invalidPartIds.isEmpty()) {
+            // Delete invalid partition statistics to avoid affecting table statistics
+            StatisticsRepository.dropStatistics(invalidPartIds);
+        }
+
+        if (stmt.isIncremental() && stmt.getAnalysisType() == AnalysisType.COLUMN) {
+            existColAndPartsForStats.values().forEach(partIds -> partIds.removeAll(invalidPartIds));
+            // In incremental collection mode, just collect the uncollected partition statistics
+            existColAndPartsForStats.forEach((columnName, partitionIds) -> {
+                Set<String> existPartitions = partitionIds.stream()
+                        .map(idToPartition::get)
+                        .collect(Collectors.toSet());
+                columnToPartitions.computeIfPresent(columnName, (colName, partNames) -> {
+                    partNames.removeAll(existPartitions);
+                    return partNames;
+                });
+            });
+            if (invalidPartIds.isEmpty()) {
+                // There is no invalid statistics, so there is no need to update table statistics,
+                // remove columns that do not require re-collection of statistics
+                columnToPartitions.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+            }
+        }
+
+        return columnToPartitions;
     }
 
     private AnalysisTaskInfoBuilder buildCommonTaskInfo(AnalyzeStmt stmt, long jobId) {
@@ -212,9 +301,11 @@ public class AnalysisManager {
                 AnalysisTaskInfo analysisTaskInfo = indexTaskInfoBuilder.setIndexId(indexId)
                         .setTaskId(taskId).build();
                 analysisTasks.put(taskId, createTask(analysisTaskInfo));
-                if (isSync) {
-                    return;
-                }
+                // TODO Temporarily save the statistics synchronous task,
+                //  which is mainly used to test the incremental collection of statistics.
+                // if (isSync) {
+                //     return;
+                // }
                 try {
                     StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
                 } catch (Exception e) {
@@ -226,24 +317,32 @@ public class AnalysisManager {
         }
     }
 
-    private void createTaskForEachColumns(Set<String> colNames, AnalysisTaskInfoBuilder taskInfoBuilder,
-            Map<Long, BaseAnalysisTask> analysisTasks, boolean isSync) throws DdlException {
-        for (String colName : colNames) {
+    private void createTaskForEachColumns(Map<String, Set<String>> columnToPartitions,
+            AnalysisTaskInfoBuilder taskInfoBuilder, Map<Long, BaseAnalysisTask> analysisTasks,
+            AnalysisType analysisType, boolean isSync) throws DdlException {
+        for (Entry<String, Set<String>> entry : columnToPartitions.entrySet()) {
+            Set<String> partitionNames = entry.getValue();
             AnalysisTaskInfoBuilder colTaskInfoBuilder = taskInfoBuilder.copy();
+            if (analysisType != AnalysisType.HISTOGRAM) {
+                // Histograms do not need to specify partitions
+                colTaskInfoBuilder.setPartitionNames(partitionNames);
+            }
             long indexId = -1;
+            String colName = entry.getKey();
             long taskId = Env.getCurrentEnv().getNextId();
             AnalysisTaskInfo analysisTaskInfo = colTaskInfoBuilder.setColName(colName)
                     .setIndexId(indexId).setTaskId(taskId).build();
             analysisTasks.put(taskId, createTask(analysisTaskInfo));
-            if (isSync) {
-                continue;
-            }
+            // TODO Temporarily save the statistics synchronous task,
+            //  which is mainly used to test the incremental collection of statistics.
+            // if (isSync) {
+            //     continue;
+            // }
             try {
                 StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
             } catch (Exception e) {
                 throw new DdlException("Failed to create analysis task", e);
             }
-
         }
     }
 

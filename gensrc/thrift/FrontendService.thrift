@@ -576,6 +576,7 @@ struct TStreamLoadPutRequest {
     42: optional bool trim_double_quotes // trim double quotes for csv
     43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
     44: optional bool enable_profile
+    45: optional bool partial_update
 }
 
 struct TStreamLoadPutResult {
@@ -730,6 +731,7 @@ struct TMetadataTableRequestParams {
   1: optional Types.TMetadataType metadata_type
   2: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
   3: optional PlanNodes.TBackendsMetadataParams backends_metadata_params
+  4: optional list<string> columns_name
 }
 
 struct TFetchSchemaTableDataRequest {

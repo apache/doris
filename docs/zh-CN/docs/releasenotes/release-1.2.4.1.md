@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Release 1.2.4",
+    "title": "Release 1.2.4.1",
     "language": "zh-CN"
 }
 ---
@@ -40,17 +40,17 @@ under the License.
 
 - 支持通过 JDBC Catalog 连接其他 Trino/Presto 集群
 
-参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc#trino](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc#trino)
+​        参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc#trino](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc#trino)
 
 - JDBC Catalog 连接 Clickhouse 数据源支持 Array 类型映射
 
-参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc#clickhouse](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc#clickhouse)
+​        参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc#clickhouse](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc#clickhouse)
 
 ### Spark Load
 
 - Spark Load 支持 Resource Manager HA 相关配置
 
-参考 PR： [https://github.com/apache/doris/pull/15000](https://github.com/apache/doris/pull/15000)
+​        参考 PR： [https://github.com/apache/doris/pull/15000](https://github.com/apache/doris/pull/15000)
 
 # Bug Fixes
 
@@ -80,7 +80,7 @@ under the License.
 
 # 致谢
 
-有 47 贡献者参与到 1.2.4 的完善和发布中，感谢他们的辛劳付出：
+有 47 位贡献者参与到 1.2.4 的完善和发布中，感谢他们的辛劳付出：
 
 @zy-kkk
 

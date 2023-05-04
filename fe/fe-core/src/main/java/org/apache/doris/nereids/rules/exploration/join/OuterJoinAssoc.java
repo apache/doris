@@ -21,12 +21,14 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
@@ -58,17 +60,29 @@ public class OuterJoinAssoc extends OneExplorationRuleFactory {
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left()))
                 .when(topJoin -> checkCondition(topJoin, topJoin.left().left().getOutputSet()))
                 .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin())
-                .then(topJoin -> {
+                .thenApply(ctx -> {
+                    LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topJoin = ctx.root;
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
 
-                    /* TODO:
-                     * p23 need to reject nulls on A(e2) (Eqv. 1)
-                     * see paper `On the Correct and Complete Enumeration of the Core Search Space`.
-                     * But because we have added eliminate_outer_rule, we don't need to consider this.
+                    /*
+                     * Paper `On the Correct and Complete Enumeration of the Core Search Space`.
+                     * p23 need to reject nulls on A(e2) (Eqv. 1).
+                     * It means that when slot is null, condition must return false or unknown.
                      */
+                    if (bottomJoin.getJoinType().isLeftOuterJoin() && topJoin.getJoinType().isLeftOuterJoin()) {
+                        Set<Slot> conditionSlot = topJoin.getConditionSlot();
+                        Set<Expression> on = ImmutableSet.<Expression>builder()
+                                .addAll(topJoin.getHashJoinConjuncts())
+                                .addAll(topJoin.getOtherJoinConjuncts()).build();
+                        Set<Slot> notNullSlots = ExpressionUtils.inferNotNullSlots(on,
+                                ctx.cascadesContext);
+                        if (!conditionSlot.equals(notNullSlots)) {
+                            return null;
+                        }
+                    }
 
                     LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());

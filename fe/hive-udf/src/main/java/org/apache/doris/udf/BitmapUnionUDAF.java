@@ -64,7 +64,7 @@ public class BitmapUnionUDAF extends AbstractGenericUDAFResolver {
             super.init(m, parameters);
             // init output object inspectors
             // The output of a partial aggregation is a binary
-            if (m == Mode.PARTIAL1) {
+            if (m == Mode.PARTIAL1 || m == Mode.COMPLETE) {
                 this.inputOI = (BinaryObjectInspector) parameters[0];
             } else {
                 this.internalMergeOI = (BinaryObjectInspector) parameters[0];

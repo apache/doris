@@ -631,7 +631,14 @@ Status AggregationNode::close(RuntimeState* state) {
 
 Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        _aggregate_evaluators[i]->create(data + _offsets_of_aggregate_states[i]);
+        try {
+            _aggregate_evaluators[i]->create(data + _offsets_of_aggregate_states[i]);
+        } catch (...) {
+            for (int j = 0; j < i; ++j) {
+                _aggregate_evaluators[j]->destroy(data + _offsets_of_aggregate_states[j]);
+            }
+            throw;
+        }
     }
     return Status::OK();
 }
@@ -1771,6 +1778,9 @@ void AggregationNode::_close_with_serialized_key() {
                         mapped = nullptr;
                     }
                 });
+                if (data.has_null_key_data()) {
+                    _destroy_agg_status(data.get_null_key_data());
+                }
             },
             _agg_data->_aggregated_method_variant);
     release_tracker();

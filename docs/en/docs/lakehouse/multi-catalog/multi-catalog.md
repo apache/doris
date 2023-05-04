@@ -301,6 +301,18 @@ Access from Doris to databases and tables in an External Catalog is not under th
 
 Along with the new Multi-Catalog feature, we also added privilege management at the Catalog level (See [Privilege Management](https://doris.apache.org/docs/dev/admin-manual/privilege-ldap/user-privilege/) for details).
 
+## Database synchronizing management
+
+Setting `include_database_list` and `exclude_database_list` in Catalog properties to specify databases to synchronize.
+
+`include_database_list`: Only synchronize the specified databases. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+
+`exclude_database_list`: Specify databases that do not need to synchronize. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+
+> When `include_database_list` and `exclude_database_list` specify overlapping databases, `exclude_database_list` would take effect with higher privilege over `include_database_list`.
+>
+> To connect JDBC, these two properties should work with `only_specified_database`, see [JDBC](./jdbc.md) for more detail.
+
 ## Metadata Update
 
 ### Manual Update
@@ -359,6 +371,8 @@ To enable automatic update, you need to modify the hive-site.xml of HMS and then
 
 > Note: To enable automatic update, whether for existing Catalogs or newly created Catalogs, all you need is to set `enable_hms_events_incremental_sync` to `true`, and then restart the FE node. You don't need to manually update the metadata before or after the restart.
 
+<version since="dev">
+
 #### Timing Refresh
 
 When creating a catalog, specify the refresh time parameter `metadata_refresh_interval_sec` in the properties, in seconds. If this parameter is set when creating a catalog, the master node of FE will refresh the catalog regularly according to the parameter value. Three types are currently supported
@@ -377,3 +391,5 @@ CREATE CATALOG es PROPERTIES (
      "metadata_refresh_interval_sec"="20"
 );
 ```
+
+</version>

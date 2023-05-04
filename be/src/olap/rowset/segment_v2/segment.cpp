@@ -158,6 +158,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     } else {
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     }
+
     return iter->get()->init(read_options);
 }
 
@@ -337,11 +338,11 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
+Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation* row_location) {
     RETURN_IF_ERROR(load_pk_index_and_bf());
     bool has_seq_col = _tablet_schema->has_sequence_col();
     size_t seq_col_length = 0;
-    if (has_seq_col) {
+    if (has_seq_col && with_seq_col) {
         seq_col_length = _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
     }
     Slice key_without_seq = Slice(key.get_data(), key.get_size() - seq_col_length);
