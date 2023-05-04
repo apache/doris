@@ -143,8 +143,7 @@ public enum ExpressionEvaluator {
                 DateLiteral.class,
                 DateTimeArithmetic.class,
                 DateTimeAcquire.class,
-                NumericArithmetic.class,
-                TimeRoundSeries.class
+                NumericArithmetic.class
         );
         for (Class cls : classes) {
             for (Method method : cls.getDeclaredMethods()) {

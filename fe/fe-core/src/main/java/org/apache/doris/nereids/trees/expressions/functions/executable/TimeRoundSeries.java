@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -32,6 +33,7 @@ import java.time.temporal.TemporalUnit;
  * executable functions:
  * year/month/day/hour/minute/second_ceil/floor
  */
+@Developing
 public class TimeRoundSeries {
     private static final LocalDateTime START_ORIGINAL_DAY = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
     private static final LocalDateTime START_ORIGINAL_WEEK = LocalDateTime.of(1970, 1, 4, 0, 0, 0);
