@@ -919,6 +919,7 @@ private:
     size_t _partitioned_threshold = 0;
 
     AggregatedDataVariantsUPtr _agg_data;
+    size_t _agg_data_num = 0;
 
     AggSpillContext _spill_context;
     std::unique_ptr<SpillPartitionHelper> _spill_partition_helper;

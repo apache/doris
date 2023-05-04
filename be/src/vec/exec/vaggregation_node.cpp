@@ -610,6 +610,9 @@ void AggregationNode::release_resource(RuntimeState* state) {
     for (auto* aggregate_evaluator : _aggregate_evaluators) aggregate_evaluator->close(state);
     VExpr::close(_probe_expr_ctxs, state);
     if (_executor.close) _executor.close();
+    // If _agg_data_num is not equal to 0, it means that the agg function data
+    // has not been destroyed correctly, and there may be a memory leak.
+    DCHECK(_agg_data_num == 0);
 
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter) {
@@ -640,6 +643,7 @@ Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
             throw;
         }
     }
+    _agg_data_num++;
     return Status::OK();
 }
 
@@ -647,6 +651,7 @@ Status AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->function()->destroy(data + _offsets_of_aggregate_states[i]);
     }
+    _agg_data_num--;
     return Status::OK();
 }
 
