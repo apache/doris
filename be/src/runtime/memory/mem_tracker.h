@@ -86,9 +86,7 @@ public:
             return true;
         }
 
-        void sub(int64_t delta) {
-            _current_value.fetch_sub(delta, std::memory_order_relaxed);
-        }
+        void sub(int64_t delta) { _current_value.fetch_sub(delta, std::memory_order_relaxed); }
 
         void set(int64_t v) {
             _current_value.store(v, std::memory_order_relaxed);
