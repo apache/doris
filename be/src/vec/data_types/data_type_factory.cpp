@@ -40,6 +40,7 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
@@ -174,6 +175,14 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_BINARY:
     case TYPE_LAMBDA_FUNCTION:
         nested = std::make_shared<vectorized::DataTypeString>();
+        break;
+    case TYPE_AGG_STATE:
+        nested = std::make_shared<vectorized::DataTypeAggState>();
+        for (size_t i = 0; i < col_desc.children.size(); i++) {
+            ((DataTypeAggState*)nested.get())
+                    ->add_sub_type(
+                            create_data_type(col_desc.children[i], col_desc.contains_nulls[i]));
+        }
         break;
     case TYPE_JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();
@@ -382,6 +391,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_STRING:
         result = std::make_shared<vectorized::DataTypeString>();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
+        result = std::make_shared<vectorized::DataTypeAggState>();
         break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<vectorized::DataTypeJsonb>();
