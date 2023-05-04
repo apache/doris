@@ -54,7 +54,7 @@
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "vec/core/block.h"
-#include "vec/exec/vparquet_scanner.h"
+#include "vec/exec/format/parquet/vparquet_reader.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -239,13 +239,6 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         }
         // For push load, this tablet maybe not need push data, so that the path maybe empty
         if (!path.empty()) {
-            std::unique_ptr<PushBrokerReader> reader(new (std::nothrow) PushBrokerReader());
-            if (reader == nullptr) {
-                LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name();
-                res = Status::Error<MEM_ALLOC_FAILED>();
-                break;
-            }
-
             // init schema
             std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
             if (schema == nullptr) {
@@ -255,8 +248,10 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             }
 
             // init Reader
-            if (!(res = reader->init(schema.get(), _request.broker_scan_range,
-                                     _request.desc_tbl))) {
+            std::unique_ptr<PushBrokerReader> reader = PushBrokerReader::create_unique(
+                    schema.get(), _request.broker_scan_range, _request.desc_tbl);
+            res = reader->init();
+            if (reader == nullptr || !res.ok()) {
                 LOG(WARNING) << "fail to init reader. res=" << res
                              << ", tablet=" << cur_tablet->full_name();
                 res = Status::Error<PUSH_INIT_ERROR>();
@@ -312,8 +307,43 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
     return res;
 }
 
-Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_scan_range,
-                              const TDescriptorTable& t_desc_tbl) {
+PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange& t_scan_range,
+                                   const TDescriptorTable& t_desc_tbl)
+        : _ready(false),
+          _eof(false),
+          _next_range(0),
+          _t_desc_tbl(t_desc_tbl),
+          _cur_reader_eof(false),
+          _params(t_scan_range.params),
+          _ranges(t_scan_range.ranges) {
+    // change broker params to file params
+    if (0 == _ranges.size()) {
+        return;
+    }
+    _file_params.file_type = _ranges[0].file_type;
+    _file_params.format_type = _ranges[0].format_type;
+    _file_params.src_tuple_id = _params.src_tuple_id;
+    _file_params.dest_tuple_id = _params.dest_tuple_id;
+    _file_params.num_of_columns_from_file = _ranges[0].num_of_columns_from_file;
+    _file_params.properties = _params.properties;
+    _file_params.expr_of_dest_slot = _params.expr_of_dest_slot;
+    _file_params.dest_sid_to_src_sid_without_trans = _params.dest_sid_to_src_sid_without_trans;
+    _file_params.strict_mode = _params.strict_mode;
+    _file_params.broker_addresses = t_scan_range.broker_addresses;
+
+    for (int i = 0; i < _ranges.size(); ++i) {
+        TFileRangeDesc file_range;
+        file_range.load_id = _ranges[i].load_id;
+        file_range.path = _ranges[i].path;
+        file_range.start_offset = _ranges[i].start_offset;
+        file_range.size = _ranges[i].size;
+        file_range.file_size = _ranges[i].file_size;
+        file_range.columns_from_path = _ranges[i].columns_from_path;
+        _file_ranges.push_back(file_range);
+    }
+}
+
+Status PushBrokerReader::init() {
     // init runtime state, runtime profile, counter
     TUniqueId dummy_id;
     dummy_id.hi = 0;
@@ -329,7 +359,7 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
                                                  ExecEnv::GetInstance());
     DescriptorTbl* desc_tbl = nullptr;
-    Status status = DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &desc_tbl);
+    Status status = DescriptorTbl::create(_runtime_state->obj_pool(), _t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Failed to create descriptor table, msg: " << status;
         return Status::Error<PUSH_INIT_ERROR>();
@@ -343,25 +373,14 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
 
-    _counter.reset(new ScannerCounter());
+    _file_cache_statistics.reset(new io::FileCacheStatistics());
+    _io_ctx.reset(new io::IOContext());
+    _io_ctx->file_cache_stats = _file_cache_statistics.get();
+    _io_ctx->query_id = &_runtime_state->query_id();
 
-    // init scanner
-    BaseScanner* scanner = nullptr;
-    switch (t_scan_range.ranges[0].format_type) {
-    case TFileFormatType::FORMAT_PARQUET:
-        scanner = new vectorized::VParquetScanner(
-                _runtime_state.get(), _runtime_profile, t_scan_range.params, t_scan_range.ranges,
-                t_scan_range.broker_addresses, _pre_filter_texprs, _counter.get());
-        break;
-    default:
-        LOG(WARNING) << "Unsupported file format type: " << t_scan_range.ranges[0].format_type;
-        return Status::Error<PUSH_INIT_ERROR>();
-    }
-    _scanner.reset(scanner);
-    status = _scanner->open();
-    if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to open scanner, msg: " << status;
-        return Status::Error<PUSH_INIT_ERROR>();
+    auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
+    for (int i = 0; i < slot_descs.size(); i++) {
+        _all_col_names.push_back(slot_descs[i]->col_name());
     }
 
     _ready = true;
@@ -372,7 +391,11 @@ Status PushBrokerReader::next(vectorized::Block* block) {
     if (!_ready || block == nullptr) {
         return Status::Error<INVALID_ARGUMENT>();
     }
-    _scanner->get_next(block, &_eof);
+    if (_cur_reader == nullptr || _cur_reader_eof) {
+        RETURN_IF_ERROR(_get_next_reader());
+    }
+    size_t read_rows = 0;
+    RETURN_IF_ERROR(_cur_reader->get_next_block(block, &read_rows, &_cur_reader_eof));
     return Status::OK();
 }
 
@@ -380,6 +403,48 @@ void PushBrokerReader::print_profile() {
     std::stringstream ss;
     _runtime_profile->pretty_print(&ss);
     LOG(INFO) << ss.str();
+}
+
+Status PushBrokerReader::_get_next_reader() {
+    _cur_reader.reset(nullptr);
+    if (_next_range >= _file_ranges.size()) {
+        _eof = true;
+        return Status::OK();
+    }
+    const TFileRangeDesc& range = _file_ranges[_next_range++];
+
+    // create reader for specific format
+    // TODO: add json, avro
+    Status init_status;
+    // TODO: use data lake type
+    switch (_file_params.format_type) {
+    case TFileFormatType::FORMAT_PARQUET: {
+        std::unique_ptr<vectorized::ParquetReader> parquet_reader =
+                vectorized::ParquetReader::create_unique(
+                        _runtime_profile, _file_params, range,
+                        _runtime_state->query_options().batch_size,
+                        const_cast<cctz::time_zone*>(&_runtime_state->timezone_obj()),
+                        _io_ctx.get(), _runtime_state.get());
+
+        RETURN_IF_ERROR(parquet_reader->open());
+        std::vector<std::string> place_holder;
+        init_status = parquet_reader->init_reader(
+                _all_col_names, place_holder, _colname_to_value_range, _push_down_expr,
+                _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
+                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+        _cur_reader = std::move(parquet_reader);
+        if (!init_status.ok()) {
+            return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
+                                         init_status.to_string());
+        }
+    }
+    default:
+        LOG(WARNING) << "Unsupported file format type: " << _file_params.format_type;
+        return Status::Error<PUSH_INIT_ERROR>();
+    }
+    _cur_reader_eof = false;
+
+    return Status::OK();
 }
 
 std::string PushHandler::_debug_version_list(const Versions& versions) const {
