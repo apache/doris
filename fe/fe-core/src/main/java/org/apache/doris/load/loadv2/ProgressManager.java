@@ -50,7 +50,7 @@ public class ProgressManager {
         if (progress != null) {
             progress.updateFinishedScanNums(queryId, fragmentId, finishedScannerNum);
         } else {
-            LOG.warn("progress[" + id + "] missing meta infomartion");
+            LOG.warn("progress[" + id + "] missing meta information");
         }
     }
 
@@ -61,29 +61,16 @@ public class ProgressManager {
         }
     }
 
-    public void deregisterProgress(String id) {
-        // TODO: deregister the progress
-        idToProgress.remove(id);
-    }
-
-    public Progress getProgressClass(String id) {
-        return idToProgress.get(id);
-    }
-
-    public double getProgress(String id) {
-        return idToProgress.get(id).getProgress();
-    }
-
     public String getProgressInfo(String id) {
-        String progressResult = "ERROR";
+        String progressInfo = "Unknown id: " + id;
         Progress progress = idToProgress.get(id);
         if (progress != null) {
             int finish = progress.getFinishedScanNums();
             int total = progress.getTotalScanNums();
             String currentProgress = String.format("%.2f", progress.getProgress());
-            progressResult = currentProgress + "% (" + finish + "/" + total + ")";
+            progressInfo = currentProgress + "% (" + finish + "/" + total + ")";
         }
-        return progressResult;
+        return progressInfo;
     }
 
     static class Progress {
