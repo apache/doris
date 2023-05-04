@@ -724,12 +724,12 @@ public class InsertStmt extends DdlStmt {
             } else {
                 // process sequence col, map sequence column to other column
                 if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()
-                    && col.getName().equals(Column.SEQUENCE_COL)
-                    && ((OlapTable) targetTable).getSequenceMapCol() != null) {
+                        && col.getName().equals(Column.SEQUENCE_COL)
+                        && ((OlapTable) targetTable).getSequenceMapCol() != null) {
                     if (resultExprByName.stream().map(Pair::key)
-                        .anyMatch(key -> key.equals(((OlapTable) targetTable).getSequenceMapCol()))) {
+                            .anyMatch(key -> key.equals(((OlapTable) targetTable).getSequenceMapCol()))) {
                         resultExprByName.add(Pair.of(Column.SEQUENCE_COL,
-                            resultExprByName.stream()
+                                resultExprByName.stream()
                                 .filter(p -> p.key().equals(((OlapTable) targetTable).getSequenceMapCol()))
                                 .map(Pair::value).findFirst().orElse(null)));
                     }
@@ -741,14 +741,13 @@ public class InsertStmt extends DdlStmt {
                     } else {
                         StringLiteral defaultValueExpr;
                         defaultValueExpr = new StringLiteral(col.getDefaultValue());
-                        resultExprByName.add(Pair.of(
-                            col.getName(), defaultValueExpr.checkTypeCompatibility(col.getType())));
+                        resultExprByName.add(Pair.of(col.getName(),
+                                defaultValueExpr.checkTypeCompatibility(col.getType())));
                     }
                 }
             }
         }
-        resultExprs.addAll(resultExprByName.stream()
-            .map(Pair::value).collect(Collectors.toList()));
+        resultExprs.addAll(resultExprByName.stream().map(Pair::value).collect(Collectors.toList()));
     }
 
     private DataSink createDataSink() throws AnalysisException {
