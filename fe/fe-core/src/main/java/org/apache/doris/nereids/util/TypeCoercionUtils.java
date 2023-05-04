@@ -318,8 +318,10 @@ public class TypeCoercionUtils {
     public static Optional<Expression> characterLiteralTypeCoercion(String value, DataType dataType) {
         Expression ret = null;
         if (Config.enable_date_conversion) {
-            if (dataType instanceof DateType || dataType instanceof DateTimeType) {
-                dataType = DataType.fromCatalogType(dataType.toCatalogDataType());
+            if (dataType instanceof DateType) {
+                dataType = DateV2Type.INSTANCE;
+            } else if (dataType instanceof DateTimeType) {
+                dataType = DateTimeV2Type.SYSTEM_DEFAULT;
             }
         }
         try {
