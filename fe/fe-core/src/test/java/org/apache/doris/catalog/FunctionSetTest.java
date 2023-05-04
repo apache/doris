@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.catalog.Function.CompareMode;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -50,6 +51,16 @@ public class FunctionSetTest {
         newArgTypes = newFunction.getArgs();
         Assert.assertTrue(newArgTypes[0].matchesType(newArgTypes[2]));
         Assert.assertTrue(newArgTypes[0].matchesType(ScalarType.VARCHAR));
+    }
+
+    @Test
+    public void testInferenceFunctionSpecializedFailed() {
+        Type[] argTypes = {ArrayType.create(), ScalarType.INT};
+        Function tempFunc = new Function(new FunctionName("test_a"), Arrays.asList(argTypes), ScalarType.ANY_TYPE, false);
+        functionSet.addBuiltinBothScalaAndVectorized(tempFunc);
+        tempFunc.setReturnType(Type.INVALID);
+        Function result = functionSet.getFunction(tempFunc, CompareMode.IS_IDENTICAL);
+        Assert.assertNull(result);
     }
 
 }
