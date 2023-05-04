@@ -1290,8 +1290,7 @@ public class FunctionSet<T> {
             if (f.hasTemplateArg()) {
                 f = specializeTemplateFunction(f, desc, f.hasVariadicTemplateArg());
             }
-            f = resolveInferenceFunction(f, desc);
-            if (f != null) {
+            if (f != null && (f = resolveInferenceFunction(f, desc)) != null) {
                 inferredFunctions.add(f);
             }
         }
