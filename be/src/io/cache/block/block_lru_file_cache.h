@@ -204,23 +204,23 @@ private:
 
     std::shared_ptr<MetricEntity> _entity = nullptr;
 
-    DoubleGauge* hits_ratio = nullptr;
-    UIntGauge* removed_elements = nullptr;
+    DoubleGauge* file_cache_hits_ratio = nullptr;
+    UIntGauge* file_cache_removed_elements = nullptr;
 
-    UIntGauge* index_queue_max_size = nullptr;
-    UIntGauge* index_queue_curr_size = nullptr;
-    UIntGauge* index_queue_max_elements = nullptr;
-    UIntGauge* index_queue_curr_elements = nullptr;
+    UIntGauge* file_cache_index_queue_max_size = nullptr;
+    UIntGauge* file_cache_index_queue_curr_size = nullptr;
+    UIntGauge* file_cache_index_queue_max_elements = nullptr;
+    UIntGauge* file_cache_index_queue_curr_elements = nullptr;
 
-    UIntGauge* normal_queue_max_size = nullptr;
-    UIntGauge* normal_queue_curr_size = nullptr;
-    UIntGauge* normal_queue_max_elements = nullptr;
-    UIntGauge* normal_queue_curr_elements = nullptr;
+    UIntGauge* file_cache_normal_queue_max_size = nullptr;
+    UIntGauge* file_cache_normal_queue_curr_size = nullptr;
+    UIntGauge* file_cache_normal_queue_max_elements = nullptr;
+    UIntGauge* file_cache_normal_queue_curr_elements = nullptr;
 
-    UIntGauge* disposable_queue_max_size = nullptr;
-    UIntGauge* disposable_queue_curr_size = nullptr;
-    UIntGauge* disposable_queue_max_elements = nullptr;
-    UIntGauge* disposable_queue_curr_elements = nullptr;
+    UIntGauge* file_cache_disposable_queue_max_size = nullptr;
+    UIntGauge* file_cache_disposable_queue_curr_size = nullptr;
+    UIntGauge* file_cache_disposable_queue_max_elements = nullptr;
+    UIntGauge* file_cache_disposable_queue_curr_elements = nullptr;
 };
 
 } // namespace io

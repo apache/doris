@@ -58,20 +58,20 @@ namespace fs = std::filesystem;
 namespace doris {
 namespace io {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(hits_ratio, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(removed_elements, MetricUnit::OPERATIONS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(index_queue_max_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(index_queue_curr_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(index_queue_max_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(index_queue_curr_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(normal_queue_max_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(normal_queue_curr_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(normal_queue_max_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(normal_queue_curr_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disposable_queue_max_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disposable_queue_curr_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disposable_queue_max_elements, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disposable_queue_curr_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_hits_ratio, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_removed_elements, MetricUnit::OPERATIONS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_max_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_curr_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_max_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_curr_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_max_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_curr_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_max_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_curr_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_elements, MetricUnit::NOUNIT);
 
 LRUFileCache::LRUFileCache(const std::string& cache_base_path,
                            const FileCacheSettings& cache_settings)
@@ -87,23 +87,23 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
             "lru_file_cache", {{"path", _cache_base_path}});
     _entity->register_hook(_cache_base_path, std::bind(&LRUFileCache::update_cache_metrics, this));
 
-    INT_DOUBLE_METRIC_REGISTER(_entity, hits_ratio);
-    INT_UGAUGE_METRIC_REGISTER(_entity, removed_elements);
+    INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_removed_elements);
 
-    INT_UGAUGE_METRIC_REGISTER(_entity, index_queue_max_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, index_queue_curr_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, index_queue_max_elements);
-    INT_UGAUGE_METRIC_REGISTER(_entity, index_queue_curr_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_max_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_curr_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_max_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_curr_elements);
 
-    INT_UGAUGE_METRIC_REGISTER(_entity, normal_queue_max_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, normal_queue_curr_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, normal_queue_max_elements);
-    INT_UGAUGE_METRIC_REGISTER(_entity, normal_queue_curr_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_max_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_curr_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_max_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_curr_elements);
 
-    INT_UGAUGE_METRIC_REGISTER(_entity, disposable_queue_max_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, disposable_queue_curr_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, disposable_queue_max_elements);
-    INT_UGAUGE_METRIC_REGISTER(_entity, disposable_queue_curr_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_max_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_max_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_elements);
 
     LOG(INFO) << fmt::format(
             "file cache path={}, disposable queue size={} elements={}, index queue size={} "
@@ -1099,23 +1099,23 @@ void LRUFileCache::update_cache_metrics() const {
         hit_ratio = (double)_num_hit_segments / (double)_num_read_segments;
     }
 
-    hits_ratio->set_value(hit_ratio);
-    removed_elements->set_value(_num_removed_segments);
+    file_cache_hits_ratio->set_value(hit_ratio);
+    file_cache_removed_elements->set_value(_num_removed_segments);
 
-    index_queue_max_size->set_value(_index_queue.get_max_size());
-    index_queue_curr_size->set_value(_index_queue.get_total_cache_size(l));
-    index_queue_max_elements->set_value(_index_queue.get_max_element_size());
-    index_queue_curr_elements->set_value(_index_queue.get_elements_num(l));
+    file_cache_index_queue_max_size->set_value(_index_queue.get_max_size());
+    file_cache_index_queue_curr_size->set_value(_index_queue.get_total_cache_size(l));
+    file_cache_index_queue_max_elements->set_value(_index_queue.get_max_element_size());
+    file_cache_index_queue_curr_elements->set_value(_index_queue.get_elements_num(l));
 
-    normal_queue_max_size->set_value(_normal_queue.get_max_size());
-    normal_queue_curr_size->set_value(_normal_queue.get_total_cache_size(l));
-    normal_queue_max_elements->set_value(_normal_queue.get_max_element_size());
-    normal_queue_curr_elements->set_value(_normal_queue.get_elements_num(l));
+    file_cache_normal_queue_max_size->set_value(_normal_queue.get_max_size());
+    file_cache_normal_queue_curr_size->set_value(_normal_queue.get_total_cache_size(l));
+    file_cache_normal_queue_max_elements->set_value(_normal_queue.get_max_element_size());
+    file_cache_normal_queue_curr_elements->set_value(_normal_queue.get_elements_num(l));
 
-    disposable_queue_max_size->set_value(_disposable_queue.get_max_size());
-    disposable_queue_curr_size->set_value(_disposable_queue.get_total_cache_size(l));
-    disposable_queue_max_elements->set_value(_disposable_queue.get_max_element_size());
-    disposable_queue_curr_elements->set_value(_disposable_queue.get_elements_num(l));
+    file_cache_disposable_queue_max_size->set_value(_disposable_queue.get_max_size());
+    file_cache_disposable_queue_curr_size->set_value(_disposable_queue.get_total_cache_size(l));
+    file_cache_disposable_queue_max_elements->set_value(_disposable_queue.get_max_element_size());
+    file_cache_disposable_queue_curr_elements->set_value(_disposable_queue.get_elements_num(l));
 }
 
 } // namespace io
