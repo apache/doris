@@ -99,16 +99,16 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     private static void verifyLimitations(SqlBlockRule sqlBlockRule) throws DdlException {
         if (sqlBlockRule.getPartitionNum() < 0) {
-            throw new DdlException("the value of partition_num can't be a negative");
+            throw new DdlException("the value of partition_num can't be negative");
         }
         if (sqlBlockRule.getTabletNum() < 0) {
-            throw new DdlException("the value of tablet_num can't be a negative");
+            throw new DdlException("the value of tablet_num can't be negative");
         }
         if (sqlBlockRule.getCardinality() < 0) {
-            throw new DdlException("the value of cardinality can't be a negative");
+            throw new DdlException("the value of cardinality can't be negative");
         }
-        if (sqlBlockRule.getQps() < 0) {
-            throw new DdlException("the value of qps can't be a negative");
+        if (sqlBlockRule.getQps() < 0D) {
+            throw new DdlException("the value of qps can't be negative");
         }
     }
 
@@ -170,7 +170,7 @@ public class SqlBlockRuleMgr implements Writable {
             if (sqlBlockRule.getCardinality().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
                 sqlBlockRule.setCardinality(originRule.getCardinality());
             }
-            if (sqlBlockRule.getQps().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+            if (sqlBlockRule.getQps().equals(AlterSqlBlockRuleStmt.DOUBLE_NOT_SET)) {
                 sqlBlockRule.setQps(originRule.getQps());
             }
             if (sqlBlockRule.getGlobal() == null) {
@@ -196,10 +196,16 @@ public class SqlBlockRuleMgr implements Writable {
 
     private void unprotectedUpdate(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
+        if (sqlBlockRule.getQps() > 0D) {
+            rateLimiterMap.put(sqlBlockRule.getName(), createRateLimiter(sqlBlockRule.getQps()));
+        }
     }
 
     private void unprotectedAdd(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
+        if (sqlBlockRule.getQps() > 0D) {
+            rateLimiterMap.put(sqlBlockRule.getName(), createRateLimiter(sqlBlockRule.getQps()));
+        }
     }
 
     /**
@@ -270,23 +276,15 @@ public class SqlBlockRuleMgr implements Writable {
     }
 
     public void checkStmtLimitations(String user) throws AnalysisException {
-        // check qps rule
+        // check qps rule, we just need to check the minimum qps
         Optional<SqlBlockRule> minQpsRuleOptional = findMinQpsRule(user);
         if (!minQpsRuleOptional.isPresent()) {
             return;
         }
 
         SqlBlockRule rule = minQpsRuleOptional.get();
-        Double qps = Double.valueOf(rule.getQps());
-        // if rateLimiter not exists or rate has been changed, create a new RateLimiter
-        RateLimiter rateLimiter = rateLimiterMap.compute(rule.getName(), (name, oldLimiter) -> {
-            if (oldLimiter == null || qps != oldLimiter.getRate()) {
-                return RateLimiter.create(qps);
-            }
-            return oldLimiter;
-        });
-
-        if (!rateLimiter.tryAcquire()) {
+        RateLimiter rateLimiter = rateLimiterMap.get(rule.getName());
+        if (rateLimiter != null && !rateLimiter.tryAcquire()) {
             throw new AnalysisException("sql hits sql block rule: " + rule.getName()
                     + ", reach qps : " + rule.getQps());
         }
@@ -296,9 +294,13 @@ public class SqlBlockRuleMgr implements Writable {
         Set<String> bindSqlBlockRules = Arrays.stream(Env.getCurrentEnv().getAuth().getSqlBlockRules(user))
                 .collect(Collectors.toSet());
         // 1. enable=true  2. qps>0  3. global rule or user rule
-        return nameToSqlBlockRuleMap.values().stream().filter(rule -> rule.getEnable() && rule.getQps() > 0
+        return nameToSqlBlockRuleMap.values().stream().filter(rule -> rule.getQps() > 0D && rule.getEnable()
                 && (rule.getGlobal() || bindSqlBlockRules.contains(rule.getName())))
                 .min(Comparator.comparing(SqlBlockRule::getQps));
+    }
+
+    private RateLimiter createRateLimiter(Double qps) {
+        return RateLimiter.create(qps);
     }
 
     /**

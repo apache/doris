@@ -425,9 +425,11 @@ public class StmtExecutor {
     }
 
     private boolean checkBlockRules() throws AnalysisException {
+        // Sql limitations
         Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
-
+        // Statement limitations: qps
+        Env.getCurrentEnv().getSqlBlockRuleMgr().checkStmtLimitations(context.getQualifiedUser());
         // ScanNode limitations: partition_num, tablet_num, cardinality
         List<ScanNode> scanNodeList = planner.getScanNodes();
         for (ScanNode scanNode : scanNodeList) {

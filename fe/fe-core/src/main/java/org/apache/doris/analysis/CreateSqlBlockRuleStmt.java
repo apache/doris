@@ -79,7 +79,7 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     private Long cardinality;
 
-    private Long qps;
+    private Double qps;
 
     // whether effective global, default is false
     private boolean global;
@@ -139,8 +139,8 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
                 SCANNED_TABLET_NUM + " should be a long");
         this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, 0L, null,
                 SCANNED_CARDINALITY + " should be a long");
-        this.qps = Util.getLongPropertyOrDefault(qpsString, 0L, null,
-                QUERY_PER_SECOND + " should be a long");
+        this.qps = Util.getDoublePropertyOrDefault(qpsString, 0D, null,
+                QUERY_PER_SECOND + " should be a double");
 
         this.global = Util.getBooleanPropertyOrDefault(properties.get(GLOBAL_PROPERTY), false,
                 GLOBAL_PROPERTY + " should be a boolean");

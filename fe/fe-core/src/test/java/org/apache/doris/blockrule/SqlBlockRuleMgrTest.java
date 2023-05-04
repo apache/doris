@@ -122,22 +122,28 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         String limitRule1 = "CREATE SQL_BLOCK_RULE test_rule1 PROPERTIES(\"partition_num\"=\"-1\", \"global\"=\"true\","
                 + " \"enable\"=\"true\");";
 
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of partition_num can't be a negative",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of partition_num can't be negative",
                 () -> createSqlBlockRule(limitRule1));
 
         // test reach tablet_num :
         String limitRule2 = "CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES(\"tablet_num\"=\"-1\", \"global\"=\"true\","
                 + " \"enable\"=\"true\");";
 
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of tablet_num can't be a negative",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of tablet_num can't be negative",
                 () -> createSqlBlockRule(limitRule2));
 
         // test reach cardinality :
         String limitRule3 = "CREATE SQL_BLOCK_RULE test_rule3 PROPERTIES(\"cardinality\"=\"-1\", \"global\"=\"true\","
                 + " \"enable\"=\"true\");";
 
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of cardinality can't be a negative",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of cardinality can't be negative",
                 () -> createSqlBlockRule(limitRule3));
+
+        // test reach qps :
+        String limitRule4 = "CREATE SQL_BLOCK_RULE test_rule3 PROPERTIES(\"qps\"=\"-1\", \"global\"=\"true\","
+            + " \"enable\"=\"true\");";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of qps can't be negative",
+            () -> createSqlBlockRule(limitRule4));
     }
 
     @Test
@@ -232,6 +238,7 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         Assertions.assertEquals(0L, (long) alteredSqlBlockRule.getPartitionNum());
         Assertions.assertEquals(0L, (long) alteredSqlBlockRule.getTabletNum());
         Assertions.assertEquals(0L, (long) alteredSqlBlockRule.getCardinality());
+        Assertions.assertEquals(0D, (double) alteredSqlBlockRule.getQps());
         Assertions.assertEquals(false, alteredSqlBlockRule.getGlobal());
         Assertions.assertEquals(true, alteredSqlBlockRule.getEnable());
 
@@ -253,7 +260,22 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         Assertions.assertEquals(0L, (long) alteredSqlBlockRule1.getCardinality());
         Assertions.assertEquals(true, alteredSqlBlockRule1.getGlobal());
         Assertions.assertEquals(true, alteredSqlBlockRule1.getEnable());
-        dropSqlBlockRule("DROP SQL_BLOCK_RULE test_rule,test_rule1");
+
+        // test qps
+        String sqlRule2 = "CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES(\"qps\"=\"100\", \"global\"=\"true\","
+            + " \"enable\"=\"true\");";
+        createSqlBlockRule(sqlRule2);
+        ShowSqlBlockRuleStmt showStmt2 = new ShowSqlBlockRuleStmt("test_rule2");
+        SqlBlockRule alteredSqlBlockRule2 = mgr.getSqlBlockRule(showStmt2).get(0);
+
+        Assertions.assertEquals(100D, (double) alteredSqlBlockRule2.getQps());
+
+        String alterSqlRule2 = "ALTER SQL_BLOCK_RULE test_rule2 PROPERTIES(\"qps\"=\"10\")";
+        alterSqlBlockRule(alterSqlRule2);
+        alteredSqlBlockRule2 = mgr.getSqlBlockRule(showStmt2).get(0);
+        Assertions.assertEquals(10D, (double) alteredSqlBlockRule2.getQps());
+
+        dropSqlBlockRule("DROP SQL_BLOCK_RULE test_rule,test_rule1,test_rule2");
     }
 
     @Test
@@ -276,6 +298,7 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         Assertions.assertEquals(sqlBlockRule.getPartitionNum(), read.getPartitionNum());
         Assertions.assertEquals(sqlBlockRule.getTabletNum(), read.getTabletNum());
         Assertions.assertEquals(sqlBlockRule.getCardinality(), read.getCardinality());
+        Assertions.assertEquals(sqlBlockRule.getQps(), read.getQps());
         Assertions.assertEquals(sqlBlockRule.getEnable(), read.getEnable());
         Assertions.assertEquals(sqlBlockRule.getGlobal(), read.getGlobal());
         Assertions.assertEquals(sqlBlockRule.getSqlPattern().toString(), read.getSqlPattern().toString());

@@ -65,7 +65,7 @@ public class SqlBlockRule implements Writable {
     private Long cardinality;
 
     @SerializedName(value = "qps")
-    private Long qps;
+    private Double qps;
 
     // whether effective global
     @SerializedName(value = "global")
@@ -81,7 +81,7 @@ public class SqlBlockRule implements Writable {
      * Create SqlBlockRule.
      **/
     public SqlBlockRule(String name, String sql, String sqlHash, Long partitionNum, Long tabletNum, Long cardinality,
-                        Long qps, Boolean global, Boolean enable) {
+                        Double qps, Boolean global, Boolean enable) {
         this.name = name;
         this.sql = sql;
         this.sqlHash = sqlHash;
@@ -134,7 +134,7 @@ public class SqlBlockRule implements Writable {
         return cardinality;
     }
 
-    public Long getQps() {
+    public Double getQps() {
         return qps;
     }
 
@@ -170,7 +170,7 @@ public class SqlBlockRule implements Writable {
         this.cardinality = cardinality;
     }
 
-    public void setQps(Long qps) {
+    public void setQps(Double qps) {
         this.qps = qps;
     }
 
@@ -190,7 +190,7 @@ public class SqlBlockRule implements Writable {
                 this.partitionNum == null ? "0" : Long.toString(this.partitionNum),
                 this.tabletNum == null ? "0" : Long.toString(this.tabletNum),
                 this.cardinality == null ? "0" : Long.toString(this.cardinality),
-                this.qps == null ? "0" : Long.toString(this.qps), String.valueOf(this.global),
+                this.qps == null ? "0" : Double.toString(this.qps), String.valueOf(this.global),
                 String.valueOf(this.enable));
     }
 

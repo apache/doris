@@ -35,6 +35,7 @@ import java.util.Map;
 public class AlterSqlBlockRuleStmt extends DdlStmt {
 
     public static final Long LONG_NOT_SET = SqlBlockUtil.LONG_MINUS_ONE;
+    public static final Double DOUBLE_NOT_SET = SqlBlockUtil.DOUBLE_MINUS_ONE;
 
     private final String ruleName;
 
@@ -48,7 +49,7 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
 
     private Long cardinality;
 
-    private Long qps;
+    private Double qps;
 
     private Boolean global;
 
@@ -91,8 +92,8 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
                 CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM + " should be a long");
         this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, LONG_NOT_SET, null,
                 CreateSqlBlockRuleStmt.SCANNED_CARDINALITY + " should be a long");
-        this.qps = Util.getLongPropertyOrDefault(qpsString, LONG_NOT_SET, null,
-            CreateSqlBlockRuleStmt.QUERY_PER_SECOND + " should be a long");
+        this.qps = Util.getDoublePropertyOrDefault(qpsString, DOUBLE_NOT_SET, null,
+            CreateSqlBlockRuleStmt.QUERY_PER_SECOND + " should be a double");
         // allow null, represents no modification
         String globalStr = properties.get(CreateSqlBlockRuleStmt.GLOBAL_PROPERTY);
         this.global = StringUtils.isNotEmpty(globalStr) ? Boolean.parseBoolean(globalStr) : null;
@@ -120,7 +121,7 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
         return cardinality;
     }
 
-    public Long getQps() {
+    public Double getQps() {
         return qps;
     }
 
