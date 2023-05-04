@@ -229,18 +229,18 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 
 ### 参数说明
 
-| 参数                       | 是否必须  | 默认值       | 说明                                                               | 
-|---------------------------|----------|-----------|------------------------------------------------------------------- |
-| `user`                    | 是        |           | 对应数据库的用户名                                                         |
-| `password`                | 是        |           | 对应数据库的密码                                                          |
-| `jdbc_url`                | 是        |           | JDBC 连接串                                                          |
-| `driver_url`              | 是        |           | JDBC Driver Jar 包名称*                                              |
-| `driver_class`            | 是        |           | JDBC Driver Class 名称                                              |
-| `only_specified_database` | 否        | "false"   | 指定是否只同步指定的 database                                               |
-| `lower_case_table_names`  | 否        | "false"   | 是否以小写的形式同步jdbc外部数据源的表名                                            |
-| `specified_database_list` | 否        | ""        | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
-| `oceanbase_mode`          | 否        | ""        | 当连接的外部数据源为OceanBase时，必须为其指定模式为mysql或oracle                        |
-
+| 参数                        | 是否必须 | 默认值     | 说明                                                               |
+|---------------------------|------|---------|------------------------------------------------------------------- |
+| `user`                    | 是    |         | 对应数据库的用户名                                                         |
+| `password`                | 是    |         | 对应数据库的密码                                                          |
+| `jdbc_url`                | 是    |         | JDBC 连接串                                                          |
+| `driver_url`              | 是    |         | JDBC Driver Jar 包名称*                                              |
+| `driver_class`            | 是    |         | JDBC Driver Class 名称                                              |
+| `only_specified_database` | 否    | "false" | 指定是否只同步指定的 database                                               |
+| `lower_case_table_names`  | 否    | "false" | 是否以小写的形式同步jdbc外部数据源的表名                                            |
+| `oceanbase_mode`          | 否    | ""      | 当连接的外部数据源为OceanBase时，必须为其指定模式为mysql或oracle                        |
+| `include_database_list`   | 否    | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
+| `exclude_database_list`   | 否    | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。|
 
 > `driver_url` 可以通过以下三种方式指定：
 > 
@@ -251,9 +251,16 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 > 3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
 
 > `only_specified_database`:
-> 
-> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。`only_specified_database=true` 且`specified_database_list`为空时，可以只同步指定的 database。当`only_specified_database=true`且`specified_database_list`指定了database列表时，则会同步指定的多个database。
-> 
+> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。
+>
+> `include_database_list`:
+> 当`only_specified_database=true`时，指定需要同步的 database，以','分割。默认为''，即不做任何过滤，同步所有database。db名称是大小写敏感的
+>
+> `exclude_database_list`:
+> 当`only_specified_database=true`时，指定不需要同步的多个database，以','分割。默认为''，即不做任何过滤，同步所有database。db名称是大小写敏感的。
+>
+> 当 `include_database_list` 和 `exclude_database_list` 有重合的database配置时，`exclude_database_list`会优先生效。
+>
 > 如果使用该参数时连接oracle数据库，要求使用ojdbc8.jar以上版本jar包。
 
 ## 数据查询
