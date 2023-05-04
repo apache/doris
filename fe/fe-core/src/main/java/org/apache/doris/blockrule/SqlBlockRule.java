@@ -64,6 +64,9 @@ public class SqlBlockRule implements Writable {
     @SerializedName(value = "cardinality")
     private Long cardinality;
 
+    @SerializedName(value = "qps")
+    private Long qps;
+
     // whether effective global
     @SerializedName(value = "global")
     private Boolean global;
@@ -78,13 +81,14 @@ public class SqlBlockRule implements Writable {
      * Create SqlBlockRule.
      **/
     public SqlBlockRule(String name, String sql, String sqlHash, Long partitionNum, Long tabletNum, Long cardinality,
-            Boolean global, Boolean enable) {
+                        Long qps, Boolean global, Boolean enable) {
         this.name = name;
         this.sql = sql;
         this.sqlHash = sqlHash;
         this.partitionNum = partitionNum;
         this.tabletNum = tabletNum;
         this.cardinality = cardinality;
+        this.qps = qps;
         this.global = global;
         this.enable = enable;
         if (StringUtils.isNotEmpty(sql)) {
@@ -94,12 +98,12 @@ public class SqlBlockRule implements Writable {
 
     public static SqlBlockRule fromCreateStmt(CreateSqlBlockRuleStmt stmt) {
         return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(),
-                stmt.getTabletNum(), stmt.getCardinality(), stmt.isGlobal(), stmt.isEnable());
+                stmt.getTabletNum(), stmt.getCardinality(), stmt.getQps(), stmt.isGlobal(), stmt.isEnable());
     }
 
     public static SqlBlockRule fromAlterStmt(AlterSqlBlockRuleStmt stmt) {
         return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(),
-                stmt.getTabletNum(), stmt.getCardinality(), stmt.getGlobal(), stmt.getEnable());
+                stmt.getTabletNum(), stmt.getCardinality(), stmt.getQps(), stmt.getGlobal(), stmt.getEnable());
     }
 
     public String getName() {
@@ -128,6 +132,10 @@ public class SqlBlockRule implements Writable {
 
     public Long getCardinality() {
         return cardinality;
+    }
+
+    public Long getQps() {
+        return qps;
     }
 
     public Boolean getGlobal() {
@@ -162,6 +170,10 @@ public class SqlBlockRule implements Writable {
         this.cardinality = cardinality;
     }
 
+    public void setQps(Long qps) {
+        this.qps = qps;
+    }
+
     public void setGlobal(Boolean global) {
         this.global = global;
     }
@@ -177,7 +189,8 @@ public class SqlBlockRule implements Writable {
         return Lists.newArrayList(this.name, this.sql, this.sqlHash,
                 this.partitionNum == null ? "0" : Long.toString(this.partitionNum),
                 this.tabletNum == null ? "0" : Long.toString(this.tabletNum),
-                this.cardinality == null ? "0" : Long.toString(this.cardinality), String.valueOf(this.global),
+                this.cardinality == null ? "0" : Long.toString(this.cardinality),
+                this.qps == null ? "0" : Long.toString(this.qps), String.valueOf(this.global),
                 String.valueOf(this.enable));
     }
 

@@ -33,6 +33,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.RateLimiter;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -41,8 +42,12 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -56,6 +61,8 @@ public class SqlBlockRuleMgr implements Writable {
 
     @SerializedName(value = "nameToSqlBlockRuleMap")
     private Map<String, SqlBlockRule> nameToSqlBlockRuleMap = Maps.newConcurrentMap();
+
+    private transient Map<String, RateLimiter> rateLimiterMap = Maps.newConcurrentMap();
 
     private void writeLock() {
         lock.writeLock().lock();
@@ -99,6 +106,9 @@ public class SqlBlockRuleMgr implements Writable {
         }
         if (sqlBlockRule.getCardinality() < 0) {
             throw new DdlException("the value of cardinality can't be a negative");
+        }
+        if (sqlBlockRule.getQps() < 0) {
+            throw new DdlException("the value of qps can't be a negative");
         }
     }
 
@@ -160,6 +170,9 @@ public class SqlBlockRuleMgr implements Writable {
             if (sqlBlockRule.getCardinality().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
                 sqlBlockRule.setCardinality(originRule.getCardinality());
             }
+            if (sqlBlockRule.getQps().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+                sqlBlockRule.setQps(originRule.getQps());
+            }
             if (sqlBlockRule.getGlobal() == null) {
                 sqlBlockRule.setGlobal(originRule.getGlobal());
             }
@@ -218,6 +231,7 @@ public class SqlBlockRuleMgr implements Writable {
 
     public void unprotectedDrop(List<String> ruleNames) {
         ruleNames.forEach(name -> nameToSqlBlockRuleMap.remove(name));
+        ruleNames.forEach(name -> rateLimiterMap.remove(name));
     }
 
     /**
@@ -255,16 +269,48 @@ public class SqlBlockRuleMgr implements Writable {
         }
     }
 
+    public void checkStmtLimitations(String user) throws AnalysisException {
+        // check qps rule
+        Optional<SqlBlockRule> minQpsRuleOptional = findMinQpsRule(user);
+        if (!minQpsRuleOptional.isPresent()) {
+            return;
+        }
+
+        SqlBlockRule rule = minQpsRuleOptional.get();
+        Double qps = Double.valueOf(rule.getQps());
+        // if rateLimiter not exists or rate has been changed, create a new RateLimiter
+        RateLimiter rateLimiter = rateLimiterMap.compute(rule.getName(), (name, oldLimiter) -> {
+            if (oldLimiter == null || qps != oldLimiter.getRate()) {
+                return RateLimiter.create(qps);
+            }
+            return oldLimiter;
+        });
+
+        if (!rateLimiter.tryAcquire()) {
+            throw new AnalysisException("sql hits sql block rule: " + rule.getName()
+                    + ", reach qps : " + rule.getQps());
+        }
+    }
+
+    private Optional<SqlBlockRule> findMinQpsRule(String user) {
+        Set<String> bindSqlBlockRules = Arrays.stream(Env.getCurrentEnv().getAuth().getSqlBlockRules(user))
+                .collect(Collectors.toSet());
+        // 1. enable=true  2. qps>0  3. global rule or user rule
+        return nameToSqlBlockRuleMap.values().stream().filter(rule -> rule.getEnable() && rule.getQps() > 0
+                && (rule.getGlobal() || bindSqlBlockRules.contains(rule.getName())))
+                .min(Comparator.comparing(SqlBlockRule::getQps));
+    }
+
     /**
      * Check number whether legal by user.
      **/
-    public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
+    public void checkScanNodeLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
             throws AnalysisException {
         // match global rule
         List<SqlBlockRule> globalRules =
                 nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
         for (SqlBlockRule rule : globalRules) {
-            checkLimitations(rule, partitionNum, tabletNum, cardinality);
+            checkScanNodeLimitations(rule, partitionNum, tabletNum, cardinality);
         }
         // match user rule
         String[] bindSqlBlockRules = Env.getCurrentEnv().getAuth().getSqlBlockRules(user);
@@ -273,14 +319,14 @@ public class SqlBlockRuleMgr implements Writable {
             if (rule == null) {
                 continue;
             }
-            checkLimitations(rule, partitionNum, tabletNum, cardinality);
+            checkScanNodeLimitations(rule, partitionNum, tabletNum, cardinality);
         }
     }
 
     /**
      * Check number whether legal by SqlBlockRule.
      **/
-    private void checkLimitations(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality)
+    private void checkScanNodeLimitations(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality)
             throws AnalysisException {
         if (rule.getPartitionNum() == 0 && rule.getTabletNum() == 0 && rule.getCardinality() == 0) {
             return;

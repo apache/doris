@@ -428,12 +428,12 @@ public class StmtExecutor {
         Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
 
-        // limitations: partition_num, tablet_num, cardinality
+        // ScanNode limitations: partition_num, tablet_num, cardinality
         List<ScanNode> scanNodeList = planner.getScanNodes();
         for (ScanNode scanNode : scanNodeList) {
             if (scanNode instanceof OlapScanNode) {
                 OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
+                Env.getCurrentEnv().getSqlBlockRuleMgr().checkScanNodeLimitations(
                         olapScanNode.getSelectedPartitionNum().longValue(),
                         olapScanNode.getSelectedTabletsNum(),
                         olapScanNode.getCardinality(),

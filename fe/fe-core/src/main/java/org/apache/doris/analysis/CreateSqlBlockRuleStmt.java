@@ -59,6 +59,8 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     public static final String SCANNED_CARDINALITY = "cardinality";
 
+    public static final String QUERY_PER_SECOND = "qps";
+
     public static final String GLOBAL_PROPERTY = "global";
 
     public static final String ENABLE_PROPERTY = "enable";
@@ -77,6 +79,8 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     private Long cardinality;
 
+    private Long qps;
+
     // whether effective global, default is false
     private boolean global;
 
@@ -91,7 +95,7 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     public static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>().add(SQL_PROPERTY)
             .add(SQL_HASH_PROPERTY).add(GLOBAL_PROPERTY).add(ENABLE_PROPERTY).add(SCANNED_PARTITION_NUM)
-            .add(SCANNED_TABLET_NUM).add(SCANNED_CARDINALITY).build();
+            .add(SCANNED_TABLET_NUM).add(SCANNED_CARDINALITY).add(QUERY_PER_SECOND).build();
 
     public CreateSqlBlockRuleStmt(String ruleName, Map<String, String> properties) {
         this.ifNotExists = false;
@@ -124,6 +128,7 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
         String partitionNumString = properties.get(SCANNED_PARTITION_NUM);
         String tabletNumString = properties.get(SCANNED_TABLET_NUM);
         String cardinalityString = properties.get(SCANNED_CARDINALITY);
+        String qpsString = properties.get(QUERY_PER_SECOND);
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
         SqlBlockUtil.checkPropertiesValidate(sql, sqlHash, partitionNumString, tabletNumString, cardinalityString);
@@ -134,6 +139,8 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
                 SCANNED_TABLET_NUM + " should be a long");
         this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, 0L, null,
                 SCANNED_CARDINALITY + " should be a long");
+        this.qps = Util.getLongPropertyOrDefault(qpsString, 0L, null,
+                QUERY_PER_SECOND + " should be a long");
 
         this.global = Util.getBooleanPropertyOrDefault(properties.get(GLOBAL_PROPERTY), false,
                 GLOBAL_PROPERTY + " should be a boolean");

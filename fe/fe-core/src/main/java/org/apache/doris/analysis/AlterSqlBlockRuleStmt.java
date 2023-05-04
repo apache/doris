@@ -48,6 +48,8 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
 
     private Long cardinality;
 
+    private Long qps;
+
     private Boolean global;
 
     private Boolean enable;
@@ -78,6 +80,7 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
         String partitionNumString = properties.get(CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM);
         String tabletNumString = properties.get(CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM);
         String cardinalityString = properties.get(CreateSqlBlockRuleStmt.SCANNED_CARDINALITY);
+        String qpsString = properties.get(CreateSqlBlockRuleStmt.QUERY_PER_SECOND);
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
         SqlBlockUtil.checkSqlAndLimitationsSetBoth(sql, sqlHash,
@@ -88,6 +91,8 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
                 CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM + " should be a long");
         this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, LONG_NOT_SET, null,
                 CreateSqlBlockRuleStmt.SCANNED_CARDINALITY + " should be a long");
+        this.qps = Util.getLongPropertyOrDefault(qpsString, LONG_NOT_SET, null,
+            CreateSqlBlockRuleStmt.QUERY_PER_SECOND + " should be a long");
         // allow null, represents no modification
         String globalStr = properties.get(CreateSqlBlockRuleStmt.GLOBAL_PROPERTY);
         this.global = StringUtils.isNotEmpty(globalStr) ? Boolean.parseBoolean(globalStr) : null;
@@ -113,6 +118,10 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
 
     public Long getCardinality() {
         return cardinality;
+    }
+
+    public Long getQps() {
+        return qps;
     }
 
     public Boolean getGlobal() {

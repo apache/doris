@@ -46,6 +46,7 @@ public class ShowSqlBlockRuleStmt extends ShowStmt {
                     .addColumn(new Column("PartitionNum", ScalarType.createVarchar(10)))
                     .addColumn(new Column("TabletNum", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Cardinality", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Qps", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Global", ScalarType.createVarchar(4)))
                     .addColumn(new Column("Enable", ScalarType.createVarchar(4)))
                     .build();
