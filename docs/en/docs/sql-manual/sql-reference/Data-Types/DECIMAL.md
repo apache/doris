@@ -35,5 +35,8 @@ in addition, M must be greater than or equal to the value of D.
 
 The default value is DECIMAL(9, 0).
 
+### note
+We intend to delete this type in 2024. At this stage, Doris prohibits creating tables containing the `DECIMAL` type by default. If you need to use it, you need to add `disable_decimalv2 = false` in the FE's config and restart the FE.
+
 ### keywords
 DECIMAL

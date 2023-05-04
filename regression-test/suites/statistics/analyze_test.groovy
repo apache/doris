@@ -273,7 +273,8 @@ suite("analyze_test") {
     );"""
 
     sql """
-        DELETE FROM __internal_schema.analysis_jobs WHERE job_id > 0
+        DELETE FROM __internal_schema.analysis_jobs 
+        WHERE tbl_name = 'analyze_test_tbl_2';
     """
 
     test {

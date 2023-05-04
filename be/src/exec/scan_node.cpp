@@ -65,16 +65,15 @@ void ScanNode::_peel_pushed_vconjunct(RuntimeState* state,
     }
 
     int leaf_index = 0;
-    vectorized::VExpr* conjunct_expr_root = (*_vconjunct_ctx_ptr)->root();
+    vectorized::VExpr* conjunct_expr_root = _vconjunct_ctx_ptr->root();
 
     if (conjunct_expr_root != nullptr) {
         vectorized::VExpr* new_conjunct_expr_root = vectorized::VectorizedUtils::dfs_peel_conjunct(
-                state, *_vconjunct_ctx_ptr, conjunct_expr_root, leaf_index, checker);
+                state, _vconjunct_ctx_ptr, conjunct_expr_root, leaf_index, checker);
         if (new_conjunct_expr_root == nullptr) {
-            (*_vconjunct_ctx_ptr)->close(state);
-            _vconjunct_ctx_ptr.reset(nullptr);
+            _vconjunct_ctx_ptr->close(state);
         } else {
-            (*_vconjunct_ctx_ptr)->set_root(new_conjunct_expr_root);
+            _vconjunct_ctx_ptr->set_root(new_conjunct_expr_root);
         }
     }
 }

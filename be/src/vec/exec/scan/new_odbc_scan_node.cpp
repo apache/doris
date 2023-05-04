@@ -67,7 +67,7 @@ Status NewOdbcScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     }
     std::shared_ptr<NewOdbcScanner> scanner = NewOdbcScanner::create_shared(
             _state, this, _limit_per_scanner, _odbc_scan_node, _state->runtime_profile());
-    RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
+    RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr));
     scanners->push_back(scanner);
     return Status::OK();
 }

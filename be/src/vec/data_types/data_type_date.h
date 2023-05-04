@@ -32,6 +32,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
+#include "vec/data_types/serde/data_type_date64_serde.h"
 
 namespace doris {
 namespace vectorized {
@@ -64,6 +65,8 @@ public:
     static void cast_to_date(Int64& x);
 
     MutableColumnPtr create_column() const override;
+
+    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDate64SerDe>(); }
 };
 
 } // namespace doris::vectorized

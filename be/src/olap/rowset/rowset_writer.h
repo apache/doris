@@ -93,6 +93,8 @@ public:
 
     virtual Status wait_flying_segcompaction() = 0;
 
+    virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };

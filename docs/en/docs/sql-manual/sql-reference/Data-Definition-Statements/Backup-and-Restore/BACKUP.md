@@ -96,7 +96,7 @@ BACKUP
 
 1. Only one backup operation can be performed under the same database.
 
-2. The backup operation will back up the underlying table and [materialized view](../../../../advanced/materialized-view.md) of the specified table or partition, and only one copy will be backed up.
+2. The backup operation will back up the underlying table and [materialized view](../../../../query-acceleration/materialized-view.md) of the specified table or partition, and only one copy will be backed up.
 
 3. Efficiency of backup operations
 

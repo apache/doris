@@ -35,6 +35,8 @@
 #include "olap/delta_writer.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/schema_change.h"
+#include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
@@ -172,7 +174,7 @@ void TxnManager::set_txn_related_delete_bitmap(
     std::unique_lock<std::mutex> txn_lock(_get_txn_lock(transaction_id));
     {
         // get tx
-        std::shared_lock rdlock(_get_txn_map_lock(transaction_id));
+        std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         auto it = txn_tablet_map.find(key);
         DCHECK(it != txn_tablet_map.end());
@@ -327,7 +329,21 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                     if (tablet == nullptr) {
                         return Status::OK();
                     }
-                    RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset_ptr, &load_info));
+                    std::unique_ptr<RowsetWriter> rowset_writer;
+                    _create_transient_rowset_writer(tablet, rowset_ptr->rowset_id(),
+                                                    rowset_ptr->num_segments(), &rowset_writer);
+
+                    RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset_ptr, &load_info,
+                                                                 rowset_writer.get()));
+                    if (rowset_ptr->tablet_schema()->is_partial_update()) {
+                        // build rowset writer and merge transient rowset
+                        RETURN_NOT_OK(rowset_writer->flush());
+                        RowsetSharedPtr transient_rowset = rowset_writer->build();
+                        rowset_ptr->merge_rowset_meta(transient_rowset->rowset_meta());
+
+                        // erase segment cache cause we will add a segment to rowset
+                        SegmentLoader::instance()->erase_segment(rowset_ptr->rowset_id());
+                    }
                     std::shared_lock rlock(tablet->get_header_lock());
                     tablet->save_meta();
                 }
@@ -363,6 +379,25 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
             }
         }
     }
+    return Status::OK();
+}
+
+// create a rowset writer with rowset_id and seg_id
+// after writer, merge this transient rowset with original rowset
+Status TxnManager::_create_transient_rowset_writer(std::shared_ptr<Tablet> tablet,
+                                                   const RowsetId& rowset_id,
+                                                   int32_t num_segments_ori,
+                                                   std::unique_ptr<RowsetWriter>* rowset_writer) {
+    RowsetWriterContext context;
+    context.rowset_state = PREPARED;
+    context.segments_overlap = OVERLAPPING;
+    context.tablet_schema = tablet->tablet_schema();
+    context.newest_write_timestamp = UnixSeconds();
+    context.tablet_id = tablet->table_id();
+    context.tablet = tablet;
+    context.is_direct_write = true;
+    RETURN_NOT_OK(tablet->create_transient_rowset_writer(context, rowset_id, rowset_writer));
+    (*rowset_writer)->set_segment_start_id(num_segments_ori);
     return Status::OK();
 }
 

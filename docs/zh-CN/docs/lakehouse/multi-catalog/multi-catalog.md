@@ -303,6 +303,18 @@ select k1, k4 from table;           // Query OK.
 
 Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参阅 [权限管理](../../admin-manual/privilege-ldap/user-privilege.md) 文档。
 
+## 指定需要同步的数据库
+
+通过在 Catalog 配置中设置 `include_database_list` 和 `exclude_database_list` 可以指定需要同步的数据库。
+
+`include_database_list`: 支持只同步指定的多个database，以','分隔。默认为''，同步所有database。db名称是大小写敏感的。
+
+`exclude_database_list`: 支持指定不需要同步的多个database，以','分割。默认为''，即不做任何过滤，同步所有database。db名称是大小写敏感的。
+
+> 当 `include_database_list` 和 `exclude_database_list` 有重合的database配置时，`exclude_database_list`会优先生效。
+>
+> 连接 JDBC 时，上述 2 个配置需要和配置 `only_specified_database` 搭配使用，详见 [JDBC](./jdbc.md)
+
 ## 元数据更新
 
 ### 手动刷新
@@ -361,6 +373,8 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
 
 > 使用建议： 无论是之前已经创建好的catalog现在想改为自动刷新，还是新创建的 catalog，都只需要把 `enable_hms_events_incremental_sync` 设置为true，重启fe节点，无需重启之前或之后再手动刷新元数据。
 
+<version since="dev">
+
 #### 定时刷新
 
 在创建catalog时，在properties 中指定刷新时间参数`metadata_refresh_interval_sec` ，以秒为单位，若在创建catalog时设置了该参数，FE 的master节点会根据参数值定时刷新该catalog。目前支持三种类型
@@ -379,4 +393,6 @@ CREATE CATALOG es PROPERTIES (
     "metadata_refresh_interval_sec"="20"
 );
 ```
+
+</version>
 
