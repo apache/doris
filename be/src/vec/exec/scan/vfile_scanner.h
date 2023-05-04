@@ -71,7 +71,7 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    Status prepare(VExprContext** vconjunct_ctx_ptr,
+    Status prepare(VExprContext* vconjunct_ctx_ptr,
                    std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                    const std::unordered_map<std::string, int>* colname_to_slot_id);
 

@@ -97,7 +97,7 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 }
 
 Status VFileScanner::prepare(
-        VExprContext** vconjunct_ctx_ptr,
+        VExprContext* vconjunct_ctx_ptr,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const std::unordered_map<std::string, int>* colname_to_slot_id) {
     RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));

@@ -88,7 +88,7 @@ void VExprContext::close(doris::RuntimeState* state) {
 }
 
 doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
-    DCHECK(_prepared);
+    DCHECK(_prepared) << "expr context not prepared";
     DCHECK(_opened);
     DCHECK(*new_ctx == nullptr);
 
