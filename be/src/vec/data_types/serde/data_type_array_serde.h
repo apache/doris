@@ -51,6 +51,12 @@ public:
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
+    void write_column_to_arrow(const IColumn& column, const UInt8* null_bytemap,
+                               arrow::ArrayBuilder* array_builder, int start,
+                               int end) const override;
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
+                                int end, const cctz::time_zone& ctz) const override;
+
 private:
     DataTypeSerDeSPtr nested_serde;
 };
