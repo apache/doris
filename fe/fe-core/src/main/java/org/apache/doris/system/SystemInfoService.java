@@ -138,7 +138,7 @@ public class SystemInfoService {
         @Override
         public String toString() {
             return "HostInfo{"
-                    + ", hostName='" + host + '\''
+                    + "host='" + host + '\''
                     + ", port=" + port
                     + '}';
         }
