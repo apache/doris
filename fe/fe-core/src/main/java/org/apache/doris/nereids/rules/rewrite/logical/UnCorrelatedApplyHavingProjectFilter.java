@@ -34,7 +34,9 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Raise the correlated predicate in filter and having predicate into apply
@@ -69,7 +71,7 @@ public class UnCorrelatedApplyHavingProjectFilter extends OneRewriteRuleFactory 
                 LogicalFilter<Plan> filter = project.child();
                 Set<Expression> conjuncts = filter.getConjuncts();
                 Map<Boolean, List<Expression>> split = Utils.splitCorrelatedConjuncts(
-                    conjuncts, apply.getCorrelationSlot());
+                        conjuncts, apply.getCorrelationSlot());
                 List<Expression> correlatedPredicate = split.get(true);
                 List<Expression> unCorrelatedPredicate = split.get(false);
                 Plan child = PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child());

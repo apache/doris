@@ -88,7 +88,7 @@ public class UnCorrelatedApplyAggregateFilter extends OneRewriteRuleFactory {
                     PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child()));
             return new LogicalApply<>(apply.getCorrelationSlot(),
                     apply.getSubqueryExpr(),
-                    ExpressionUtils.optionalAnd(correlatedPredicate),Optional.empty(),
+                    ExpressionUtils.optionalAnd(correlatedPredicate), Optional.empty(),
                     apply.getMarkJoinSlotReference(),
                     apply.getSubCorrespondingConjunct(), apply.isNeedAddSubOutputToProjects(),
                     apply.left(), newAgg);

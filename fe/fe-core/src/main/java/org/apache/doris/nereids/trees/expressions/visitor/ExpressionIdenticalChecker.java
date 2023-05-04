@@ -17,20 +17,18 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
-import org.apache.doris.nereids.trees.expressions.*;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.planner.PartitionColumnFilter;
 
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
+/**
+ * Checker for identifying two expressions are identical.
+ */
 public class ExpressionIdenticalChecker extends DefaultExpressionVisitor<Boolean, Expression> {
+
     public static final ExpressionIdenticalChecker INSTANCE = new ExpressionIdenticalChecker();
+
     public boolean check(Expression expression, Expression other) {
         return expression.accept(this, other);
     }

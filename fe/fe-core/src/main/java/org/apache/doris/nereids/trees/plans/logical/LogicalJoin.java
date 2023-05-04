@@ -93,16 +93,16 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     public LogicalJoin(
-        JoinType joinType,
-        List<Expression> hashJoinConjuncts,
-        List<Expression> otherJoinConjuncts,
-        JoinHint hint,
-        Optional<MarkJoinSlotReference> markJoinSlotReference,
-        Optional<Expression> subQueryCombinedHavingExpr,
-        LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            JoinHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference,
+            Optional<Expression> subQueryCombinedHavingExpr,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, hashJoinConjuncts,
-            otherJoinConjuncts, hint, markJoinSlotReference,
-            Optional.empty(), Optional.empty(), subQueryCombinedHavingExpr, leftChild, rightChild);
+                otherJoinConjuncts, hint, markJoinSlotReference,
+                Optional.empty(), Optional.empty(), subQueryCombinedHavingExpr, leftChild, rightChild);
     }
 
     /**
@@ -123,15 +123,15 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     private LogicalJoin(
-        JoinType joinType,
-        List<Expression> hashJoinConjuncts,
-        List<Expression> otherJoinConjuncts,
-        JoinHint hint,
-        Optional<MarkJoinSlotReference> markJoinSlotReference,
-        Optional<GroupExpression> groupExpression,
-        Optional<LogicalProperties> logicalProperties,
-        LEFT_CHILD_TYPE leftChild,
-        RIGHT_CHILD_TYPE rightChild) {
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            JoinHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties,
+            LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.subQueryCombinedHavingExpr = Optional.empty();

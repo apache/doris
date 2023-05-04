@@ -1628,7 +1628,7 @@ public class OlapTable extends Table {
     public List<Column> getKeyList() {
         List<Column> keyList = new ArrayList<>();
         int keyNum = getKeysNum();
-        for (int i = 0; i < keyNum; i ++) {
+        for (int i = 0; i < keyNum; i++) {
             keyList.add(getBaseSchema().get(i));
         }
         return keyList;

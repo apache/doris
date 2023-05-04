@@ -17,47 +17,50 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import org.apache.doris.nereids.trees.expressions.Add;
-import org.apache.doris.nereids.trees.expressions.Divide;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IsNull;
-import org.apache.doris.nereids.trees.expressions.Multiply;
-import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.plans.logical.*;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
- * Judgment for plan type.
+ * Judgment for plan tree pattern
  */
 public class PlanTypeUtils {
+
     private static final Set<Class<? extends LogicalPlan>> SPJ_PLAN = ImmutableSet.of(
-        LogicalRelation.class,
-        LogicalJoin.class,
-        LogicalFilter.class,
-        LogicalProject.class,
-        LogicalSubQueryAlias.class // FIXME
+            LogicalRelation.class,
+            LogicalJoin.class,
+            LogicalFilter.class,
+            LogicalProject.class,
+            LogicalSubQueryAlias.class // FIXME
     );
+
     private static final Set<Class<? extends LogicalPlan>> SUPPORTED_PLAN = ImmutableSet.of(
-        // TODO: Set related ops
-        LogicalRelation.class,
-        LogicalJoin.class,
-        LogicalFilter.class,
-        LogicalProject.class,
-        LogicalWindow.class,
-        LogicalAggregate.class,
-        LogicalHaving.class,
-        LogicalSort.class,
-        LogicalLimit.class,
-        LogicalSubQueryAlias.class
+            // TODO: Set related ops
+            LogicalRelation.class,
+            LogicalJoin.class,
+            LogicalFilter.class,
+            LogicalProject.class,
+            LogicalWindow.class,
+            LogicalAggregate.class,
+            LogicalHaving.class,
+            LogicalSort.class,
+            LogicalLimit.class,
+            LogicalSubQueryAlias.class
     );
 
     public static boolean isSpj(LogicalPlan rootPlan) {
@@ -79,6 +82,7 @@ public class PlanTypeUtils {
     public static boolean isSupportedPlan(List<LogicalPlan> plans) {
         return plans.stream().anyMatch(p -> SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)));
     }
+
     public static LogicalFilter getSpjFilter(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
         plans.addAll(rootPlan.collect(LogicalFilter.class::isInstance));
@@ -102,6 +106,7 @@ public class PlanTypeUtils {
         plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalFilter);
     }
+
     public static boolean hasAggr(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
         plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));

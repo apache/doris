@@ -23,8 +23,8 @@ import org.apache.doris.nereids.rules.rewrite.logical.PullUpCorrelatedFilterUnde
 import org.apache.doris.nereids.rules.rewrite.logical.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyAggregateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyFilter;
-import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyProjectFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyHavingProjectFilter;
+import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyProjectFilter;
 
 import com.google.common.collect.ImmutableList;
 

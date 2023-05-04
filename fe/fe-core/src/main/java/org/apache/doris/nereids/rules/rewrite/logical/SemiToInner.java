@@ -17,36 +17,57 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.exceptions.TransformException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiToInner.SemiToInnerContext;
-import org.apache.doris.nereids.trees.expressions.*;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.*;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
-import java.util.*;
+import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Transform semi join to inner join
+ */
 public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> implements CustomRewriter {
+
+    /**
+     * Types of semi join to inner join pattern.
+     */
     public enum TransformPattern {
         INNER,
         GBY_INNER,
         INNER_GBY,
         UNKNOWN
-    };
+    }
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         return plan.accept(this, new SemiToInnerContext(false, TransformPattern.UNKNOWN,
-                                                                new HashSet<>(), new ArrayList<>(),null));
+                                                                new HashSet<>(), new ArrayList<>(),
+                                        null));
     }
 
     @Override
@@ -66,6 +87,7 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
             return plan;
         }
     }
+
     @Override
     public Plan visitLogicalJoin(LogicalJoin join, SemiToInnerContext context) {
         if (join.getJoinType() == JoinType.LEFT_SEMI_JOIN) {
@@ -87,12 +109,17 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
             return join;
         }
     }
+
+    /**
+     * Semi join to inner transformation context
+     */
     public static class SemiToInnerContext {
         boolean visited;
         TransformPattern pattern;
         Set<Slot> outerDependantSlots;
         List<Expression> groupByExpressions;
         Expression subQueryCombinedHavingExpr;
+
         public SemiToInnerContext(boolean visited,
                                   TransformPattern pattern,
                                   Set<Slot> outerDependantSlots,
@@ -105,6 +132,7 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
             this.subQueryCombinedHavingExpr = subQueryCombinedHavingExpr;
         }
     }
+
     private TransformPattern getTransformPattern(LogicalJoin join) {
         if (join.getSubQueryCombinedHavingExpr().isPresent()) {
             return TransformPattern.INNER_GBY;
@@ -113,6 +141,7 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
             return TransformPattern.UNKNOWN;
         }
     }
+
     private LogicalPlan transformToInnerGby(LogicalPlan plan, SemiToInnerContext context) {
         if (!(plan instanceof LogicalProject || plan instanceof LogicalFilter)) {
             LogicalPlan topOperator = (LogicalPlan) plan;
@@ -151,32 +180,35 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
             havingExprAliasList.add(havingExpr);
 
             LogicalAggregate newAggr = new LogicalAggregate(new ArrayList<>(combinedGbyExprs),
-                new ArrayList<>(outputExprsAfterGby), project);
+                    new ArrayList<>(outputExprsAfterGby), project);
             LogicalFilter havingFilter = new LogicalFilter(havingExprAliasList, newAggr);
             LogicalProject newProject = new LogicalProject(new ArrayList<>(combinedGbyExprs), havingFilter);
             context.visited = false;
-            if (!(topOperator instanceof LogicalAggregate)) {
+            if (topOperator instanceof LogicalAggregate) {
                 LogicalAggregate topAggr = (LogicalAggregate) topOperator;
                 LogicalAggregate newTopAggr = new LogicalAggregate(topAggr.getGroupByExpressions(),
-                    topAggr.getOutputExpressions(), newProject);
+                        topAggr.getOutputExpressions(), newProject);
                 return newTopAggr;
             } else {
-                topOperator.withChildren(newProject);
-                return topOperator;
+                return (LogicalPlan) topOperator.withChildren(newProject);
             }
         } else {
             return plan;
         }
     }
+
     private LogicalPlan transformToInner(LogicalPlan plan, SemiToInnerContext context) {
         return plan;
     }
+
     private LogicalPlan transformToGbyInner(LogicalPlan plan, SemiToInnerContext context) {
         return plan;
     }
+
     private Expression extractAggrExprFromHavingExpr(Expression havingExpr) {
         return ((EqualTo) havingExpr).child(0);
     }
+
     private List<Expression> getAllUniqueColumnsInJoin(LogicalPlan plan) {
         List<LogicalOlapScan> allTsPlan = new ArrayList<>();
         List<Expression> allUniqueColumnsInJoin = new ArrayList<>();
@@ -195,6 +227,7 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
         }
         return allUniqueColumnsInJoin;
     }
+
     private void findAllTsFromLogicalJoin(LogicalPlan plan, List<LogicalOlapScan> allTsPlan) {
         if (plan instanceof LogicalOlapScan) {
             allTsPlan.add((LogicalOlapScan) plan);
@@ -205,6 +238,7 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
             }
         }
     }
+
     private Expression getColumnExpressionFromName(List<Slot> slots, String columnName) {
         for (Slot slot : slots) {
             if (slot.getName().equals(columnName)) {

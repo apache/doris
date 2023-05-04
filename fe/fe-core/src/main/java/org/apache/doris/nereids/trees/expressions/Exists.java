@@ -47,8 +47,8 @@ public class Exists extends SubqueryExpr implements LeafExpression {
                 Optional.empty(), Optional.empty(), isNot);
     }
 
-    public Exists(LogicalPlan subquery, List<Slot> correlateSlots,
-                  Optional<Expression> typeCoercionExpr, Optional<Expression> subQueryCombinedHavingExpr, boolean isNot) {
+    public Exists(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr,
+                  Optional<Expression> subQueryCombinedHavingExpr, boolean isNot) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"),
                 Objects.requireNonNull(correlateSlots, "subquery can not be null"),
                 typeCoercionExpr, subQueryCombinedHavingExpr);

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -28,15 +27,22 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+
 /**
  * Subquery Expression.
  */
 public abstract class SubqueryExpr extends Expression {
+
     protected final LogicalPlan queryPlan;
     protected final List<Slot> correlateSlots;
     protected final Optional<Expression> typeCoercionExpr;
     protected final Optional<Expression> subQueryCombinedHavingExpr;
+
     public SubqueryExpr(LogicalPlan subquery) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
         this.correlateSlots = ImmutableList.of();
@@ -51,7 +57,8 @@ public abstract class SubqueryExpr extends Expression {
         this.subQueryCombinedHavingExpr = Optional.empty();
     }
 
-    public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr, Optional<Expression> subQueryCombinedHavingExpr) {
+    public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr,
+                        Optional<Expression> subQueryCombinedHavingExpr) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
         this.correlateSlots = ImmutableList.copyOf(correlateSlots);
         this.typeCoercionExpr = typeCoercionExpr;
@@ -76,6 +83,7 @@ public abstract class SubqueryExpr extends Expression {
         expressionList.addAll(correlateSlots);
         return expressionList;
     }
+
     public Optional<Expression> getTypeCoercionExpr() {
         return typeCoercionExpr;
     }
@@ -109,7 +117,8 @@ public abstract class SubqueryExpr extends Expression {
                 "QueryPlan", queryPlan,
                 "CorrelatedSlots", correlateSlots,
                 "typeCoercionExpr", typeCoercionExpr.isPresent() ? typeCoercionExpr.get() : "null",
-                "subQueryCombinedHavingExpr", subQueryCombinedHavingExpr.isPresent() ? subQueryCombinedHavingExpr.get() : "null");
+                "subQueryCombinedHavingExpr",
+                subQueryCombinedHavingExpr.isPresent() ? subQueryCombinedHavingExpr.get() : "null");
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

@@ -17,15 +17,16 @@
 
 package org.apache.doris.nereids.util;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.*;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -69,7 +70,12 @@ public class PlanUtils {
     public static Plan projectOrSelf(List<NamedExpression> projects, Plan plan) {
         return project(projects, plan).map(Plan.class::cast).orElse(plan);
     }
-    public static Map<Expression, Expression> createSlotMapping(List<LogicalRelation> otherTables, List<LogicalRelation> selfTables) {
+
+    /**
+     * create slot mapping between other tables and self tables
+     */
+    public static Map<Expression, Expression> createSlotMapping(List<LogicalRelation> otherTables,
+                                                                List<LogicalRelation> selfTables) {
         Map<Expression, Expression> otherToSelfSlotMap = Maps.newHashMap();
         for (LogicalRelation otherTable : otherTables) {
             for (LogicalRelation selfTable : selfTables) {

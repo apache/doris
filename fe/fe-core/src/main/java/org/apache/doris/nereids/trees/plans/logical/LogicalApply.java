@@ -33,7 +33,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.checkerframework.checker.nullness.Opt;
 
 import java.util.List;
 import java.util.Objects;
@@ -91,7 +90,8 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
             Optional<Expression> subCorrespondingConjunct, boolean inProject,
             LEFT_CHILD_TYPE input, RIGHT_CHILD_TYPE subquery) {
         this(Optional.empty(), Optional.empty(), correlationSlot, subqueryExpr,
-                correlationFilter, subQueryCombinedHavingExpr, markJoinSlotReference, subCorrespondingConjunct, inProject, input, subquery);
+                correlationFilter, subQueryCombinedHavingExpr, markJoinSlotReference, subCorrespondingConjunct,
+                inProject, input, subquery);
     }
 
     public List<Expression> getCorrelationSlot() {
@@ -105,6 +105,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     public Optional<Expression> getSubQueryCombinedHavingExpr() {
         return subQueryCombinedHavingExpr;
     }
+
     public SubqueryExpr getSubqueryExpr() {
         return subqueryExpr;
     }
@@ -163,7 +164,8 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                 "correlationFilter", correlationFilter,
                 "isMarkJoin", markJoinSlotReference.isPresent(),
                 "MarkJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty",
-                "subQueryCombinedHavingExpr", subQueryCombinedHavingExpr.isPresent() ? subQueryCombinedHavingExpr.get() : "empty",
+                "subQueryCombinedHavingExpr",
+                subQueryCombinedHavingExpr.isPresent() ? subQueryCombinedHavingExpr.get() : "empty",
                 "scalarSubCorrespondingSlot",
                 subCorrespondingConjunct.isPresent() ? subCorrespondingConjunct.get() : "empty");
     }
