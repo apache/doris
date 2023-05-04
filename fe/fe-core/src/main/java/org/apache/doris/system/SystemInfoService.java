@@ -881,8 +881,7 @@ public class SystemInfoService {
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
 
-        int aliveBackendNum = copiedBackends.values().stream().filter(Backend::isAlive)
-                .collect(Collectors.toList()).size();
+        int aliveBackendNum = (int) copiedBackends.values().stream().filter(Backend::isAlive).count();
         if (aliveBackendNum < replicaAlloc.getTotalReplicaNum()) {
             throw new DdlException("replication num should be less than the number of available backends. "
                     + "replication num is " + replicaAlloc.getTotalReplicaNum()
@@ -901,6 +900,7 @@ public class SystemInfoService {
                 BeSelectionPolicy policy = builder.build();
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 if (beIds.isEmpty()) {
+                    LOG.error("failed backend(s) for policy:" + policy);
                     String errorReplication = "replication tag: " + entry.getKey()
                             + ", replication num: " + entry.getValue()
                             + ", storage medium: " + storageMedium;
