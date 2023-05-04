@@ -157,6 +157,7 @@ import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.loadv2.LoadManagerAdapter;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
@@ -452,6 +453,11 @@ public class Env {
 
     private StatisticsCleaner statisticsCleaner;
 
+    /**
+     * TODO(tsy): to be removed after load refactor
+     */
+    private final LoadManagerAdapter loadManagerAdapter;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -656,6 +662,7 @@ public class Env {
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.resourceGroupMgr = new ResourceGroupMgr();
+        this.loadManagerAdapter = new LoadManagerAdapter();
     }
 
     public static void destroyCheckpoint() {
@@ -1046,7 +1053,8 @@ public class Env {
                 clusterId = storage.getClusterID();
                 token = storage.getToken();
                 try {
-                    URL idURL = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(rightHelperNode.getIp(), Config.http_port) + "/check");
+                    URL idURL = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(rightHelperNode.getIp(),
+                            Config.http_port) + "/check");
                     HttpURLConnection conn = null;
                     conn = (HttpURLConnection) idURL.openConnection();
                     conn.setConnectTimeout(2 * 1000);
@@ -1118,9 +1126,10 @@ public class Env {
             try {
                 // For upgrade compatibility, the host parameter name remains the same
                 // and the new hostname parameter is added
-                URL url = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getIp(), Config.http_port)
-                        + "/role?host=" + selfNode.getIp() + "&hostname=" + selfNode.getHostName()
-                        + "&port=" + selfNode.getPort());
+                URL url = new URL(
+                        "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getIp(), Config.http_port)
+                                + "/role?host=" + selfNode.getIp() + "&hostname=" + selfNode.getHostName()
+                                + "&port=" + selfNode.getPort());
                 HttpURLConnection conn = null;
                 conn = (HttpURLConnection) url.openConnection();
                 if (conn.getResponseCode() != 200) {
@@ -1571,7 +1580,8 @@ public class Env {
 
     private boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
         try {
-            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getIp(), Config.http_port) + "/version";
+            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getIp(), Config.http_port)
+                    + "/version";
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getOutputStream(Storage.VERSION_FILE, dir));
@@ -2565,7 +2575,7 @@ public class Env {
     public void dropFrontend(FrontendNodeType role, String ip, String hostname, int port) throws DdlException {
         if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
                 && ((!Strings.isNullOrEmpty(selfNode.getHostName()) && selfNode.getHostName().equals(hostname))
-                        || ip.equals(selfNode.getIp()))) {
+                || ip.equals(selfNode.getIp()))) {
             throw new DdlException("can not drop current master node.");
         }
         if (!tryLock(false)) {
@@ -2856,9 +2866,9 @@ public class Env {
                 // and get a ddl schema without key type and key columns
             } else {
                 sb.append("\n").append(table.getType() == TableType.OLAP
-                    ? keySql
-                    : keySql.substring("DUPLICATE ".length()))
-                    .append("(");
+                                ? keySql
+                                : keySql.substring("DUPLICATE ".length()))
+                        .append("(");
                 List<String> keysColumnNames = Lists.newArrayList();
                 for (Column column : olapTable.getBaseSchema()) {
                     if (column.isKey()) {
@@ -3272,12 +3282,12 @@ public class Env {
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-                                      Long recycleTime) {
+            Long recycleTime) {
         return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
-                                Long recycleTime) throws MetaNotFoundException {
+            Long recycleTime) throws MetaNotFoundException {
         getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
     }
 
@@ -3712,7 +3722,7 @@ public class Env {
     }
 
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties,
-                boolean isKeysRequired) throws DdlException {
+            boolean isKeysRequired) throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
         for (Column column : columns) {
             if (column.isKey()) {
@@ -5377,5 +5387,9 @@ public class Env {
 
     public StatisticsCleaner getStatisticsCleaner() {
         return statisticsCleaner;
+    }
+
+    public LoadManagerAdapter getLoadManagerAdapter() {
+        return loadManagerAdapter;
     }
 }

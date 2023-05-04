@@ -98,6 +98,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.loadv2.LoadManagerAdapter;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlEofPacket;
@@ -1850,13 +1851,9 @@ public class StmtExecutor implements ProfileWriter {
             if (loadType == LoadType.UNKNOWN) {
                 throw new DdlException("Unknown load job type");
             }
-            LoadManager loadManager = context.getEnv().getLoadManager();
-            if (loadType == LoadType.MYSQL_LOAD) {
-                // TODO(tsy): implement mysql load
-            } else {
-                loadManager.createLoadJobFromStmt(insertStmt);
-                context.getState().setOk();
-            }
+            LoadManagerAdapter loadManagerAdapter = context.getEnv().getLoadManagerAdapter();
+            loadManagerAdapter.startLoadFromInsertStmt(insertStmt);
+            context.getState().setOk();
         } catch (UserException e) {
             // Return message to info client what happened.
             LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
