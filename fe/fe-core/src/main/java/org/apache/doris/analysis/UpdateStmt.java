@@ -57,7 +57,6 @@ import java.util.TreeSet;
  *     {expr}
  */
 public class UpdateStmt extends DdlStmt {
-
     private TableRef targetTableRef;
     private TableName tableName;
     private final List<BinaryPredicate> setExprs;
@@ -67,6 +66,7 @@ public class UpdateStmt extends DdlStmt {
     private TableIf targetTable;
     List<SelectListItem> selectListItems = Lists.newArrayList();
     List<String> cols = Lists.newArrayList();
+    private boolean isPartialUpdate = false;
 
     public UpdateStmt(TableRef targetTableRef, List<BinaryPredicate> setExprs, FromClause fromClause, Expr whereExpr) {
         this.targetTableRef = targetTableRef;
@@ -124,7 +124,8 @@ public class UpdateStmt extends DdlStmt {
                 null,
                 cols,
                 new InsertSource(selectStmt),
-                null);
+                null,
+                isPartialUpdate);
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws UserException {
@@ -186,16 +187,36 @@ public class UpdateStmt extends DdlStmt {
         }
 
         // step3: generate select list and insert column name list in insert stmt
+        boolean isMow = ((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite();
+        int setExprCnt = 0;
+        for (Column column : targetTable.getColumns()) {
+            for (BinaryPredicate setExpr : setExprs) {
+                Expr lhs = setExpr.getChild(0);
+                if (((SlotRef) lhs).getColumn().equals(column)) {
+                    setExprCnt++;
+                }
+            }
+        }
+        // table with sequence col cannot use partial update cause in MOW, we encode pk
+        // with seq column but we don't know which column is sequence in update
+        if (isMow && ((OlapTable) targetTable).getSequenceCol() == null
+                && setExprCnt <= targetTable.getColumns().size() * 3 / 10) {
+            isPartialUpdate = true;
+        }
         for (Column column : targetTable.getColumns()) {
             Expr expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
+            boolean existInExpr = false;
             for (BinaryPredicate setExpr : setExprs) {
                 Expr lhs = setExpr.getChild(0);
                 if (((SlotRef) lhs).getColumn().equals(column)) {
                     expr = setExpr.getChild(1);
+                    existInExpr = true;
                 }
             }
-            selectListItems.add(new SelectListItem(expr, null));
-            cols.add(column.getName());
+            if (column.isKey() || existInExpr || !isPartialUpdate) {
+                selectListItems.add(new SelectListItem(expr, null));
+                cols.add(column.getName());
+            }
         }
     }
 
