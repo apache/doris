@@ -184,11 +184,11 @@ public abstract class DataType implements AbstractDataType {
             case "datev2":
                 return DateV2Type.INSTANCE;
             case "time":
-                return TimeType.INSTANCE;
+                return fromCatalogType(ScalarType.createTimeType());
             case "datetime":
                 switch (types.size()) {
                     case 1:
-                        return DateTimeType.INSTANCE;
+                        return fromCatalogType(ScalarType.createDatetimeType());
                     case 2:
                         return DateTimeV2Type.of(Integer.parseInt(types.get(1)));
                     default:
