@@ -42,7 +42,9 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-TabletsDistributionAction::TabletsDistributionAction() {
+TabletsDistributionAction::TabletsDistributionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                                     TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {
     _host = BackendOptions::get_localhost();
 }
 
