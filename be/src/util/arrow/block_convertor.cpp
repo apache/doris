@@ -389,10 +389,8 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
             return to_status(arrow_st);
         }
         _cur_builder = builder.get();
-        arrow_st = arrow::VisitTypeInline(*_schema->field(idx)->type(), this);
-        if (!arrow_st.ok()) {
-            return to_status(arrow_st);
-        }
+        _cur_type->get_serde()->write_column_to_arrow(*_cur_col, nullptr, _cur_builder, _cur_start,
+                                                      _cur_start + _cur_rows);
         arrow_st = _cur_builder->Finish(&_arrays[_cur_field_idx]);
         if (!arrow_st.ok()) {
             return to_status(arrow_st);
