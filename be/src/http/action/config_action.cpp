@@ -41,8 +41,8 @@
 namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
-
 const static std::string PERSIST_PARAM = "persist";
+const std::string CONF_ITEM = "conf_item";
 
 void ConfigAction::handle(HttpRequest* req) {
     if (_type == ConfigActionType::UPDATE_CONFIG) {
@@ -58,13 +58,26 @@ void ConfigAction::handle_show_config(HttpRequest* req) {
     rapidjson::StringBuffer str_buf;
     rapidjson::Writer<rapidjson::StringBuffer> writer(str_buf);
 
+    const std::string& conf_item = req->param(CONF_ITEM);
+
     writer.StartArray();
     for (const auto& _config : config_info) {
-        writer.StartArray();
-        for (const std::string& config_filed : _config) {
-            writer.String(config_filed.c_str());
+        if (conf_item != nullptr || conf_item != "") {
+            if (_config[0] == conf_item) {
+                writer.StartArray();
+                for (const std::string& config_filed : _config) {
+                    writer.String(config_filed.c_str());
+                }
+                writer.EndArray();
+                break;
+            }
+        } else {
+            writer.StartArray();
+            for (const std::string& config_filed : _config) {
+                writer.String(config_filed.c_str());
+            }
+            writer.EndArray();
         }
-        writer.EndArray();
     }
 
     writer.EndArray();

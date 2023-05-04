@@ -160,6 +160,18 @@ visible_functions = [
     [['array_contains'], 'BOOLEAN', ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['array_contains'], 'BOOLEAN', ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
+    [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_TINYINT'], ''],
+    [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_SMALLINT'], ''],
+    [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_INT'], ''],
+    [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_BIGINT'], ''],
+    [['array_cum_sum'], 'ARRAY_LARGEINT',   ['ARRAY_LARGEINT'], ''],
+    [['array_cum_sum'], 'ARRAY_DOUBLE',     ['ARRAY_FLOAT'], ''],
+    [['array_cum_sum'], 'ARRAY_DOUBLE',     ['ARRAY_DOUBLE'], ''],
+    [['array_cum_sum'], 'ARRAY_DECIMALV2',  ['ARRAY_DECIMALV2'], ''],
+    [['array_cum_sum'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL32'], ''],
+    [['array_cum_sum'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL64'], ''],
+    [['array_cum_sum'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
+
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_BOOLEAN'], ''],
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_TINYINT'], ''],
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_SMALLINT'], ''],
@@ -619,7 +631,7 @@ visible_functions = [
     [['array_popfront'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
     [['array_popfront'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], ''],
     [['array_popfront'], 'ARRAY_STRING', ['ARRAY_STRING'], ''],
-    [['array_map'], 'ARRAY',   ['LAMBDA_FUNCTION', 'ARRAY', '...'], ''],
+    [['array_map'], 'ARRAY', ['LAMBDA_FUNCTION', 'ARRAY<K>', '...'], '', ['K']],
     [['array_filter'], 'ARRAY_BOOLEAN',['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], ''],
     [['array_filter'], 'ARRAY_TINYINT',['ARRAY_TINYINT', 'ARRAY_BOOLEAN'], ''],
     [['array_filter'], 'ARRAY_SMALLINT',['ARRAY_SMALLINT', 'ARRAY_BOOLEAN'], ''],
@@ -1655,6 +1667,7 @@ visible_functions = [
     [['json_object'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['json_quote'], 'VARCHAR', ['VARCHAR'], ''],
     [['json_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_unquote'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
 
     #hll function

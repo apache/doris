@@ -29,6 +29,8 @@ namespace vectorized {
 class VExprContext;
 
 class VArrayLiteral : public VLiteral {
+    ENABLE_FACTORY_CREATOR(VArrayLiteral);
+
 public:
     VArrayLiteral(const TExprNode& node) : VLiteral(node, false) {}
     virtual ~VArrayLiteral() = default;

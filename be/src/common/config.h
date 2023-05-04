@@ -67,6 +67,20 @@ CONF_String(mem_limit, "auto");
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
 
+// Many modern allocators (for example, tcmalloc) do not do a mremap for
+// realloc, even in case of large enough chunks of memory. Although this allows
+// you to increase performance and reduce memory consumption during realloc.
+// To fix this, we do mremap manually if the chunk of memory is large enough.
+//
+// The threshold (128 MB, 128 * (1ULL << 20)) is chosen quite large, since changing the address
+// space is very slow, especially in the case of a large number of threads. We
+// expect that the set of operations mmap/something to do/mremap can only be
+// performed about 1000 times per second.
+//
+// P.S. This is also required, because tcmalloc can not allocate a chunk of
+// memory greater than 16 GB.
+CONF_mInt64(mmap_threshold, "134217728"); // bytes
+
 // When hash table capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
 // Increase can reduce the number of hash table resize, but may waste more memory.
 CONF_mInt32(hash_table_double_grow_degree, "31");
@@ -270,6 +284,7 @@ CONF_Bool(disable_storage_page_cache, "false");
 CONF_Bool(disable_storage_row_cache, "true");
 
 CONF_Bool(enable_low_cardinality_optimize, "true");
+CONF_Bool(enable_low_cardinality_cache_code, "true");
 
 // be policy
 // whether check compaction checksum
@@ -898,9 +913,9 @@ CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 // block file cache
 CONF_Bool(enable_file_cache, "false");
-// format: [{"path":"/path/to/file_cache","normal":21474836480,"persistent":10737418240,"query_limit":10737418240}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 CONF_String(file_cache_path, "");
-CONF_String(disposable_file_cache_path, "");
 CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 CONF_Validator(file_cache_max_file_segment_size,
                [](const int64_t config) -> bool { return config >= 4096; }); // 4KB
@@ -941,6 +956,12 @@ CONF_mInt64(max_tablet_io_errors, "-1");
 
 // Page size of row column, default 4KB
 CONF_mInt64(row_column_page_size, "4096");
+// it must be larger than or equal to 5MB
+CONF_mInt32(s3_write_buffer_size, "5242880");
+// the size of the whole s3 buffer pool, which indicates the s3 file writer
+// can at most buffer 50MB data. And the num of multi part upload task is
+// s3_write_buffer_whole_size / s3_write_buffer_size
+CONF_mInt32(s3_write_buffer_whole_size, "524288000");
 
 #ifdef BE_TEST
 // test s3

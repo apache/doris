@@ -36,12 +36,36 @@ under the License.
 
 ### example
 
+建表示例如下：
+
+    create table metric_table (
+      datekey int,
+      hour int,
+      device_id bitmap BITMAP_UNION
+    )
+    aggregate key (datekey, hour)
+    distributed by hash(datekey, hour) buckets 1
+    properties(
+      "replication_num" = "1"
+    );
+
+插入数据示例：
+
+    insert into metric_table values
+    (20200622, 1, to_bitmap(243)),
+    (20200622, 2, bitmap_from_array([1,2,3,4,5,434543])),
+    (20200622, 3, to_bitmap(287667876573));
+
+查询数据示例：
+
     select hour, BITMAP_UNION_COUNT(pv) over(order by hour) uv from(
        select hour, BITMAP_UNION(device_id) as pv
        from metric_table -- 查询每小时的累计UV
        where datekey=20200622
     group by hour order by 1
     ) final;
+
+在查询时，BITMAP 可配合`return_object_data_as_binary`变量进行使用，详情可查看[变量](../../../advanced/variables.md)章节。
 
 ### keywords
 

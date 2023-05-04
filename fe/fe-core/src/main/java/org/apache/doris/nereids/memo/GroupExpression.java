@@ -32,7 +32,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -42,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Representation for group expression in cascades optimizer.
@@ -202,6 +205,11 @@ public class GroupExpression {
         return lowestCostTable.get(require).second;
     }
 
+    public List<PhysicalProperties> getInputPropertiesListOrEmpty(PhysicalProperties require) {
+        Pair<Cost, List<PhysicalProperties>> costAndChildRequire = lowestCostTable.get(require);
+        return costAndChildRequire == null ? ImmutableList.of() : costAndChildRequire.second;
+    }
+
     /**
      * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
      * if the outputProperties exists, will be covered.
@@ -318,9 +326,8 @@ public class GroupExpression {
         builder.append(" cost=").append(format.format((long) cost));
         builder.append(" estRows=").append(format.format(estOutputRowCount));
         builder.append(" (plan=").append(plan.toString()).append(") children=[");
-        for (Group group : children) {
-            builder.append(group.getGroupId()).append(" ");
-        }
+        builder.append(Joiner.on(", ").join(
+                children.stream().map(Group::getGroupId).collect(Collectors.toList())));
         builder.append("]");
         return builder.toString();
     }

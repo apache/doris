@@ -24,11 +24,13 @@ namespace doris {
 namespace pipeline {
 
 class PipScannerContext : public vectorized::ScannerContext {
+    ENABLE_FACTORY_CREATOR(PipScannerContext);
+
 public:
     PipScannerContext(RuntimeState* state, vectorized::VScanNode* parent,
                       const TupleDescriptor* input_tuple_desc,
                       const TupleDescriptor* output_tuple_desc,
-                      const std::list<vectorized::VScanner*>& scanners, int64_t limit,
+                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids)
             : vectorized::ScannerContext(state, parent, input_tuple_desc, output_tuple_desc,
                                          scanners, limit, max_bytes_in_blocks_queue),
@@ -38,7 +40,7 @@ public:
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
         {
-            std::unique_lock<std::mutex> l(_transfer_lock);
+            std::unique_lock l(_transfer_lock);
             if (state->is_cancelled()) {
                 _process_status = Status::Cancelled("cancelled");
             }

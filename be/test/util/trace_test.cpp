@@ -17,28 +17,20 @@
 
 #include "util/trace.h"
 
-#include <glog/logging.h>
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 #include <rapidjson/document.h>
-#include <rapidjson/rapidjson.h>
 
 #include <cctype>
-#include <cstdint>
-#include <cstring>
-#include <functional>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <map>
-#include <ostream>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include "gutil/macros.h"
-#include "gutil/port.h"
+#include "gtest/gtest_pred_impl.h"
 #include "gutil/ref_counted.h"
-#include "util/countdown_latch.h"
-#include "util/scoped_cleanup.h"
-#include "util/stopwatch.hpp"
-#include "util/thread.h"
 #include "util/trace_metrics.h"
 
 using rapidjson::Document;

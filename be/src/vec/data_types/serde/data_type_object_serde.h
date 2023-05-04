@@ -18,17 +18,21 @@
 #pragma once
 
 #include <glog/logging.h>
+#include <stdint.h>
 
 #include <ostream>
 
 #include "common/status.h"
 #include "data_type_serde.h"
+#include "util/jsonb_writer.h"
 
 namespace doris {
 class PValues;
+class JsonbValue;
 
 namespace vectorized {
 class IColumn;
+class Arena;
 
 class DataTypeObjectSerDe : public DataTypeSerDe {
 public:
@@ -46,6 +50,16 @@ public:
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override {
         LOG(FATAL) << "Not support write json object to column";
+    }
+
+    void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                               arrow::ArrayBuilder* array_builder, int start,
+                               int end) const override {
+        LOG(FATAL) << "Not support write object column to arrow";
+    }
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
+                                int end, const cctz::time_zone& ctz) const override {
+        LOG(FATAL) << "Not support read object column from arrow";
     }
 };
 } // namespace vectorized

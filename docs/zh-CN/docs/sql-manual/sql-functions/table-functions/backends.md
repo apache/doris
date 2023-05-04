@@ -40,11 +40,8 @@ backends
 
 该函数用于from子句中。
 
-语法：
-
-```
-backends();
-```
+#### syntax
+`backends()`
 
 backends()表结构：
 ```

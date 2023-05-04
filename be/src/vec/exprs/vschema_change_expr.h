@@ -43,6 +43,8 @@ namespace doris::vectorized {
 // from it's type and name.It contains an inner slot which indicated it's variant
 // column.
 class VSchemaChangeExpr : public VExpr {
+    ENABLE_FACTORY_CREATOR(VSchemaChangeExpr);
+
 public:
     VSchemaChangeExpr(const TExprNode& node) : VExpr(node), _tnode(node) {}
     ~VSchemaChangeExpr() = default;
@@ -55,7 +57,7 @@ public:
     void close(doris::RuntimeState* state, VExprContext* context,
                FunctionContext::FunctionStateScope scope) override;
     VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VSchemaChangeExpr(*this));
+        return pool->add(VSchemaChangeExpr::create_unique(*this).release());
     }
     const std::string& expr_name() const override;
     std::string debug_string() const override;

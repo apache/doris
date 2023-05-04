@@ -86,7 +86,7 @@ protected:
 
     bool _should_push_down_common_expr() override;
 
-    Status _init_scanners(std::list<VScanner*>* scanners) override;
+    Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
 private:
     Status _build_key_ranges_and_filters();

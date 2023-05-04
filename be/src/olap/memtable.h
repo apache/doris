@@ -44,12 +44,41 @@ class TabletSchema;
 class TupleDescriptor;
 enum KeysType : int;
 
+// row pos in _input_mutable_block
+struct RowInBlock {
+    size_t _row_pos;
+    char* _agg_mem;
+    size_t* _agg_state_offset;
+
+    RowInBlock(size_t row) : _row_pos(row) {}
+
+    void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
+        _agg_mem = agg_mem;
+        _agg_state_offset = agg_state_offset;
+    }
+
+    char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
+};
+
+class RowInBlockComparator {
+public:
+    RowInBlockComparator(const Schema* schema) : _schema(schema) {}
+    // call set_block before operator().
+    // only first time insert block to create _input_mutable_block,
+    // so can not Comparator of construct to set pblock
+    void set_block(vectorized::MutableBlock* pblock) { _pblock = pblock; }
+    int operator()(const RowInBlock* left, const RowInBlock* right) const;
+
+private:
+    const Schema* _schema;
+    vectorized::MutableBlock* _pblock; // 对应Memtable::_input_mutable_block
+};
+
 class MemTable {
 public:
     MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
-             const RowsetIdUnorderedSet& rowset_ids, int64_t cur_max_version,
+             RowsetWriter* rowset_writer, std::shared_ptr<MowContext> mow_context,
              const std::shared_ptr<MemTracker>& insert_mem_tracker,
              const std::shared_ptr<MemTracker>& flush_mem_tracker);
     ~MemTable();
@@ -78,36 +107,6 @@ public:
 
 private:
     Status _do_flush(int64_t& duration_ns);
-
-    // row pos in _input_mutable_block
-    struct RowInBlock {
-        size_t _row_pos;
-        char* _agg_mem;
-        size_t* _agg_state_offset;
-
-        RowInBlock(size_t row) : _row_pos(row) {}
-
-        void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
-            _agg_mem = agg_mem;
-            _agg_state_offset = agg_state_offset;
-        }
-
-        char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
-    };
-
-    class RowInBlockComparator {
-    public:
-        RowInBlockComparator(const Schema* schema) : _schema(schema) {}
-        // call set_block before operator().
-        // only first time insert block to create _input_mutable_block,
-        // so can not Comparator of construct to set pblock
-        void set_block(vectorized::MutableBlock* pblock) { _pblock = pblock; }
-        int operator()(const RowInBlock* left, const RowInBlock* right) const;
-
-    private:
-        const Schema* _schema;
-        vectorized::MutableBlock* _pblock; // 对应Memtable::_input_mutable_block
-    };
 
 private:
     using VecTable = SkipList<RowInBlock*, RowInBlockComparator>;
@@ -192,9 +191,8 @@ private:
     // Memory usage without _arena.
     size_t _mem_usage;
 
-    DeleteBitmapPtr _delete_bitmap;
-    RowsetIdUnorderedSet _rowset_ids;
-    int64_t _cur_max_version;
+    std::shared_ptr<MowContext> _mow_context;
+    size_t _num_columns;
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {

@@ -34,6 +34,13 @@ array_sum
 
 ### description
 
+#### Syntax
+
+```sql
+T array_sum(ARRAY<T> src, Array<T> key)
+T array_sum(lambda, Array<T> arr1, Array<T> arr2 ....)
+```
+
 返回数组中所有元素之和，数组中的`NULL`值会被跳过。空数组以及元素全为`NULL`值的数组，结果返回`NULL`值。
 
 ### example

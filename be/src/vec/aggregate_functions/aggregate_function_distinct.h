@@ -243,7 +243,7 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data;
-        nested_func->create(get_nested_place(place));
+        SAFE_CREATE(nested_func->create(get_nested_place(place)), this->data(place).~Data());
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {

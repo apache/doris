@@ -152,12 +152,15 @@ private:
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
 
+    void set_segment_start_id(int32_t start_id) override { _segment_start_id = start_id; }
+
 protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
     std::atomic<int32_t> _num_segment;
     std::atomic<int32_t> _num_flushed_segment;
+    int32_t _segment_start_id; //basic write start from 0, partial update may be different
     std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
                                               // already been segment compacted
     std::atomic<int32_t> _num_segcompacted;   // index for segment compaction
@@ -210,6 +213,8 @@ protected:
     std::atomic<int> _segcompaction_status;
 
     fmt::memory_buffer vlog_buffer;
+
+    std::shared_ptr<MowContext> _mow_context;
 };
 
 } // namespace doris

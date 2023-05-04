@@ -1854,9 +1854,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         String tableName = stmt.getTableName();
         LOG.debug("begin create olap table: {}", tableName);
 
+        // get keys type
+        KeysDesc keysDesc = stmt.getKeysDesc();
+        Preconditions.checkNotNull(keysDesc);
+        KeysType keysType = keysDesc.getKeysType();
+        int keysColumnSize = keysDesc.keysColumnSize();
+        boolean isKeysRequired = !(keysType == KeysType.DUP_KEYS && keysColumnSize == 0);
+
         // create columns
         List<Column> baseSchema = stmt.getColumns();
-        validateColumns(baseSchema);
+        validateColumns(baseSchema, isKeysRequired);
 
         // analyze replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(stmt.getProperties(), "");
@@ -1888,18 +1895,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo = new SinglePartitionInfo();
         }
 
-        // get keys type
-        KeysDesc keysDesc = stmt.getKeysDesc();
-        Preconditions.checkNotNull(keysDesc);
-        KeysType keysType = keysDesc.getKeysType();
-
         // create distribution info
         DistributionDesc distributionDesc = stmt.getDistributionDesc();
         Preconditions.checkNotNull(distributionDesc);
         DistributionInfo defaultDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
 
         // calc short key column count
-        short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties());
+        short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties(), isKeysRequired);
         LOG.debug("create table[{}] short key column count: {}", tableName, shortKeyColumnCount);
 
         // create table
@@ -2138,7 +2140,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             // set rollup index meta to olap table
             List<Column> rollupColumns = Env.getCurrentEnv().getMaterializedViewHandler()
                     .checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
-            short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
+            short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties(),
+                                                        true/*isKeysRequired*/);
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
@@ -2234,7 +2237,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                             new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
-
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
                         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                             throw new DdlException(
@@ -2387,7 +2389,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (baseSchema.isEmpty()) {
             baseSchema = esTable.genColumnsFromEs();
         }
-        validateColumns(baseSchema);
+        validateColumns(baseSchema, true);
         esTable.setNewFullSchema(baseSchema);
 
         // create partition info
@@ -2593,7 +2595,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     /*
      * generate and check columns' order and key's existence
      */
-    private void validateColumns(List<Column> columns) throws DdlException {
+    private void validateColumns(List<Column> columns, boolean isKeysRequired) throws DdlException {
         if (columns.isEmpty()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
@@ -2611,7 +2613,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        if (!hasKey) {
+        if (!hasKey && isKeysRequired) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_MUST_HAVE_KEYS);
         }
     }

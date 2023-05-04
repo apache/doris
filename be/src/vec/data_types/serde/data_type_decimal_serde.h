@@ -18,11 +18,18 @@
 #pragma once
 
 #include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
 #include <stddef.h>
+#include <stdint.h>
+
+#include <ostream>
+#include <string>
 
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "olap/olap_common.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -32,6 +39,7 @@ namespace doris {
 namespace vectorized {
 template <typename T>
 class ColumnDecimal;
+class Arena;
 
 template <typename T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {
@@ -46,6 +54,12 @@ public:
                                  int32_t col_id, int row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+
+    void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                               arrow::ArrayBuilder* array_builder, int start,
+                               int end) const override;
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
+                                int end, const cctz::time_zone& ctz) const override;
 };
 
 template <typename T>
@@ -99,7 +113,8 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
                 *reinterpret_cast<const Decimal128::NativeType*>(data_ref.data);
         result.writeInt128(val);
     } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
-        Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
+        Decimal128I::NativeType val =
+                *reinterpret_cast<const Decimal128I::NativeType*>(data_ref.data);
         result.writeInt128(val);
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
         Decimal32::NativeType val = *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);

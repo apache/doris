@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 
 import com.google.common.collect.ImmutableList;
@@ -34,6 +35,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
             ExtractCommonFactorRule.INSTANCE,
             DistinctPredicatesRule.INSTANCE,
             SimplifyComparisonPredicate.INSTANCE,
+            SimplifyDecimalV3Comparison.INSTANCE,
             SimplifyRange.INSTANCE
     );
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);

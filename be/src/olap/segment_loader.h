@@ -93,6 +93,8 @@ public:
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
                          bool use_cache = false);
 
+    void erase_segment(const SegmentLoader::CacheKey& key);
+
     // Try to prune the segment cache if expired.
     Status prune();
     int64_t prune_all() { return _cache->prune(); };

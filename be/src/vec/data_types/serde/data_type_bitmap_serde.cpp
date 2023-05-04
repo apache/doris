@@ -17,9 +17,15 @@
 
 #include "data_type_bitmap_serde.h"
 
+#include <gen_cpp/types.pb.h>
+
+#include <string>
+
+#include "util/bitmap_value.h"
+#include "util/jsonb_document.h"
 #include "vec/columns/column_complex.h"
 #include "vec/common/arena.h"
-#include "vec/data_types/data_type.h"
+#include "vec/common/assert_cast.h"
 
 namespace doris {
 

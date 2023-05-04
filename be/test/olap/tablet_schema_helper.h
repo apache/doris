@@ -17,11 +17,18 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
+#include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
 
 namespace doris {
+namespace vectorized {
+class Arena;
+} // namespace vectorized
 
 TabletColumn create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false,
                             bool has_bitmap_index = false);
