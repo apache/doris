@@ -459,12 +459,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     private Optional<Expression> checkNeedCalculate(Expression expression) {
-        if (!allArgsIsAllLiteral(expression)) {
-            return Optional.of(expression);
-        }
         if (expression instanceof PropagateNullable && !(expression instanceof NullableAggregateFunction)
                 && argsHasNullLiteral(expression)) {
             return Optional.of(new NullLiteral(expression.getDataType()));
+        }
+        if (!allArgsIsAllLiteral(expression)) {
+            return Optional.of(expression);
         }
         return Optional.empty();
     }
