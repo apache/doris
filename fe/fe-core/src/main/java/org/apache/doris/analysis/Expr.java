@@ -717,7 +717,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return result;
         }
         // Return clone to avoid removing casts.
-        if (smap == null || smap.size() == 0) {
+        if (smap == null || (smap.size() == 0 && isAnalyzed)) {
             return result;
         }
         result = result.substituteImpl(smap, disjunctsMap, analyzer);
