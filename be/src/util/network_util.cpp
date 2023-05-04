@@ -117,7 +117,8 @@ std::string hostname_to_ip(const std::string& host) {
         return "";
     }
     if (addresses.size() != 1) {
-        LOG(WARNING) << "the number of addresses could only be equal to 1, failed to get ip from host";
+        LOG(WARNING)
+                << "the number of addresses could only be equal to 1, failed to get ip from host";
         return "";
     }
     return addresses[0];
