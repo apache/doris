@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeA
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.ExecutableFunctions;
 import org.apache.doris.nereids.trees.expressions.functions.executable.NumericArithmetic;
-import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
