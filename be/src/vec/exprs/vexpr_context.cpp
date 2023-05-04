@@ -88,7 +88,7 @@ void VExprContext::close(doris::RuntimeState* state) {
 }
 
 doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
-    DCHECK(_prepared);
+    DCHECK(_prepared) << "expr context not prepared";
     DCHECK(_opened);
     DCHECK(*new_ctx == nullptr);
 
@@ -124,17 +124,6 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
     }
     int result_column_id = -1;
     RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
-    return Block::filter_block(block, result_column_id, column_to_keep);
-}
-
-Status VExprContext::filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr, Block* block,
-                                  int column_to_keep) {
-    if (vexpr_ctx_ptr == nullptr || block->rows() == 0) {
-        return Status::OK();
-    }
-    DCHECK((*vexpr_ctx_ptr) != nullptr);
-    int result_column_id = -1;
-    RETURN_IF_ERROR((*vexpr_ctx_ptr)->execute(block, &result_column_id));
     return Block::filter_block(block, result_column_id, column_to_keep);
 }
 

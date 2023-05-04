@@ -100,11 +100,11 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
 Status NewOlapScanner::init() {
     _is_init = true;
     auto parent = static_cast<NewOlapScanNode*>(_parent);
-    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_vconjunct_ctx_ptr.get()));
+    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_vconjunct_ctx_ptr));
     if (parent->_common_vexpr_ctxs_pushdown != nullptr) {
         // Copy common_vexpr_ctxs_pushdown from scan node to this scanner's _common_vexpr_ctxs_pushdown, just necessary.
-        RETURN_IF_ERROR((*parent->_common_vexpr_ctxs_pushdown)
-                                ->clone(_state, &_common_vexpr_ctxs_pushdown));
+        RETURN_IF_ERROR(
+                parent->_common_vexpr_ctxs_pushdown->clone(_state, &_common_vexpr_ctxs_pushdown));
     }
 
     // set limit to reduce end of rowset and segment mem use
