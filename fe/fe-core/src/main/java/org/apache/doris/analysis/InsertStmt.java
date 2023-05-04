@@ -70,6 +70,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Insert into is performed to load data from the result of query stmt.
@@ -715,35 +716,39 @@ public class InsertStmt extends DdlStmt {
             selectList.set(i, expr);
             exprByName.put(col.getName(), expr);
         }
-        Map<String, Expr> resultExprByName = Maps.newLinkedHashMap();
+        List<Pair<String, Expr>> resultExprByName = Lists.newArrayList();
         // reorder resultExprs in table column order
         for (Column col : targetTable.getFullSchema()) {
             if (exprByName.containsKey(col.getName())) {
-                resultExprByName.put(col.getName(), exprByName.get(col.getName()));
+                resultExprByName.add(Pair.of(col.getName(), exprByName.get(col.getName())));
             } else {
                 // process sequence col, map sequence column to other column
                 if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()
-                        && col.getName().equals(Column.SEQUENCE_COL)
-                        && ((OlapTable) targetTable).getSequenceMapCol() != null) {
-                    if (resultExprByName.containsKey(((OlapTable) targetTable).getSequenceMapCol())) {
-                        resultExprByName.put(Column.SEQUENCE_COL,
-                                resultExprByName.getOrDefault(
-                                        ((OlapTable) targetTable).getSequenceMapCol(), null));
+                    && col.getName().equals(Column.SEQUENCE_COL)
+                    && ((OlapTable) targetTable).getSequenceMapCol() != null) {
+                    if (resultExprByName.stream().map(Pair::key)
+                        .anyMatch(key -> key.equals(((OlapTable) targetTable).getSequenceMapCol()))) {
+                        resultExprByName.add(Pair.of(Column.SEQUENCE_COL,
+                            resultExprByName.stream()
+                                .filter(p -> p.key().equals(((OlapTable) targetTable).getSequenceMapCol()))
+                                .map(Pair::value).findFirst().orElse(null)));
                     }
                 } else if (col.getDefaultValue() == null) {
-                    resultExprByName.put(col.getName(), NullLiteral.create(col.getType()));
+                    resultExprByName.add(Pair.of(col.getName(), NullLiteral.create(col.getType())));
                 } else {
                     if (col.getDefaultValueExprDef() != null) {
-                        resultExprByName.put(col.getName(), col.getDefaultValueExpr());
+                        resultExprByName.add(Pair.of(col.getName(), col.getDefaultValueExpr()));
                     } else {
                         StringLiteral defaultValueExpr;
                         defaultValueExpr = new StringLiteral(col.getDefaultValue());
-                        resultExprByName.put(col.getName(), defaultValueExpr.checkTypeCompatibility(col.getType()));
+                        resultExprByName.add(Pair.of(
+                            col.getName(), defaultValueExpr.checkTypeCompatibility(col.getType())));
                     }
                 }
             }
         }
-        resultExprs.addAll(resultExprByName.values());
+        resultExprs.addAll(resultExprByName.stream()
+            .map(Pair::value).collect(Collectors.toList()));
     }
 
     private DataSink createDataSink() throws AnalysisException {
