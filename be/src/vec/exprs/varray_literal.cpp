@@ -49,7 +49,7 @@ Status VArrayLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc
     Field array = is_null ? Field() : Array();
     for (const auto child : _children) {
         Field item;
-        auto child_literal = dynamic_cast<const VLiteral*>(VExpr::expr_without_cast(child));
+        auto child_literal = dynamic_cast<const VLiteral*>(child);
         child_literal->get_column_ptr()->get(0, item);
         array.get<Array>().push_back(item);
     }
