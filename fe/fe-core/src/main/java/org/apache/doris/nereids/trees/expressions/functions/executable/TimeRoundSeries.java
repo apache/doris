@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalUnit;
 
 /**
  * executable functions:
@@ -43,6 +45,23 @@ public class TimeRoundSeries {
         SECOND
     }
 
+    private static ChronoUnit dateEnumToUnit(DATE tag) {
+        switch (tag) {
+            case YEAR:
+                return ChronoUnit.YEARS;
+            case MONTH:
+                return ChronoUnit.MONTHS;
+            case DAY:
+                return ChronoUnit.DAYS;
+            case HOUR:
+                return ChronoUnit.HOURS;
+            case MINUTE:
+                return ChronoUnit.MINUTES;
+            default:
+                return ChronoUnit.SECONDS;
+        }
+    }
+
     private static LocalDateTime getDateCeilOrFloor(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
             boolean getCeil) {
         // Algorithm:
@@ -52,20 +71,21 @@ public class TimeRoundSeries {
         // Fourthly, get the ceil and floor date of the date by unit and select the corresponding date as the answer.
 
         // handle origin > date
-        if (origin.compareTo(date) > 0) {
+        TemporalUnit unit = dateEnumToUnit(tag);
+        if (origin.isAfter(date)) {
             Duration duration = Duration.between(date, origin);
-            long hour = Math.abs(duration.toHours());
+            long hour = Math.abs(duration.get(unit));
             long ceil = ((hour - 1) / period + 1) * period;
-            origin = origin.minusHours(ceil);
+            origin = origin.minus(ceil, unit);
         }
 
         // get distance
         Duration duration = Duration.between(origin, date);
-        long hour = Math.abs(duration.toHours());
+        long hour = Math.abs(duration.get(unit));
         long ceil = ((hour - 1) / period + 1) * period;
         long floor = hour / period * period;
-        LocalDateTime floorDate = origin.plusHours(floor);
-        LocalDateTime ceilDate = origin.plusHours(ceil);
+        LocalDateTime floorDate = origin.plus(floor, unit);
+        LocalDateTime ceilDate = origin.plus(ceil, unit);
 
         return getCeil ? ceilDate : floorDate;
     }
