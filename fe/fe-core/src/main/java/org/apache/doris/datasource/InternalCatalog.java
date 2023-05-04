@@ -2543,13 +2543,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         Map<Tag, Integer> nextIndexs = new HashMap<>();
-        for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
-            int startPos = Env.getCurrentSystemInfo().getStartPosOfRoundRobin(entry.getKey(), clusterName,
-                    tabletMeta.getStorageMedium());
-            if (startPos == -1) {
-                throw new DdlException("The number of BEs that match the policy is insufficient");
+
+        if (Config.enable_round_robin_create_tablet) {
+            for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
+                int startPos = Env.getCurrentSystemInfo().getStartPosOfRoundRobin(entry.getKey(), clusterName,
+                        tabletMeta.getStorageMedium());
+                if (startPos == -1) {
+                    throw new DdlException("The number of BEs that match the policy is insufficient");
+                }
+                nextIndexs.put(entry.getKey(), startPos);
             }
-            nextIndexs.put(entry.getKey(), startPos);
         }
 
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
