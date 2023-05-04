@@ -89,9 +89,6 @@ public:
         return _limiter_tracker_raw;
     }
 
-    std::string exceed_mem_limit_msg() { return _exceed_mem_limit_msg; }
-    void save_exceed_mem_limit_msg(const std::string& msg) { _exceed_mem_limit_msg = msg; }
-    void clear_exceed_mem_limit_msg() { _exceed_mem_limit_msg = ""; }
     void disable_wait_gc() { _wait_gc = false; }
     bool wait_gc() { return _wait_gc; }
     void cancel_fragment(const std::string& exceed_msg);
@@ -119,7 +116,6 @@ private:
     int64_t _scope_mem = 0;
 
     std::string _failed_consume_msg = std::string();
-    std::string _exceed_mem_limit_msg = std::string();
     // If true, the Allocator will wait for the GC to free memory if it finds that the memory exceed limit.
     // A thread of query/load will only wait once during execution.
     bool _wait_gc = false;
