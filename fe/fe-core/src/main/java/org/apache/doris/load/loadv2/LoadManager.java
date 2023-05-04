@@ -666,7 +666,8 @@ public class LoadManager implements Writable {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
             if (labelToLoadJobs.containsKey(label)) {
                 List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
-                Optional<LoadJob> loadJobOptional = labelLoadJobs.stream().findFirst();
+                Optional<LoadJob> loadJobOptional = labelLoadJobs.stream()
+                        .filter(entity -> entity.getState() != JobState.CANCELLED).findFirst();
                 if (loadJobOptional.isPresent()) {
                     LOG.warn("Failed to add load job when label {} has been used.", label);
                     throw new LabelAlreadyUsedException(label);
