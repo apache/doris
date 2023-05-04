@@ -16,9 +16,16 @@
 // under the License.
 
 #include "data_type_struct_serde.h"
+
+#include "util/jsonb_document.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+
 namespace doris {
 
 namespace vectorized {
+class Arena;
+
 void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                   Arena* mem_pool, int32_t col_id,
                                                   int row_num) const {
@@ -34,6 +41,18 @@ void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
 void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     column.deserialize_and_insert_from_arena(blob->getBlob());
+}
+
+void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                                                arrow::ArrayBuilder* array_builder, int start,
+                                                int end) const {
+    LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";
+}
+
+void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                 int start, int end,
+                                                 const cctz::time_zone& ctz) const {
+    LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
 }
 } // namespace vectorized
 } // namespace doris

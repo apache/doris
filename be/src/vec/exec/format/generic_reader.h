@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "runtime/types.h"
 #include "vec/exprs/vexpr_context.h"

@@ -115,7 +115,6 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
         initialized = true;
     }
 
-    // TODO(ftw): drew
     @Override
     public Set<String> getTableNamesWithLock() {
         makeSureInitialized();

@@ -588,6 +588,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     @Override
+    public boolean isPartialUpdate() {
+        return false;
+    }
+
+    @Override
     public ImportColumnDescs getColumnExprDescs() {
         if (columnDescs == null) {
             return new ImportColumnDescs();

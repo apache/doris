@@ -17,9 +17,8 @@
 
 #include "util/thread.h"
 
-#include <gtest/gtest.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <ostream>
 #include <string>
@@ -27,9 +26,8 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/basictypes.h"
+#include "gtest/gtest_pred_impl.h"
 #include "gutil/ref_counted.h"
-#include "util/countdown_latch.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 

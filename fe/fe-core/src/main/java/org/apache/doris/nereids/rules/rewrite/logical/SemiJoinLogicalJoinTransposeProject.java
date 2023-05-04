@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 
@@ -42,6 +43,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), any())
+                .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
                 .when(topJoin -> (topJoin.getJoinType().isLeftSemiOrAntiJoin()
                         && (topJoin.left().child().getJoinType().isInnerJoin()
                         || topJoin.left().child().getJoinType().isLeftOuterJoin()

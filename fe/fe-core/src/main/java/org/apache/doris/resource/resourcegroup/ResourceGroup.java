@@ -25,6 +25,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineResourceGroup;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -33,6 +34,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 public class ResourceGroup implements Writable {
@@ -65,9 +67,31 @@ public class ResourceGroup implements Writable {
         this.version = 0;
     }
 
+    private ResourceGroup(long id, String name, Map<String, String> properties, long version) {
+        this.id = id;
+        this.name = name;
+        this.properties = properties;
+        this.version = version;
+    }
+
     public static ResourceGroup create(String name, Map<String, String> properties) throws DdlException {
         checkProperties(properties);
         return new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
+    }
+
+    public static ResourceGroup create(ResourceGroup resourceGroup, Map<String, String> updateProperties)
+            throws DdlException {
+        Map<String, String> newProperties = new HashMap<>();
+        newProperties.putAll(resourceGroup.getProperties());
+        for (Map.Entry<String, String> kv : updateProperties.entrySet()) {
+            if (!Strings.isNullOrEmpty(kv.getValue())) {
+                newProperties.put(kv.getKey(), kv.getValue());
+            }
+        }
+
+        checkProperties(newProperties);
+        return new ResourceGroup(
+           resourceGroup.getId(), resourceGroup.getName(), newProperties, resourceGroup.getVersion() + 1);
     }
 
     private static void checkProperties(Map<String, String> properties) throws DdlException {
@@ -98,6 +122,10 @@ public class ResourceGroup implements Writable {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    private long getVersion() {
+        return version;
     }
 
     public void getProcNodeData(BaseProcResult result) {

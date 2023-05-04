@@ -31,7 +31,7 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -68,21 +68,23 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     if (_limit > 0 && _limit + _offset < HeapSorter::HEAP_SORT_THRESHOLD &&
         (tnode.sort_node.sort_info.use_two_phase_read || tnode.sort_node.use_topn_opt ||
          !row_desc.has_varlen_slots())) {
-        _sorter.reset(new HeapSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
-                                     _nulls_first, row_desc));
+        _sorter = HeapSorter::create_unique(_vsort_exec_exprs, _limit, _offset, _pool,
+                                            _is_asc_order, _nulls_first, row_desc);
         _reuse_mem = false;
     } else if (_limit > 0 && row_desc.has_varlen_slots() &&
                _limit + _offset < TopNSorter::TOPN_SORT_THRESHOLD) {
-        _sorter.reset(new TopNSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
-                                     _nulls_first, row_desc, state, _runtime_profile.get()));
+        _sorter =
+                TopNSorter::create_unique(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
+                                          _nulls_first, row_desc, state, _runtime_profile.get());
     } else {
-        _sorter.reset(new FullSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
-                                     _nulls_first, row_desc, state, _runtime_profile.get()));
+        _sorter =
+                FullSorter::create_unique(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
+                                          _nulls_first, row_desc, state, _runtime_profile.get());
     }
     // init runtime predicate
     _use_topn_opt = tnode.sort_node.use_topn_opt;
     if (_use_topn_opt) {
-        auto query_ctx = state->get_query_fragments_ctx();
+        auto query_ctx = state->get_query_ctx();
         auto first_sort_expr_node = tnode.sort_node.sort_info.ordering_exprs[0].nodes[0];
         if (first_sort_expr_node.node_type == TExprNodeType::SLOT_REF) {
             auto first_sort_slot = first_sort_expr_node.slot_ref;
@@ -113,7 +115,7 @@ Status VSortNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
 
-    auto* memory_usage = _runtime_profile->create_child("MemoryUsage", true, true);
+    auto* memory_usage = _runtime_profile->create_child("PeakMemoryUsage", true, true);
     _runtime_profile->add_child(memory_usage, false, nullptr);
     _sort_blocks_memory_usage = ADD_COUNTER(memory_usage, "SortBlocks", TUnit::BYTES);
 
@@ -143,7 +145,7 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
                 auto& sort_description = _sorter->get_sort_description();
                 auto col = input_block->get_by_position(sort_description[0].column_number);
                 bool is_reverse = sort_description[0].direction < 0;
-                auto query_ctx = state->get_query_fragments_ctx();
+                auto query_ctx = state->get_query_ctx();
                 RETURN_IF_ERROR(
                         query_ctx->get_runtime_predicate().update(new_top, col.name, is_reverse));
                 old_top = std::move(new_top);

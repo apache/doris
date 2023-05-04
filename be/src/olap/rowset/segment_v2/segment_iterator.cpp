@@ -50,7 +50,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -386,7 +386,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_fragments_ctx();
+        auto query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
     }
 
@@ -446,7 +446,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_fragments_ctx();
+        auto query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
         if (runtime_predicate) {
             int32_t cid = _opts.tablet_schema->column(runtime_predicate->column_id()).unique_id();
@@ -1210,8 +1210,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     //  all rows should be read, so runtime predicate will reduce rows for topn node
     if (_opts.use_topn_opt &&
         !(_opts.read_orderby_key_columns != nullptr && !_opts.read_orderby_key_columns->empty())) {
-        auto& runtime_predicate =
-                _opts.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+        auto& runtime_predicate = _opts.runtime_state->get_query_ctx()->get_runtime_predicate();
         _runtime_predicate = runtime_predicate.get_predictate();
         if (_runtime_predicate) {
             _col_predicates.push_back(_runtime_predicate.get());

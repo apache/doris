@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.fs.obj.BlobStorage;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Lists;

@@ -22,6 +22,8 @@
 #include <string>
 #include <vector>
 
+#include "common/factory_creator.h"
+
 namespace rocksdb {
 class ColumnFamilyHandle;
 class DBWithTTL;
@@ -34,6 +36,8 @@ namespace doris {
 class Status;
 
 class StreamLoadRecorder {
+    ENABLE_FACTORY_CREATOR(StreamLoadRecorder);
+
 public:
     StreamLoadRecorder(const std::string& root_path);
 

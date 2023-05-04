@@ -1580,7 +1580,10 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
         // This will change month and year information, maybe date.
         int64_t months = _year * 12 + _month - 1 + sign * (12 * interval.year + interval.month);
         _year = months / 12;
-        if (_year > 9999) {
+        if (months < 0) {
+            return false;
+        }
+        if (_year > MAX_YEAR) {
             return false;
         }
         _month = (months % 12) + 1;
@@ -2625,7 +2628,10 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
                          12 * interval.year + interval.month;
         to_value.template set_time_unit<TimeUnit::YEAR>(months / 12);
-        if (to_value.year() > 9999) {
+        if (months < 0) {
+            return false;
+        }
+        if (to_value.year() > MAX_YEAR) {
             return false;
         }
         to_value.template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
@@ -2694,7 +2700,10 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
                          12 * interval.year + interval.month;
         this->template set_time_unit<TimeUnit::YEAR>(months / 12);
-        if (this->year() > 9999) {
+        if (months < 0) {
+            return false;
+        }
+        if (this->year() > MAX_YEAR) {
             return false;
         }
         this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);

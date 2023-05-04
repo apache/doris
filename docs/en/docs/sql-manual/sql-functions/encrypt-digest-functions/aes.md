@@ -40,9 +40,7 @@ Reference: https://dev.mysql.com/doc/refman/8.0/en/encryption-functions.html#fun
 
 #### Syntax
 
-```
-AES_ENCRYPT(str,key_str[,init_vector])
-```
+`AES_ENCRYPT(str, key_str[, init_vector])`
 
 #### Arguments
 

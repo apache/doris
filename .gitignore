@@ -59,6 +59,7 @@ regression-test/realdata/*
 regression-test/cacheData/*
 regression-test/conf/regression-conf-custom.groovy
 regression-test/framework/bin/*
+regression-test/certificate.p12
 
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
 samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py
@@ -73,8 +74,8 @@ fe/fe-core/gen/
 fe/fe-core/src/main/resources/static/
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/gen/
-fe/fe-core/src/main/java/org/apache/doris/thrift
-fe/fe-core/src/main/java/org/apache/parquet
+fe/fe-common/src/main/java/org/apache/doris/thrift
+fe/fe-common/src/main/java/org/apache/parquet
 
 # BE
 be/build*/

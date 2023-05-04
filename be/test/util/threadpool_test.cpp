@@ -18,17 +18,23 @@
 #include "util/threadpool.h"
 
 #include <gflags/gflags_declare.h>
-#include <gtest/gtest.h>
+#include <gtest/gtest-death-test.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-param-test.h>
+#include <gtest/gtest-test-part.h>
+#include <sched.h>
+#include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <memory>
 #include <mutex>
-#include <ostream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -36,13 +42,10 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/atomicops.h"
-#include "gutil/port.h"
-#include "gutil/ref_counted.h"
+#include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/substitute.h"
 #include "util/barrier.h"
 #include "util/countdown_latch.h"
-#include "util/metrics.h"
 #include "util/random.h"
 #include "util/scoped_cleanup.h"
 #include "util/spinlock.h"

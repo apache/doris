@@ -88,7 +88,7 @@ public class JdbcExecutor {
         }
         minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL", "1"));
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
-        maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "600000"));
+        maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "300000"));
         minIdleSize = minPoolSize > 0 ? 1 : 0;
         LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
                 + ", maxPoolSize = " + maxPoolSize
@@ -268,8 +268,11 @@ public class JdbcExecutor {
                 ds.setInitialSize(minPoolSize);
                 ds.setMaxActive(maxPoolSize);
                 ds.setMaxWait(5000);
-                ds.setTimeBetweenEvictionRunsMillis(maxIdelTime);
-                ds.setMinEvictableIdleTimeMillis(maxIdelTime / 2);
+                ds.setTestWhileIdle(true);
+                ds.setTestOnBorrow(false);
+                setValidationQuery(ds, tableType);
+                ds.setTimeBetweenEvictionRunsMillis(maxIdelTime / 5);
+                ds.setMinEvictableIdleTimeMillis(maxIdelTime);
                 druidDataSource = ds;
                 // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
                 // jdbcPassword) as key.
@@ -297,6 +300,16 @@ public class JdbcExecutor {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
         } catch (FileNotFoundException e) {
             throw new UdfRuntimeException("FileNotFoundException failed: ", e);
+        }
+    }
+
+    private void setValidationQuery(DruidDataSource ds, TOdbcTableType tableType) {
+        if (tableType == TOdbcTableType.ORACLE) {
+            ds.setValidationQuery("SELECT 1 FROM dual");
+        } else if (tableType == TOdbcTableType.SAP_HANA) {
+            ds.setValidationQuery("SELECT 1 FROM DUMMY");
+        } else {
+            ds.setValidationQuery("SELECT 1");
         }
     }
 

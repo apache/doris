@@ -436,9 +436,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 
         const uint8_t* __restrict filter_map = result_filter.data();
         select_vector_ptr.reset(new ColumnSelectVector(filter_map, pre_read_rows, can_filter_all));
-        if (select_vector_ptr->filter_all() && !pre_eof) {
-            // If continuous batches are skipped, we can cache them to skip a whole page
-            _cached_filtered_rows += pre_read_rows;
+        if (select_vector_ptr->filter_all()) {
             for (auto& col : _lazy_read_ctx.predicate_columns.first) {
                 // clean block to read predicate columns
                 block->get_by_name(col).column->assume_mutable()->clear();
@@ -450,6 +448,17 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                 block->get_by_name(col.first).column->assume_mutable()->clear();
             }
             Block::erase_useless_column(block, origin_column_num);
+
+            if (!pre_eof) {
+                // If continuous batches are skipped, we can cache them to skip a whole page
+                _cached_filtered_rows += pre_read_rows;
+            } else { // pre_eof
+                // If select_vector_ptr->filter_all() and pre_eof, we can skip whole row group.
+                *read_rows = 0;
+                *batch_eof = true;
+                _lazy_read_filtered_rows += pre_read_rows;
+                return Status::OK();
+            }
         } else {
             break;
         }
@@ -855,7 +864,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             texpr_node.__set_child_type(TPrimitiveType::INT);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable);
-            root = _obj_pool->add(new VectorizedFnCall(texpr_node));
+            root = _obj_pool->add(VectorizedFnCall::create_unique(texpr_node).release());
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -866,7 +875,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
                     break;
                 }
             }
-            VExpr* slot_ref_expr = _obj_pool->add(new VSlotRef(slot));
+            VExpr* slot_ref_expr = _obj_pool->add(VSlotRef::create_unique(slot).release());
             root->add_child(slot_ref_expr);
         }
         {
@@ -877,7 +886,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             int_literal.__set_value(dict_codes[0]);
             texpr_node.__set_int_literal(int_literal);
             texpr_node.__set_is_nullable(is_nullable);
-            VExpr* literal_expr = _obj_pool->add(new VLiteral(texpr_node));
+            VExpr* literal_expr = _obj_pool->add(VLiteral::create_unique(texpr_node).release());
             root->add_child(literal_expr);
         }
     } else {
@@ -893,7 +902,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             // VdirectInPredicate assume is_nullable = false.
             node.__set_is_nullable(false);
 
-            root = _obj_pool->add(new vectorized::VDirectInPredicate(node));
+            root = _obj_pool->add(vectorized::VDirectInPredicate::create_unique(node).release());
             std::shared_ptr<HybridSetBase> hybrid_set(
                     create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
             for (int j = 0; j < dict_codes.size(); ++j) {
@@ -910,11 +919,12 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
                     break;
                 }
             }
-            VExpr* slot_ref_expr = _obj_pool->add(new VSlotRef(slot));
+            VExpr* slot_ref_expr = _obj_pool->add(VSlotRef::create_unique(slot).release());
             root->add_child(slot_ref_expr);
         }
     }
-    VExprContext* rewritten_conjunct_ctx = _obj_pool->add(new VExprContext(root));
+    VExprContext* rewritten_conjunct_ctx =
+            _obj_pool->add(VExprContext::create_unique(root).release());
     RETURN_IF_ERROR(rewritten_conjunct_ctx->prepare(_state, *_row_descriptor));
     RETURN_IF_ERROR(rewritten_conjunct_ctx->open(_state));
     _dict_filter_conjuncts.push_back(rewritten_conjunct_ctx);

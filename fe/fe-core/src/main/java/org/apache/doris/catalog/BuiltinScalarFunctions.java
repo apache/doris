@@ -541,7 +541,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MonthCeil.class, "month_ceil"),
             scalar(MonthFloor.class, "month_floor"),
             scalar(MonthName.class, "monthname"),
-            scalar(MonthsAdd.class, "months_add"),
+            scalar(MonthsAdd.class, "months_add", "add_months"),
             scalar(MonthsDiff.class, "months_diff"),
             scalar(MonthsSub.class, "months_sub"),
             scalar(MultiMatchAny.class, "multi_match_any"),

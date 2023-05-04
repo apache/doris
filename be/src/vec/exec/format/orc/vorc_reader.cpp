@@ -40,6 +40,7 @@
 #include "exec/olap_utils.h"
 #include "gutil/casts.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "orc/Exceptions.hh"
 #include "orc/Int128.hh"
@@ -199,9 +200,9 @@ Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
         io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &inner_reader, cache_policy));
+        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &inner_reader,
+                io::DelegateReader::AccessMode::RANDOM, cache_policy, _io_ctx));
         _file_input_stream.reset(
                 new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics, _io_ctx));
     }

@@ -154,10 +154,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
-    _new_load_stream_mgr = new NewLoadStreamMgr();
+    _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
-    _stream_load_executor = new StreamLoadExecutor(this);
+    _stream_load_executor = StreamLoadExecutor::create_shared(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
@@ -384,7 +384,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_mgr);
     SAFE_DELETE(_result_queue_mgr);
-    SAFE_DELETE(_stream_load_executor);
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);

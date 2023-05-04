@@ -34,7 +34,7 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
             useTime = t
             sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout)
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
     def indexTbName1 = "test_add_drop_inverted_index3"

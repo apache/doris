@@ -87,6 +87,7 @@ Status align_block_with_schema(const TabletSchema& schema, int64_t table_id /*fo
 // maybe use col_unique_id as key in the future
 // but for dynamic table, column name if ok
 struct FullBaseSchemaView {
+    ENABLE_FACTORY_CREATOR(FullBaseSchemaView);
     phmap::flat_hash_map<std::string, TColumn> column_name_to_column;
     int32_t schema_version = -1;
     int32_t table_id = 0;

@@ -18,11 +18,10 @@
 #include "olap/rowset/segment_v2/encoding_info.h"
 
 #include <gen_cpp/segment_v2.pb.h>
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <iostream>
-
-#include "common/logging.h"
+#include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
 

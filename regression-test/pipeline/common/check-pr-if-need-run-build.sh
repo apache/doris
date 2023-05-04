@@ -88,6 +88,8 @@ need_run_fe_ut() {
         if [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
             [[ "${af}" == 'bin/start_fe.sh' ]] ||
+            [[ "${af}" == 'docs/zh-CN/docs/sql-manual/'* ]] ||
+            [[ "${af}" == 'docs/en/docs/sql-manual/'* ]] ||
             [[ "${af}" == 'bin/stop_fe.sh' ]] ||
             [[ "${af}" == 'run-fe-ut.sh' ]]; then echo "fe-ut related file changed, return need" && return 0; fi
     done

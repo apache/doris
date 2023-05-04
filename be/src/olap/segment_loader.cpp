@@ -88,6 +88,10 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     return Status::OK();
 }
 
+void SegmentLoader::erase_segment(const SegmentLoader::CacheKey& key) {
+    _cache->erase(key.encode());
+}
+
 Status SegmentLoader::prune() {
     const int64_t curtime = UnixMillis();
     auto pred = [curtime](const void* value) -> bool {

@@ -114,11 +114,11 @@ public class ExportMgr extends MasterDaemon {
         for (ExportJob job : newInQueueJobs) {
             try {
                 MasterTask task = new ExportExportingTask(job);
+                job.setTask((ExportExportingTask) task);
                 if (exportingExecutor.submit(task)) {
                     LOG.info("success to submit IN_QUEUE export job. job: {}", job);
                 } else {
                     LOG.info("fail to submit IN_QUEUE job to executor. job: {}", job);
-
                 }
             } catch (Exception e) {
                 LOG.warn("run export exporting job {}.", job, e);
@@ -127,6 +127,11 @@ public class ExportMgr extends MasterDaemon {
     }
 
     private boolean handlePendingJobs(ExportJob job) {
+        // because maybe this job has been cancelled by user.
+        if (job.getState() != JobState.PENDING) {
+            return false;
+        }
+
         if (job.isReplayed()) {
             // If the job is created from replay thread, all plan info will be lost.
             // so the job has to be cancelled.

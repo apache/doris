@@ -39,7 +39,7 @@ DOWNLOAD_DIR="$5"
 FILE_SUFFIX=".tar.xz"
 
 # Check if curl cmd exists
-if [[ -n $(which curl >/dev/null 2>&1) ]]; then
+if [[ -n $(command -v curl >/dev/null 2>&1) ]]; then
     echo "curl command not found on the system"
     exit 1
 fi

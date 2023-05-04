@@ -52,7 +52,7 @@ class BufferWritable;
 namespace doris::vectorized {
 
 struct RowNumberData {
-    int64_t count;
+    int64_t count = 0;
 };
 
 class WindowFunctionRowNumber final
@@ -89,9 +89,9 @@ public:
 };
 
 struct RankData {
-    int64_t rank;
-    int64_t count;
-    int64_t peer_group_start;
+    int64_t rank = 0;
+    int64_t count = 0;
+    int64_t peer_group_start = 0;
 };
 
 class WindowFunctionRank final : public IAggregateFunctionDataHelper<RankData, WindowFunctionRank> {
@@ -134,8 +134,8 @@ public:
 };
 
 struct DenseRankData {
-    int64_t rank;
-    int64_t peer_group_start;
+    int64_t rank = 0;
+    int64_t peer_group_start = 0;
 };
 class WindowFunctionDenseRank final
         : public IAggregateFunctionDataHelper<DenseRankData, WindowFunctionDenseRank> {
@@ -175,8 +175,8 @@ public:
 };
 
 struct NTileData {
-    int64_t bucket_index;
-    int64_t rows;
+    int64_t bucket_index = 0;
+    int64_t rows = 0;
 };
 
 class WindowFunctionNTile final
