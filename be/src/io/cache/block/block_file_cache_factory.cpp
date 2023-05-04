@@ -42,14 +42,6 @@ FileCacheFactory& FileCacheFactory::instance() {
     return ret;
 }
 
-std::vector<IFileCache::Statistics> FileCacheFactory::get_cache_statistics() {
-    std::vector<IFileCache::Statistics> statistics;
-    for (auto& cache : _caches) {
-        statistics.emplace_back(cache->get_cache_statistics());
-    }
-    return statistics;
-}
-
 size_t FileCacheFactory::try_release() {
     int elements = 0;
     for (auto& cache : _caches) {

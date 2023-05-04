@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_segment.h"
+#include "util/metrics.h"
 
 namespace doris {
 class TUniqueId;
@@ -126,8 +127,6 @@ private:
     LRUQueue _normal_queue;
     LRUQueue _disposable_queue;
 
-    Statistics get_cache_statistics() override;
-
     size_t try_release() override;
 
     LRUFileCache::LRUQueue& get_queue(CacheType type);
@@ -191,6 +190,8 @@ private:
 
     void run_background_operation();
 
+    void update_cache_metrics() const;
+
 public:
     std::string dump_structure(const Key& key) override;
 
@@ -200,6 +201,26 @@ private:
     size_t _num_read_segments = 0;
     size_t _num_hit_segments = 0;
     size_t _num_removed_segments = 0;
+
+    std::shared_ptr<MetricEntity> _entity = nullptr;
+
+    DoubleGauge* hits_ratio = nullptr;
+    UIntGauge* removed_elements = nullptr;
+
+    UIntGauge* index_queue_max_size = nullptr;
+    UIntGauge* index_queue_curr_size = nullptr;
+    UIntGauge* index_queue_max_elements = nullptr;
+    UIntGauge* index_queue_curr_elements = nullptr;
+
+    UIntGauge* normal_queue_max_size = nullptr;
+    UIntGauge* normal_queue_curr_size = nullptr;
+    UIntGauge* normal_queue_max_elements = nullptr;
+    UIntGauge* normal_queue_curr_elements = nullptr;
+
+    UIntGauge* disposable_queue_max_size = nullptr;
+    UIntGauge* disposable_queue_curr_size = nullptr;
+    UIntGauge* disposable_queue_max_elements = nullptr;
+    UIntGauge* disposable_queue_curr_elements = nullptr;
 };
 
 } // namespace io

@@ -42,8 +42,6 @@ public:
     Status create_file_cache(const std::string& cache_base_path,
                              const FileCacheSettings& file_cache_settings);
 
-    std::vector<IFileCache::Statistics> get_cache_statistics();
-
     size_t try_release();
 
     size_t try_release(const std::string& base_path);

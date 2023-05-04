@@ -39,41 +39,7 @@ const static std::string OP = "op";
 Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     std::string operation = req->param(OP);
-    if (operation == "metrics") {
-        auto statistics = io::FileCacheFactory::instance().get_cache_statistics();
-        std::ostringstream result;
-        result << "[";
-        for (int i = 0; i < statistics.size(); ++i) {
-            auto& metrics = statistics[i];
-            EasyJson json;
-            json["cache_path"] = metrics.cache_path;
-            json["hits_ratio"] = metrics.hits_ratio;
-            json["removed_elements"] = metrics.removed_elements;
-
-            json["index_queue_max_size"] = metrics.index_queue_max_size;
-            json["index_queue_curr_size"] = metrics.index_queue_curr_size;
-            json["index_queue_max_elements"] = metrics.index_queue_max_elements;
-            json["index_queue_curr_elements"] = metrics.index_queue_curr_elements;
-
-            json["normal_queue_max_size"] = metrics.normal_queue_max_size;
-            json["normal_queue_curr_size"] = metrics.normal_queue_curr_size;
-            json["normal_queue_max_elements"] = metrics.normal_queue_max_elements;
-            json["normal_queue_curr_elements"] = metrics.normal_queue_curr_elements;
-
-            json["disposable_queue_max_size"] = metrics.disposable_queue_max_size;
-            json["disposable_queue_curr_size"] = metrics.disposable_queue_curr_size;
-            json["disposable_queue_max_elements"] = metrics.disposable_queue_max_elements;
-            json["disposable_queue_curr_elements"] = metrics.disposable_queue_curr_elements;
-
-            if (i != 0) {
-                result << ", ";
-            }
-            result << json.ToString();
-        }
-        result << "]";
-        *json_metrics = result.str();
-        return Status::OK();
-    } else if (operation == "release") {
+    if (operation == "release") {
         size_t released = 0;
         if (req->param("base_path") != "") {
             released = io::FileCacheFactory::instance().try_release(req->param("base_path"));

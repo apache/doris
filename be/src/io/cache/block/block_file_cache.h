@@ -94,28 +94,6 @@ public:
         bool operator==(const Key& other) const { return key == other.key; }
     };
 
-    struct Statistics {
-        std::string cache_path;
-
-        size_t index_queue_max_size;
-        size_t index_queue_curr_size;
-        size_t index_queue_max_elements;
-        size_t index_queue_curr_elements;
-
-        size_t normal_queue_max_size;
-        size_t normal_queue_curr_size;
-        size_t normal_queue_max_elements;
-        size_t normal_queue_curr_elements;
-
-        size_t disposable_queue_max_size;
-        size_t disposable_queue_curr_size;
-        size_t disposable_queue_max_elements;
-        size_t disposable_queue_curr_elements;
-
-        double hits_ratio = 0;
-        size_t removed_elements = 0;
-    };
-
     IFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
 
     virtual ~IFileCache() = default;
@@ -127,8 +105,6 @@ public:
     size_t capacity() const { return _total_size; }
 
     static Key hash(const std::string& path);
-
-    virtual Statistics get_cache_statistics() = 0;
 
     virtual size_t try_release() = 0;
 
