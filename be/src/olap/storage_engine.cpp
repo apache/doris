@@ -391,12 +391,8 @@ void StorageEngine::_start_disk_stat_monitor() {
     }
 
     _update_storage_medium_type_count();
-    bool some_tablets_were_dropped = _delete_tablets_on_unused_root_path();
-    // If some tablets were dropped, we should notify disk_state_worker_thread and
-    // tablet_worker_thread (see TaskWorkerPool) to make them report to FE ASAP.
-    if (some_tablets_were_dropped) {
-        notify_listeners();
-    }
+
+    _exit_if_too_many_disks_are_failed();
 }
 
 // TODO(lingbin): Should be in EnvPosix?
@@ -502,8 +498,7 @@ static bool too_many_disks_are_failed(uint32_t unused_num, uint32_t total_num) {
             (unused_num * 100 / total_num > config::max_percentage_of_error_disk));
 }
 
-bool StorageEngine::_delete_tablets_on_unused_root_path() {
-    std::vector<TabletInfo> tablet_info_vec;
+void StorageEngine::_exit_if_too_many_disks_are_failed() {
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
 
@@ -511,7 +506,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
         // TODO(yingchun): _store_map is only updated in main and ~StorageEngine, maybe we can remove it?
         std::lock_guard<std::mutex> l(_store_lock);
         if (_store_map.empty()) {
-            return false;
+            return;
         }
 
         for (auto& it : _store_map) {
@@ -519,7 +514,6 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
             if (it.second->is_used()) {
                 continue;
             }
-            it.second->clear_tablets(&tablet_info_vec);
             ++unused_root_path_num;
         }
     }
@@ -531,10 +525,6 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
                    << ", total_disk_count=" << total_root_path_num;
         exit(0);
     }
-
-    _tablet_manager->drop_tablets_on_error_root_path(tablet_info_vec);
-    // If tablet_info_vec is not empty, means we have dropped some tablets.
-    return !tablet_info_vec.empty();
 }
 
 void StorageEngine::stop() {
