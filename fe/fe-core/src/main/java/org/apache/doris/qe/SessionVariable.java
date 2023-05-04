@@ -563,7 +563,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
-    private boolean enableFoldConstantByBe = false;
+    private boolean enableFoldConstantByBe = true;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE)
     private String runtimeFilterMode = "GLOBAL";
@@ -865,12 +865,12 @@ public class SessionVariable implements Serializable, Writable {
         // pull_request_id default value is 0
         if (Config.pull_request_id % 2 == 1) {
             this.enablePipelineEngine = true;
-            // this.enableFoldConstantByBe = true;
+            this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
             this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
         } else {
             // this.enablePipelineEngine = false;
-            // this.enableFoldConstantByBe = false;
+            this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = true;
             this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
         }
@@ -1158,11 +1158,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableFoldConstantByBe() {
-        return enableFoldConstantByBe;
+        return true;
     }
 
     public void setEnableFoldConstantByBe(boolean foldConstantByBe) {
-        this.enableFoldConstantByBe = foldConstantByBe;
+        this.enableFoldConstantByBe = true;
     }
 
     public int getParallelExecInstanceNum() {
