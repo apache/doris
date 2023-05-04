@@ -536,8 +536,20 @@ public class DateTimeExtractAndTransform {
                 LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
     }
 
+    @ExecFunction(name = "to_days", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntegerLiteral toDays(DateTimeLiteral date) {
+        return new IntegerLiteral(((int) Duration.between(
+                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
+    }
+
     @ExecFunction(name = "to_days", argTypes = {"DATEV2"}, returnType = "INT")
     public static IntegerLiteral toDays(DateV2Literal date) {
+        return new IntegerLiteral(((int) Duration.between(
+                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
+    }
+
+    @ExecFunction(name = "to_days", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral toDays(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) Duration.between(
                 LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
     }
