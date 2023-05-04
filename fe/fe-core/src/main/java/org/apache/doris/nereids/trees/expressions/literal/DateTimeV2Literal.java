@@ -127,7 +127,8 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int precision) {
         return isDateOutOfRange(dateTime) ? null
-                : new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                : new DateTimeV2Literal(DateTimeV2Type.of(precision),
+                        dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
                         dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
                         dateTime.getNano() / (long) Math.pow(10, 9 - precision));
     }
