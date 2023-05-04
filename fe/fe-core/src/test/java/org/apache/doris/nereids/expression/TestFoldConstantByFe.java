@@ -287,7 +287,7 @@ public class TestFoldConstantByFe implements MemoPatternMatchSupported {
     @Test
     public void testDateConstructFunction() {
         String[] answer = {
-                "2001-07-19", "6411-08-17", "'1977-06-03 17:57:24'",
+                "2001-07-19", "6411-08-17", "0000-01-01", "'1977-06-03 17:57:24'",
                 "'1977-06-03'", "1008909293", "1008864000"
         };
         int answerIdx = 0;
@@ -298,6 +298,9 @@ public class TestFoldConstantByFe implements MemoPatternMatchSupported {
         ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.fromDays(
                 new IntegerLiteral(2341798)
+        ).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.fromDays(
+                new IntegerLiteral(1)
         ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.fromUnixTime(
                 new IntegerLiteral(234179844)
