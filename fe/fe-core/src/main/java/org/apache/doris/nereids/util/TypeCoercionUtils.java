@@ -70,6 +70,7 @@ import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -316,6 +317,11 @@ public class TypeCoercionUtils {
     @Developing
     public static Optional<Expression> characterLiteralTypeCoercion(String value, DataType dataType) {
         Expression ret = null;
+        if (Config.enable_date_conversion) {
+            if (dataType instanceof DateType || dataType instanceof DateTimeType) {
+                dataType = DataType.fromCatalogType(dataType.toCatalogDataType());
+            }
+        }
         try {
             if (dataType instanceof BooleanType) {
                 if ("true".equalsIgnoreCase(value)) {
