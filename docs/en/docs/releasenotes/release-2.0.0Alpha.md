@@ -37,7 +37,7 @@ It's recommended to deploy 2.0.0 alpha version in a new test cluster for testing
 - Inverted Index: Supports both fulltext search and normal equal, range query.
   - Supports fulltext search query
     - Supports Chinese, English and Unicode standard tokenizer.
-    - Supports both STRING and ARRAY<STRING> types.
+    - Supports both STRING and ARRAY types.
   - Supports normal equal, range query on STRING, NUMERIC, DATE, DATETIME types.
   - Supports logical combination of multiple conditions, not only AND but also OR and NOT.
   - Much more efficient compared to ElasticSearch in esrally http logs benchmark: 4x speed up for data load, 80% storage space reduced, 2x speed up for 11 queries.
