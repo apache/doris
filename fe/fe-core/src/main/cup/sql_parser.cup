@@ -492,6 +492,7 @@ terminal String
     KW_PASSWORD_REUSE,
     KW_PATH,
     KW_PAUSE,
+    KW_PERIOD,
     KW_PIPE,
     KW_PLUGIN,
     KW_PLUGINS,
@@ -5802,6 +5803,12 @@ with_analysis_properties ::=
             put("num.buckets", String.valueOf(numBuckets.intValue()));
         }};
     :}
+    | KW_PERIOD INTEGER_LITERAL:periodInSec
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("period.seconds", String.valueOf(periodInSec.intValue()));
+        }};
+    :}
     ;
 
 opt_with_analysis_properties ::=
@@ -7486,6 +7493,10 @@ keyword ::=
     | KW_EXPIRED: id
     {: RESULT = id; :}
     | KW_SAMPLE:id
+    {: RESULT = id; :}
+    | KW_INCREMENTAL:id
+    {: RESULT = id; :}
+    | KW_PERIOD:id
     {: RESULT = id; :}
     ;
 

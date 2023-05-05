@@ -214,6 +214,7 @@ import org.apache.doris.resource.resourcegroup.ResourceGroupMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.StatisticsAutoAnalyzer;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.system.Backend;
@@ -452,6 +453,8 @@ public class Env {
 
     private StatisticsCleaner statisticsCleaner;
 
+    private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -653,6 +656,7 @@ public class Env {
         if (Config.enable_stats && !isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
             this.statisticsCleaner = new StatisticsCleaner();
+            this.statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.resourceGroupMgr = new ResourceGroupMgr();
@@ -879,6 +883,9 @@ public class Env {
         }
         if (statisticsCleaner != null) {
             statisticsCleaner.start();
+        }
+        if (statisticsAutoAnalyzer != null) {
+            statisticsAutoAnalyzer.start();
         }
     }
 
@@ -5377,5 +5384,9 @@ public class Env {
 
     public StatisticsCleaner getStatisticsCleaner() {
         return statisticsCleaner;
+    }
+
+    public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
+        return statisticsAutoAnalyzer;
     }
 }

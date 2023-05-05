@@ -350,6 +350,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("password_lock_time", new Integer(SqlParserSymbols.KW_PASSWORD_LOCK_TIME));
         keywordMap.put("path", new Integer(SqlParserSymbols.KW_PATH));
         keywordMap.put("pause", new Integer(SqlParserSymbols.KW_PAUSE));
+        keywordMap.put("period", new Integer(SqlParserSymbols.KW_PERIOD));
         keywordMap.put("plugin", new Integer(SqlParserSymbols.KW_PLUGIN));
         keywordMap.put("plugins", new Integer(SqlParserSymbols.KW_PLUGINS));
         keywordMap.put("policy", new Integer(SqlParserSymbols.KW_POLICY));
