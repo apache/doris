@@ -122,7 +122,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime) {
-        return fromJavaDateType(dateTime, 6);
+        return fromJavaDateType(dateTime, 0);
     }
 
     public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int precision) {
