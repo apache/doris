@@ -16,25 +16,21 @@
 # specific language governing permissions and limitations
 # under the License.
 
-##############################################################
-# This script is used to generate generated source code
-##############################################################
-
 set -eo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+FE="apache-doris-fe-2.0.0-alpha1-bin-x86_64"
+BE="apache-doris-be-2.0.0-alpha1-bin-x86_64"
+DEPS="apache-doris-dependencies-2.0.0-alpha1-bin-x86_64"
+DOWNLOAD_LINK_PREFIX="https://mirrors.tuna.tsinghua.edu.cn/apache/doris/2.0/2.0.0-alpha1/"
+DOWNLOAD_DIR="apache-doris-2.0.0-alpha1-bin"
 
-export DORIS_HOME="${ROOT}"
+# Check and download download_base.sh
+DOWNLOAD_BASE_SCRIPTS="download_base.sh"
 
-. "${DORIS_HOME}/env.sh"
+if [[ ! -f "${DOWNLOAD_BASE_SCRIPTS}" ]]; then
+    curl -O https://raw.githubusercontent.com/apache/doris/master/dist/download_scripts/download_base.sh &&
+        chmod a+x "${DOWNLOAD_BASE_SCRIPTS}"
+fi
 
-echo "Build generated code"
-cd "${DORIS_HOME}/gensrc"
-# DO NOT using parallel make(-j) for gensrc
-make
-rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"
-cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris"
-cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/"
-cd "${DORIS_HOME}/"
-echo "Done"
-exit 0
+# Begin to download
+./"${DOWNLOAD_BASE_SCRIPTS}" "${FE}" "${BE}" "${DEPS}" "${DOWNLOAD_LINK_PREFIX}" "${DOWNLOAD_DIR}"

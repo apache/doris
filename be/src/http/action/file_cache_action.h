@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,18 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_from_unixtime") {
-    sql "set enable_fold_constant_by_be=true"
+#pragma once
 
-    qt_sql1 "select from_unixtime(1553152255)"
+#include <string>
 
-    sql "set time_zone='+00:00'"
+#include "common/status.h"
+#include "http/http_handler.h"
 
-    qt_sql2 "select from_unixtime(1553152255)"
+namespace doris {
 
-    sql """ set time_zone = 'Europe/London' """
-    qt_sql3 "select from_unixtime(1682520140)"
+class HttpRequest;
 
-    sql "set enable_fold_constant_by_be=false"
-    qt_sql4 "select from_unixtime(1682520140)"
-}
+class FileCacheAction : public HttpHandler {
+public:
+    FileCacheAction() = default;
+
+    ~FileCacheAction() override = default;
+
+    void handle(HttpRequest* req) override;
+
+private:
+    Status _handle_header(HttpRequest* req, std::string* json_metrics);
+};
+} // namespace doris
