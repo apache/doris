@@ -36,6 +36,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -259,6 +260,12 @@ public class TimestampArithmeticExpr extends Expr {
         Type[] childrenTypes = collectChildReturnTypes();
         fn = getBuiltinFunction(funcOpName.toLowerCase(), childrenTypes,
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        if (Config.enable_date_conversion && fn != null) {
+            Type[] argTypes = Arrays.stream(fn.getArgs()).map(Type::convertDateLikeTypeToV2)
+                    .toArray(Type[]::new);
+            fn = getBuiltinFunction(funcOpName.toLowerCase(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        }
         Preconditions.checkArgument(fn != null);
         Type[] argTypes = fn.getArgs();
         if (argTypes.length > 0) {

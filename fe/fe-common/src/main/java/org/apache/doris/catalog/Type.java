@@ -1671,6 +1671,15 @@ public abstract class Type {
         }
     }
 
+    public static Type convertDateLikeTypeToV2(Type type) {
+        if (type.isDate()) {
+            return Type.DATEV2;
+        } else if (type.isDatetime()) {
+            return Type.DATETIMEV2;
+        }
+        return type;
+    }
+
     public static Type getCmpType(Type t1, Type t2) {
         if (t1.getPrimitiveType() == PrimitiveType.NULL_TYPE) {
             return t2;
