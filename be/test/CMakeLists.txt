@@ -62,6 +62,7 @@ set(HTTP_TEST_FILES
     http/message_body_sink_test.cpp
     http/http_utils_test.cpp
     http/http_client_test.cpp
+    http/http_auth_test.cpp
     # TODO this will overide HttpChannel and make other test failed
     # http/metrics_action_test.cpp
 )
@@ -228,7 +229,8 @@ set(VEC_TEST_FILES
     vec/columns/column_decimal_test.cpp
     vec/columns/column_fixed_length_object_test.cpp
     vec/data_types/complex_type_test.cpp
-    vec/data_types/serde/data_type_serde_test.cpp
+    vec/data_types/serde/data_type_serde_pb_test.cpp
+    vec/data_types/serde/data_type_serde_arrow_test.cpp
     vec/core/block_test.cpp
     vec/core/block_spill_test.cpp
     vec/core/column_array_test.cpp
