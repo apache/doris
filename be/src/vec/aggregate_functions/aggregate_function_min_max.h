@@ -308,7 +308,7 @@ private:
     char small_data[MAX_SMALL_STRING_SIZE]; /// Including the terminating zero.
 
 public:
-    ~SingleValueDataString() { delete[] large_data; }
+    ~SingleValueDataString() = default;
 
     constexpr static bool IsFixedLength = false;
 
