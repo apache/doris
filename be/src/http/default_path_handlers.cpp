@@ -126,7 +126,6 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
 }
 
 void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) {
-    TabletsInfoAction tablet_info_action;
     std::string tablet_num_to_return;
     WebPageHandler::ArgumentMap::const_iterator it = args.find("limit");
     if (it != args.end()) {
@@ -134,7 +133,7 @@ void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson*
     } else {
         tablet_num_to_return = "1000"; // default
     }
-    (*ej) = tablet_info_action.get_tablets_info(tablet_num_to_return);
+    (*ej) = TabletsInfoAction::get_tablets_info(tablet_num_to_return);
 }
 
 // Registered to handle "/mem_tracker", and prints out memory tracker information.

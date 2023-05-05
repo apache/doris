@@ -17,28 +17,24 @@
 
 #pragma once
 
-#include <map>
 #include <string>
 
+#include "common/status.h"
 #include "http/http_handler.h"
 
 namespace doris {
 
 class HttpRequest;
-class RestMonitorIface;
 
-class MonitorAction : public HttpHandler {
+class FileCacheAction : public HttpHandler {
 public:
-    MonitorAction();
+    FileCacheAction() = default;
 
-    virtual ~MonitorAction() {}
-
-    void register_module(const std::string& name, RestMonitorIface* module);
+    ~FileCacheAction() override = default;
 
     void handle(HttpRequest* req) override;
 
 private:
-    std::map<std::string, RestMonitorIface*> _module_by_name;
+    Status _handle_header(HttpRequest* req, std::string* json_metrics);
 };
-
 } // namespace doris

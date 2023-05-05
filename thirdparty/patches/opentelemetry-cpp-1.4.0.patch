@@ -1,6 +1,6 @@
 diff --git a/api/include/opentelemetry/common/threadlocal.h b/api/include/opentelemetry/common/threadlocal.h
 new file mode 100644
-index 0000000..23a39e1
+index 00000000..23a39e14
 --- /dev/null
 +++ b/api/include/opentelemetry/common/threadlocal.h
 @@ -0,0 +1,123 @@
@@ -129,7 +129,7 @@ index 0000000..23a39e1
 +OPENTELEMETRY_END_NAMESPACE
 \ No newline at end of file
 diff --git a/api/include/opentelemetry/context/runtime_context.h b/api/include/opentelemetry/context/runtime_context.h
-index 167a928..608b6da 100644
+index 167a928f..608b6dac 100644
 --- a/api/include/opentelemetry/context/runtime_context.h
 +++ b/api/include/opentelemetry/context/runtime_context.h
 @@ -4,6 +4,7 @@
@@ -209,8 +209,22 @@ index 167a928..608b6da 100644
      return stack_;
    }
  };
+diff --git a/api/include/opentelemetry/nostd/shared_ptr.h b/api/include/opentelemetry/nostd/shared_ptr.h
+index e1eac615..7afc30f9 100644
+--- a/api/include/opentelemetry/nostd/shared_ptr.h
++++ b/api/include/opentelemetry/nostd/shared_ptr.h
+@@ -56,7 +56,8 @@ class shared_ptr
+               typename std::enable_if<std::is_convertible<pointer, U *>::value>::type * = nullptr>
+     void MoveTo(typename shared_ptr<U>::PlacementBuffer &buffer) noexcept
+     {
+-      new (buffer.data) shared_ptr_wrapper{std::move(this->ptr_)};
++      using other_shared_ptr_wrapper = typename shared_ptr<U>::shared_ptr_wrapper;
++      new (buffer.data) other_shared_ptr_wrapper{std::move(this->ptr_)};
+     }
+ 
+     virtual pointer Get() const noexcept { return ptr_.get(); }
 diff --git a/sdk/CMakeLists.txt b/sdk/CMakeLists.txt
-index 1a824fe..91d4b5c 100644
+index 1a824fe0..91d4b5c8 100644
 --- a/sdk/CMakeLists.txt
 +++ b/sdk/CMakeLists.txt
 @@ -1,4 +1,4 @@
@@ -220,7 +234,7 @@ index 1a824fe..91d4b5c 100644
    opentelemetry_sdk
    INTERFACE "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>"
 diff --git a/sdk/src/common/CMakeLists.txt b/sdk/src/common/CMakeLists.txt
-index debffef..b4fc875 100644
+index debffef4..b4fc875a 100644
 --- a/sdk/src/common/CMakeLists.txt
 +++ b/sdk/src/common/CMakeLists.txt
 @@ -1,4 +1,4 @@
@@ -230,7 +244,7 @@ index debffef..b4fc875 100644
    list(APPEND COMMON_SRCS platform/fork_windows.cc)
  else()
 diff --git a/sdk/src/common/random.cc b/sdk/src/common/random.cc
-index 77b88cf..dc71f9c 100644
+index 77b88cfa..dc71f9c1 100644
 --- a/sdk/src/common/random.cc
 +++ b/sdk/src/common/random.cc
 @@ -3,6 +3,7 @@
@@ -287,7 +301,7 @@ index 77b88cf..dc71f9c 100644
  
  void Random::GenerateRandomBuffer(opentelemetry::nostd::span<uint8_t> buffer) noexcept
 diff --git a/sdk/src/common/random.h b/sdk/src/common/random.h
-index ecd6dab..1aaa220 100644
+index ecd6dabc..1aaa2204 100644
 --- a/sdk/src/common/random.h
 +++ b/sdk/src/common/random.h
 @@ -34,7 +34,7 @@ class Random
@@ -301,7 +315,7 @@ index ecd6dab..1aaa220 100644
  }  // namespace sdk
 diff --git a/sdk/src/common/threadlocal.cc b/sdk/src/common/threadlocal.cc
 new file mode 100644
-index 0000000..ec2038b
+index 00000000..ec2038b4
 --- /dev/null
 +++ b/sdk/src/common/threadlocal.cc
 @@ -0,0 +1,83 @@
