@@ -134,10 +134,22 @@ public:
     Roaring64Map(Roaring64Map&& r) : roarings(r.roarings), copyOnWrite(r.copyOnWrite) {}
 
     /**
-     * Assignment operator.
+     * Copy assignment operator.
      */
     Roaring64Map& operator=(const Roaring64Map& r) {
         roarings = r.roarings;
+        return *this;
+    }
+
+    /**
+     * Move assignment operator.
+     */
+    Roaring64Map& operator=(Roaring64Map&& r) {
+        if (this != &r) {
+            this->roarings = std::move(r.roarings);
+            this->copyOnWrite = r.copyOnWrite;
+            r.copyOnWrite = false;
+        }
         return *this;
     }
 
@@ -1617,7 +1629,7 @@ public:
         case BitmapTypeCode::BITMAP32:
         case BitmapTypeCode::BITMAP64:
             _type = BITMAP;
-            _bitmap = detail::Roaring64Map::read(src);
+            _bitmap = std::move(detail::Roaring64Map::read(src));
             break;
         default:
             LOG(ERROR) << "BitmapTypeCode invalid, should between: " << BitmapTypeCode::EMPTY
