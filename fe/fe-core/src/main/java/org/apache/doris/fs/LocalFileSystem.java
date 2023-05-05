@@ -17,49 +17,55 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
+import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
+import java.util.Map;
 
 public class LocalFileSystem implements FileSystem {
     @Override
     public Status exists(String remotePath) {
-        return null;
+        throw new UnsupportedOperationException("Unsupported operation on local file system.");
     }
 
     @Override
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
-        return null;
+        throw new UnsupportedOperationException("Unsupported operation on local file system.");
     }
 
     @Override
     public Status upload(String localPath, String remotePath) {
-        return null;
+        throw new UnsupportedOperationException("Unsupported operation on local file system.");
     }
 
     @Override
     public Status directUpload(String content, String remoteFile) {
-        return null;
+        throw new UnsupportedOperationException("Unsupported operation on local file system.");
     }
 
     @Override
     public Status rename(String origFilePath, String destFilePath) {
-        return null;
+        throw new UnsupportedOperationException("Unsupported operation on local file system.");
     }
 
     @Override
     public Status delete(String remotePath) {
-        return null;
+        throw new UnsupportedOperationException("Unsupported operation on local file system.");
     }
 
     @Override
     public Status makeDir(String remotePath) {
-        return null;
+        throw new UnsupportedOperationException("Unsupported operation on local file system.");
     }
 
     @Override
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        return null;
+        throw new UnsupportedOperationException("Unsupported operation on local file system.");
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        throw new UnsupportedOperationException("Unsupported operation on local file system.");
     }
 }
