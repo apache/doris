@@ -28,6 +28,7 @@ import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalDatabase;
+import org.apache.doris.catalog.external.PaimonExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
@@ -448,6 +449,21 @@ public abstract class ExternalCatalog
                 //return new HudiExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
+                for (int i = 0; i < log.getCreateCount(); i++) {
+                    IcebergExternalDatabase db = new IcebergExternalDatabase(
+                            this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
+                    tmpDbNameToId.put(db.getFullName(), db.getId());
+                    tmpIdToDb.put(db.getId(), db);
+                }
+                break;
+            case PAIMON:
+                for (int i = 0; i < log.getCreateCount(); i++) {
+                    PaimonExternalDatabase db = new PaimonExternalDatabase(
+                            this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
+                    tmpDbNameToId.put(db.getFullName(), db.getId());
+                    tmpIdToDb.put(db.getId(), db);
+                }
+                break;
             default:
                 break;
         }

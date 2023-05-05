@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
+import org.apache.doris.datasource.paimon.PaimonHMSExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 
 import com.google.common.base.Strings;
@@ -121,6 +122,9 @@ public class CatalogFactory {
                 break;
             case "iceberg":
                 catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);
+                break;
+            case "paimon":
+                catalog = new PaimonHMSExternalCatalog(catalogId, name, resource, props);
                 break;
             case "max_compute":
                 catalog = new MaxComputeExternalCatalog(catalogId, name, resource, props, comment);

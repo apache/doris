@@ -2018,6 +2018,8 @@ public class SingleNodePlanner {
                 break;
             case ICEBERG_EXTERNAL_TABLE:
                 scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+            case PAIMON_EXTERNAL_TABLE:
+                scanNode = new FileQueryScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case MAX_COMPUTE_EXTERNAL_TABLE:
                 // TODO: support max compute scan node
