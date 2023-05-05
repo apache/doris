@@ -235,6 +235,23 @@ You can compile Doris directly in your own Linux environment.
 
    You can fix this by increasing the memory allocation for the image, 4 GB ~ 8 GB, for example.
 
+4. When using Clang to compile Doris, PCH files will be used by default to speed up the compilation process. The default configuration of ccache may cause PCH files to be unable to be cached, or the cache to be unable to be hit, resulting in PCH being repeatedly compiled, slowing down the compilation speed. The following configuration is required:  
+
+   To make ccache cache PCH files:
+   ```shell
+   export CCACHE_PCH_EXTSUM=true
+   ccache --set-config=sloppiness=pch_defines,time_macros --set-config=pch_external_checksum=true
+   ```
+   To stop ccache from caching PCH files:
+   ```shell
+   export CCACHE_NOPCH_EXTSUM=true
+   ccache --set-config=sloppiness=default --set-config=pch_external_checksum=false
+   ```
+   To use Clang to compile, but do not want to use PCH files to speed up the compilation process, you need to add the parameter `ENABLE_PCH=0`
+   ```shell
+   DORIS_TOOLCHAIN=clang ENABLE_PCH=0 sh build.sh
+   ```
+
 ## Special Statement
 
 Starting from version 0.13, the dependency on the two third-party libraries [1] and [2] will be removed in the default compiled output. These two third-party libraries are under [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html). This license is incompatible with [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), so it will not appear in the Apache release by default.
