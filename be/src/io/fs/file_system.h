@@ -42,9 +42,8 @@ class FileSystem;
 #if !defined(USE_BTHREAD_SCANNER)
 #define FILESYSTEM_M(stmt)           \
     do {                             \
-        Status _s;                   \
         DCHECK(bthread_self() == 0); \
-        _s = (stmt);                 \
+        Status _s = (stmt);          \
         if (!_s) {                   \
             LOG(WARNING) << _s;      \
         }                            \
