@@ -236,7 +236,9 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         interval = "interval 3 + 1 year + '1991-05-01'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1995, 5, 1, 0, 0, 0);
+        e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1995, 5, 1, 0, 0, 0)
+                : new DateTimeLiteral(1995, 5, 1, 0, 0, 0);
         assertRewrite(e7, e8);
 
         interval = "interval 3 + 3 / 2 hour + '1991-05-01 10:00:00'";

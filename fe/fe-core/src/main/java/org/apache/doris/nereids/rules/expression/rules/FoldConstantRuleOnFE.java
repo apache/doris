@@ -71,6 +71,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -217,18 +218,17 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitAnd(And and, ExpressionRewriteContext context) {
-        and = rewriteChildren(and, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(and);
-        if (checkedExpr.isPresent()) {
-            return checkedExpr.get();
+        List<Expression> nonTrueLiteral = Lists.newArrayList();
+        for (Expression e : and.children()) {
+            e = e.accept(this, context);
+            if (BooleanLiteral.FALSE.equals(e)) {
+                return BooleanLiteral.FALSE;
+            } else if (e instanceof NullLiteral) {
+                return e;
+            } else if (!BooleanLiteral.TRUE.equals(e)) {
+                nonTrueLiteral.add(e);
+            }
         }
-        if (and.getArguments().stream().anyMatch(BooleanLiteral.FALSE::equals)) {
-            return BooleanLiteral.FALSE;
-        }
-        List<Expression> nonTrueLiteral = and.children()
-                .stream()
-                .filter(conjunct -> !BooleanLiteral.TRUE.equals(conjunct))
-                .collect(ImmutableList.toImmutableList());
         if (nonTrueLiteral.isEmpty()) {
             return BooleanLiteral.TRUE;
         }
@@ -243,18 +243,17 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitOr(Or or, ExpressionRewriteContext context) {
-        or = rewriteChildren(or, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(or);
-        if (checkedExpr.isPresent()) {
-            return checkedExpr.get();
+        List<Expression> nonFalseLiteral = Lists.newArrayList();
+        for (Expression e : or.children()) {
+            e = e.accept(this, context);
+            if (BooleanLiteral.TRUE.equals(e)) {
+                return BooleanLiteral.TRUE;
+            } else if (e instanceof NullLiteral) {
+                return e;
+            } else if (!BooleanLiteral.FALSE.equals(e)) {
+                nonFalseLiteral.add(e);
+            }
         }
-        if (or.getArguments().stream().anyMatch(BooleanLiteral.TRUE::equals)) {
-            return BooleanLiteral.TRUE;
-        }
-        List<Expression> nonFalseLiteral = or.children()
-                .stream()
-                .filter(conjunct -> !BooleanLiteral.FALSE.equals(conjunct))
-                .collect(ImmutableList.toImmutableList());
         if (nonFalseLiteral.isEmpty()) {
             return BooleanLiteral.FALSE;
         }
