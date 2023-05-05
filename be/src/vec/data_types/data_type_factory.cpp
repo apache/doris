@@ -336,8 +336,11 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::TimeV2:
         nested = std::make_shared<vectorized::DataTypeTime>();
         break;
+    case TypeIndex::AggState:
+        nested = std::make_shared<vectorized::DataTypeAggState>();
+        break;
     default:
-        DCHECK(false) << "invalid typeindex:" << static_cast<int16_t>(type_index);
+        DCHECK(false) << "invalid typeindex:" << getTypeName(type_index);
         break;
     }
 
