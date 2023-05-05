@@ -39,6 +39,18 @@ namespace io {
 class FileSystem;
 
 #ifndef FILESYSTEM_M
+#if !defined(USE_BTHREAD_SCANNER)
+#define FILESYSTEM_M(stmt)           \
+    do {                             \
+        Status _s;                   \
+        DCHECK(bthread_self() == 0); \
+        _s = (stmt);                 \
+        if (!_s) {                   \
+            LOG(WARNING) << _s;      \
+        }                            \
+        return _s;                   \
+    } while (0);
+#else
 #define FILESYSTEM_M(stmt)                    \
     do {                                      \
         Status _s;                            \
@@ -53,6 +65,7 @@ class FileSystem;
         }                                     \
         return _s;                            \
     } while (0);
+#endif
 #endif
 
 enum class FileSystemType : uint8_t {
