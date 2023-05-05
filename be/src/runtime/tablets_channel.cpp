@@ -118,11 +118,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 
 void TabletsChannel::_build_partition_tablets_relation(const PTabletWriterOpenRequest& request) {
     for (auto& tablet : request.tablets()) {
-        if (_partition_tablets_map.find(tablet.partition_id()) == _partition_tablets_map.end()) {
-            _partition_tablets_map[tablet.partition_id()] = std::vector<int64_t>();
-        }
         _partition_tablets_map[tablet.partition_id()].emplace_back(tablet.tablet_id());
-
         _tablet_partition_map[tablet.tablet_id()] = tablet.partition_id();
     }
 }
@@ -297,13 +293,11 @@ Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
         }
     }
     if (index_slots == nullptr) {
-        std::stringstream ss;
-        ss << "unknown index id, key=" << _key << " tablet_id=" << tablet_id;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("unknown index id, key=" + _key.to_string());
     }
     int64_t partition_id = _tablet_partition_map[tablet_id];
     DCHECK(partition_id != 0);
-    auto tablets = _partition_tablets_map[partition_id];
+    auto& tablets = _partition_tablets_map[partition_id];
     DCHECK(tablets.size() > 0);
     VLOG_DEBUG << fmt::format(
             "write tablet={}, open writers for all tablets in partition={}, total writers num={}",
@@ -355,9 +349,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         }
     }
     if (index_slots == nullptr) {
-        std::stringstream ss;
-        ss << "unknown index id, key=" << _key;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("unknown index id, key=" + _key.to_string());
     }
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;
@@ -404,9 +396,7 @@ Status TabletsChannel::open_all_writers_for_partition(const PartitionOpenRequest
         }
     }
     if (index_slots == nullptr) {
-        std::stringstream ss;
-        ss << "unknown index id, key=" << _key;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("unknown index id, key=" + _key.to_string());
     }
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;

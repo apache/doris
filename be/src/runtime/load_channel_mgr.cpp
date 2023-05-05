@@ -141,9 +141,7 @@ Status LoadChannelMgr::open_partition(const PartitionOpenRequest& params) {
     if (it != _load_channels.end()) {
         channel = it->second;
     } else {
-        std::stringstream ss;
-        ss << "unknown load id, load id=" << load_id;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("unknown load id, load id=" + load_id.to_string());
     }
     RETURN_IF_ERROR(channel->open_partition(params));
     return Status::OK();
