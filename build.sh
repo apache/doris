@@ -320,11 +320,11 @@ fi
 if [[ -z "${ENABLE_PCH}" ]]; then
     ENABLE_PCH=0
     export CCACHE_NOPCH_EXTSUM=true
-    ccache --set-config=sloppiness=default --set-config=pch_external_checksum=false
+    # ccache --set-config=sloppiness=default --set-config=pch_external_checksum=false
 else 
     ENABLE_PCH=1
     export CCACHE_PCH_EXTSUM=true
-    ccache --set-config=sloppiness=pch_defines,time_macros --set-config=pch_external_checksum=true
+    # ccache --set-config=sloppiness=pch_defines,time_macros --set-config=pch_external_checksum=true
 fi
 
 if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
