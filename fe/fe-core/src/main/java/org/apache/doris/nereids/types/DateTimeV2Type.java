@@ -20,6 +20,8 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
@@ -77,6 +79,12 @@ public class DateTimeV2Type extends DateLikeType {
             return SYSTEM_DEFAULT;
         }
         return MAX;
+    }
+
+    public static DateTimeV2Type forTypeFromVarcharLiteral(DataType targetType, VarcharLiteral literal) {
+        Preconditions.checkArgument(targetType instanceof DateTimeV2Type, "target type must be datetimev2"
+                + " in datetimeV2 precision promotion");
+        return new DateTimeV2Literal(((DateTimeV2Type) targetType), literal.getValue()).getDataType();
     }
 
     @Override
