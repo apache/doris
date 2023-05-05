@@ -73,7 +73,7 @@ public class DateTimeV2Type extends DateLikeType {
             return (DateTimeV2Type) dataType;
         }
         if (dataType instanceof IntegralType || dataType instanceof BooleanType || dataType instanceof NullType
-                || dataType instanceof DateType || dataType instanceof DateTimeType) {
+                || dataType instanceof DateType || dataType instanceof DateV2Type || dataType instanceof DateTimeType) {
             return SYSTEM_DEFAULT;
         }
         return MAX;
