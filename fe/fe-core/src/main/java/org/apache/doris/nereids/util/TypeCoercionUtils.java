@@ -360,7 +360,8 @@ public class TypeCoercionUtils {
             } else if (dataType instanceof StringType) {
                 ret = new StringLiteral(value);
             } else if (dataType.isDateTimeV2Type()) {
-                ret = new DateTimeV2Literal(value);
+                DateTimeV2Type castDataType = ((DateTimeV2Type) dataType);
+                ret = new DateTimeV2Literal(castDataType, value);
             } else if (dataType.isDateTimeType()) {
                 ret = new DateTimeLiteral(value);
             } else if (dataType.isDateV2Type()) {
