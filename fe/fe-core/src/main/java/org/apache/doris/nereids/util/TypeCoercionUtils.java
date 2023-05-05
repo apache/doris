@@ -321,7 +321,7 @@ public class TypeCoercionUtils {
             if (dataType instanceof DateType) {
                 dataType = DateV2Type.INSTANCE;
             } else if (dataType instanceof DateTimeType) {
-                dataType = DateTimeV2Type.SYSTEM_DEFAULT;
+                dataType = DateTimeV2Type.MAX;
             }
         }
         try {
