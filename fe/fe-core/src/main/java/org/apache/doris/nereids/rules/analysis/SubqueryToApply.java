@@ -49,8 +49,13 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -189,9 +194,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         boolean needAddSubOutputToProjects = isScalarAndFilterContainsSubqueryOutput(
                 subquery, conjunct, isProject, singleSubquery);
         Optional<Expression> subQueryCombinedHavingExpr = subquery.getSubQueryCombinedHavingExpr();
-        boolean needAddCombinedHaving = subQueryCombinedHavingExpr.isPresent();
+        boolean needAddSubqCombinedHaving = subQueryCombinedHavingExpr.isPresent();
         Set<SlotReference> extractedSlotsInHaving = new HashSet<>();
-        if (needAddCombinedHaving) {
+        if (needAddSubqCombinedHaving) {
             extractedSlotsInHaving = ExpressionUtils.extractSlotToSet(subQueryCombinedHavingExpr.get());
         }
         LogicalApply newApply = new LogicalApply(
@@ -213,7 +218,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     .addAll(needAddSubOutputToProjects
                         ? ImmutableList.of(subquery.getQueryPlan().getOutput().get(0)) : ImmutableList.of())
                     // combined having expr output
-                    .addAll(needAddCombinedHaving ? extractedSlotsInHaving : ImmutableList.of())
+                    .addAll(needAddSubqCombinedHaving ? extractedSlotsInHaving : ImmutableList.of())
                     .build();
 
         return new LogicalProject(projects, newApply);

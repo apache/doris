@@ -49,7 +49,10 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Transform semi join to inner join
+ * Transform semi join to inner join.
+ * TODO: only support semi -> inner + gby pattern currently
+ * Will support pure inner and gby + inner patterns.
+ * Will put into cost based transformation framework.
  */
 public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> implements CustomRewriter {
 
@@ -67,7 +70,7 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         return plan.accept(this, new SemiToInnerContext(false, TransformPattern.UNKNOWN,
                                                                 new HashSet<>(), new ArrayList<>(),
-                                        null));
+                                        Optional.empty()));
     }
 
     @Override
@@ -94,7 +97,7 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
             context.pattern = getTransformPattern(join);
             if (context.pattern == TransformPattern.INNER_GBY) {
                 context.visited = true;
-                context.subQueryCombinedHavingExpr = (Expression) join.getSubQueryCombinedHavingExpr().get();
+                context.subQueryCombinedHavingExpr = join.getSubQueryCombinedHavingExpr();
                 context.groupByExpressions = getAllUniqueColumnsInJoin((LogicalPlan) join.left());
                 return new LogicalJoin<>(JoinType.INNER_JOIN, join.getHashJoinConjuncts(),
                     join.getOtherJoinConjuncts(),
@@ -118,13 +121,13 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
         TransformPattern pattern;
         Set<Slot> outerDependantSlots;
         List<Expression> groupByExpressions;
-        Expression subQueryCombinedHavingExpr;
+        Optional<Expression> subQueryCombinedHavingExpr;
 
         public SemiToInnerContext(boolean visited,
                                   TransformPattern pattern,
                                   Set<Slot> outerDependantSlots,
                                   List<Expression> groupByExpressions,
-                                  Expression subQueryCombinedHavingExpr) {
+                                  Optional<Expression> subQueryCombinedHavingExpr) {
             this.visited = visited;
             this.pattern = pattern;
             this.outerDependantSlots = outerDependantSlots;
@@ -134,22 +137,23 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
     }
 
     private TransformPattern getTransformPattern(LogicalJoin join) {
+        // only support inner gby pattern currently.
         if (join.getSubQueryCombinedHavingExpr().isPresent()) {
             return TransformPattern.INNER_GBY;
         } else {
-            // TODO: INNER and GYB_INNER will be supported in cost based rule framework
             return TransformPattern.UNKNOWN;
         }
     }
 
     private LogicalPlan transformToInnerGby(LogicalPlan plan, SemiToInnerContext context) {
         if (!(plan instanceof LogicalProject || plan instanceof LogicalFilter)) {
-            LogicalPlan topOperator = (LogicalPlan) plan;
+            LogicalPlan topOperator = plan;
             LogicalPlan childOperator = (LogicalPlan) topOperator.child(0);
             context.outerDependantSlots = topOperator.getInputSlots();
 
             LogicalProject project;
             if (childOperator instanceof LogicalProject) {
+                // merge project has been applied
                 project = (LogicalProject) childOperator;
                 LogicalFilter filter = (LogicalFilter) project.child(0);
                 project = new LogicalProject(filter.getOutput(), filter);
@@ -160,15 +164,12 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
             // build aggr on new project
             Set<Expression> combinedGbyExprs = new HashSet<>();
             Set<Expression> outputExprsAfterGby = new HashSet<>();
-            Set<Expression> havingExprs = new HashSet<>();
-            // having exprs
-            havingExprs.add(context.subQueryCombinedHavingExpr);
             // group by item exprs
             combinedGbyExprs.addAll(context.groupByExpressions);
             combinedGbyExprs.addAll(context.outerDependantSlots);
 
             // build (sum(...) as alias) expr
-            Expression aggrExprFromHavingExpr = extractAggrExprFromHavingExpr(context.subQueryCombinedHavingExpr);
+            Expression aggrExprFromHavingExpr = extractAggrExprFromHavingExpr(context.subQueryCombinedHavingExpr.get());
             Alias aggrExprAlias = new Alias(aggrExprFromHavingExpr, aggrExprFromHavingExpr.toSql());
             // group by output use alias expr
             outputExprsAfterGby.addAll(combinedGbyExprs);
@@ -184,14 +185,8 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
             LogicalFilter havingFilter = new LogicalFilter(havingExprAliasList, newAggr);
             LogicalProject newProject = new LogicalProject(new ArrayList<>(combinedGbyExprs), havingFilter);
             context.visited = false;
-            if (topOperator instanceof LogicalAggregate) {
-                LogicalAggregate topAggr = (LogicalAggregate) topOperator;
-                LogicalAggregate newTopAggr = new LogicalAggregate(topAggr.getGroupByExpressions(),
-                        topAggr.getOutputExpressions(), newProject);
-                return newTopAggr;
-            } else {
-                return (LogicalPlan) topOperator.withChildren(newProject);
-            }
+
+            return (LogicalPlan) topOperator.withChildren(newProject);
         } else {
             return plan;
         }
@@ -213,15 +208,20 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
         List<LogicalOlapScan> allTsPlan = new ArrayList<>();
         List<Expression> allUniqueColumnsInJoin = new ArrayList<>();
         findAllTsFromLogicalJoin(plan, allTsPlan);
-        for (LogicalOlapScan ts : allTsPlan) {
-            OlapTable table = ts.getTable();
-            List<Column> ukList = table.getKeysType() == KeysType.UNIQUE_KEYS ? table.getKeyList() : ImmutableList.of();
-            List<Slot> slots = ts.getOutput();
-            for (Column col : ukList) {
-                String columnName = col.getName();
-                Expression columnExpr = getColumnExpressionFromName(slots, columnName);
-                if (!allUniqueColumnsInJoin.contains(columnExpr)) {
-                    allUniqueColumnsInJoin.add(columnExpr);
+        if (allTsPlan.isEmpty()) {
+            throw new TransformException("unexpected plan during semi to inner transformation");
+        } else {
+            for (LogicalOlapScan ts : allTsPlan) {
+                OlapTable table = ts.getTable();
+                List<Column> ukList = table.getKeysType() == KeysType.UNIQUE_KEYS
+                        ? table.getKeyList() : ImmutableList.of();
+                List<Slot> slots = ts.getOutput();
+                for (Column col : ukList) {
+                    String columnName = col.getName();
+                    Expression columnExpr = getColumnExpressionFromName(slots, columnName);
+                    if (!allUniqueColumnsInJoin.contains(columnExpr)) {
+                        allUniqueColumnsInJoin.add(columnExpr);
+                    }
                 }
             }
         }
@@ -245,6 +245,6 @@ public class SemiToInner extends DefaultPlanRewriter<SemiToInnerContext> impleme
                 return slot;
             }
         }
-        throw new TransformException("failed to get column expression from column name");
+        throw new TransformException("failed to get column expr from column name");
     }
 }

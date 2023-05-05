@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -50,7 +51,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Combine exists subqueries
+ * Combine subQueries having containment relationship.
+ * Only support exists-notexists currently, the rest types will
+ * be supported in the future.
+ * Will put this rule into cost based transformation framework.
  */
 public class SubqueryCombine extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
 
@@ -80,6 +84,7 @@ public class SubqueryCombine extends DefaultPlanRewriter<JobContext> implements 
                 Set<Expression> otherConjuncts = new HashSet<>();
                 SubqueryExpr existsExpr = null;
                 SubqueryExpr notExistsExpr = null;
+                SubqueryContainmentChecker checker = new SubqueryContainmentChecker();
                 for (Expression expression : filter.getConjuncts()) {
                     if (isExists(expression)) {
                         existsExpr = (SubqueryExpr) expression;
@@ -89,9 +94,9 @@ public class SubqueryCombine extends DefaultPlanRewriter<JobContext> implements 
                         otherConjuncts.add(expression);
                     }
                 }
-                boolean isValidForCombine = checkValidForSuqueryCombine(existsExpr, notExistsExpr, pattern);
+                boolean isValidForCombine = checkValidForSuqueryCombine(existsExpr, notExistsExpr, pattern, checker);
                 if (isValidForCombine) {
-                    Exists newExists = doSubqueryCombine(existsExpr, notExistsExpr);
+                    Exists newExists = doSubqueryCombine(existsExpr, checker);
                     newConjuncts.addAll(otherConjuncts);
                     newConjuncts.add(newExists);
                     newFilter = new LogicalFilter<>(newConjuncts, filter.child());
@@ -109,93 +114,91 @@ public class SubqueryCombine extends DefaultPlanRewriter<JobContext> implements 
     }
 
     private boolean doPreCheck(LogicalPlan plan) {
-        return checkAllTablesUnderUKModel(plan)
-            && checkPlanPattern(plan);
+        // ALL pre-checking can be put here
+        return checkAllTablesUnderUKModel(plan);
     }
 
     private CombinePattern getCombinePattern(LogicalFilter filter) {
-        if (verifyMatchExistNotExists(filter.getConjuncts())) {
+        if (checkMatchExistNotExists(filter.getConjuncts())) {
             return CombinePattern.EXISTS_NOTEXISTS_COMBINE;
-        } else if (verifyMatchExistsExists(filter.getConjuncts())) {
+        } else if (checkMatchExistsExists(filter.getConjuncts())) {
             return CombinePattern.EXISTS_EXISTS_COMBINE;
-        } else if (verifyMatchNotExistsNotExists(filter.getConjuncts())) {
+        } else if (checkMatchNotExistsNotExists(filter.getConjuncts())) {
             return CombinePattern.NOTEXISTS_NOTEXISTS_COMBINE;
         } else {
             return CombinePattern.UNKNOWN;
         }
     }
 
+    /**
+     * Check all plan accessed tables are all in unique key model.
+     */
     private boolean checkAllTablesUnderUKModel(LogicalPlan plan) {
         List<LogicalPlan> plans = Lists.newArrayList();
         plans.addAll(plan.collect(LogicalPlan.class::isInstance));
-        List<LogicalRelation> selfTables = plans.stream().filter(LogicalRelation.class::isInstance)
+        List<LogicalRelation> tables = plans.stream().filter(LogicalRelation.class::isInstance)
                 .map(LogicalRelation.class::cast)
                 .collect(Collectors.toList());
-        return selfTables.stream().filter(LogicalOlapScan.class::isInstance)
+        return tables.stream().filter(LogicalOlapScan.class::isInstance)
                 .allMatch(f -> ((LogicalOlapScan) f).getTable().getKeysType() == KeysType.UNIQUE_KEYS
                 && ((LogicalOlapScan) f).getTable().getKeysNum() != 0);
     }
 
-    private boolean checkPlanPattern(LogicalPlan plan) {
-        return true;
-    }
-
     private boolean checkValidForSuqueryCombine(SubqueryExpr existsExpr, SubqueryExpr notExistsExpr,
-                                                CombinePattern pattern) {
-        // spj checking
-        boolean existIsSpj = existsExpr.isSpj();
-        boolean notExistIsSpj = notExistsExpr.isSpj();
-        if (existIsSpj || notExistIsSpj) {
-            return false;
-        }
-        Set<Expression> existsConjuncts = existsExpr.getSpjPredicate();
-        Set<Expression> notExistsConjuncts = notExistsExpr.getSpjPredicate();
-
-        // check correlated filter checking to make sure semi-inner transformation is inner-gby pattern
-        Map<Boolean, List<Expression>> existsSplit = Utils.splitCorrelatedConjuncts(
-                existsConjuncts, existsExpr.getCorrelateExpressions());
-        Map<Boolean, List<Expression>> notExistsSplit = Utils.splitCorrelatedConjuncts(
-                notExistsConjuncts, notExistsExpr.getCorrelateExpressions());
-        if (!existsExpr.getCorrelateSlots().equals(notExistsExpr.getCorrelateSlots())) {
-            return false;
-        }
-        List<Expression> existsCorrelatedPredicate = existsSplit.get(true);
-        List<Expression> notExistsCorrelatedPredicate = notExistsSplit.get(true);
-        boolean existsConNonEqual = checkContainNonEqual(existsCorrelatedPredicate);
-        boolean notExistsConNonEqual = checkContainNonEqual(notExistsCorrelatedPredicate);
-        if (!existsConNonEqual || !notExistsConNonEqual) {
-            return false;
-        } else {
-            if (pattern == CombinePattern.EXISTS_NOTEXISTS_COMBINE) {
-                SubqueryContainmentChecker checker = new SubqueryContainmentChecker();
-                return checker.check(existsExpr, notExistsExpr, true);
-            } else if (pattern == CombinePattern.EXISTS_EXISTS_COMBINE) {
-                return false;
-            } else if (pattern == CombinePattern.NOTEXISTS_NOTEXISTS_COMBINE) {
-                return false;
-            } else {
+                                                CombinePattern pattern, SubqueryContainmentChecker checker) {
+        if (pattern == CombinePattern.EXISTS_NOTEXISTS_COMBINE) {
+            // spj checking
+            boolean existIsSpj = existsExpr.isSpj();
+            boolean notExistIsSpj = notExistsExpr.isSpj();
+            if (existIsSpj || notExistIsSpj) {
                 return false;
             }
+            Set<Expression> existsConjuncts = existsExpr.getSpjPredicate();
+            Set<Expression> notExistsConjuncts = notExistsExpr.getSpjPredicate();
+            if (existsConjuncts.isEmpty() || notExistsConjuncts.isEmpty()) {
+                return false;
+            }
+            // check correlated filter to make sure semi-inner transformation goes inner-gby pattern
+            Map<Boolean, List<Expression>> existsSplit = Utils.splitCorrelatedConjuncts(
+                    existsConjuncts, existsExpr.getCorrelateExpressions());
+            Map<Boolean, List<Expression>> notExistsSplit = Utils.splitCorrelatedConjuncts(
+                    notExistsConjuncts, notExistsExpr.getCorrelateExpressions());
+            if (!existsExpr.getCorrelateSlots().equals(notExistsExpr.getCorrelateSlots())) {
+                return false;
+            }
+            List<Expression> existsCorrelatedPredicate = existsSplit.get(true);
+            List<Expression> notExistsCorrelatedPredicate = notExistsSplit.get(true);
+            boolean existsConNonEqual = checkContainNonEqualCondition(existsCorrelatedPredicate);
+            boolean notExistsConNonEqual = checkContainNonEqualCondition(notExistsCorrelatedPredicate);
+            if (!existsConNonEqual || !notExistsConNonEqual) {
+                return false;
+            } else {
+                return checker.check(existsExpr, notExistsExpr, true);
+            }
+        } else if (pattern == CombinePattern.EXISTS_EXISTS_COMBINE) {
+            return false;
+        } else if (pattern == CombinePattern.NOTEXISTS_NOTEXISTS_COMBINE) {
+            return false;
+        } else {
+            return false;
         }
     }
 
-    private boolean checkContainNonEqual(List<Expression> predicateList) {
-        boolean containNonEqual = false;
+    private boolean checkContainNonEqualCondition(List<Expression> predicateList) {
+        boolean containNonEqualCondition = false;
         for (Expression expr : predicateList) {
             if (!(expr instanceof EqualTo)) {
-                containNonEqual = true;
+                containNonEqualCondition = true;
                 break;
             }
         }
-        return containNonEqual;
+        return containNonEqualCondition;
     }
 
-    private Expression exceptExpressions(SubqueryExpr existsExpr, SubqueryExpr notExistsExpr) {
-        // replace column based on the column-mapping
-        SubqueryContainmentChecker checker = new SubqueryContainmentChecker();
-        List<Expression> exceptExprs = checker.extractExceptExpressions(existsExpr, notExistsExpr, true);
-        // TODO: check the having filters are uncorrelated predicates
-        return ExpressionUtils.and(exceptExprs);
+    private Expression getExceptConditions(SubqueryContainmentChecker checker) {
+        // column has been replaced based on the column-mapping
+        List<Expression> exceptConditions = checker.getExceptConditions();
+        return ExpressionUtils.and(exceptConditions);
     }
 
     private Expression buildCaseWhenExpr(Expression filter) {
@@ -206,15 +209,13 @@ public class SubqueryCombine extends DefaultPlanRewriter<JobContext> implements 
         return new CaseWhen(whenClauses, defaultOperand);
     }
 
-    private Exists doSubqueryCombine(SubqueryExpr existsExpr, SubqueryExpr notExistsExpr) {
-        Expression exceptFilters = exceptExpressions(existsExpr, notExistsExpr);
-        // 2. build having (sum(case when except_filters then 1 else 0 end) = 0)
+    private Exists doSubqueryCombine(SubqueryExpr existsExpr, SubqueryContainmentChecker checker) {
+        Expression exceptFilters = getExceptConditions(checker);
+        // build having (sum(case when except_filters then 1 else 0 end) = 0)
         Expression caseWhen = buildCaseWhenExpr(exceptFilters);
         Expression sumEqualsZero = new EqualTo(new Sum(caseWhen), new BigIntLiteral(0));
-        Set<Expression> aggSumFilters = new HashSet<>();
-        aggSumFilters.add(sumEqualsZero);
         LogicalPlan oldPlan = existsExpr.getQueryPlan();
-        LogicalHaving havingPlan = new LogicalHaving(aggSumFilters, oldPlan);
+        LogicalHaving havingPlan = new LogicalHaving(ImmutableSet.of(sumEqualsZero), oldPlan);
         return new Exists(havingPlan, existsExpr.getCorrelateSlots(), existsExpr.getTypeCoercionExpr(),
                           ExpressionUtils.optionalAnd(sumEqualsZero), false);
     }
@@ -227,7 +228,7 @@ public class SubqueryCombine extends DefaultPlanRewriter<JobContext> implements 
         return expr instanceof Exists && ((Exists) expr).isNot();
     }
 
-    private boolean verifyMatchExistNotExists(Set<Expression> conjuncts) {
+    private boolean checkMatchExistNotExists(Set<Expression> conjuncts) {
         Set<Exists> existsSet = new HashSet<>();
         Set<Exists> notExistsSet = new HashSet<>();
         for (Expression expr : conjuncts) {
@@ -240,11 +241,11 @@ public class SubqueryCombine extends DefaultPlanRewriter<JobContext> implements 
         return existsSet.size() == 1 && notExistsSet.size() == 1;
     }
 
-    private boolean verifyMatchExistsExists(Set<Expression> conjuncts) {
+    private boolean checkMatchExistsExists(Set<Expression> conjuncts) {
         return false;
     }
 
-    private boolean verifyMatchNotExistsNotExists(Set<Expression> conjuncts) {
+    private boolean checkMatchNotExistsNotExists(Set<Expression> conjuncts) {
         return false;
     }
 }

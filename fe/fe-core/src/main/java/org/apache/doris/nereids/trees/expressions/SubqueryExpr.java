@@ -28,6 +28,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -42,12 +43,14 @@ public abstract class SubqueryExpr extends Expression {
     protected final List<Slot> correlateSlots;
     protected final Optional<Expression> typeCoercionExpr;
     protected final Optional<Expression> subQueryCombinedHavingExpr;
+    protected final boolean isSpj;
 
     public SubqueryExpr(LogicalPlan subquery) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
         this.correlateSlots = ImmutableList.of();
         this.typeCoercionExpr = Optional.empty();
         this.subQueryCombinedHavingExpr = Optional.empty();
+        this.isSpj = PlanTypeUtils.isSpj(queryPlan);
     }
 
     public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
@@ -55,6 +58,7 @@ public abstract class SubqueryExpr extends Expression {
         this.correlateSlots = ImmutableList.copyOf(correlateSlots);
         this.typeCoercionExpr = typeCoercionExpr;
         this.subQueryCombinedHavingExpr = Optional.empty();
+        this.isSpj = PlanTypeUtils.isSpj(queryPlan);
     }
 
     public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr,
@@ -63,15 +67,7 @@ public abstract class SubqueryExpr extends Expression {
         this.correlateSlots = ImmutableList.copyOf(correlateSlots);
         this.typeCoercionExpr = typeCoercionExpr;
         this.subQueryCombinedHavingExpr = subQueryCombinedHavingExpr;
-    }
-
-    public boolean isSpj() {
-        return PlanTypeUtils.isSpj(queryPlan);
-    }
-
-    public Set<Expression> getSpjPredicate() {
-        LogicalFilter filter = PlanTypeUtils.getSpjFilter(queryPlan);
-        return filter.getConjuncts();
+        this.isSpj = PlanTypeUtils.isSpj(queryPlan);
     }
 
     public List<Slot> getCorrelateSlots() {
@@ -94,6 +90,22 @@ public abstract class SubqueryExpr extends Expression {
 
     public Expression getSubqueryOutput() {
         return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0));
+    }
+
+    public boolean isSpj() {
+        return this.isSpj;
+    }
+
+    /**
+     * Get spj related predicates. If not spj, return empty set.
+     */
+    public Set<Expression> getSpjPredicate() {
+        if (!isSpj) {
+            return new HashSet<>();
+        } else {
+            LogicalFilter spjFilter = PlanTypeUtils.getSpjFilter(queryPlan);
+            return spjFilter != null ? spjFilter.getConjuncts() : new HashSet<>();
+        }
     }
 
     @Override

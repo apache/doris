@@ -37,7 +37,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -46,10 +45,10 @@ import java.util.stream.Collectors;
 
 /**
  * Judgment for the containment between subqueries.
+ * TODO: enhance the plan type support.
  */
 public class SubqueryContainmentChecker {
-    // todo: change it to visitor model
-    public static final SubqueryContainmentChecker INSTANCE = new SubqueryContainmentChecker();
+
     private final List<LogicalPlan> selfPlans = Lists.newArrayList();
     private final List<LogicalPlan> otherPlans = Lists.newArrayList();
     private final List<Expression> exceptConditions = Lists.newArrayList();
@@ -59,7 +58,7 @@ public class SubqueryContainmentChecker {
     private Map<Expression, Expression> otherToSelfSlotMap = Maps.newHashMap();
 
     /**
-     * Check whether other contains self subquery.
+     * Check whether self is contained by other subquery.
      */
     public boolean check(SubqueryExpr self, SubqueryExpr other, boolean isForSpj) {
         init(self, other, isForSpj);
@@ -84,25 +83,19 @@ public class SubqueryContainmentChecker {
         }
     }
 
-    /**
-     * Extract expressions exists in other but not in self subquery.
-     */
-    public List<Expression> extractExceptExpressions(SubqueryExpr self, SubqueryExpr other, boolean isForSpj) {
-        List<Expression> exceptExpressions = new ArrayList<>();
-        boolean contains = check(self, other, isForSpj);
-        if (contains) {
-            // since has executed checkConditions
-            exceptExpressions.addAll(exceptConditions);
-        }
-        return exceptExpressions;
-    }
-
     private void init(SubqueryExpr self, SubqueryExpr other, boolean isForSpj) {
         this.selfPlans.addAll(self.getQueryPlan().collect(LogicalPlan.class::isInstance));
         this.otherPlans.addAll(other.getQueryPlan().collect(LogicalPlan.class::isInstance));
         this.selfTopLogicalPlan = self.getQueryPlan();
         this.otherTopLogicalPlan = other.getQueryPlan();
         this.isForSpj = isForSpj;
+    }
+
+    /**
+     * Return except conditions if containment checking succeed.
+     */
+    public List<Expression> getExceptConditions() {
+        return exceptConditions;
     }
 
     private boolean checkPlanType() {
@@ -118,7 +111,6 @@ public class SubqueryContainmentChecker {
         List<LogicalRelation> otherTables = otherPlans.stream().filter(LogicalRelation.class::isInstance)
                 .map(LogicalRelation.class::cast)
                 .collect(Collectors.toList());
-
         List<Long> selfIds = selfTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toList());
         List<Long> otherIds = otherTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toList());
         if (Sets.newHashSet(selfIds).size() != selfIds.size() || Sets.newHashSet(otherIds).size() != otherIds.size()) {
@@ -155,8 +147,7 @@ public class SubqueryContainmentChecker {
     }
 
     private boolean checkConditions() {
-        // TODO: check not contain subquery
-        // TODO: check not contain OR
+        // TODO: check not contain subquery and OR, etc.
         List<LogicalFilter<Plan>> selfFilters = selfPlans.stream()
                 .filter(LogicalFilter.class::isInstance)
                 .filter(f -> excludeSpecialFilter((LogicalFilter) f))

@@ -37,7 +37,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Judgment for plan tree pattern
+ * Judgment for plan tree pattern, such as spj plan, etc.
  */
 public class PlanTypeUtils {
 
@@ -65,8 +65,8 @@ public class PlanTypeUtils {
 
     public static boolean isSpj(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
-        return plans.stream().anyMatch(p -> SPJ_PLAN.stream().anyMatch(c -> c.isInstance(p)));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
+        return isSpj(plans);
     }
 
     public static boolean isSpj(List<LogicalPlan> plans) {
@@ -75,8 +75,8 @@ public class PlanTypeUtils {
 
     public static boolean isSupportedPlan(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
-        return plans.stream().anyMatch(p -> SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
+        return isSupportedPlan(plans);
     }
 
     public static boolean isSupportedPlan(List<LogicalPlan> plans) {
@@ -86,66 +86,66 @@ public class PlanTypeUtils {
     public static LogicalFilter getSpjFilter(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
         plans.addAll(rootPlan.collect(LogicalFilter.class::isInstance));
-        return ((LogicalFilter) plans.get(0));
+        return !plans.isEmpty() ? ((LogicalFilter) plans.get(0)) : null;
     }
 
     public static boolean hasFrom(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalRelation);
     }
 
     public static boolean hasJoin(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalJoin);
     }
 
     public static boolean hasFilter(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalFilter);
     }
 
     public static boolean hasAggr(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalAggregate);
     }
 
     public static boolean hasHaving(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalHaving);
     }
 
     public static boolean hasSetOp(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalSetOperation);
     }
 
     public static boolean hasOrderBy(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalSort);
     }
 
     public static boolean hasLimit(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalLimit);
     }
 
     public static boolean hasWinfunc(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalWindow);
     }
 
     public static boolean hasDistinct(LogicalPlan rootPlan) {
         List<LogicalPlan> plans = Lists.newArrayList();
-        plans.addAll(rootPlan.collect(LogicalLimit.class::isInstance));
+        plans.addAll(rootPlan.collect(LogicalPlan.class::isInstance));
         return plans.stream().anyMatch(p -> p instanceof LogicalProject && ((LogicalProject) p).isDistinct());
     }
 }

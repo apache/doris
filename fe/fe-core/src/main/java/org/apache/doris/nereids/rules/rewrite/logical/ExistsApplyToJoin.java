@@ -107,7 +107,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                         ? ExpressionUtils.extractConjunction(predicate)
                         : ExpressionUtils.EMPTY_CONDITION,
                     JoinHint.NONE,
-                    apply.getMarkJoinSlotReference(), null,
+                    apply.getMarkJoinSlotReference(), Optional.empty(),
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         } else {
             return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,

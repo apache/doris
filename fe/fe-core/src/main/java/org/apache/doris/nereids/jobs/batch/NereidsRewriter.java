@@ -159,7 +159,9 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             topic("Rewrite join",
-                // transform semi join to inner join followed by gby
+                // transform semi join to inner join
+                // TODO: current rule is under special scenario, will put it into cost based
+                // transformation framework in the future.
                 custom(RuleType.SEMI_TO_INNER, SemiToInner::new),
 
                 // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
