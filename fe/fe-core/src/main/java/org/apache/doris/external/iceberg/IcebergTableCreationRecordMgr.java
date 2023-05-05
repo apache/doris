@@ -257,7 +257,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     }
 
     public boolean isQueueFull() {
-        return tableCreationRecordQueue.size() >= Config.max_iceberg_table_creation_record_size;
+        return tableCreationRecordQueue.size() >= 2000;
     }
 
     private void readLock() {
