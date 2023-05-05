@@ -48,11 +48,10 @@ AggregateFunctionPtr create_aggregate_function_HLL_union(const std::string& name
 }
 
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory) {
+    /// Here do not register nullable functions, `register_aggregate_function_combinator_null`
+    /// will do such things.
     factory.register_function("hll_union_agg", create_aggregate_function_HLL_union_agg<false>);
-    factory.register_function("hll_union_agg", create_aggregate_function_HLL_union_agg<true>, true);
-
     factory.register_function("hll_union", create_aggregate_function_HLL_union<false>);
-    factory.register_function("hll_union", create_aggregate_function_HLL_union<true>, true);
     factory.register_alias("hll_union", "hll_raw_agg");
 }
 
