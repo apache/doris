@@ -48,6 +48,13 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
         return objStorage.headObject(remotePath);
     }
 
+    /**
+     * download data from remote file and check data size with expected file size.
+     * @param remoteFilePath remote file path
+     * @param localFilePath local file path
+     * @param fileSize download data size
+     * @return
+     */
     @Override
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
         long start = System.currentTimeMillis();

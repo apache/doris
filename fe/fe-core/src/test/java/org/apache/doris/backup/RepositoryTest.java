@@ -22,7 +22,9 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.fs.obj.BlobStorage;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Lists;
@@ -39,13 +41,12 @@ import org.junit.Test;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
+import java.nio.file.Files;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +63,7 @@ public class RepositoryTest {
     private SnapshotInfo info;
 
     @Mocked
-    private BlobStorage storage;
+    private RemoteFileSystem fileSystem;
 
 
     @Before
@@ -91,7 +92,7 @@ public class RepositoryTest {
 
     @Test
     public void testGet() {
-        repo = new Repository(10000, "repo", false, location, storage);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
 
         Assert.assertEquals(repoId, repo.getId());
         Assert.assertEquals(name, repo.getName());
@@ -105,7 +106,7 @@ public class RepositoryTest {
     public void testInit() {
         new Expectations() {
             {
-                storage.list(anyString, (List<RemoteFile>) any);
+                fileSystem.list(anyString, (List<RemoteFile>) any);
                 minTimes = 0;
                 result = new Delegate<Status>() {
                     public Status list(String remotePath, List<RemoteFile> result) {
@@ -114,13 +115,13 @@ public class RepositoryTest {
                     }
                 };
 
-                storage.directUpload(anyString, anyString);
+                fileSystem.directUpload(anyString, anyString);
                 minTimes = 0;
                 result = Status.OK;
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, storage);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
 
         Status st = repo.initRepository();
         System.out.println(st);
@@ -129,7 +130,7 @@ public class RepositoryTest {
 
     @Test
     public void testassemnblePath() throws MalformedURLException, URISyntaxException {
-        repo = new Repository(10000, "repo", false, location, storage);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
 
         // job info
         String label = "label";
@@ -164,13 +165,13 @@ public class RepositoryTest {
     public void testPing() {
         new Expectations() {
             {
-                storage.checkPathExist(anyString);
+                fileSystem.exists(anyString);
                 minTimes = 0;
                 result = Status.OK;
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, storage);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
         Assert.assertTrue(repo.ping());
         Assert.assertTrue(repo.getErrorMsg() == null);
     }
@@ -179,7 +180,7 @@ public class RepositoryTest {
     public void testListSnapshots() {
         new Expectations() {
             {
-                storage.list(anyString, (List<RemoteFile>) any);
+                fileSystem.list(anyString, (List<RemoteFile>) any);
                 minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
@@ -191,7 +192,7 @@ public class RepositoryTest {
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, storage);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
         List<String> snapshotNames = Lists.newArrayList();
         Status st = repo.listSnapshots(snapshotNames);
         Assert.assertTrue(st.ok());
@@ -203,21 +204,21 @@ public class RepositoryTest {
     public void testUpload() {
         new Expectations() {
             {
-                storage.upload(anyString, anyString);
+                fileSystem.upload(anyString, anyString);
                 minTimes = 0;
                 result = Status.OK;
 
-                storage.rename(anyString, anyString);
+                fileSystem.rename(anyString, anyString);
                 minTimes = 0;
                 result = Status.OK;
 
-                storage.delete(anyString);
+                fileSystem.delete(anyString);
                 minTimes = 0;
                 result = Status.OK;
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, storage);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
         String localFilePath = "./tmp_" + System.currentTimeMillis();
         try (PrintWriter out = new PrintWriter(localFilePath)) {
             out.print("a");
@@ -249,7 +250,7 @@ public class RepositoryTest {
 
             new Expectations() {
                 {
-                    storage.list(anyString, (List<RemoteFile>) any);
+                    fileSystem.list(anyString, (List<RemoteFile>) any);
                     minTimes = 0;
                     result = new Delegate() {
                         public Status list(String remotePath, List<RemoteFile> result) {
@@ -258,13 +259,13 @@ public class RepositoryTest {
                         }
                     };
 
-                    storage.downloadWithFileSize(anyString, anyString, anyLong);
+                    fileSystem.downloadWithFileSize(anyString, anyString, anyLong);
                     minTimes = 0;
                     result = Status.OK;
                 }
             };
 
-            repo = new Repository(10000, "repo", false, location, storage);
+            repo = new Repository(10000, "repo", false, location, fileSystem);
             String remoteFilePath = location + "/remote_file";
             Status st = repo.download(remoteFilePath, localFilePath);
             Assert.assertTrue(st.ok());
@@ -275,7 +276,7 @@ public class RepositoryTest {
 
     @Test
     public void testGetInfo() {
-        repo = new Repository(10000, "repo", false, location, storage);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
         List<String> infos = repo.getInfo();
         Assert.assertTrue(infos.size() == ShowRepositoriesStmt.TITLE_NAMES.size());
     }
@@ -284,7 +285,7 @@ public class RepositoryTest {
     public void testGetSnapshotInfo() {
         new Expectations() {
             {
-                storage.list(anyString, (List<RemoteFile>) any);
+                fileSystem.list(anyString, (List<RemoteFile>) any);
                 minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
@@ -303,7 +304,7 @@ public class RepositoryTest {
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, storage);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
         String snapshotName = "";
         String timestamp = "";
         try {
@@ -322,17 +323,17 @@ public class RepositoryTest {
         properties.put("bos_endpoint", "http://gz.bcebos.com");
         properties.put("bos_accesskey", "a");
         properties.put("bos_secret_accesskey", "b");
-        BlobStorage storage = BlobStorage.create(brokerName, StorageBackend.StorageType.BROKER, properties);
-        repo = new Repository(10000, "repo", false, location, storage);
+        RemoteFileSystem fs = FileSystemFactory.get(brokerName, StorageBackend.StorageType.BROKER, properties);
+        repo = new Repository(10000, "repo", false, location, fs);
 
         File file = new File("./Repository");
         try {
-            DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+            DataOutputStream out = new DataOutputStream(Files.newOutputStream(file.toPath()));
             repo.write(out);
             out.flush();
             out.close();
 
-            DataInputStream in = new DataInputStream(new FileInputStream(file));
+            DataInputStream in = new DataInputStream(Files.newInputStream(file.toPath()));
             Repository newRepo = Repository.read(in);
             in.close();
 
@@ -352,7 +353,7 @@ public class RepositoryTest {
     @Test
     public void testPathNormalize() {
         String newLoc = "bos://cmy_bucket/bos_repo/";
-        repo = new Repository(10000, "repo", false, newLoc, storage);
+        repo = new Repository(10000, "repo", false, newLoc, fileSystem);
         String path = repo.getRepoPath("label1", "/_ss_my_ss/_ss_content/__db_10000/");
         Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000/", path);
 
@@ -360,7 +361,7 @@ public class RepositoryTest {
         Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000", path);
 
         newLoc = "hdfs://path/to/repo";
-        repo = new Repository(10000, "repo", false, newLoc, storage);
+        repo = new Repository(10000, "repo", false, newLoc, fileSystem);
         SnapshotInfo snapshotInfo = new SnapshotInfo(1, 2, 3, 4, 5, 6, 7, "/path", Lists.newArrayList());
         path = repo.getRepoTabletPathBySnapshotInfo("label1", snapshotInfo);
         Assert.assertEquals("hdfs://path/to/repo/__palo_repository_repo/__ss_label1/__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5", path);

@@ -103,10 +103,6 @@ public class StatementContext {
         isDpHyp = dpHyp;
     }
 
-    public StatementBase getParsedStatement() {
-        return parsedStatement;
-    }
-
     public ExprId getNextExprId() {
         return exprIdGenerator.getNextId();
     }

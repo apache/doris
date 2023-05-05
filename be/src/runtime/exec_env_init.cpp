@@ -212,9 +212,7 @@ Status ExecEnv::_init_mem_env() {
     thread_context()->thread_mem_tracker_mgr->init();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
-    if (doris::config::enable_tcmalloc_hook) {
-        init_hook();
-    }
+    init_hook();
 #endif
 
     // 2. init buffer pool

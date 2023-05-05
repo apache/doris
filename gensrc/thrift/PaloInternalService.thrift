@@ -212,6 +212,9 @@ struct TQueryOptions {
 
   // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
   69: optional i32 external_agg_partition_bits = 4
+
+  // Specify base path for file cache
+  70: optional string file_cache_base_path
 }
     
 

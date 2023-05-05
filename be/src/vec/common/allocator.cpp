@@ -34,6 +34,7 @@
 
 template <bool clear_memory_, bool mmap_populate>
 void Allocator<clear_memory_, mmap_populate>::sys_memory_check(size_t size) const {
+    if (doris::skip_memory_check) return;
     if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
         // Only thread attach query, and has not completely waited for thread_wait_gc_max_milliseconds,
         // will wait for gc, asynchronous cancel or throw bad::alloc.
@@ -58,13 +59,12 @@ void Allocator<clear_memory_, mmap_populate>::sys_memory_check(size_t size) cons
                         size, doris::thread_context()->thread_mem_tracker()->label(),
                         doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
                         doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(size));
+                doris::MemTrackerLimiter::print_log_process_usage(err_msg);
                 // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
                 if (!doris::enable_thread_catch_bad_alloc) {
                     doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
                 } else {
-                    doris::thread_context()->thread_mem_tracker_mgr->save_exceed_mem_limit_msg(
-                            err_msg);
-                    throw std::bad_alloc {};
+                    throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
                 }
             }
         } else if (doris::enable_thread_catch_bad_alloc) {
@@ -74,14 +74,15 @@ void Allocator<clear_memory_, mmap_populate>::sys_memory_check(size_t size) cons
                     size, doris::thread_context()->thread_mem_tracker()->label(),
                     doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
                     doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(size));
-            doris::thread_context()->thread_mem_tracker_mgr->save_exceed_mem_limit_msg(err_msg);
-            throw std::bad_alloc {};
+            doris::MemTrackerLimiter::print_log_process_usage(err_msg);
+            throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
         }
     }
 }
 
 template <bool clear_memory_, bool mmap_populate>
 void Allocator<clear_memory_, mmap_populate>::memory_tracker_check(size_t size) const {
+    if (doris::skip_memory_check) return;
     auto st = doris::thread_context()->thread_mem_tracker()->check_limit(size);
     if (!st) {
         doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
@@ -90,13 +91,12 @@ void Allocator<clear_memory_, mmap_populate>::memory_tracker_check(size_t size) 
                         st.to_string(),
                         doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
                         "Allocator mem tracker check failed");
+        doris::thread_context()->thread_mem_tracker()->print_log_usage(err_msg);
         // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
         if (!doris::enable_thread_catch_bad_alloc) {
             doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
-            doris::thread_context()->thread_mem_tracker()->print_log_usage(err_msg);
         } else {
-            doris::thread_context()->thread_mem_tracker_mgr->save_exceed_mem_limit_msg(err_msg);
-            throw std::bad_alloc {};
+            throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
         }
     }
 }
@@ -120,9 +120,8 @@ void Allocator<clear_memory_, mmap_populate>::release_memory(size_t size) const 
 template <bool clear_memory_, bool mmap_populate>
 void Allocator<clear_memory_, mmap_populate>::throw_bad_alloc(const std::string& err) const {
     LOG(WARNING) << err;
-    if (!doris::enable_thread_catch_bad_alloc)
-        doris::MemTrackerLimiter::print_log_process_usage(err);
-    throw std::bad_alloc {};
+    doris::MemTrackerLimiter::print_log_process_usage(err);
+    throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }
 
 template class Allocator<true, true>;
