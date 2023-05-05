@@ -88,7 +88,7 @@ public class SystemInfoServiceTest {
         metaContext.setThreadLocalInfo();
 
         BackendHbResponse writeResponse = new BackendHbResponse(1L, 1234, 1234, 1234,
-            1234, 1234, "test", Tag.VALUE_COMPUTATION);
+                1234, 1234, "test", Tag.VALUE_COMPUTATION);
 
         // Write objects to file
         File file1 = new File("./SystemInfoServiceTest1");
@@ -104,7 +104,7 @@ public class SystemInfoServiceTest {
             }
 
             // Read objects from file
-            try(DataInputStream dis = new DataInputStream(new FileInputStream(file1))) {
+            try (DataInputStream dis = new DataInputStream(new FileInputStream(file1))) {
                 BackendHbResponse readResponse = BackendHbResponse.read(dis);
                 // Before meta version 121, nodeRole will not be read, so readResponse is not equal to writeResponse
                 Assert.assertFalse(readResponse.toString().equals(writeResponse.toString()));
@@ -133,7 +133,7 @@ public class SystemInfoServiceTest {
             }
 
             // Read objects from file
-            try(DataInputStream dis = new DataInputStream(new FileInputStream(file2))) {
+            try (DataInputStream dis = new DataInputStream(new FileInputStream(file2))) {
                 BackendHbResponse readResponse = BackendHbResponse.read(dis);
                 // After meta version 121, nodeRole will be read, so readResponse is equal to writeResponse
                 Assert.assertTrue(readResponse.toString().equals(writeResponse.toString()));

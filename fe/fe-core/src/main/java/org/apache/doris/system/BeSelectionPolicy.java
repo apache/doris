@@ -141,7 +141,7 @@ public class BeSelectionPolicy {
                 storageMedium)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Backend [{}] is not match by Other rules, policy: [{}]",
-                    backend.getIp(), this);
+                        backend.getIp(), this);
             }
             return false;
         }
