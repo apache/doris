@@ -26,7 +26,7 @@ under the License.
 
 # SQL黑名单
 
-该功能仅用于限制查询语句，并且不会限制 explain 语句的执行。
+该功能用于限制执行 sql 语句（DDL / DML 都可限制），但不会限制 explain 语句的执行。
 支持按用户配置SQL黑名单:
 
 1. 通过正则匹配的方式拒绝指定SQL
