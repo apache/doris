@@ -973,8 +973,8 @@ else()
     message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
 endif()
 
-add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
 if (ENABLE_PCH) 
+add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
     target_precompile_headers(
         pch
         PUBLIC

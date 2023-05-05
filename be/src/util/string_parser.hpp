@@ -80,26 +80,26 @@ public:
     };
 
     template <typename T>
-    static T numeric_limits(bool negative);
+    static T numeric_limits(bool negative) {
+        if constexpr (std::is_same_v<T, __int128>) {
+            return negative ? MIN_INT128 : MAX_INT128;
+        } else {
+            return negative ? std::numeric_limits<T>::min() : std::numeric_limits<T>::max();
+        }
+    }
 
     template <typename T>
-    static T get_scale_multiplier(int scale);
-
-    template <>
-    __int128 numeric_limits<__int128>(bool negative) {
-        return negative ? MIN_INT128 : MAX_INT128;
-    }
-    template <>
-    int32_t get_scale_multiplier<int32_t>(int scale) {
-        return common::exp10_i32(scale);
-    }
-    template <>
-    int64_t get_scale_multiplier<int64_t>(int scale) {
-        return common::exp10_i64(scale);
-    }
-    template <>
-    __int128 get_scale_multiplier<__int128>(int scale) {
-        return common::exp10_i128(scale);
+    static T get_scale_multiplier(int scale) {
+        static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
+                              std::is_same_v<T, __int128>,
+                      "You can only instantiate as int32_t, int64_t, __int128.");
+        if constexpr (std::is_same_v<T, int32_t>) {
+            return common::exp10_i32(scale);
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+            return common::exp10_i64(scale);
+        } else if constexpr (std::is_same_v<T, __int128>) {
+            return common::exp10_i128(scale);
+        }
     }
 
     // This is considerably faster than glibc's implementation (25x).
@@ -419,23 +419,6 @@ T StringParser::string_to_int_internal(const char* s, int len, int base, ParseRe
     return static_cast<T>(negative ? -val : val);
 }
 
-// template <>
-// __int128 StringParser::numeric_limits<__int128>(bool negative) {
-//     return negative ? MIN_INT128 : MAX_INT128;
-// }
-// template <>
-// int32_t StringParser::get_scale_multiplier<int32_t>(int scale) {
-//     return common::exp10_i32(scale);
-// }
-// template <>
-// int64_t StringParser::get_scale_multiplier<int64_t>(int scale) {
-//     return common::exp10_i64(scale);
-// }
-// template <>
-// __int128 StringParser::get_scale_multiplier<__int128>(int scale) {
-//     return common::exp10_i128(scale);
-// }
-
 template <typename T>
 T StringParser::string_to_int_no_overflow(const char* s, int len, ParseResult* result) {
     T val = 0;
@@ -538,14 +521,6 @@ inline bool StringParser::string_to_bool_internal(const char* s, int len, ParseR
 
     *result = PARSE_FAILURE;
     return false;
-}
-
-template <>
-__int128 StringParser::numeric_limits<__int128>(bool negative);
-
-template <typename T>
-T StringParser::numeric_limits(bool negative) {
-    return negative ? std::numeric_limits<T>::min() : std::numeric_limits<T>::max();
 }
 
 template <>
