@@ -321,8 +321,6 @@ public class SessionVariable implements Serializable, Writable {
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
 
-
-
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 

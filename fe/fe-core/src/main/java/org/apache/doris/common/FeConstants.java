@@ -87,4 +87,14 @@ public class FeConstants {
     public static String FS_PREFIX_FILE = "file";
     public static final String INTERNAL_DB_NAME = "__internal_schema";
     public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "internal_tmp_materialized_view_";
+
+    public static boolean isObjStorage(String location) {
+        return location.startsWith(FeConstants.FS_PREFIX_S3)
+                || location.startsWith(FeConstants.FS_PREFIX_S3A)
+                || location.startsWith(FeConstants.FS_PREFIX_S3N)
+                || location.startsWith(FeConstants.FS_PREFIX_BOS)
+                || location.startsWith(FeConstants.FS_PREFIX_COS)
+                || location.startsWith(FeConstants.FS_PREFIX_OSS)
+                || location.startsWith(FeConstants.FS_PREFIX_OBS);
+    }
 }
