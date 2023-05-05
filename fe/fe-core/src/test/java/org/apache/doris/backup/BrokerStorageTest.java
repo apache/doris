@@ -21,7 +21,8 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.fs.obj.BrokerStorage;
+import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
@@ -62,7 +63,7 @@ public class BrokerStorageTest {
     private Map<String, String> properties;
 
     @Tested
-    private BrokerStorage storage;
+    private BrokerFileSystem fileSystem;
     private String testFile;
     private String content;
     private Pair<TPaloBrokerService.Client, TNetworkAddress> pair;
@@ -86,7 +87,7 @@ public class BrokerStorageTest {
         properties.put("bos_accesskey",  System.getenv().getOrDefault("AWS_AK", ""));
         properties.put("bos_secret_accesskey",  System.getenv().getOrDefault("AWS_SK", ""));
         properties.put("bos_endpoint", "http://bj.bcebos.com");
-        storage = new BrokerStorage("bos_broker", properties);
+        fileSystem = new BrokerFileSystem("bos_broker", properties);
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
         content =
                 "O wild West Wind, thou breath of Autumn's being\n"
@@ -103,9 +104,9 @@ public class BrokerStorageTest {
                         + "With living hues and odors plain and hill:\n"
                         + "Wild Spirit, which art moving everywhere;\n"
                         + "Destroyer and preserver; hear, oh, hear!";
-        new MockUp<BrokerStorage>() {
+        new MockUp<BrokerFileSystem>() {
             @Mock
-            private Pair<TPaloBrokerService.Client, TNetworkAddress> getBroker() {
+            public Pair<TPaloBrokerService.Client, TNetworkAddress> getBroker() {
                 return pair;
             }
         };
@@ -116,17 +117,17 @@ public class BrokerStorageTest {
             }
         };
         Deencapsulation.setField(ClientPool.class, "brokerPool", pool);
-        Assert.assertEquals(Status.OK, storage.directUpload(content, testFile));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, testFile));
     }
 
     @Test
     public void downloadWithFileSize() throws IOException {
         File localFile = File.createTempFile("brokerunittest", ".dat");
         localFile.deleteOnExit();
-        Status status = storage.downloadWithFileSize(testFile, localFile.getAbsolutePath(), content.getBytes().length);
+        Status status = fileSystem.downloadWithFileSize(testFile, localFile.getAbsolutePath(), content.getBytes().length);
         Assert.assertEquals(Status.OK, status);
         Assert.assertEquals(DigestUtils.md5Hex(content.getBytes()), DigestUtils.md5Hex(new FileInputStream(localFile)));
-        status = storage.downloadWithFileSize(bucket + basePath + "/Ode_to_the_West_Wind", localFile.getAbsolutePath(), content.getBytes().length + 1);
+        status = fileSystem.downloadWithFileSize(bucket + basePath + "/Ode_to_the_West_Wind", localFile.getAbsolutePath(), content.getBytes().length + 1);
         Assert.assertNotEquals(Status.OK, status);
     }
 
@@ -141,11 +142,11 @@ public class BrokerStorageTest {
         os.write(buf);
         os.close();
         String remote = bucket + basePath + "/" + localFile.getName();
-        Status status = storage.upload(localFile.getAbsolutePath(), remote);
+        Status status = fileSystem.upload(localFile.getAbsolutePath(), remote);
         Assert.assertEquals(Status.OK, status);
         File localFile2 = File.createTempFile("brokerunittest", ".dat");
         localFile2.deleteOnExit();
-        status = storage.downloadWithFileSize(remote, localFile2.getAbsolutePath(), 1024 * 1024);
+        status = fileSystem.downloadWithFileSize(remote, localFile2.getAbsolutePath(), 1024 * 1024);
         Assert.assertEquals(Status.OK, status);
         Assert.assertEquals(DigestUtils.md5Hex(new FileInputStream(localFile)),
                 DigestUtils.md5Hex(new FileInputStream(localFile2)));
@@ -153,37 +154,37 @@ public class BrokerStorageTest {
 
     @Test
     public void rename() {
-        Assert.assertEquals(Status.OK, storage.directUpload(content, testFile + ".bak"));
-        storage.rename(testFile + ".bak", testFile + ".bak1");
-        Assert.assertEquals(Status.OK, storage.checkPathExist(testFile + ".bak1"));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, testFile + ".bak"));
+        fileSystem.rename(testFile + ".bak", testFile + ".bak1");
+        Assert.assertEquals(Status.OK, fileSystem.exists(testFile + ".bak1"));
     }
 
     @Test
     public void delete() {
         String deleteFile = testFile + ".to_be_delete";
-        Assert.assertEquals(Status.OK, storage.delete(deleteFile + "xxxx"));
-        Assert.assertEquals(Status.OK, storage.directUpload(content, deleteFile));
-        Assert.assertEquals(Status.OK, storage.delete(deleteFile));
-        Assert.assertEquals(Status.ErrCode.NOT_FOUND, storage.checkPathExist(deleteFile).getErrCode());
-        Assert.assertEquals(Status.OK, storage.delete(deleteFile + "xxxx"));
+        Assert.assertEquals(Status.OK, fileSystem.delete(deleteFile + "xxxx"));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, deleteFile));
+        Assert.assertEquals(Status.OK, fileSystem.delete(deleteFile));
+        Assert.assertEquals(Status.ErrCode.NOT_FOUND, fileSystem.exists(deleteFile).getErrCode());
+        Assert.assertEquals(Status.OK, fileSystem.delete(deleteFile + "xxxx"));
     }
 
     @Test
     public void list() {
         List<RemoteFile> result = new ArrayList<>();
         String listPath =  bucket + basePath + "_list" + "/Ode_to_the_West_Wind";
-        Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".1"));
-        Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".2"));
-        Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".3"));
-        Assert.assertEquals(Status.OK, storage.list(bucket + basePath  + "_list/*", result));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".1"));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".2"));
+        Assert.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".3"));
+        Assert.assertEquals(Status.OK, fileSystem.list(bucket + basePath  + "_list/*", result));
         Assert.assertEquals(3, result.size());
     }
 
     @Test
-    public void checkPathExist() {
-        Status status = storage.checkPathExist(testFile);
+    public void exists() {
+        Status status = fileSystem.exists(testFile);
         Assert.assertEquals(Status.OK, status);
-        status = storage.checkPathExist(testFile + ".NOT_EXIST");
+        status = fileSystem.exists(testFile + ".NOT_EXIST");
         Assert.assertEquals(Status.ErrCode.NOT_FOUND, status.getErrCode());
     }
 }

@@ -22,7 +22,6 @@ import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.ColumnRange;
@@ -86,28 +85,8 @@ public class HiveScanProvider extends HMSTableScanProvider {
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
         String location = hmsTable.getRemoteTable().getSd().getLocation();
-        if (location != null && !location.isEmpty()) {
-            if (location.startsWith(FeConstants.FS_PREFIX_S3)
-                    || location.startsWith(FeConstants.FS_PREFIX_S3A)
-                    || location.startsWith(FeConstants.FS_PREFIX_S3N)
-                    || location.startsWith(FeConstants.FS_PREFIX_BOS)
-                    || location.startsWith(FeConstants.FS_PREFIX_COS)
-                    || location.startsWith(FeConstants.FS_PREFIX_OSS)
-                    || location.startsWith(FeConstants.FS_PREFIX_OBS)) {
-                return TFileType.FILE_S3;
-            } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
-                return TFileType.FILE_HDFS;
-            } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
-                return TFileType.FILE_LOCAL;
-            } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
-                return TFileType.FILE_BROKER;
-            } else if (location.startsWith(FeConstants.FS_PREFIX_GFS)) {
-                return TFileType.FILE_BROKER;
-            } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
-                return TFileType.FILE_BROKER;
-            }
-        }
-        throw new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName());
+        return getTFileType(location).orElseThrow(() ->
+                    new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
     }
 
     @Override

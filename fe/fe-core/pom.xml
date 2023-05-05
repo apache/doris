@@ -797,7 +797,7 @@ under the License.
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
-                <version>3.0.0</version>
+                <version>3.1.0</version>
                 <executions>
                     <execution>
                         <id>gensrc</id>
@@ -816,6 +816,26 @@ under the License.
                                 <argument>${doris.home}/gensrc/script</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>doc</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>org.apache.doris.common.util.DocGenerator</mainClass>
+                            <arguments>
+                                <argument>${doris.home}/docs/en/docs/admin-manual/config/fe-config-template.md</argument>
+                                <argument>${doris.home}/docs/zh-CN/docs/admin-manual/config/fe-config-template.md</argument>
+                                <argument>${doris.home}/docs/en/docs/admin-manual/config/fe-config.md</argument>
+                                <argument>${doris.home}/docs/zh-CN/docs/admin-manual/config/fe-config.md</argument>
+                                <argument>${doris.home}/docs/en/docs/advanced/variables-template.md</argument>
+                                <argument>${doris.home}/docs/zh-CN/docs/advanced/variables-template.md</argument>
+                                <argument>${doris.home}/docs/en/docs/advanced/variables.md</argument>
+                                <argument>${doris.home}/docs/zh-CN/docs/advanced/variables.md</argument>
+                            </arguments>
                         </configuration>
                     </execution>
                 </executions>
@@ -936,6 +956,10 @@ under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-clean-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <skip>${skip.clean}</skip>
+                </configuration>
                 <executions>
                     <execution>
                         <id>auto-clean</id>
