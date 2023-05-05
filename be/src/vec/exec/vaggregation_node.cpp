@@ -473,9 +473,9 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                 std::bind<void>(&AggregationNode::_update_memusage_with_serialized_key, this);
         _executor.close = std::bind<void>(&AggregationNode::_close_with_serialized_key, this);
 
-        _should_limit_output = _limit != -1 &&        // has limit
-                               !_vconjunct_ctx_ptr && // no having conjunct
-                               _needs_finalize;       // agg's finalize step
+        _should_limit_output = _limit != -1 &&                  // has limit
+                               _vconjunct_ctx_ptr == nullptr && // no having conjunct
+                               _needs_finalize;                 // agg's finalize step
     }
 
     return Status::OK();
