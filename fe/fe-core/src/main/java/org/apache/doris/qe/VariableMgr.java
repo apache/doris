@@ -636,7 +636,7 @@ public class VariableMgr {
     }
 
     @Retention(RetentionPolicy.RUNTIME)
-    public static @interface VarAttr {
+    public @interface VarAttr {
         // Name in show variables and set statement;
         String name();
 
@@ -659,6 +659,15 @@ public class VariableMgr {
         boolean fuzzy() default false;
 
         ExperimentalType expType() default ExperimentalType.NONE;
+
+        // description for this config item.
+        // There should be 2 elements in the array.
+        // The first element is the description in Chinese.
+        // The second element is the description in English.
+        String[] description() default {"待补充", "TODO"};
+
+        // Enum options for this config item, if it has.
+        String[] options() default {};
     }
 
     private static class VarContext {
