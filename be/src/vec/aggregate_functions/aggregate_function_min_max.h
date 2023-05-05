@@ -91,7 +91,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf) {
+    void read(BufferReadable& buf, Arena* arena) {
         read_binary(has_value, buf);
         if (has()) {
             read_binary(value, buf);
@@ -209,7 +209,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf) {
+    void read(BufferReadable& buf, Arena* arena) {
         read_binary(has_value, buf);
         if (has()) {
             read_binary(value, buf);
@@ -340,7 +340,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf) {
+    void read(BufferReadable& buf, Arena* arena) {
         Int32 rhs_size;
         read_binary(rhs_size, buf);
 
@@ -356,8 +356,7 @@ public:
             } else {
                 if (capacity < rhs_size) {
                     capacity = static_cast<UInt32>(round_up_to_power_of_two_or_zero(rhs_size));
-                    delete[] large_data;
-                    large_data = new char[capacity];
+                    large_data = arena->alloc(capacity);
                 }
 
                 size = rhs_size;
@@ -386,8 +385,7 @@ public:
             if (capacity < value_size) {
                 /// Don't free large_data here.
                 capacity = round_up_to_power_of_two_or_zero(value_size);
-                delete[] large_data;
-                large_data = new char[capacity];
+                large_data = arena->alloc(capacity);
             }
 
             size = value_size;
@@ -546,8 +544,8 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
-        this->data(place).read(buf);
+                     Arena* arena) const override {
+        this->data(place).read(buf, arena);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {

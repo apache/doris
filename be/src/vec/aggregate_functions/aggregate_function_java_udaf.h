@@ -23,6 +23,8 @@
 #include <cstdint>
 #include <memory>
 
+#include "common/compiler_util.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/user_function_cache.h"
@@ -53,18 +55,18 @@ public:
     AggregateJavaUdafData() = default;
     AggregateJavaUdafData(int64_t num_args) {
         argument_size = num_args;
-        input_values_buffer_ptr.reset(new int64_t[num_args]);
-        input_nulls_buffer_ptr.reset(new int64_t[num_args]);
-        input_offsets_ptrs.reset(new int64_t[num_args]);
-        input_array_nulls_buffer_ptr.reset(new int64_t[num_args]);
-        input_array_string_offsets_ptrs.reset(new int64_t[num_args]);
-        input_place_ptrs.reset(new int64_t);
-        output_value_buffer.reset(new int64_t);
-        output_null_value.reset(new int64_t);
-        output_offsets_ptr.reset(new int64_t);
-        output_intermediate_state_ptr.reset(new int64_t);
-        output_array_null_ptr.reset(new int64_t);
-        output_array_string_offsets_ptr.reset(new int64_t);
+        input_values_buffer_ptr = std::make_unique<int64_t[]>(num_args);
+        input_nulls_buffer_ptr = std::make_unique<int64_t[]>(num_args);
+        input_offsets_ptrs = std::make_unique<int64_t[]>(num_args);
+        input_array_nulls_buffer_ptr = std::make_unique<int64_t[]>(num_args);
+        input_array_string_offsets_ptrs = std::make_unique<int64_t[]>(num_args);
+        input_place_ptrs = std::make_unique<int64_t>(0);
+        output_value_buffer = std::make_unique<int64_t>(0);
+        output_null_value = std::make_unique<int64_t>(0);
+        output_offsets_ptr = std::make_unique<int64_t>(0);
+        output_intermediate_state_ptr = std::make_unique<int64_t>(0);
+        output_array_null_ptr = std::make_unique<int64_t>(0);
+        output_array_string_offsets_ptr = std::make_unique<int64_t>(0);
     }
 
     ~AggregateJavaUdafData() {
@@ -206,6 +208,7 @@ public:
         // save it in BE, Because i'm not sure there is a way to use the byte[] not allocate again.
         jbyteArray arr = (jbyteArray)(env->CallNonvirtualObjectMethod(
                 executor_obj, executor_cl, executor_serialize_id, place));
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         int len = env->GetArrayLength(arr);
         serialize_data.resize(len);
         env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
@@ -251,17 +254,17 @@ public:
         jboolean res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl,                 \
                                                         executor_result_id, to.size() - 1, place); \
         while (res != JNI_TRUE) {                                                                  \
-            /*Add this check is now, the agg function can't deal with the return status, */        \
-            /*even we return a bad status, nobody could deal with it,*/                            \
-            /*so add this limit avoid std::bad_alloc, (1024<<10) is enough*/                       \
-            /*but this maybe get a mistake of result,when could handle exception need removethis*/ \
-            if (increase_buffer_size == 10) {                                                      \
-                return Status::MemoryAllocFailed("memory allocate failed, buffer:{},size:{}",      \
-                                                 increase_buffer_size, buffer_size);               \
-            }                                                                                      \
+            RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));                                     \
             increase_buffer_size++;                                                                \
             buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);               \
-            chars.resize(buffer_size);                                                             \
+            try {                                                                                  \
+                chars.resize(buffer_size);                                                         \
+            } catch (std::bad_alloc const& e) {                                                    \
+                throw doris::Exception(                                                            \
+                        ErrorCode::INTERNAL_ERROR,                                                 \
+                        "memory allocate failed in column string, buffer:{},size:{}",              \
+                        increase_buffer_size, buffer_size);                                        \
+            }                                                                                      \
             *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                        \
             *output_intermediate_state_ptr = chars.size();                                         \
             res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl, executor_result_id,  \
@@ -298,15 +301,19 @@ public:
             jboolean res = env->CallNonvirtualBooleanMethod(                                       \
                     executor_obj, executor_cl, executor_result_id, to.size() - 1, place);          \
             while (res != JNI_TRUE) {                                                              \
-                if (increase_buffer_size == 10) {                                                  \
-                    return Status::MemoryAllocFailed("memory allocate failed, buffer:{},size:{}",  \
-                                                     increase_buffer_size, buffer_size);           \
-                }                                                                                  \
+                RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));                                 \
                 increase_buffer_size++;                                                            \
                 buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
-                null_map_data.resize(buffer_size);                                                 \
-                chars.resize(buffer_size);                                                         \
-                offsets.resize(buffer_size);                                                       \
+                try {                                                                              \
+                    null_map_data.resize(buffer_size);                                             \
+                    chars.resize(buffer_size);                                                     \
+                    offsets.resize(buffer_size);                                                   \
+                } catch (std::bad_alloc const& e) {                                                \
+                    throw doris::Exception(                                                        \
+                            ErrorCode::INTERNAL_ERROR,                                             \
+                            "memory allocate failed in array column string, buffer:{},size:{}",    \
+                            increase_buffer_size, buffer_size);                                    \
+                }                                                                                  \
                 *output_array_null_ptr = reinterpret_cast<int64_t>(null_map_data.data());          \
                 *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                    \
                 *output_array_string_offsets_ptr = reinterpret_cast<int64_t>(offsets.data());      \
@@ -320,14 +327,18 @@ public:
             jboolean res = env->CallNonvirtualBooleanMethod(                                       \
                     executor_obj, executor_cl, executor_result_id, to.size() - 1, place);          \
             while (res != JNI_TRUE) {                                                              \
-                if (increase_buffer_size == 10) {                                                  \
-                    return Status::MemoryAllocFailed("memory allocate failed, buffer:{},size:{}",  \
-                                                     increase_buffer_size, buffer_size);           \
-                }                                                                                  \
+                RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));                                 \
                 increase_buffer_size++;                                                            \
                 buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
-                null_map_data.resize(buffer_size);                                                 \
-                data_column->resize(buffer_size);                                                  \
+                try {                                                                              \
+                    null_map_data.resize(buffer_size);                                             \
+                    data_column->resize(buffer_size);                                              \
+                } catch (std::bad_alloc const& e) {                                                \
+                    throw doris::Exception(                                                        \
+                            ErrorCode::INTERNAL_ERROR,                                             \
+                            "memory allocate failed in array number column, buffer:{},size:{}",    \
+                            increase_buffer_size, buffer_size);                                    \
+                }                                                                                  \
                 *output_array_null_ptr = reinterpret_cast<int64_t>(null_map_data.data());          \
                 *output_value_buffer =                                                             \
                         reinterpret_cast<int64_t>(data_column->get_raw_data().data);               \
@@ -409,6 +420,7 @@ private:
 class AggregateJavaUdaf final
         : public IAggregateFunctionDataHelper<AggregateJavaUdafData, AggregateJavaUdaf> {
 public:
+    ENABLE_FACTORY_CREATOR(AggregateJavaUdaf);
     AggregateJavaUdaf(const TFunction& fn, const DataTypes& argument_types,
                       const DataTypePtr& return_type)
             : IAggregateFunctionDataHelper(argument_types),
@@ -416,7 +428,7 @@ public:
               _return_type(return_type),
               _first_created(true),
               _exec_place(nullptr) {}
-    ~AggregateJavaUdaf() = default;
+    ~AggregateJavaUdaf() override = default;
 
     static AggregateFunctionPtr create(const TFunction& fn, const DataTypes& argument_types,
                                        const DataTypePtr& return_type) {
@@ -461,6 +473,7 @@ public:
              Arena*) const override {
         LOG(WARNING) << " shouldn't going add function, there maybe some error about function "
                      << _fn.name.function_name;
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "shouldn't going add function");
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
@@ -469,7 +482,11 @@ public:
         for (size_t i = 0; i < batch_size; ++i) {
             places_address[i] = reinterpret_cast<int64_t>(places[i] + place_offset);
         }
-        this->data(_exec_place).add(places_address, false, columns, 0, batch_size, argument_types);
+        Status st = this->data(_exec_place)
+                            .add(places_address, false, columns, 0, batch_size, argument_types);
+        if (UNLIKELY(st != Status::OK())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
+        }
     }
 
     // TODO: Here we calling method by jni, And if we get a thrown from FE,
@@ -478,23 +495,35 @@ public:
                                 Arena* /*arena*/) const override {
         int64_t places_address[1];
         places_address[0] = reinterpret_cast<int64_t>(place);
-        this->data(_exec_place).add(places_address, true, columns, 0, batch_size, argument_types);
+        Status st = this->data(_exec_place)
+                            .add(places_address, true, columns, 0, batch_size, argument_types);
+        if (UNLIKELY(st != Status::OK())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
+        }
     }
 
     // TODO: reset function should be implement also in struct data
     void reset(AggregateDataPtr /*place*/) const override {
         LOG(WARNING) << " shouldn't going reset function, there maybe some error about function "
                      << _fn.name.function_name;
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "shouldn't going reset function");
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(_exec_place).merge(this->data(rhs), reinterpret_cast<int64_t>(place));
+        Status st =
+                this->data(_exec_place).merge(this->data(rhs), reinterpret_cast<int64_t>(place));
+        if (UNLIKELY(st != Status::OK())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
+        }
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(const_cast<AggregateDataPtr&>(_exec_place))
-                .write(buf, reinterpret_cast<int64_t>(place));
+        Status st = this->data(const_cast<AggregateDataPtr&>(_exec_place))
+                            .write(buf, reinterpret_cast<int64_t>(place));
+        if (UNLIKELY(st != Status::OK())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
+        }
     }
 
     // during merge-finalized phase, for deserialize and merge firstly,
@@ -509,7 +538,10 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        this->data(_exec_place).get(to, _return_type, reinterpret_cast<int64_t>(place));
+        Status st = this->data(_exec_place).get(to, _return_type, reinterpret_cast<int64_t>(place));
+        if (UNLIKELY(st != Status::OK())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
+        }
     }
 
 private:
