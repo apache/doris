@@ -75,7 +75,7 @@ suite("test_string_basic") {
     test {
         sql """
             select
-                    /*+ SET_VAR(query_timeout = 600, batch_size=4096) */
+                    /*+ SET_VAR(query_timeout = 600, batch_size=4096,pipeline_parallel_fragment_exec_instance_num=1) */
                     ref_0.`k6` as c0,
                     coalesce(ref_0.`k9`, ref_0.`k9`) as c1,
                     coalesce(
