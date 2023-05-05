@@ -150,7 +150,7 @@ public class SubqueryCombine extends DefaultPlanRewriter<JobContext> implements 
             // spj checking
             boolean existIsSpj = existsExpr.isSpj();
             boolean notExistIsSpj = notExistsExpr.isSpj();
-            if (existIsSpj || notExistIsSpj) {
+            if (!existIsSpj || !notExistIsSpj) {
                 return false;
             }
             Set<Expression> existsConjuncts = existsExpr.getSpjPredicate();
