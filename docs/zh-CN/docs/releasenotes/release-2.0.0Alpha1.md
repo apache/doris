@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Release 2.0.0 Alpha",
+    "title": "Release 2.0.0 Alpha1",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-Apache Doris 2.0.0 alpha 版本是 2.0 系列的首个版本，包含了倒排索引、高并发点查询、冷热数据分离、Pipeline 执行引擎、全新查询优化器 Nereids 等众多重要特性，主要是作为最新特性的功能验证。因此建议在新的测试集群中部署 2.0.0 alpha版本进行测试，但**不应部署在生产集群中**。
+Apache Doris 2.0.0 alpha1 版本是 2.0 系列的首个版本，包含了倒排索引、高并发点查询、冷热数据分离、Pipeline 执行引擎、全新查询优化器 Nereids 等众多重要特性，主要是作为最新特性的功能验证。因此建议在新的测试集群中部署 2.0.0 alpha1 版本进行测试，但**不应部署在生产集群中**。
 
 
 # 重要特性
