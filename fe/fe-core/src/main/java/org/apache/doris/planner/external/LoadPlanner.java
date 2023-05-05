@@ -47,6 +47,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
 
 public abstract class LoadPlanner {
@@ -103,7 +104,7 @@ public abstract class LoadPlanner {
         LOG.debug("plan scanTupleDesc{}", scanTupleDesc.toString());
     }
 
-    public ScanNode scanNodeBuilder(TupleDescriptor scanTupleDesc, Database db) throws UserException {
+    public ScanNode scanNodeBuilder(TupleDescriptor scanTupleDesc, Database db, TUniqueId loadId) throws UserException {
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
         DataDescription dataDescription = new DataDescription(table.getName(), taskInfo);
@@ -121,6 +122,10 @@ public abstract class LoadPlanner {
             fileStatus.setIsDir(false);
             fileStatus.setSize(-1); // must set to -1, means stream.
         }
+        // The load id will pass to csv reader to find the stream load context from new load stream manager
+        fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), table, BrokerDesc.createForStreamLoad(),
+                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
+                taskInfo.isPartialUpdate());
         ScanNode scanNode = fileScanNode;
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -164,12 +169,15 @@ public abstract class LoadPlanner {
     public OlapTableSink olapTableSinkBuilder(TupleDescriptor tupleDesc,
             TUniqueId loadId,
             Database db,
-            long timeout) throws UserException {
+            long timeout,
+            boolean isPartialUpdate,
+            HashSet<String> partialUpdateInputColumns) throws UserException {
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionIds,
                 Config.enable_single_replica_load);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
+        olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete();
         return olapTableSink;
     }

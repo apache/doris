@@ -129,19 +129,19 @@ public class StreamLoadPlanner extends LoadPlanner {
         boolean negative = taskInfo.getNegative();
         // get partial update related info
         boolean isPartialUpdate = taskInfo.isPartialUpdate();
-        if (isPartialUpdate && !destTable.getEnableUniqueKeyMergeOnWrite()) {
+        if (isPartialUpdate && !table.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
         }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
-            for (Column col : destTable.getFullSchema()) {
+            for (Column col : table.getFullSchema()) {
                 boolean existInExpr = false;
                 for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                     if (importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
                         if (!col.isVisible()) {
                             throw new UserException("Partial update should not include invisible column: "
-                                + col.getName());
+                                    + col.getName());
                         }
                         partialUpdateInputColumns.add(col.getName());
                         existInExpr = true;
@@ -154,7 +154,7 @@ public class StreamLoadPlanner extends LoadPlanner {
             }
         }
         // here we should be full schema to fill the descriptor table
-        for (Column col : destTable.getFullSchema()) {
+        for (Column col : table.getFullSchema()) {
             if (isPartialUpdate && !partialUpdateInputColumns.contains(col.getName())) {
                 continue;
             }
@@ -184,11 +184,7 @@ public class StreamLoadPlanner extends LoadPlanner {
         }
 
         // create scan node
-        scanNode = scanNodeBuilder(scanTupleDesc, db);
-        // The load id will pass to csv reader to find the stream load context from new load stream manager
-        fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
-                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
-                taskInfo.isPartialUpdate());
+        scanNode = scanNodeBuilder(scanTupleDesc, db, loadId);
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
@@ -199,14 +195,8 @@ public class StreamLoadPlanner extends LoadPlanner {
         }
 
         // create dest sink
-        OlapTableSink olapTableSink = olapTableSinkBuilder(tupleDesc, loadId, db, timeout);
-        List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
-                Config.enable_single_replica_load);
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
-        olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
-        olapTableSink.complete();
+        OlapTableSink olapTableSink = olapTableSinkBuilder(tupleDesc, loadId, db, timeout, isPartialUpdate,
+                partialUpdateInputColumns);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
         // OlapTableSink can dispatch data to corresponding node.
