@@ -113,10 +113,10 @@ Status VArrowScanner::_open_next_reader() {
         io::FileReaderSPtr file_reader;
         _init_system_properties(range);
         _init_file_description(range);
-        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
                                                         _file_description, &_file_system,
-                                                        &file_reader, cache_policy));
+                                                        &file_reader, reader_options));
 
         if (file_reader->size() == 0) {
             continue;

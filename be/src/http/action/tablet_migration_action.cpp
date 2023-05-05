@@ -36,10 +36,6 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-TabletMigrationAction::TabletMigrationAction() {
-    _init_migration_action();
-}
-
 void TabletMigrationAction::_init_migration_action() {
     int32_t max_thread_num = config::max_tablet_migration_threads;
     int32_t min_thread_num = config::min_tablet_migration_threads;

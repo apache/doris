@@ -49,6 +49,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "util/doris_metrics.h"
 #include "util/slice.h"
 #include "vec/common/hex.h"
 
@@ -56,6 +57,21 @@ namespace fs = std::filesystem;
 
 namespace doris {
 namespace io {
+
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_hits_ratio, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_removed_elements, MetricUnit::OPERATIONS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_max_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_curr_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_max_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_curr_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_max_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_curr_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_max_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_normal_queue_curr_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_elements, MetricUnit::NOUNIT);
 
 LRUFileCache::LRUFileCache(const std::string& cache_base_path,
                            const FileCacheSettings& cache_settings)
@@ -66,6 +82,28 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
                             7 * 24 * 60 * 60);
     _normal_queue = LRUQueue(cache_settings.query_queue_size, cache_settings.query_queue_elements,
                              24 * 60 * 60);
+
+    _entity = DorisMetrics::instance()->metric_registry()->register_entity(
+            "lru_file_cache", {{"path", _cache_base_path}});
+    _entity->register_hook(_cache_base_path, std::bind(&LRUFileCache::update_cache_metrics, this));
+
+    INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_removed_elements);
+
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_max_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_curr_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_max_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_curr_elements);
+
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_max_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_curr_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_max_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_normal_queue_curr_elements);
+
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_max_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_size);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_max_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_elements);
 
     LOG(INFO) << fmt::format(
             "file cache path={}, disposable queue size={} elements={}, index queue size={} "
@@ -349,6 +387,12 @@ FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t 
     }
 
     DCHECK(!file_blocks.empty());
+    _num_read_segments += file_blocks.size();
+    for (auto& segment : file_blocks) {
+        if (segment->state() == FileBlock::State::DOWNLOADED) {
+            _num_hit_segments++;
+        }
+    }
     return FileBlocksHolder(std::move(file_blocks));
 }
 
@@ -391,6 +435,25 @@ LRUFileCache::FileBlockCell* LRUFileCache::add_cell(const Key& key, const CacheC
                      << ", offset: " << offset << ", size: " << size;
 
     return &(it->second);
+}
+
+size_t LRUFileCache::try_release() {
+    std::lock_guard<std::mutex> l(_mutex);
+    std::vector<FileBlockCell*> trash;
+    for (auto& [key, segments] : _files) {
+        for (auto& [offset, cell] : segments) {
+            if (cell.releasable()) {
+                trash.emplace_back(&cell);
+            }
+        }
+    }
+    for (auto& cell : trash) {
+        FileBlockSPtr file_block = cell->file_block;
+        std::lock_guard<std::mutex> lc(cell->file_block->_mutex);
+        remove(file_block, l, lc);
+    }
+    LOG(INFO) << "Released " << trash.size() << " segments in file cache " << _cache_base_path;
+    return trash.size();
 }
 
 LRUFileCache::LRUQueue& LRUFileCache::get_queue(CacheType type) {
@@ -707,6 +770,7 @@ void LRUFileCache::remove(FileBlockSPtr file_block, std::lock_guard<std::mutex>&
             LOG(ERROR) << ec.message();
         }
     }
+    _num_removed_segments++;
     if (offsets.empty()) {
         auto key_path = get_path_in_local_cache(key);
         _files.erase(key);
@@ -1026,6 +1090,32 @@ void LRUFileCache::run_background_operation() {
         // report
         _cur_size_metrics->set_value(_cur_cache_size);
     }
+}
+
+void LRUFileCache::update_cache_metrics() const {
+    std::lock_guard<std::mutex> l(_mutex);
+    double hit_ratio = 0;
+    if (_num_read_segments > 0) {
+        hit_ratio = (double)_num_hit_segments / (double)_num_read_segments;
+    }
+
+    file_cache_hits_ratio->set_value(hit_ratio);
+    file_cache_removed_elements->set_value(_num_removed_segments);
+
+    file_cache_index_queue_max_size->set_value(_index_queue.get_max_size());
+    file_cache_index_queue_curr_size->set_value(_index_queue.get_total_cache_size(l));
+    file_cache_index_queue_max_elements->set_value(_index_queue.get_max_element_size());
+    file_cache_index_queue_curr_elements->set_value(_index_queue.get_elements_num(l));
+
+    file_cache_normal_queue_max_size->set_value(_normal_queue.get_max_size());
+    file_cache_normal_queue_curr_size->set_value(_normal_queue.get_total_cache_size(l));
+    file_cache_normal_queue_max_elements->set_value(_normal_queue.get_max_element_size());
+    file_cache_normal_queue_curr_elements->set_value(_normal_queue.get_elements_num(l));
+
+    file_cache_disposable_queue_max_size->set_value(_disposable_queue.get_max_size());
+    file_cache_disposable_queue_curr_size->set_value(_disposable_queue.get_total_cache_size(l));
+    file_cache_disposable_queue_max_elements->set_value(_disposable_queue.get_max_element_size());
+    file_cache_disposable_queue_curr_elements->set_value(_disposable_queue.get_elements_num(l));
 }
 
 } // namespace io

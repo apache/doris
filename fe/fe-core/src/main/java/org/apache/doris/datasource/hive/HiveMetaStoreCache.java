@@ -29,6 +29,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.external.hive.util.HiveUtil;
+import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
@@ -54,7 +55,6 @@ import lombok.Data;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
-import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -284,7 +284,7 @@ public class HiveMetaStoreCache {
                 InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
                 // TODO: This is a temp config, will remove it after the HiveSplitter is stable.
                 if (key.useSelfSplitter) {
-                    result = HiveSplitter.getFileCache(new Path(finalLocation), inputFormat,
+                    result = HiveSplitter.getFileCache(finalLocation, inputFormat,
                         jobConf, key.getPartitionValues());
                 } else {
                     InputSplit[] splits;
@@ -320,7 +320,6 @@ public class HiveMetaStoreCache {
     private String convertToS3IfNecessary(String location) {
         LOG.debug("try convert location to s3 prefix: " + location);
         if (location.startsWith(FeConstants.FS_PREFIX_COS)
-                || location.startsWith(FeConstants.FS_PREFIX_BOS)
                 || location.startsWith(FeConstants.FS_PREFIX_BOS)
                 || location.startsWith(FeConstants.FS_PREFIX_OSS)
                 || location.startsWith(FeConstants.FS_PREFIX_S3A)
@@ -770,14 +769,14 @@ public class HiveMetaStoreCache {
         // partitionValues would be ["part1", "part2"]
         protected List<String> partitionValues;
 
-        public void addFile(LocatedFileStatus file) {
+        public void addFile(RemoteFile file) {
             if (files == null) {
                 files = Lists.newArrayList();
             }
             HiveFileStatus status = new HiveFileStatus();
             status.setBlockLocations(file.getBlockLocations());
             status.setPath(file.getPath());
-            status.length = file.getLen();
+            status.length = file.getSize();
             status.blockSize = file.getBlockSize();
             files.add(status);
         }

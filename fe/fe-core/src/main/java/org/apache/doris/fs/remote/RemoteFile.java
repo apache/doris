@@ -15,36 +15,61 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.backup;
+package org.apache.doris.fs.remote;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import org.apache.hadoop.fs.BlockLocation;
+import org.apache.hadoop.fs.Path;
 
 // represent a file or a dir in remote storage
 public class RemoteFile {
     // Only file name, not full path
-    private String name;
-    private boolean isFile;
-    private long size;
+    private final String name;
+    private final boolean isFile;
+    private final boolean isDirectory;
+    private final long size;
     // Block size of underlying file system. e.g. HDFS and S3.
     // A large file will split into multiple blocks. The blocks are transparent to the user.
     // Default block size for HDFS 2.x is 128M.
-    private long blockSize;
+    private final long blockSize;
+    private Path path;
+    BlockLocation[] blockLocations;
 
     public RemoteFile(String name, boolean isFile, long size, long blockSize) {
+        this(name, null, isFile, !isFile, size, blockSize, null);
+    }
+
+    public RemoteFile(Path path, boolean isDirectory, long size, long blockSize, BlockLocation[] blockLocations) {
+        this(path.getName(), path, !isDirectory, isDirectory, size, blockSize, blockLocations);
+    }
+
+    public RemoteFile(String name, Path path, boolean isFile, boolean isDirectory,
+                      long size, long blockSize, BlockLocation[] blockLocations) {
         Preconditions.checkState(!Strings.isNullOrEmpty(name));
         this.name = name;
         this.isFile = isFile;
+        this.isDirectory = isDirectory;
         this.size = size;
         this.blockSize = blockSize;
+        this.path = path;
+        this.blockLocations = blockLocations;
     }
 
     public String getName() {
         return name;
     }
 
+    public Path getPath() {
+        return path;
+    }
+
     public boolean isFile() {
         return isFile;
+    }
+
+    public boolean isDirectory() {
+        return isDirectory;
     }
 
     public long getSize() {
@@ -53,6 +78,10 @@ public class RemoteFile {
 
     public long getBlockSize() {
         return blockSize;
+    }
+
+    public BlockLocation[] getBlockLocations() {
+        return blockLocations;
     }
 
     @Override
