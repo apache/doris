@@ -717,7 +717,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return result;
         }
         // Return clone to avoid removing casts.
-        if (smap == null || (smap.size() == 0 && isAllAnalyzed())) {
+        if (smap == null) {
             return result;
         }
         result = result.substituteImpl(smap, disjunctsMap, analyzer);
@@ -2328,14 +2328,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         return false;
-    }
-
-    private boolean isAllAnalyzed() {
-        boolean analyzed = isAnalyzed;
-        for (Expr expr : children) {
-            analyzed = analyzed && expr.isAllAnalyzed();
-        }
-        return analyzed;
     }
 }
 
