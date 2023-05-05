@@ -130,10 +130,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.HMS);
         List<String> allDatabases = client.getAllDatabases();
-        Map<String, Boolean> specifiedDatabaseMap = getSpecifiedDatabaseMap();
+        Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
+        Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
         // Update the db name to id map.
         for (String dbName : allDatabases) {
-            if (!specifiedDatabaseMap.isEmpty() && specifiedDatabaseMap.get(dbName) == null) {
+            // Exclude database map take effect with higher priority over include database map
+            if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
+                continue;
+            }
+            if (!includeDatabaseMap.isEmpty() && includeDatabaseMap.containsKey(dbName)) {
                 continue;
             }
             long dbId;

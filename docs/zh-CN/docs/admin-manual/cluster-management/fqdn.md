@@ -26,58 +26,72 @@ under the License.
 
 # FQDN
 
-## 概念介绍
-
 <version since="dev"></version>
 
-完全限定域名fully qualified domain name(FQDN)是internet上特定计算机或主机的完整域名。
+本文介绍如何启用基于 FQDN（Fully Qualified Domain Name，完全限定域名 ）使用 Apache Doris。FQDN 是 Internet 上特定计算机或主机的完整域名。
 
-Doris支持FQDN之后，添加各类节点时可以直接指定域名，例如添加be节点的命令为`ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port`，
+Doris 支持 FQDN 之后，各节点之间通信完全基于 FQDN。添加各类节点时应直接指定 FQDN，例如添加 BE 节点的命令为`ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port"`，
 
-"be_host"此前是be节点的ip，启动FQDN后，be_host应指定be节点的域名。
+"be_host" 此前是 BE 节点的 IP，启动 FQDN 后，be_host 应指定 BE 节点的 FQDN。
 
 ## 前置条件
 
-1. fe.conf 文件 设置 `enable_fqdn_mode = true`
-2. fe节点都能解析出doris所有节点的域名
+1. fe.conf 文件 设置 `enable_fqdn_mode = true`。
+2. 集群中的所有机器都必须配置有主机名。
+3. 必须在集群中每台机器的 `/etc/hosts` 文件中指定集群中其他机器对应的 IP 地址和 FQDN。
+4. /etc/hosts 文件中不能有重复的 IP 地址。
 
 ## 最佳实践
 
-### k8s部署doris
+### 新集群启用 FQDN
 
-pod意外重启后，k8s不能保证pod的ip不发生变化，但是能保证域名不变，基于这一特性，doris开启fqdn时，能保证pod意外重启后，还能正常提供服务。
+1. 准备机器，例如想部署 3FE 3BE 的集群，可以准备 6 台机器。
+2. 每台机器执行`host`返回结果都唯一，假设六台机器的执行结果分别为 fe1,fe2,fe3,be1,be2,be3。
+3. 在 6 台机器的`/etc/hosts` 中配置 6 个 FQDN 对应的真实 IP，例如:
+   ```
+   172.22.0.1 fe1
+   172.22.0.2 fe2
+   172.22.0.3 fe3
+   172.22.0.4 be1
+   172.22.0.5 be2
+   172.22.0.6 be3
+   ```
+4. 验证：可以在 FE1 上 `ping fe2` 等，能解析出正确的 IP 并且能 Ping 通，代表网络环境可用。
+5. 每个 FE 节点的 fe.conf 设置 `enable_fqdn_mode = true`。
+6. 参考[标准部署](../../install/standard-deployment.md)
 
-k8s部署doris的方法请参考[K8s部署doris](../../install/k8s-deploy.md)
+### K8s 部署 Doris
 
-### 服务器切换网卡
+Pod 意外重启后，K8s 不能保证 Pod 的 IP 不发生变化，但是能保证域名不变，基于这一特性，Doris 开启 FQDN 时，能保证 Pod 意外重启后，还能正常提供服务。
 
-例如有一个be节点的服务器有两个网卡，对应的ip分别为192.192.192.2和10.10.10.3,目前用192.192.192.2对应的网卡，可以按照下述步骤操作：
+K8s 部署 Doris 的方法请参考[K8s 部署doris](../../install/k8s-deploy.md)
 
-1. 在fe所在机器的`etc/hosts`文件增加一行 `192.192.192.2 be1_fqdn`
-2. 更改be.conf文件`priority_networks = 192.192.192.2`并启动be
-3. 连接执行sql命令 `ALTER SYSTEM ADD BACKEND "be1_fqdn:9050`
+### 服务器变更 IP
 
-将来需要切换到10.10.10.3对应的网卡时，可以按照下述步骤操作：
+按照'新集群启用 FQDN'部署好集群后，如果想变更机器的 IP，无论是切换网卡，或者是更换机器，只需要更改各机器的`/etc/hosts`即可。
 
-1. 把`etc/hosts`配置的`192.192.192.2 be1_fqdn` 改为 `10.10.10.3  be1_fqdn`
-
-### 旧集群启用FQDN
+### 旧集群启用 FQDN
 
 前提条件：当前程序支持`ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`语法，
 如果不支持，需要升级到支持该语法的版本
 
 接下来按照如下步骤操作：
 
-1. 逐一对follower、observer节点进行以下操作(最后操作master节点)：
+1. 逐一对 Follower、Observer 节点进行以下操作(最后操作 Master 节点)：
 
     1. 停止节点。
     2. 检查节点是否停止。通过 MySQL 客户端执行`show frontends`，查看该 FE 节点的 Alive 状态直至变为 false
-    3. 为节点设置FQDN: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`
-    4. 修改节点配置。修改FE根目录中的`conf/fe.conf`文件，添加配置：`enable_fqdn_mode = true`
+    3. 为节点设置 FQDN: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`
+    4. 修改节点配置。修改 FE 根目录中的`conf/fe.conf`文件，添加配置：`enable_fqdn_mode = true`
     5. 启动节点。
     
-2. BE节点启用FQDN只需要通过MYSQL执行以下命令，不需要对BE执行重启操作。
+2. BE 节点启用 FQDN 只需要通过 MySQL 执行以下命令，不需要对 BE 执行重启操作。
 
    `ALTER SYSTEM MODIFY BACKEND "<backend_ip>:<backend_port>" HOSTNAME "<be_hostname>"`
 
 
+## 常见问题
+
+- 配置项 enable_fqdn_mode 可以随意更改么？
+ 
+  不能随意更改，更改该配置要按照'旧集群启用 FQDN'进行操作。

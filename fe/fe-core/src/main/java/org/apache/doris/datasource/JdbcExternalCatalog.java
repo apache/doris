@@ -129,18 +129,15 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
     }
 
-    public String getSpecifiedDatabaseList() {
-        return catalogProperty.getOrDefault(JdbcResource.SPECIFIED_DATABASE_LIST, "");
-    }
-
     public String getOceanBaseMode() {
         return catalogProperty.getOrDefault(JdbcResource.OCEANBASE_MODE, "");
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass(),
-                getOnlySpecifiedDatabase(), getLowerCaseTableNames(), getSpecifiedDatabaseMap(), getOceanBaseMode());
+        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(),
+                getDriverClass(), getOnlySpecifiedDatabase(), getLowerCaseTableNames(),
+                getOceanBaseMode(), getIncludeDatabaseMap(), getExcludeDatabaseMap());
     }
 
     @Override
