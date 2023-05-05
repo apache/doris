@@ -749,6 +749,7 @@ DEFINE_Int64(download_cache_buffer_size, "10485760");
 // will run out of memory.
 // When doing compaction, each segment may take at least 1MB buffer.
 DEFINE_mInt32(max_segment_num_per_rowset, "200");
+DEFINE_mInt32(segment_compression_threshold_kb, "256");
 
 // The connection timeout when connecting to external table such as odbc table.
 DEFINE_mInt32(external_table_connect_timeout_sec, "30");
