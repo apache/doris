@@ -187,13 +187,6 @@ inline bool ThreadMemTrackerMgr::flush_untracked_mem() {
     _stop_consume = true;
     init();
     DCHECK(_limiter_tracker_raw);
-    if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(_untracked_mem)) {
-        LOG(WARNING) << fmt::format(
-                "MemHook alloc:{} failed, not enough system memory, consuming tracker:<{}>, exec "
-                "node:<{}>, {}.",
-                _untracked_mem, _limiter_tracker_raw->label(), last_consumer_tracker(),
-                doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(_untracked_mem));
-    }
 
     old_untracked_mem = _untracked_mem;
     if (_count_scope_mem) _scope_mem += _untracked_mem;
