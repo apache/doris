@@ -25,12 +25,19 @@ under the License.
 -->
 
 ## DATETIMEV2
+
+<version since="1.2.0">
+
+DATETIMEV2
+
+</version>
+
 ### Description
 DATETIMEV2([P])
 Date and time type.
 The optional parameter P indicates the time precision and the value range is [0, 6], that is, it supports up to 6 decimal places (microseconds). 0 when not set.
 Value range is ['0000-01-01 00:00:00[.000000]','9999-12-31 23:59:59[.999999]'].
-The form of printing is 'YYYY-MM-DD HH:MM:SS.ffffff'
+The form of printing is 'yyyy-MM-dd HH:mm:ss.SSSSSS'
 
 ### note
 

@@ -24,9 +24,19 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+
 ## array_enumerate
 
+<version since="1.2.0">
+
+array_enumerate
+
+</version>
+
 ### description
+#### Syntax
+
+`ARRAY<T> array_enumerate(ARRAY<T> arr)`
 
 Returns array sub item indexes eg. [1, 2, 3, …, length (arr) ]
 
@@ -53,4 +63,3 @@ mysql> select k2, array_enumerate(k2) from array_type_table;
 ### keywords
 
 ARRAY,ENUMERATE,ARRAY_ENUMERATE
-

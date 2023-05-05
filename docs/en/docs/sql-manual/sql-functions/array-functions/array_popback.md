@@ -24,13 +24,17 @@ under the License.
 
 ## array_popback
 
+<version since="1.2.0">
+
+array_popback
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
-ARRAY<T> array_popback(ARRAY<T> arr)
-```
+`ARRAY<T> array_popback(ARRAY<T> arr)`
 
 Remove the last element from array.
 
@@ -55,3 +59,4 @@ mysql> select array_popback(['test', NULL, 'value']);
 ### keywords
 
 ARRAY,POPBACK,ARRAY_POPBACK
+

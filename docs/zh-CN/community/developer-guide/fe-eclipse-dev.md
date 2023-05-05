@@ -167,13 +167,13 @@ FE的单元测试会首先启动一个FE服务，然后由测试用例作为客�
     
     在第一步创建的 `conf/` 目录下创建配置文件 `fe.conf`。你可以直接将源码目录下 `conf/fe.conf` 拷贝过来并做简单修改。
     
-3. 在 Eclipse 中找到 `src/main/java/org/apache/doris/PaloFe.java` 文件，右击选择 `Run As -> Run Configurations...`。在 `Environment` 标签页中添加如下环境变量：
+3. 在 Eclipse 中找到 `src/main/java/org/apache/doris/DorisFE.java` 文件，右击选择 `Run As -> Run Configurations...`。在 `Environment` 标签页中添加如下环境变量：
 
     * `DORIS_HOME: /path/to/doris/fe/run/`
     * `PID_DIR: /path/to/doris/fe/run/`
     * `LOG_DIR: /path/to/doris/fe/run/log`
 
-4. 右击 `PaloFe.java`，选择 `Run As -> Java Application`，则可以启动 FE。
+4. 右击 `DorisFE.java`，选择 `Run As -> Java Application`，则可以启动 FE。
 
 ## 代码更新
 

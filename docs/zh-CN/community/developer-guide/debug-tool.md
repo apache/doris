@@ -210,28 +210,24 @@ heap dump文件所在目录可以在 ``be.conf`` 中通过``jeprofile_dir``变�
 curl http://be_host:be_webport/jeheap/dump
 ```
 
-##### 2. heap dump by JEMALLOC_CONF
-通过更改`start_be.sh` 中`JEMALLOC_CONF` 变量后重新启动BE 来进行heap dump
+`prof`: 打开后jemalloc将根据当前内存使用情况生成heap dump文件，heap profile采样存在少量性能损耗，性能测试时可关闭。
+`lg_prof_sample`: heap profile采样间隔，默认值19，即默认采样间隔为512K(2^19 B)，这会导致heap profile记录的内存通常只有10%，`lg_prof_sample:10`可以减少采样间隔到1K (2^10 B), 更频繁的采样会使heap profile接近真实内存，但这会带来更大的性能损耗。
 
-1. 每1MB dump一次:
+详细参数说明参考 https://linux.die.net/man/3/jemalloc。
 
-   `JEMALLOC_CONF`变量中新增两个变量设置`prof:true,lg_prof_interval:20`  其中`prof:true`是打开profiling，`lg_prof_interval:20`中表示每1MB(2^20)生成一次dump 
-2. 每次达到新高时dump:
-   
-   `JEMALLOC_CONF`变量中新增两个变量设置`prof:true,prof_gdump:true` 其中`prof:true`是打开profiling，`prof_gdump:true` 代表内存使用达到新高时生成dump
-3. 程序退出时内存泄漏dump:
-   
-   `JEMALLOC_CONF`变量中新增三个变量设置`prof_leak:true,lg_prof_sample:0,prof_final:true`
+#### 2. jemalloc heap dump profiling
 
+1.  单个heap dump文件生成纯文本分析结果
+```shell
+   jeprof lib/doris_be heap_dump_file_1
+   ```
 
-#### 3. jemalloc heap dump profiling
-
-3.1  生成纯文本分析结果
+2.  分析两个heap dump的diff
    ```shell
    jeprof lib/doris_be --base=heap_dump_file_1 heap_dump_file_2
    ```
    
-3.2 生成调用关系图片
+3. 生成调用关系图片
 
    安装绘图所需的依赖项
    ```shell
@@ -248,9 +244,19 @@ curl http://be_host:be_webport/jeheap/dump
    ```shell
    jeprof --pdf lib/doris_be --base=heap_dump_file_1 heap_dump_file_2 > result.pdf
    ```
-   
-上述jeprof相关命令中均去掉 `--base` 选项来只分析单个heap dump文件
 
+##### 3. heap dump by JEMALLOC_CONF
+通过更改`start_be.sh` 中`JEMALLOC_CONF` 变量后重新启动BE 来进行heap dump
+
+1. 每1MB dump一次:
+
+   `JEMALLOC_CONF`变量中新增两个变量设置`prof:true,lg_prof_interval:20`  其中`prof:true`是打开profiling，`lg_prof_interval:20`中表示每1MB(2^20)生成一次dump 
+2. 每次达到新高时dump:
+   
+   `JEMALLOC_CONF`变量中新增两个变量设置`prof:true,prof_gdump:true` 其中`prof:true`是打开profiling，`prof_gdump:true` 代表内存使用达到新高时生成dump
+3. 程序退出时内存泄漏dump:
+   
+   `JEMALLOC_CONF`变量中新增三个变量设置`prof_leak:true,lg_prof_sample:0,prof_final:true`
 
 #### LSAN
 

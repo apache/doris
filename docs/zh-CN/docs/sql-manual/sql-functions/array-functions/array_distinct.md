@@ -26,13 +26,17 @@ under the License.
 
 ## array_distinct
 
+<version since="1.2.0">
+
+array_distinct
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
-ARRAY<T> array_distinct(ARRAY<T> arr)
-```
+`ARRAY<T> array_distinct(ARRAY<T> arr)`
 
 返回去除了重复元素的数组，如果输入数组为NULL，则返回NULL。
 

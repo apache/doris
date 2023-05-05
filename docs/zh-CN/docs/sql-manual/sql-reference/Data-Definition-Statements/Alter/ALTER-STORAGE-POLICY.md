@@ -48,6 +48,8 @@ ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_datetime" = "
 2. 修改名为 cooldown_ttl的冷热分离数据迁移倒计时
 ```sql
 ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES ("cooldown_ttl" = "10000");
+ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES ("cooldown_ttl" = "1h");
+ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES ("cooldown_ttl" = "3d");
 ```
 ### Keywords
 

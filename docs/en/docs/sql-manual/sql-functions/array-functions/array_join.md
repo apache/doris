@@ -26,13 +26,18 @@ under the License.
 
 ## array_join
 
+<version since="1.2.0">
+
+array_join
+
+</version>
+
+
 ### description
 
 #### Syntax
 
-```
-VARCHAR array_join(ARRAY<T> arr, VARCHAR sep[, VARCHAR null_replace])
-```
+`VARCHAR array_join(ARRAY<T> arr, VARCHAR sep[, VARCHAR null_replace])`
 
 Combines all elements in the array to generate a new string according to the separator (sep) 
 and the string to replace NULL (null_replace).
@@ -50,7 +55,7 @@ If null_replace is an empty string or not specified, the NULL elements in the ar
 ```
 mysql> set enable_vectorized_engine=true;
 
-mysql> select k1, k2, array_join(k1, '_', 'null') from array_test order by k1;
+mysql> select k1, k2, array_join(k2, '_', 'null') from array_test order by k1;
 +------+-----------------------------+------------------------------------+
 | k1   | k2                          | array_join(`k2`, '_', 'null')      |
 +------+-----------------------------+------------------------------------+

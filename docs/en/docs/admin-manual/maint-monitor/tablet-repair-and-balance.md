@@ -28,7 +28,7 @@ under the License.
 
 Beginning with version 0.9.0, Doris introduced an optimized replica management strategy and supported a richer replica status viewing tool. This document focuses on Doris data replica balancing, repair scheduling strategies, and replica management operations and maintenance methods. Help users to more easily master and manage the replica status in the cluster.
 
-> Repairing and balancing copies of tables with Collocation attributes can be referred to [HERE](../../advanced/join-optimization/colocation-join.md)
+> Repairing and balancing copies of tables with Collocation attributes can be referred to [HERE](../../query-acceleration/join-optimization/colocation-join.md)
 
 ## Noun Interpretation
 
@@ -443,7 +443,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	You can view the current load of the cluster by following commands:
 
-	`SHOW PROC '/cluster_balance/cluster_load_stat';`
+	`SHOW PROC '/cluster_balance/cluster_load_stat/location_default';`
 
 	First of all, we can see the division of different storage media:
 
@@ -458,7 +458,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	Click on a storage medium to see the equilibrium state of the BE node that contains the storage medium:
 
-	`SHOW PROC '/cluster_balance/cluster_load_stat/HDD';`
+	`SHOW PROC '/cluster_balance/cluster_load_stat/location_default/HDD';`
 
 	```
 	+----------+-----------------+-----------+---------------+----------------+-------------+------------+----------+-----------+--------------------+-------+
@@ -488,7 +488,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	Users can further view the utilization of each path on a BE, such as the BE with ID 10001:
 
-	`SHOW PROC '/cluster_balance/cluster_load_stat/HDD/10001';`
+	`SHOW PROC '/cluster_balance/cluster_load_stat/location_default/HDD/10001';`
 
     ```
 	+------------------+------------------+---------------+---------------+---------+--------+----------------------+

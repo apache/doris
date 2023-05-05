@@ -119,9 +119,20 @@ $ cat /proc/cpuinfo | grep avx2
 不支持则使用以下命令进行编译
 
 ```
-$ USE_AVX2=0  sh build.sh
+$ USE_AVX2=0 sh build.sh
 ```
 
 若支持则直接执行 `sh build.sh` 即可
 
 该脚本会先编译第三方库，之后再编译 Doris 组件（FE、BE）。编译产出在 `output/` 目录下。
+
+## 预编译三方库
+
+`build.sh` 脚本会先编译第三方库。你也可以直接下载预编译好的三方库：
+
+`https://github.com/apache/doris-thirdparty/releases`
+
+这里我们提供了 Linux X86(with AVX2) 和 MacOS(X86芯片) 的预编译三方库。如果和你的编译运行环境一致，可以直接下载使用。
+
+下载好后，解压会得到一个 `installed/` 目录，将这个目录拷贝到 `thirdparty/` 目录下，之后运行 `build.sh` 即可。
+

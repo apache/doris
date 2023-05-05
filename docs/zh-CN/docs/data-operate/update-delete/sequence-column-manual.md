@@ -26,9 +26,11 @@ under the License.
 
 # sequence 列
 
-sequence列目前只支持Uniq模型，Uniq模型主要针对需要唯一主键的场景，可以保证主键唯一性约束，但是由于使用REPLACE聚合方式，在同一批次中导入的数据，替换顺序不做保证，详细介绍可以参考[数据模型](../../data-table/data-model.md)。替换顺序无法保证则无法确定最终导入到表中的具体数据，存在了不确定性。
+Uniq模型主要针对需要唯一主键的场景，可以保证主键唯一性约束，但是由于使用REPLACE聚合方式，在同一批次中导入的数据，替换顺序不做保证，详细介绍可以参考[数据模型](../../data-table/data-model.md)。替换顺序无法保证则无法确定最终导入到表中的具体数据，存在了不确定性。
 
 为了解决这个问题，Doris支持了sequence列，通过用户在导入时指定sequence列，相同key列下，REPLACE聚合类型的列将按照sequence列的值进行替换，较大值可以替换较小值，反之则无法替换。该方法将顺序的确定交给了用户，由用户控制替换顺序。
+
+sequence列目前只支持Uniq模型。
 
 ## 适用场景
 
@@ -158,7 +160,7 @@ PROPERTIES
 
 1. 创建支持sequence column的表
 
-创建unique模型的test_table数据表，并指定指定sequence列映射到表中的modify_date列。
+创建unique模型的test_table数据表，并指定sequence列映射到表中的modify_date列。
 
 ```sql
 CREATE TABLE test.test_table

@@ -32,7 +32,7 @@ SHOW VARIABLES
 
 ### Description
 
-The modified statement is used to display Doris system variables, which can be queried by conditions
+This statement is used to display Doris system variables, which can be queried by conditions
 
 grammar:
 

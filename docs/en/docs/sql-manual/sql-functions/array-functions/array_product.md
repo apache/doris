@@ -23,10 +23,19 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
 ## array_product
 
+<version since="1.2.0">
+
+array_product
+
+</version>
+
 ### description
+
+#### Syntax
+
+`T array_product(ARRAY<T> arr)`
 
 Get the product of all elements in an array (`NULL` values are skipped).
 When the array is empty or all elements in the array are `NULL` values, the function returns `NULL`.

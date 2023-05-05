@@ -22,15 +22,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## split_by_string 
+## split_by_string
+
+<version since="1.2.2">
+</version>
 
 ### description
 
 #### Syntax
 
-```
-split_by_string(s, separator)
-```
+`ARRAY<STRING> split_by_string(STRING s, STRING separator)`
 将字符串拆分为由字符串分隔的子字符串。它使用多个字符的常量字符串分隔符作为分隔符。如果字符串分隔符为空，它将字符串拆分为单个字符数组。
 
 #### Arguments
@@ -53,7 +54,7 @@ Type: `Array(String)`
 
 ### notice
 
-`Only supported in vectorized engine`
+`仅支持向量化引擎中使用`
 
 ### example
 

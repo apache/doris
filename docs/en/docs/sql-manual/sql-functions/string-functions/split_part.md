@@ -28,7 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR split party (VARCHAR content, VARCHAR delimiter, INT field)`
+`VARCHAR split_part(VARCHAR content, VARCHAR delimiter, INT field)`
 
 
 Returns the specified partition by splitting the string according to the delimiter. If field is positive, splitting and counting from the beginning of content, otherwise from the ending.

@@ -24,7 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DATEV2
+## JSONB
+
+<version since="1.2.0">
+
+JSONB
+
+</version>
+
 ### description
     JSONB (JSON Binary) datatype.
         Use binary JSON format for storage and jsonb function to extract field.

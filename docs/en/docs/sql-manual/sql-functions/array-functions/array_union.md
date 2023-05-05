@@ -26,13 +26,17 @@ under the License.
 
 ## array_union
 
+<version since="1.2.0">
+
+array_union
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
-ARRAY<T> array_union(ARRAY<T> array1, ARRAY<T> array2)
-```
+`ARRAY<T> array_union(ARRAY<T> array1, ARRAY<T> array2)`
 
 Returns an array of the elements in the union of array1 and array2, without duplicates. If the input parameter is null, null is returned.
 
@@ -87,3 +91,4 @@ mysql> select k1,k2,k3,array_union(k2,k3) from array_type_table_decimal;
 ### keywords
 
 ARRAY,UNION,ARRAY_UNION
+

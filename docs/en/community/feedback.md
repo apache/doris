@@ -1,5 +1,8 @@
 ---
-{ "title": "Feedback", "language": "zh-CN" }
+{
+    "title": "Feedback",
+    "language": "en"
+}
 ---
 
 <!--

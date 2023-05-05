@@ -24,13 +24,17 @@ under the License.
 
 ## array_slice
 
+<version since="1.2.0">
+
+array_slice
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
-ARRAY<T> array_slice(ARRAY<T> arr, BIGINT off, BIGINT len)
-```
+`ARRAY<T> array_slice(ARRAY<T> arr, BIGINT off, BIGINT len)`
 
 Returns a slice of the array.
 
@@ -155,3 +159,4 @@ mysql> select k2, array_slice(k2, -5) from array_type_table;
 ### keywords
 
 ARRAY,SLICE,ARRAY_SLICE
+

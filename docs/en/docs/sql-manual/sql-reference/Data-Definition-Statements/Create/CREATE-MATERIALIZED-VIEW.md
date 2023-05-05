@@ -34,7 +34,7 @@ CREATE MATERIALIZED VIEW
 
 This statement is used to create a materialized view.
 
-This operation is an asynchronous operation. After the submission is successful, you need to view the job progress through [SHOW ALTER TABLE MATERIALIZED VIEW](../../Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW). After displaying FINISHED, you can use the `desc [table_name] all` command to view the schema of the materialized view.
+This operation is an asynchronous operation. After the submission is successful, you need to view the job progress through [SHOW ALTER TABLE MATERIALIZED VIEW](../../Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW.md). After displaying FINISHED, you can use the `desc [table_name] all` command to view the schema of the materialized view.
 
 grammar:
 
@@ -59,10 +59,7 @@ illustrate:
   The syntax is the same as the query syntax.
 
   - `select_expr`: All columns in the schema of the materialized view.
-    - Only supports single column without expression calculation, aggregate column.
-    - The aggregate function currently only supports three types of SUM, MIN, and MAX, and the parameter of the aggregate function can only be a single column without expression calculation.
     - Contains at least one single column.
-    - All involved columns can only appear once.
   - `base view name`: The original table name of the materialized view, required.
     - Must be a single table and not a subquery
   - `group by`: The grouping column of the materialized view, optional.
@@ -118,8 +115,8 @@ attention：If the materialized view contains partitioned and distributed column
 1. Create a materialized view that contains only the columns of the original table (k1, k2)
 
    ```sql
-   create materialized view k1_k2 as
-   select k1, k2 from duplicate_table;
+   create materialized view k2_k1 as
+   select k2, k1 from duplicate_table;
    ````
 
    The schema of the materialized view is as follows, the materialized view contains only two columns k1, k2 without any aggregation
@@ -128,8 +125,8 @@ attention：If the materialized view contains partitioned and distributed column
    +-------+-------+--------+------+------+ ---------+-------+
    | IndexName | Field | Type | Null | Key | Default | Extra |
    +-------+-------+--------+------+------+ ---------+-------+
-   | k1_k2 | k1 | INT | Yes | true | N/A | |
-   | | k2 | INT | Yes | true | N/A | |
+   | k2_k1 | k2 | INT | Yes | true | N/A | |
+   | | k1 | INT | Yes | true | N/A | |
    +-------+-------+--------+------+------+ ---------+-------+
    ````
 

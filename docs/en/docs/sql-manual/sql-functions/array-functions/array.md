@@ -24,13 +24,18 @@ under the License.
 
 ## array()
 
+<version since="1.2.0">
+
+array()
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
-ARRAY<T> array(T, ...)
-```
+`ARRAY<T> array(T, ...)`
+
 construct an array with variadic elements and return it, T could be column or literal
 
 ### notice
@@ -82,3 +87,4 @@ mysql>  select array(qid, creationDate, null) from nested  limit 4;
 ### keywords
 
 ARRAY,ARRAY,CONSTRUCTOR
+

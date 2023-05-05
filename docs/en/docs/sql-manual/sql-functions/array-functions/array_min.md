@@ -26,7 +26,16 @@ under the License.
 
 ## array_min
 
+<version since="1.2.0">
+
+array_min
+
+</version>
+
 ### description
+
+#### Syntax
+`T array_min(ARRAY<T> array1)`
 
 Get the minimum element in an array (`NULL` values are skipped).
 When the array is empty or all elements in the array are `NULL` values, the function returns `NULL`.
@@ -54,4 +63,3 @@ mysql> select k2, array_min(k2) from array_type_table;
 ### keywords
 
 ARRAY,MIN,ARRAY_MIN
-

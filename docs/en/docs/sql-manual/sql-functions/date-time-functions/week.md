@@ -28,11 +28,11 @@ under the License.
 ### Description
 #### Syntax
 
-`INT WEEK(DATE date)`
-`INT WEEK(DATE date, INT mode)`
+`INT WEEK(DATE date[, INT mode])`
 
 Returns the week number for date.The value of the mode argument defaults to 0.
 The following table describes how the mode argument works.
+
 |Mode |First day of week |Range  |Week 1 is the first week …    |
 |:----|:-----------------|:------|:-----------------------------|
 |0    |Sunday            |0-53   |with a Sunday in this year    |

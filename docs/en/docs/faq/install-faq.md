@@ -51,7 +51,7 @@ The reason why the CIDR format is used instead of specifying a specific IP direc
 
 First of all, make it clear that FE has only two roles: Follower and Observer. The Master is just an FE selected from a group of Follower nodes. Master can be regarded as a special kind of Follower. So when we were asked how many FEs a cluster had and what roles they were, the correct answer should be the number of all FE nodes, the number of Follower roles and the number of Observer roles.
 
-All FE nodes of the Follower role will form an optional group, similar to the group concept in the Poxas consensus protocol. A Follower will be elected as the Master in the group. When the Master hangs up, a new Follower will be automatically selected as the Master. The Observer will not participate in the election, so the Observer will not be called Master.
+All FE nodes of the Follower role will form an optional group, similar to the group concept in the Paxos consensus protocol. A Follower will be elected as the Master in the group. When the Master hangs up, a new Follower will be automatically selected as the Master. The Observer will not participate in the election, so the Observer will not be called Master.
 
 A metadata log needs to be successfully written in most Follower nodes to be considered successful. For example, if there are 3 FEs, only 2 can be successfully written. This is why the number of Follower roles needs to be an odd number.
 
@@ -83,7 +83,7 @@ Here we provide 3 ways to solve this problem:
 
 3. Manually migrate data using the API
 
-   Doris provides [HTTP API](../admin-manual/http-actions/tablet-migration-action.md), which can manually specify the migration of data shards on one disk to another disk.
+   Doris provides [HTTP API](../admin-manual/http-actions/be/tablet-migration-action.md), which can manually specify the migration of data shards on one disk to another disk.
 
 ### Q5. How to read FE/BE logs correctly?
 
@@ -267,7 +267,7 @@ This is a bug in bdbje that has not yet been resolved. In this case, you can onl
 
 ### Q12. Doris compile and install JDK version incompatibility problem
 
-When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation.md)
+When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation-general.md)
 
 ### Q13. Error starting FE or unit test locally Cannot find external parser table action_table.dat
 Run the following command
@@ -285,7 +285,7 @@ In doris 1.0 onwards, openssl has been upgraded to 1.1 and is built into the dor
 ```
 ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
 ```
-The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1.1. Or use a lower version of ODBC connector, e.g. [Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html). For details, see the [ODBC exterior documentation](../ecosystem/external-table/odbc-of-doris.md).
+The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1.1. Or use a lower version of ODBC connector, e.g. [Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html). For details, see the [ODBC exterior documentation](../lakehouse/external-table/odbc.md).
 
 You can verify the version of openssl used by MySQL ODBC Driver by
 
@@ -293,3 +293,26 @@ You can verify the version of openssl used by MySQL ODBC Driver by
 ldd /path/to/libmyodbc8w.so |grep libssl.so
 ```
 If the output contains ``libssl.so.10``, there may be problems using it, if it contains ``libssl.so.1.1``, it is compatible with doris 1.0
+
+### Q15. After upgrading to version 1.2, the BE NoClassDefFoundError issue failed to start
+<version since="1.2"> Java UDF dependency error </version>
+If the upgrade support starts be, the following Java `NoClassDefFoundError` error occurs
+```
+Exception in thread "main" java.lang.NoClassDefFoundError: org/apache/doris/udf/IniUtil
+Caused by: java.lang.ClassNotFoundException: org.apache.doris.udf.JniUtil
+```
+You need to download the Java UDF function dependency package of `apache-doris-java-udf-jar-with-dependencies-1.2.0` from the official website, put it in the lib directory under the BE installation directory, and then restart BE
+
+### Q16. After upgrading to version 1.2, BE startup shows Failed to initialize JNI
+<version since="1.2"></version>  
+If the following `Failed to initialize JNI` error occurs when starting BE after upgrading 
+```
+Failed to initialize JNI: Failed to find the library libjvm.so.
+```
+You need to set the `JAVA_HOME` environment variable, or add `export JAVA_HOME=your_java_home_path` in the first line of the `start_be.sh` startup script, and then restart the BE node.
+
+### Q17. Docker: backend fails to start
+This may be due to the CPU not supporting AVX2, check the backend logs with `docker logs -f be`.
+If the CPU does not support AVX2, the `apache/doris:1.2.2-be-x86_64-noavx2` image must be used,
+instead of `apache/doris:1.2.2-be-x86_64`.
+Note that the image version number will change over time, check [Dockerhub](https://registry.hub.docker.com/r/apache/doris/tags?page=1&name=avx2) for the most recent version.

@@ -38,9 +38,8 @@ hdfs
 
 HDFS表函数（table-valued-function,tvf），可以让用户像访问关系表格式数据一样，读取并访问 HDFS 上的文件内容。目前支持`csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`文件格式。
 
-**语法**
-
-```
+#### syntax
+```sql
 hdfs(
   "uri" = "..",
   "fs.defaultFS" = "...",
@@ -77,6 +76,11 @@ hdfs(
 - `json_paths`： (选填) 默认为空
 - `num_as_string`： (选填) 默认为 `false`
 - `fuzzy_parse`： (选填) 默认为 `false`
+
+    <version since="dev">下面2个参数是用于csv格式的导入</version>
+
+- `trim_double_quotes`： 布尔类型，选填，默认值为 `false`，为 `true` 时表示裁剪掉 csv 文件每个字段最外层的双引号
+- `skip_lines`： 整数类型，选填，默认值为0，含义为跳过csv文件的前几行。当设置format设置为 `csv_with_names` 或 `csv_with_names_and_types` 时，该参数会失效 
 
 ### Examples
 

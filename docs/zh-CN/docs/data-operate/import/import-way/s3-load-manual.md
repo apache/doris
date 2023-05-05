@@ -93,7 +93,8 @@ under the License.
   )
 ```
 
-<version since="1.2"></version>
+<version since="1.2">
+
 2. 支持使用临时秘钥（TOKEN) 访问所有支持 S3 协议的对象存储，用法如下：
 
 ```
@@ -107,3 +108,4 @@ under the License.
   )
 ```
 
+</version>

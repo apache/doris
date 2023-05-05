@@ -25,8 +25,20 @@ under the License.
 -->
 
 ## array_sum
+<version since="1.2.0">
+
+array_sum
+
+</version>
 
 ### description
+
+#### Syntax
+
+```sql
+T array_sum(ARRAY<T> src, Array<T> key)
+T array_sum(lambda, Array<T> arr1, Array<T> arr2 ....)
+```
 
 Get the sum of all elements in an array (`NULL` values are skipped).
 When the array is empty or all elements in the array are `NULL` values, the function returns `NULL`.

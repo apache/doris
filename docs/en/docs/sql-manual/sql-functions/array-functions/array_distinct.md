@@ -26,13 +26,17 @@ under the License.
 
 ## array_distinct
 
+<version since="1.2.0">
+
+array_distinct
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
-ARRAY<T> array_distinct(ARRAY<T> arr)
-```
+`ARRAY<T> array_distinct(ARRAY<T> arr)`
 
 Return the array which has been removed duplicate values.
 Return NULL for NULL input.
@@ -77,3 +81,4 @@ mysql> select k1, k2, array_distinct(k2) from array_test01;
 ### keywords
 
 ARRAY, DISTINCT, ARRAY_DISTINCT
+

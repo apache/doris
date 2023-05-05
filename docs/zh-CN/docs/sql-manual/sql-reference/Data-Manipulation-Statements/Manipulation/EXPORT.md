@@ -34,7 +34,7 @@ EXPORT
 
 该语句用于将指定表的数据导出到指定位置。
 
-这是一个异步操作，任务提交成功则返回。执行后可使用 [SHOW EXPORT](../../Show-Statements/SHOW-EXPORT) 命令查看进度。
+这是一个异步操作，任务提交成功则返回。执行后可使用 [SHOW EXPORT](../../Show-Statements/SHOW-EXPORT.md) 命令查看进度。
 
 ```sql
 EXPORT TABLE table_name
@@ -72,7 +72,7 @@ WITH BROKER
   - `column_separator`：指定导出的列分隔符，默认为\t。仅支持单字节。
   - `line_delimiter`：指定导出的行分隔符，默认为\n。仅支持单字节。
   - `exec_mem_limit`：导出在单个 BE 节点的内存使用上限，默认为 2GB，单位为字节。
-  - `timeout`：导入作业的超时时间，默认为2小时，单位是秒。
+  - `timeout`：导出作业的超时时间，默认为2小时，单位是秒。
   - `tablet_num_per_task`：每个子任务能分配扫描的最大 Tablet 数量。
 
 - `WITH BROKER`
@@ -176,7 +176,7 @@ EXPORT TABLE testTbl TO "file:///home/data/a" PROPERTIES ("columns" = "k1,v1");
 8. 将 testTbl 表中的所有数据导出到 s3 上，以不可见字符 "\x07" 作为列或者行分隔符。
 
 ```sql
-EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" 
+EXPORT TABLE testTbl TO "s3://hdfs_host:port/a/b/c" 
 PROPERTIES (
   "column_separator"="\\x07", 
   "line_delimiter" = "\\x07"
@@ -234,4 +234,4 @@ PROPERTIES (
 - 如果 Export 作业运行成功，在远端存储中产生的 `__doris_export_tmp_xxx` 目录，根据远端存储的文件系统语义，可能会保留，也可能会被清除。比如在S3对象存储中，通过 rename 操作将一个目录中的最后一个文件移走后，该目录也会被删除。如果该目录没有被清除，用户可以手动清除。
 - Export 作业只会导出 Base 表的数据，不会导出物化视图的数据。
 - Export 作业会扫描数据，占用 IO 资源，可能会影响系统的查询延迟。
-- 一个集群内同时运行的 Export 作业最大个数为 5。之后提交的只作业将会排队。
+- 一个集群内同时运行的 Export 作业最大个数为 5。之后提交的作业将会排队。

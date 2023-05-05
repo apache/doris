@@ -41,8 +41,9 @@ data_desc1[, data_desc2, ...]
 )
 WITH BROKER broker_name
 [broker_properties]
-[load_properties];
-````
+[load_properties]
+[COMMENT "comment"];
+```
 
 - `load_label`
 
@@ -67,8 +68,8 @@ WITH BROKER broker_name
   [FORMAT AS "file_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
-  [PRECEDING FILTER predicate]
   [SET (column_mapping)]
+  [PRECEDING FILTER predicate]
   [WHERE predicate]
   [DELETE ON expr]
   [ORDER BY source_sequence]
@@ -83,7 +84,7 @@ WITH BROKER broker_name
 
     Specify the file path to be imported. Can be multiple. Wildcards can be used. The path must eventually match to a file, if it only matches a directory the import will fail.
 
-  - `NEGTIVE`
+  - `NEGATIVE`
 
     This keyword is used to indicate that this import is a batch of "negative" imports. This method is only for aggregate data tables with integer SUM aggregate type. This method will reverse the integer value corresponding to the SUM aggregate column in the imported data. Mainly used to offset previously imported wrong data.
 
@@ -101,7 +102,7 @@ WITH BROKER broker_name
 
   - `column list`
 
-    Used to specify the column order in the original file. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
+    Used to specify the column order in the original file. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
     `(k1, k2, tmpk1)`
 
@@ -109,17 +110,17 @@ WITH BROKER broker_name
 
     Specifies the columns to extract from the import file path.
 
-  - `PRECEDING FILTER predicate`
-
-    Pre-filter conditions. The data is first concatenated into raw data rows in order according to `column list` and `COLUMNS FROM PATH AS`. Then filter according to the pre-filter conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
-
   - `SET (column_mapping)`
 
     Specifies the conversion function for the column.
+  
+  - `PRECEDING FILTER predicate`
+
+    Pre-filter conditions. The data is first concatenated into raw data rows in order according to `column list` and `COLUMNS FROM PATH AS`. Then filter according to the pre-filter conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
   - `WHERE predicate`
 
-    Filter imported data based on conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
+    Filter imported data based on conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
   - `DELETE ON expr`
 
@@ -139,7 +140,7 @@ WITH BROKER broker_name
 
 - `broker_properties`
 
-  Specifies the information required by the broker. This information is usually used by the broker to be able to access remote storage systems. Such as BOS or HDFS. See the [Broker](../../../../../advanced/broker) documentation for specific information.
+  Specifies the information required by the broker. This information is usually used by the broker to be able to access remote storage systems. Such as BOS or HDFS. See the [Broker](../../../../advanced/broker.md) documentation for specific information.
 
   ````text
   (
@@ -171,7 +172,7 @@ WITH BROKER broker_name
 
   - `timezone`
 
-    Specify the time zone for some functions that are affected by time zones, such as `strftime/alignment_timestamp/from_unixtime`, etc. Please refer to the [timezone](../../../../../advanced/time-zone) documentation for details. If not specified, the "Asia/Shanghai" timezone is used
+    Specify the time zone for some functions that are affected by time zones, such as `strftime/alignment_timestamp/from_unixtime`, etc. Please refer to the [timezone](../../../../advanced/time-zone.md) documentation for details. If not specified, the "Asia/Shanghai" timezone is used
 
   - `load_parallelism`
 
@@ -185,7 +186,8 @@ WITH BROKER broker_name
   - `load_to_single_tablet`
   
     Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random partition.
-
+-  <version since="1.2.3" type="inline"> comment </version>
+    Specify the comment for the import job. The comment can be viewed in the `show load` statement.
 ### Example
 
 1. Import a batch of data from HDFS
@@ -313,10 +315,10 @@ WITH BROKER broker_name
        DATA INFILE("hdfs://host:port/input/file")
        INTO TABLE `my_table`
        (k1, k2, k3)
-       PRECEDING FILTER k1 = 1
        SET (
            k2 = k2 + 1
        )
+       PRECEDING FILTER k1 = 1
        WHERE k1 > k2
    )
    WITH BROKER hdfs
@@ -477,6 +479,24 @@ WITH BROKER broker_name
     )
     ```
 
+12. Load CSV date and trim double quotes and skip first 5 lines
+
+    ```SQL
+    LOAD LABEL example_db.label12
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    PROPERTIES("trim_double_quotes" = "true", "skip_lines" = "5")
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
+    ```
+
 ### Keywords
 
     BROKER, LOAD
@@ -493,21 +513,21 @@ WITH BROKER broker_name
 
 3. Label, import transaction, multi-table atomicity
 
-   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../../../data-operate/import/import-scenes/load-atomicity) documentation.
+   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../../data-operate/import/import-scenes/load-atomicity.md) documentation.
 
 4. Column mapping, derived columns and filtering
 
-   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
+   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
 5. Error data filtering
 
    Doris' import tasks can tolerate a portion of malformed data. Tolerated via `max_filter_ratio` setting. The default is 0, which means that the entire import task will fail when there is an error data. If the user wants to ignore some problematic data rows, the secondary parameter can be set to a value between 0 and 1, and Doris will automatically skip the rows with incorrect data format.
 
-   For some calculation methods of the tolerance rate, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
+   For some calculation methods of the tolerance rate, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
 6. Strict Mode
 
-   The `strict_mode` attribute is used to set whether the import task runs in strict mode. The format affects the results of column mapping, transformation, and filtering. For a detailed description of strict mode, see the [strict mode](../../../../../data-operate/import/import-scenes/load-strict-mode) documentation.
+   The `strict_mode` attribute is used to set whether the import task runs in strict mode. The format affects the results of column mapping, transformation, and filtering. For a detailed description of strict mode, see the [strict mode](../../../../data-operate/import/import-scenes/load-strict-mode.md) documentation.
 
 7. Timeout
 

@@ -70,6 +70,7 @@ gpg --import KEYS
 gpg --verify apache-doris-a.b.c-incubating-src.tar.gz.asc apache-doris-a.b.c-incubating-src.tar.gz
 sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
 ```
+> Note: If gpg --import reports **no valid user IDs**, it may be that the gpg version does not match. You can upgrade the version to 2.2.x or above
 
 ## 3. Verify the source protocol header
 

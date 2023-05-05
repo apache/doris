@@ -26,11 +26,17 @@ under the License.
 
 ## array_size (size, cardinality)
 
+<version since="1.2.0">
+
+array_size (size, cardinality)
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
+```sql
 BIGINT size(ARRAY<T> arr)
 BIGINT array_size(ARRAY<T> arr) 
 BIGINT cardinality(ARRAY<T> arr)

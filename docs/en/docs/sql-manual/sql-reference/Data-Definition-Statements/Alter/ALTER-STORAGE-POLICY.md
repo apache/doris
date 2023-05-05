@@ -48,6 +48,8 @@ ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_datetime" = "
 2. Modify the name to coolown_countdown of hot and cold separation data migration of ttl
 ```sql
 ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES ("cooldown_ttl" = "10000");
+ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES ("cooldown_ttl" = "1h");
+ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES ("cooldown_ttl" = "3d");
 ```
 ### Keywords
 

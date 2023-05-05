@@ -132,7 +132,7 @@ In the existing Doris import process, the data structure of global dictionary is
 
 ## Hive Bitmap UDF
 
-Spark supports loading hive-generated bitmap data directly into Doris, see [hive-bitmap-udf documentation](../../../ecosystem/external-table/hive-bitmap-udf)
+Spark supports loading hive-generated bitmap data directly into Doris, see [hive-bitmap-udf documentation](../../../ecosystem/hive-bitmap-udf.md)
 
 ## Basic operation
 
@@ -183,17 +183,25 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 
 - `type`: resource type, required. Currently, only spark is supported.
 - Spark related parameters are as follows:
-
   - `spark.master`: required, yarn is supported at present, `spark://host:port`.
-
   - `spark.submit.deployMode`: the deployment mode of Spark Program. It is required and supports cluster and client.
-
-  - `spark.hadoop.yarn.resourcemanager.address`: required when master is yarn.
-
   - `spark.hadoop.fs.defaultfs`: required when master is yarn.
-
   - Other parameters are optional, refer to `http://spark.apache.org/docs/latest/configuration.html`
-- `working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host :port/tmp/doris`.
+- YARN RM related parameters are as follows：
+    - If Spark is a single-point RM, you need to configure `spark.hadoop.yarn.resourcemanager.address`，address of the single point resource manager.
+    - If Spark is RM-HA, it needs to be configured (where hostname and address are optional)：
+        - `spark.hadoop.yarn.resourcemanager.ha.enabled`: ResourceManager enables HA, set to true.
+        - `spark.hadoop.yarn.resourcemanager.ha.rm-ids`: List of ResourceManager logical IDs.
+        - `spark.hadoop.yarn.resourcemanager.hostname.rm-id`: For each rm-id, specify the hostname of the ResourceManager.
+        - `spark.hadoop.yarn.resourcemanager.address.rm-id`: For each rm-id, specify the host:port for clients to submit jobs.
+- HDFS HA related parameters are as follows：
+    - `spark.hadoop.fs.defaultFS`, hdfs client default path prefix.
+    - `spark.hadoop.dfs.nameservices`, hdfs cluster logical name.
+    - `spark.hadoop.dfs.ha.namenodes.nameservices01` , unique identifier for each NameNode in the nameservice.
+    - `spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode1`, fully qualified RPC address for each NameNode.
+    - `spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode2`, fully qualified RPC address for each NameNode.
+    - `spark.hadoop.dfs.client.failover.proxy.provider` = `org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider`, set the implementation class.
+-`working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host :port/tmp/doris`.
 - `broker.hadoop.security.authentication`: Specify the authentication method as kerberos.
 - `broker.kerberos_principal`: Specify the principal of kerberos.
 - `broker.kerberos_keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.
@@ -207,7 +215,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 Example:
 
 ```sql
--- yarn cluster 模式
+-- yarn cluster mode
 CREATE EXTERNAL RESOURCE "spark0"
 PROPERTIES
 (
@@ -226,7 +234,7 @@ PROPERTIES
   "broker.password" = "password0"
 );
 
--- spark standalone client 模式
+-- spark standalone client mode
 CREATE EXTERNAL RESOURCE "spark1"
 PROPERTIES
 (
@@ -235,6 +243,36 @@ PROPERTIES
   "spark.submit.deployMode" = "client",
   "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
   "broker" = "broker1"
+);
+
+-- yarn HA mode
+CREATE EXTERNAL RESOURCE sparkHA
+PROPERTIES
+(
+  "type" = "spark",
+  "spark.master" = "yarn",
+  "spark.submit.deployMode" = "cluster",
+  "spark.executor.memory" = "1g",
+  "spark.yarn.queue" = "default",
+  "spark.hadoop.yarn.resourcemanager.ha.enabled" = "true",
+  "spark.hadoop.yarn.resourcemanager.ha.rm-ids" = "rm1,rm2",
+  "spark.hadoop.yarn.resourcemanager.address.rm1" = "xxxx:8032",
+  "spark.hadoop.yarn.resourcemanager.address.rm2" = "xxxx:8032",
+  "spark.hadoop.fs.defaultFS" = "hdfs://nameservices01",
+  "spark.hadoop.dfs.nameservices" = "nameservices01",
+  "spark.hadoop.dfs.ha.namenodes.nameservices01" = "mynamenode1,mynamenode2",
+  "spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
+  "spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
+  "spark.hadoop.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+  "working_dir" = "hdfs://nameservices01/doris_prd_data/sinan/spark_load/",
+  "broker" = "broker_name",
+  "broker.username" = "username",
+  "broker.password" = "",
+  "broker.dfs.nameservices" = "nameservices01",
+  "broker.dfs.ha.namenodes.HDFS4001273" = "mynamenode1, mynamenode2",
+  "broker.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
+  "broker.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
+  "broker.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
 );
 ```
 
@@ -603,7 +641,7 @@ The data type applicable to the aggregate column of the doris table is bitmap ty
 
 There is no need to build a global dictionary, just specify the corresponding field in the load command, the format is: ```doris field name=binary_bitmap (hive table field name)```
 
-Similarly, the binary (bitmap) type of data import is currently only supported when the upstream data source is a hive table,You can refer to the use of hive bitmap [hive-bitmap-udf](../../../ecosystem/external-table/hive-bitmap-udf)
+Similarly, the binary (bitmap) type of data import is currently only supported when the upstream data source is a hive table,You can refer to the use of hive bitmap [hive-bitmap-udf](../../../ecosystem/hive-bitmap-udf.md)
 
 ### Show Load
 

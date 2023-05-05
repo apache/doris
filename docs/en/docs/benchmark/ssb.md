@@ -175,7 +175,7 @@ With the `-s 100` parameter, the resulting dataset size is:
 
 Before import the script, you need to write the FE’s ip port and other information in the `doris-cluster.conf` file.
 
-The file location is at the same level as `load-ssb-dimension-data.sh`.
+The file is located under `${DORIS_HOME}/tools/ssb-tools/conf/`.
 
 The content of the file includes FE's ip, HTTP port, user name, password and the DB name of the data to be imported:
 

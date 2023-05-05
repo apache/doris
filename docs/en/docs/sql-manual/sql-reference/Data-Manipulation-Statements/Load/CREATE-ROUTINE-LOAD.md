@@ -44,7 +44,8 @@ CREATE ROUTINE LOAD [db.]job_name ON tbl_name
 [load_properties]
 [job_properties]
 FROM data_source [data_source_properties]
-````
+[COMMENT "comment"]
+```
 
 - `[db.]job_name`
 
@@ -281,7 +282,7 @@ FROM data_source [data_source_properties]
 
      When the value of the parameter is a file, you need to add the keyword: "FILE:" before the value.
 
-     For how to create a file, please refer to the [CREATE FILE](http://palo.baidu.com/docs/SQL Manual/Syntax Help/DML/ROUTINE-LOAD/#Syntax error or this link does not work-) command documentation.
+     For how to create a file, please refer to the [CREATE FILE](../../../Data-Definition-Statements/Create/CREATE-FILE) command documentation.
 
      For more supported custom parameters, please refer to the configuration items on the client side in the official CONFIGURATION document of librdkafka. Such as:
 
@@ -325,7 +326,8 @@ FROM data_source [data_source_properties]
         ````text
         "property.kafka_default_offsets" = "OFFSET_BEGINNING"
         ````
-
+- <version since="1.2.3" type="inline"> comment </version>
+  Comment for the routine load job.
 ### Example
 
 1. Create a Kafka routine import task named test1 for example_tbl of example_db. Specify the column separator and group.id and client.id, and automatically consume all partitions by default, and start subscribing from the location where there is data (OFFSET_BEGINNING)

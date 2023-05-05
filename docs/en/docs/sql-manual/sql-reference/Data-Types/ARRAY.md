@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -26,9 +26,15 @@ under the License.
 
 ## ARRAY
 
+<version since="1.2.0">
+
+ARRAY
+
+</version>
+
 ### description
 
-ARRAY\<T\>
+`ARRAY<T>`
 
 An array of T-type items, it cannot be used as a key column. Now ARRAY can only used in Duplicate Model Tables.
 
@@ -36,7 +42,7 @@ T-type could be any of:
 
 ```
 BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DATE,
-DATETIME, CHAR, VARCHAR, STRING
+DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 ```
 
 ### example

@@ -35,20 +35,20 @@ Clang-Tidy can do some diagnostic cofig, config file `.clang-tidy` is in Doris r
 ### Enable clangd on VSCODE
 
 First we should install clangd plugin, then edit `settings.json` or just change config on gui.
+Before using, compile `be(RELEASE)` and `be-ut(ASAN)` once to generate the corresponding `compile_commands.json` file.
 
 ```json
     "clangd.path": "ldb_toolchain/bin/clangd", //clangd path
     "clangd.arguments": [
         "--background-index",
         "--clang-tidy", //enable clang-tidy
-        "--compile-commands-dir=doris/be/build_RELEASE/", //clangd should read compile_commands.json create by cmake, so you should compile once
+        "--compile-commands-dir=doris/be/build_Release/",
         "--completion-style=detailed",
         "-j=5", //clangd diagnostic parallelism
         "--all-scopes-completion",
         "--pch-storage=memory",
         "--pretty",
-        "-log=verbose",
         "--query-driver=ldb_toolchain/bin/*" //path of compiler
     ],
-    "clangd.trace": "/home/disk2/pxl/dev/baidu/bdg/doris/core/output/clangd-server.log" //clangd log path
+    "clangd.trace": "output/clangd-server.log"
 ```

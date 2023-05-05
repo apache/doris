@@ -24,18 +24,22 @@ under the License.
 
 ## array()
 
+<version since="1.2.0">
+
+array()
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
-ARRAY<T> array(T, ...)
-```
+`ARRAY<T> array(T, ...)`
 根据参数构造并返回array, 参数可以是多列或者常量
 
 ### notice
 
-`Only supported in vectorized engine`
+`仅支持向量化引擎中使用`
 
 ### example
 

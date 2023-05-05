@@ -139,6 +139,7 @@ PROPERTIES
 );
 ```
 
+
 7. Create a repository named minio_repo via temporary security credentials.
 
 <version since="1.2"></version>

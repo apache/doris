@@ -26,6 +26,12 @@ under the License.
 
 ## array_position
 
+<version since="1.2.0">
+
+array_position
+
+</version>
+
 ### description
 
 #### Syntax
@@ -71,3 +77,4 @@ mysql> select array_position([1, null], null);
 ### keywords
 
 ARRAY,POSITION,ARRAY_POSITION
+

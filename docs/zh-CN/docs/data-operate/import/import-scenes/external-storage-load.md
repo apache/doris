@@ -86,7 +86,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
   
 3. 查看导入状态
    
-   Broker load 是一个异步的导入方式，具体导入结果可以通过[SHOW LOAD](../../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD)命令查看
+   Broker load 是一个异步的导入方式，具体导入结果可以通过[SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD.md)命令查看
    
    ```
    mysql> show load order by createtime desc limit 1\G;
@@ -181,7 +181,8 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
   )
 ```
 
-<version since="1.2"></version>
+<version since="1.2">
+
 2. 支持使用临时秘钥（TOKEN) 访问所有支持 S3 协议的对象存储，用法如下：
 
 ```
@@ -194,3 +195,5 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
         "AWS_REGION" = "AWS_REGION"
   )
 ```
+
+</version>

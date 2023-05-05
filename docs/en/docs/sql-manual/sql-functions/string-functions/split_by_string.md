@@ -1,7 +1,7 @@
 ---
 {
     "title": "split_by_string",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -24,13 +24,15 @@ under the License.
 
 ## split_by_string 
 
+<version since="1.2.2">
+</version>
+
 ### description
 
 #### Syntax
 
-```
-split_by_string(s, separator)
-```
+`ARRAY<STRING> split_by_string(STRING s, STRING separator)`
+
 Splits a string into substrings separated by a string. It uses a constant string separator of multiple characters as the separator. If the string separator is empty, it will split the string s into an array of single characters.
 
 #### Arguments

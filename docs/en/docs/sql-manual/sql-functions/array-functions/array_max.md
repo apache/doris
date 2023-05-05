@@ -23,10 +23,18 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
 ## array_max
 
+<version since="1.2.0">
+
+array_max
+
+</version>
+
 ### description
+
+#### Syntax
+`T array_max(ARRAY<T> array1)`
 
 Get the maximum element in an array (`NULL` values are skipped).
 When the array is empty or all elements in the array are `NULL` values, the function returns `NULL`.

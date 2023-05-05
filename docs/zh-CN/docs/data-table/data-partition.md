@@ -48,7 +48,7 @@ under the License.
 
 多个 Tablet 在逻辑上归属于不同的分区（Partition）。一个 Tablet 只属于一个 Partition。而一个 Partition 包含若干个 Tablet。因为 Tablet 在物理上是独立存储的，所以可以视为 Partition 在物理上也是独立。Tablet 是数据移动、复制等操作的最小物理存储单元。
 
-若干个 Partition 组成一个 Table。Partition 可以视为是逻辑上最小的管理单元。数据的导入与删除，都可以或仅能针对一个 Partition 进行。
+若干个 Partition 组成一个 Table。Partition 可以视为是逻辑上最小的管理单元。数据的导入与删除，仅能针对一个 Partition 进行。
 
 ## 数据划分
 
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS example_db.example_list_tbl
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
     `timestamp` DATETIME NOT NULL COMMENT "数据灌入的时间戳",
-    `city` VARCHAR(20) COMMENT "用户所在城市",
+    `city` VARCHAR(20) NOT NULL COMMENT "用户所在城市",
     `age` SMALLINT COMMENT "用户年龄",
     `sex` TINYINT COMMENT "用户性别",
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
@@ -316,7 +316,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    
    在以上示例中，我们指定 `id`(INT 类型) 和 `city`(VARCHAR 类型) 作为分区列。以上示例最终得到的分区如下：
    
-   ```
+   ```text
    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
@@ -324,7 +324,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    
    当用户插入数据时，分区列值会按照顺序依次比较，最终得到对应的分区。举例如下：
    
-   ```
+   ```text
    * 数据  --->  分区
    * 1, Beijing     ---> p1_city
    * 1, Shanghai    ---> p1_city
@@ -341,6 +341,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    - 分桶列的选择，是在 **查询吞吐** 和 **查询并发** 之间的一种权衡：
      1. 如果选择多个分桶列，则数据分布更均匀。如果一个查询条件不包含所有分桶列的等值条件，那么该查询会触发所有分桶同时扫描，这样查询的吞吐会增加，单个查询的延迟随之降低。这个方式适合大吞吐低并发的查询场景。
      2. 如果仅选择一个或少数分桶列，则对应的点查询可以仅触发一个分桶扫描。此时，当多个点查询并发时，这些查询有较大的概率分别触发不同的分桶扫描，各个查询之间的IO影响较小（尤其当不同桶分布在不同磁盘上时），所以这种方式适合高并发的点查询场景。
+   - AutoBucket: 根据数据量，计算分桶数。 对于分区表，可以根据历史分区的数据量、机器数、盘数，确定一个分桶。
    - 分桶的数量理论上没有上限。
 
 3. **关于 Partition 和 Bucket 的数量和数据量的建议。**
@@ -409,7 +410,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    - 在 fe.log 中，查找对应时间点的 `Failed to create partition` 日志。在该日志中，会出现一系列类似 `{10001-10010}` 字样的数字对。数字对的第一个数字表示 Backend ID，第二个数字表示 Tablet ID。如上这个数字对，表示 ID 为 10001 的 Backend 上，创建 ID 为 10010 的 Tablet 失败了。
    - 前往对应 Backend 的 be.INFO 日志，查找对应时间段内，tablet id 相关的日志，可以找到错误信息。
    - 以下罗列一些常见的 tablet 创建失败错误，包括但不限于：
-     - BE 没有收到相关 task，此时无法在 be.INFO 中找到 tablet id 相关日志或者 BE 创建成功，但汇报失败。以上问题，请参阅 [安装与部署](../install/install-deploy.md) 检查 FE 和 BE 的连通性。
+     - BE 没有收到相关 task，此时无法在 be.INFO 中找到 tablet id 相关日志或者 BE 创建成功，但汇报失败。以上问题，请参阅 [安装与部署](../install/standard-deployment.md) 检查 FE 和 BE 的连通性。
      - 预分配内存失败。可能是表中一行的字节长度超过了 100KB。
      - `Too many open files`。打开的文件句柄数超过了 Linux 系统限制。需修改 Linux 系统的句柄数限制。
 

@@ -23,20 +23,26 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
 ## element_at
+
+<version since="1.2.0">
+
+element_at
+
+</version>
 
 ### description
 
 #### Syntax
 
-`T element_at(ARRAY<T> arr, BIGINT position)`
-
-`T arr[position]`
+```sql
+T element_at(ARRAY<T> arr, BIGINT position)
+T arr[position]
+```
 
 Returns an element of an array located at the input position. If there is no element at the position, return NULL.
 
-`position` is 1-based and support negtive number.
+`position` is 1-based and support negative number.
 
 ### notice
 
@@ -60,7 +66,7 @@ mysql> SELECT id,c_array,element_at(c_array, 5) FROM `array_test`;
 +------+-----------------+--------------------------+
 ```
 
-negtive `position` example:
+negative `position` example:
 
 ```
 mysql> set enable_vectorized_engine=true;
@@ -79,3 +85,4 @@ mysql> SELECT id,c_array,c_array[-2] FROM `array_test`;
 ### keywords
 
 ELEMENT_AT, SUBSCRIPT
+

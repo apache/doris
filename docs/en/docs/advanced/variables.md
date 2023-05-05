@@ -69,6 +69,7 @@ Variables that support both session-level and global-level setting include:
 * `sql_mode`
 * `enable_profile`
 * `query_timeout`
+* `insert_timeout`<version since="dev"></version>
 * `exec_mem_limit`
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
@@ -188,11 +189,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
 * `disable_colocate_join`
 
-    Controls whether the [Colocation Join](../advanced/join-optimization/colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
+    Controls whether the [Colocation Join](../query-acceleration/join-optimization/colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
     
 * `enable_bucket_shuffle_join`
 
-    Controls whether the [Bucket Shuffle Join](../advanced/join-optimization/bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
+    Controls whether the [Bucket Shuffle Join](../query-acceleration/join-optimization/bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
 
 * `disable_streaming_preaggregations`
 
@@ -358,7 +359,12 @@ Translated with www.DeepL.com/Translator (free version)
     
 * `query_timeout`
 
-    Used to set the query timeout. This variable applies to all query statements in the current connection, as well as INSERT statements. The default is 5 minutes, in seconds.
+    Used to set the query timeout. This variable applies to all query statements in the current connection. Particularly, timeout of INSERT statements is recommended to be managed by the insert_timeout below. The default is 5 minutes, in seconds.
+
+* `insert_timeout`
+
+  <version since="dev"></version>Used to set the insert timeout. This variable applies to INSERT statements particularly in the current connection, and is recommended to manage long-duration INSERT action. The default is 4 hours, in seconds. It will lose effect when query_timeout is
+    greater than itself to make it compatible with the habits of older version users to use query_timeout to control the timeout of INSERT statements.
 
 * `resource_group`
 
@@ -480,7 +486,33 @@ Translated with www.DeepL.com/Translator (free version)
     Used to control whether to perform predicate derivation. There are two values: true and false. It is turned off by default, that is, the system does not perform predicate derivation, and uses the original predicate to perform related operations. After it is set to true, predicate expansion is performed.
 
 * `return_object_data_as_binary`
-  Used to identify whether to return the bitmap/hll result in the select result. In the select into outfile statement, if the export file format is csv, the bimap/hll data will be base64-encoded, if it is the parquet file format, the data will be stored as a byte array
+  Used to identify whether to return the bitmap/hll result in the select result. In the select into outfile statement, if the export file format is csv, the bimap/hll data will be base64-encoded, if it is the parquet file format, the data will be stored as a byte array. Below will be an example of Java, more examples can be found in [samples](https://github.com/apache/doris/tree/master/samples/read_bitmap).
+
+  ```java
+  try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/test?user=root");
+               Statement stmt = conn.createStatement()
+  ) {
+      stmt.execute("set return_object_data_as_binary=true"); // IMPORTANT!!!
+      ResultSet rs = stmt.executeQuery("select uids from t_bitmap");
+      while(rs.next()){
+          byte[] bytes = rs.getBytes(1);
+          RoaringBitmap bitmap32 = new RoaringBitmap();
+          switch(bytes[0]) {
+              case 0: // for empty bitmap
+                  break;
+              case 1: // for only 1 element in bitmap32
+                  bitmap32.add(ByteBuffer.wrap(bytes,1,bytes.length-1)
+                          .order(ByteOrder.LITTLE_ENDIAN)
+                          .getInt());
+                  break;
+              case 2: // for more than 1 elements in bitmap32
+                  bitmap32.deserialize(ByteBuffer.wrap(bytes,1,bytes.length-1));
+                  break;
+              // for more details, see https://github.com/apache/doris/tree/master/samples/read_bitmap
+          }
+      }
+  }
+  ```
 
 * `block_encryption_mode`
   The block_encryption_mode variable controls the block encryption mode. The default setting is empty, when use AES equal to `AES_128_ECB`, when use SM4 equal to `SM3_128_ECB`
@@ -527,10 +559,12 @@ Translated with www.DeepL.com/Translator (free version)
   Used to control whether trim the tailing spaces while quering Hive external tables. The default is false.
 
 * `skip_storage_engine_merge`
-  For debugging purpose. In vectorized execution engine, in case of problems of reading data of Aggregate Key model and Unique Key model, setting value to `true` will read data as Duplicate Key model.
+
+    For debugging purpose. In vectorized execution engine, in case of problems of reading data of Aggregate Key model and Unique Key model, setting value to `true` will read data as Duplicate Key model.
 
 * `skip_delete_predicate`
-  For debugging purpose. In vectorized execution engine, in case of problems of reading data, setting value to `true` will also read deleted data.
+
+    For debugging purpose. In vectorized execution engine, in case of problems of reading data, setting value to `true` will also read deleted data.
 
 * `skip_delete_bitmap`
 
@@ -562,10 +596,75 @@ Translated with www.DeepL.com/Translator (free version)
 
     For compatible purpose. This variable has no effect, just enable some BI tools can query or set this session variable sucessfully.
 
+* `rewrite_or_to_in_predicate_threshold`
+
+    The default threshold of rewriting OR to IN. The default value is 2, which means that when there are 2 ORs, if they can be compact, they will be rewritten as IN predicate.
+
 *   `group_by_and_having_use_alias_first`
 
     Specifies whether group by and having clauses use column aliases rather than searching for column name in From clause. The default value is false.
 
+* `enable_file_cache`
+
+    Set wether to use block file cache. This variable takes effect only if the BE config enable_file_cache=true. The cache is not used when BE config enable_file_cache=false.
+
+* `topn_opt_limit_threshold`
+
+    Set threshold for limit of topn query (eg. SELECT * FROM t ORDER BY k LIMIT n). If n <= threshold, topn optimizations(runtime predicate pushdown, two phase result fetch and read order by key) will enable automatically, otherwise disable. Default value is 1024.
+
+* `drop_table_if_ctas_failed`
+
+    Controls whether create table as select deletes created tables when a insert error occurs, the default value is true.
+
+* `show_user_default_role`
+
+    <version since="dev"></version>
+
+    Controls whether to show each user's implicit roles in the results of `show roles`. Default is false.
+
 * `use_fix_replica`
 
     Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
+
+* `dry_run_query`
+
+    <version since="dev"></version>
+
+    If set to true, for query requests, the actual result set will no longer be returned, but only the number of rows. The default is false.
+
+    This parameter can be used to avoid the time-consuming result set transmission when testing a large number of data sets, and focus on the time-consuming underlying query execution.
+
+    ```
+    mysql> select * from bigtable;
+    +--------------+
+    | ReturnedRows |
+    +--------------+
+    | 10000000     |
+    +--------------+
+    ```
+
+***
+
+#### Supplementary instructions on statement execution timeout control
+
+* Means of control
+
+     Currently doris supports timeout control through `variable` and `user property` two systems. Both include `qeury_timeout` and `insert_timeout`.
+
+* Priority
+
+     The order of priority for timeout to take effect is: `session variable` > `user property` > `global variable` > `default value`
+
+     When a variable with a higher priority is not set, the value of the next priority is automatically adopted.
+
+* Related semantics
+
+     `query_timeout` is used to control the timeout of all statements, and `insert_timeout` is specifically used to control the timeout of the INSERT statement. When the INSERT statement is executed, the timeout time will take
+    
+     The maximum value of `query_timeout` and `insert_timeout`.
+
+     `query_timeout` and `insert_timeout` in `user property` can only be specified by the ADMIN user for the target user, and its semantics is to change the default timeout time of the specified user, and it does not have `quota` semantics.
+
+* Precautions
+
+     The timeout set by `user property` needs to be triggered after the client reconnects.

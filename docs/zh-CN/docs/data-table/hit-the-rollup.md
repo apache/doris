@@ -44,7 +44,7 @@ ROLLUP 表的基本作用，在于在 Base 表的基础上，获得更粗粒度�
 
 1. 示例1：获得每个用户的总消费
 
-接 **[数据模型Aggregate 模型](../data-model)**小节的**示例2**，Base 表结构如下：
+接 **[数据模型Aggregate 模型](./data-model.md)**小节的**示例2**，Base 表结构如下：
 
 | ColumnName      | Type        | AggregationType | Comment                |
 | --------------- | ----------- | --------------- | ---------------------- |
@@ -126,7 +126,7 @@ mysql> SELECT city, sum(cost), max(max_dwell_time), min(min_dwell_time) FROM tab
 mysql> SELECT city, age, sum(cost), min(min_dwell_time) FROM table GROUP BY city, age;
 ```
 
-Doris 会执行这些sql时会自动命中这个 ROLLUP 表。
+Doris 执行这些sql时会自动命中这个 ROLLUP 表。
 
 ### Duplicate 模型中的 ROLLUP
 

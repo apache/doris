@@ -24,13 +24,17 @@ under the License.
 
 ## array_remove
 
+<version since="1.2.0">
+
+array_remove
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
-ARRAY<T> array_remove(ARRAY<T> arr, T val)
-```
+`ARRAY<T> array_remove(ARRAY<T> arr, T val)`
 
 Remove all elements that equal to element from array.
 
@@ -95,3 +99,4 @@ mysql> select k1, k2, array_remove(k2, k1) from array_type_table_nullable;
 ### keywords
 
 ARRAY,REMOVE,ARRAY_REMOVE
+

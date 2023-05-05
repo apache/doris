@@ -26,13 +26,17 @@ under the License.
 
 ## array_join
 
+<version since="1.2.0">
+
+array_join
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
-VARCHAR array_join(ARRAY<T> arr, VARCHAR sep[, VARCHAR null_replace])
-```
+`VARCHAR array_join(ARRAY<T> arr, VARCHAR sep[, VARCHAR null_replace])`
 
 根据分隔符(sep)和替换NULL的字符串(null_replace), 将数组中的所有元素组合成一个新的字符串。
 若sep为NULL，则返回值为NULL。
@@ -50,7 +54,7 @@ VARCHAR array_join(ARRAY<T> arr, VARCHAR sep[, VARCHAR null_replace])
 
 mysql> set enable_vectorized_engine=true;
 
-mysql> select k1, k2, array_join(k1, '_', 'null') from array_test order by k1;
+mysql> select k1, k2, array_join(k2, '_', 'null') from array_test order by k1;
 +------+-----------------------------+------------------------------------+
 | k1   | k2                          | array_join(`k2`, '_', 'null')      |
 +------+-----------------------------+------------------------------------+

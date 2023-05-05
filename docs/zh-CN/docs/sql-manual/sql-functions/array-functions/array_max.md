@@ -26,7 +26,16 @@ under the License.
 
 ## array_max
 
+<version since="1.2.0">
+
+array_max
+
+</version>
+
 ### description
+
+#### Syntax
+`T array_max(ARRAY<T> array1)`
 
 返回数组中最大的元素，数组中的`NULL`值会被跳过。空数组以及元素全为`NULL`值的数组，结果返回`NULL`值。
 

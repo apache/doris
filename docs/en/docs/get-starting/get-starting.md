@@ -53,7 +53,7 @@ Go to the `apache-doris-x.x.x/fe` directory
 cd apache-doris-x.x.x/fe
 ```
 
-Modify the FE configuration file `conf/fe.conf`, here we mainly modify two parameters: `priority_networks` and `meta_dir`, if you need more optimized configuration, please refer to [FE parameter configuration](../admin-manual/config/fe-config) for instructions on how to adjust them.
+Modify the FE configuration file `conf/fe.conf`, here we mainly modify two parameters: `priority_networks` and `meta_dir`, if you need more optimized configuration, please refer to [FE parameter configuration](../admin-manual/config/fe-config.md) for instructions on how to adjust them.
 
 1. add priority_networks parameter
 
@@ -122,7 +122,7 @@ mysql -uroot -P9030 -h127.0.0.1
 
 >Note: 
 >
->1. The root user used here is the default user built into doris, and is also the super administrator user, see [Rights Management](../admin-manual/privilege-ldap/user-privilege)
+>1. The root user used here is the default user built into doris, and is also the super administrator user, see [Rights Management](../admin-manual/privilege-ldap/user-privilege.md)
 >2. -P: Here is our query port to connect to Doris, the default port is 9030, which corresponds to `query_port` in fe.conf
 >3. -h: Here is the IP address of the FE we are connecting to, if your client and FE are installed on the same node you can use 127.0.0.1, this is also provided by Doris if you forget the root password, you can connect directly to the login without the password in this way and reset the root password
 
@@ -159,6 +159,28 @@ ReplayedJournalId: 49292
 
 1. If the IsMaster, Join and Alive columns are true, the node is normal.
 
+#### Communicate with the server over an encrypted connection
+
+Doris supports SSL-based encrypted connections. It currently supports TLS1.2 and TLS1.3 protocols. Doris' SSL mode can be enabled through the following configuration:
+Modify the FE configuration file `conf/fe.conf` and add `enable_ssl = true`.
+
+Next, connect to Doris through `mysql` client, mysql supports five SSL modes:
+
+1. `mysql -uroot -P9030 -h127.0.0.1` is the same as `mysql --ssl-mode=PREFERRED -uroot -P9030 -h127.0.0.1`, both try to establish an SSL encrypted connection at the beginning, if it fails , a normal connection is attempted.
+
+2. `mysql --ssl-mode=DISABLE -uroot -P9030 -h127.0.0.1`, do not use SSL encrypted connection, use normal connection directly.
+
+3. `mysql --ssl-mode=REQUIRED -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connections.
+
+4.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connection and verify the validity of the server's identity by specifying the CA certificate。
+
+5.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem --ssl-cert=client-cert.pem --ssl-key=client-key.pem -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connection, two-way ssl。
+
+>Note:
+>`--ssl-mode` parameter is introduced by mysql5.7.11 version, please refer to [here](https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-connp-props-security.html) for mysql client version lower than this version。
+
+Doris needs a key certificate file to verify the SSL encrypted connection. The default key certificate file is located at `Doris/fe/mysql_ssl_default_certificate/`. For the generation of the key certificate file, please refer to [Key Certificate Configuration](../admin-manual/certificate.md)。
+
 #### Stop FE
 
 The stopping of Doris FE can be done with the following command
@@ -175,7 +197,7 @@ Go to the `apache-doris-x.x.x/be` directory
 cd apache-doris-x.x.x/be
 ```
 
-Modify the BE configuration file `conf/be.conf`, here we mainly modify two parameters: `priority_networks'` and `storage_root`, if you need more optimized configuration, please refer to [BE parameter configuration](../admin-manual/config/be-config) instructions to make adjustments.
+Modify the BE configuration file `conf/be.conf`, here we mainly modify two parameters: `priority_networks'` and `storage_root`, if you need more optimized configuration, please refer to [BE parameter configuration](../admin-manual/config/be-config.md) instructions to make adjustments.
 
 1. Add priority_networks parameter
 
@@ -198,6 +220,16 @@ storage_root_path=/path/your/data_dir
 >
 >1. The default directory is in the storage directory of the BE installation directory.
 >2. The storage directory for BE configuration must be created first
+
+3. Set JAVA_HOME environment variable
+
+  <version since="1.2.0"></version>  
+  Java UDF are supported since version 1.2, so BE are dependent on the Java environment. It is necessary to set the `JAVA_HOME` environment variable before starting. You can also add `export JAVA_HOME=your_java_home_path` to the first line of the `start_be.sh` startup script to set the variable.
+
+4. Install Java UDF functions 
+
+  <version since="1.2.0">Install Java UDF functions</version>  
+  Because Java UDF functions are supported from version 1.2, you need to download the JAR package of Java UDF functions from the official website and put them in the lib directory of BE, otherwise it may fail to start.
 
 ### Start BE
 

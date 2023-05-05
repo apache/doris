@@ -24,11 +24,18 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DATE
+## DATEV2
+
+<version since="1.2.0">
+
+DATEV2
+
+</version>
+
 ### Description
 #### Syntax
 datev2
-DateV2 type, the current range of values is ['0000-01-01','9999-12-31'], and the default print form is 'YYYYY-MM-DD'.
+DateV2 type, the current range of values is ['0000-01-01','9999-12-31'], and the default print form is 'yyyy-MM-dd'.
 
 ### note
 DATEV2 type is more efficient than DATE type. During calculation, DATEV2 can save half of the memory usage compared with DATE.

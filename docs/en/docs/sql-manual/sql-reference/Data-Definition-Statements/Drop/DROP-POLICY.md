@@ -61,6 +61,12 @@ DROP STORAGE POLICY policy_name1
    ```sql
    DROP ROW POLICY test_row_policy_1 on table1 for test
    ```
+
+3. Drop the storage policy named policy_name1
+```sql
+DROP STORAGE POLICY policy_name1
+```
+
 ### Keywords
 
     DROP, POLICY

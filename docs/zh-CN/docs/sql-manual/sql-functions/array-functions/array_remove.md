@@ -24,13 +24,17 @@ under the License.
 
 ## array_remove
 
+<version since="1.2.0">
+
+array_remove
+
+</version>
+
 ### description
 
 #### Syntax
 
-```
-ARRAY<T> array_remove(ARRAY<T> arr, T val)
-```
+`ARRAY<T> array_remove(ARRAY<T> arr, T val)`
 
 返回移除所有的指定元素后的数组，如果输入参数为NULL，则返回NULL
 
