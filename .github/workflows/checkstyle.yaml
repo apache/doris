@@ -18,8 +18,7 @@
 ---
 name: FE Code Style Checker
 
-on:
-  pull_request_target:
+on: [push, pull_request_target]
 
 jobs:
   java-checkstyle:
