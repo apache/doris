@@ -317,14 +317,6 @@ if [[ -z "${DISPLAY_BUILD_TIME}" ]]; then
     DISPLAY_BUILD_TIME='OFF'
 fi
 
-if [[ -z "${ENABLE_PCH}" ]]; then
-    ENABLE_PCH=0
-    export CCACHE_NOPCH_EXTSUM=true
-else
-    ENABLE_PCH=1
-    export CCACHE_PCH_EXTSUM=true
-fi
-
 if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
     OUTPUT_BE_BINARY=${BUILD_BE}
 fi
