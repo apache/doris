@@ -40,29 +40,34 @@ public:
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter) override;
 
+    template <bool hasFilter>
+    Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                          ColumnSelectVector& select_vector, bool is_dict_filter);
+
     Status skip_values(size_t num_values) override;
 
 protected:
-    template <typename Numeric>
+    template <typename Numeric, bool has_filter>
     Status _decode_numeric(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
-    template <typename CppType, typename ColumnType>
+    template <typename CppType, typename ColumnType, bool has_filter>
     Status _decode_date(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
-    template <typename CppType, typename ColumnType>
+    template <typename CppType, typename ColumnType, bool has_filter>
     Status _decode_datetime64(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
-    template <typename CppType, typename ColumnType>
+    template <typename CppType, typename ColumnType, bool has_filter>
     Status _decode_datetime96(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
-    template <typename DecimalPrimitiveType>
+    template <typename DecimalPrimitiveType, bool has_filter>
     Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                   ColumnSelectVector& select_vector);
 
-    template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
+    template <typename DecimalPrimitiveType, typename DecimalPhysicalType, bool has_filter>
     Status _decode_primitive_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                      ColumnSelectVector& select_vector);
 
+    template <bool has_filter>
     Status _decode_string(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
     tparquet::Type::type _physical_type;

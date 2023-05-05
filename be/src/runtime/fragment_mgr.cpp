@@ -18,6 +18,7 @@
 #include "runtime/fragment_mgr.h"
 
 #include <bvar/latency_recorder.h>
+#include <exprs/runtime_filter.h>
 #include <fmt/format.h>
 #include <gen_cpp/DorisExternalService_types.h>
 #include <gen_cpp/FrontendService.h>
@@ -402,8 +403,9 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.__isset.profile = false;
         } else {
             req.profile->to_thrift(&params.profile);
-            if (req.load_channel_profile)
+            if (req.load_channel_profile) {
                 req.load_channel_profile->to_thrift(&params.loadChannelProfile);
+            }
             params.__isset.profile = true;
             params.__isset.loadChannelProfile = true;
         }
@@ -639,7 +641,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
     } else {
         // This may be a first fragment request of the query.
         // Create the query fragments context.
-        query_ctx = QueryContext::create_shared(params.fragment_num_on_host, _exec_env);
+        query_ctx = QueryContext::create_shared(params.fragment_num_on_host, _exec_env,
+                                                params.query_options);
         query_ctx->query_id = query_id;
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
@@ -904,7 +907,6 @@ void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancel
     }
     if (exec_state) {
         exec_state->cancel(reason, msg);
-        return;
     }
 
     std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_fragment_ctx;
@@ -1154,10 +1156,66 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
     return runtime_filter_mgr->update_filter(request, attach_data);
 }
 
+Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
+                                   butil::IOBufAsZeroCopyInputStream* attach_data) {
+    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
+    int64_t start_apply = MonotonicMillis();
+
+    const auto& fragment_instance_ids = request->fragment_instance_ids();
+    if (fragment_instance_ids.size() > 0) {
+        UniqueId fragment_instance_id = fragment_instance_ids[0];
+        TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
+
+        std::shared_ptr<FragmentExecState> fragment_state;
+        std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
+
+        RuntimeFilterMgr* runtime_filter_mgr = nullptr;
+        ObjectPool* pool;
+        if (is_pipeline) {
+            std::unique_lock<std::mutex> lock(_lock);
+            auto iter = _pipeline_map.find(tfragment_instance_id);
+            if (iter == _pipeline_map.end()) {
+                VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
+                return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
+            }
+            pip_context = iter->second;
+
+            DCHECK(pip_context != nullptr);
+            runtime_filter_mgr =
+                    pip_context->get_runtime_state()->get_query_ctx()->runtime_filter_mgr();
+            pool = &pip_context->get_query_context()->obj_pool;
+        } else {
+            std::unique_lock<std::mutex> lock(_lock);
+            auto iter = _fragment_map.find(tfragment_instance_id);
+            if (iter == _fragment_map.end()) {
+                VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
+                return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
+            }
+            fragment_state = iter->second;
+
+            DCHECK(fragment_state != nullptr);
+            runtime_filter_mgr = fragment_state->executor()
+                                         ->runtime_state()
+                                         ->get_query_ctx()
+                                         ->runtime_filter_mgr();
+            pool = &fragment_state->get_query_ctx()->obj_pool;
+        }
+
+        UpdateRuntimeFilterParamsV2 params(request, attach_data, pool);
+        int filter_id = request->filter_id();
+        IRuntimeFilter* real_filter = nullptr;
+        RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filter(filter_id, &real_filter));
+        RETURN_IF_ERROR(real_filter->update_filter(&params, start_apply));
+    }
+
+    return Status::OK();
+}
+
 Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     UniqueId queryid = request->query_id();
     bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
+    bool opt_remote_rf = request->has_opt_remote_rf() && request->opt_remote_rf();
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
@@ -1188,7 +1246,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         // when filter_controller->merge is still in progress
         fragment_state = iter->second;
     }
-    RETURN_IF_ERROR(filter_controller->merge(request, attach_data));
+    RETURN_IF_ERROR(filter_controller->merge(request, attach_data, opt_remote_rf));
     return Status::OK();
 }
 

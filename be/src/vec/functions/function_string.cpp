@@ -95,7 +95,7 @@ struct StringUtf8LengthImpl {
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int str_size = offsets[i] - offsets[i - 1];
-            res[i] = get_char_len(StringRef(raw_str, str_size), str_size);
+            res[i] = simd::VStringFunctions::get_char_len(raw_str, str_size);
         }
         return Status::OK();
     }
@@ -223,7 +223,8 @@ struct StringInStrImpl {
             // Hive returns positions starting from 1.
             int loc = search.search(&lstr_ref);
             if (loc > 0) {
-                loc = get_char_len(lstr_ref, loc);
+                size_t len = std::min(lstr_ref.size, (size_t)loc);
+                loc = simd::VStringFunctions::get_char_len(lstr_ref.data, len);
             }
             res[i] = loc + 1;
         }
@@ -263,7 +264,8 @@ struct StringInStrImpl {
         // Hive returns positions starting from 1.
         int loc = search.search(&strl);
         if (loc > 0) {
-            loc = get_char_len(strl, loc);
+            size_t len = std::min((size_t)loc, strl.size);
+            loc = simd::VStringFunctions::get_char_len(strl.data, len);
         }
 
         return loc + 1;

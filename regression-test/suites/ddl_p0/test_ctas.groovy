@@ -152,6 +152,32 @@ suite("test_ctas") {
               and substring(col8, 1, 10) = '1451601';
         """
 
+        sql """
+            DROP TABLE IF EXISTS tbl_3210581
+        """
+
+        sql """
+            CREATE TABLE tbl_3210581 (col1 varchar(11451) not null, col2 int not null, col3 int not null)
+            UNIQUE KEY(`col1`)
+            DISTRIBUTED BY HASH(col1)
+            BUCKETS 3
+            PROPERTIES(
+                "replication_num"="1"
+            )
+        """
+
+        sql """
+            DROP TABLE IF EXISTS ctas_113815;
+        """
+
+        sql """
+            create table ctas_113815
+            PROPERTIES('replication_num' = '1')
+            as 
+            select     group_concat(col1 ORDER BY col1) from     `tbl_3210581`
+            group by `col2`;
+        """
+
     } finally {
         sql """ DROP TABLE IF EXISTS test_ctas """
 
@@ -168,6 +194,14 @@ suite("test_ctas") {
         sql """DROP TABLE IF EXISTS test_tbl_81748325"""
 
         sql """DROP TABLE IF EXISTS test_tbl_3156019"""
+
+        sql """
+            DROP TABLE IF EXISTS tbl_3210581
+        """
+
+        sql """
+            DROP TABLE IF EXISTS ctas_113815
+        """
     }
 
 }

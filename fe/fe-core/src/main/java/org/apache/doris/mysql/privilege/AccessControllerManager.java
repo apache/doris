@@ -148,7 +148,8 @@ public class AccessControllerManager {
 
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        return getAccessControllerOrDefault(ctl).checkDbPriv(hasGlobal, currentUser, ctl, db, wanted);
+        String qualifiedDb = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db);
+        return getAccessControllerOrDefault(ctl).checkDbPriv(hasGlobal, currentUser, ctl, qualifiedDb, wanted);
     }
 
     // ==== Table ====
@@ -172,7 +173,8 @@ public class AccessControllerManager {
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        return getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, db, tbl, wanted);
+        String qualifiedDb = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db);
+        return getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, qualifiedDb, tbl, wanted);
     }
 
     // ==== Column ====

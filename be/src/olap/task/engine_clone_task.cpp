@@ -281,9 +281,15 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             // TODO(zc): if snapshot path has been returned from source, it is some strange to
             // concat tablet_id and schema hash here.
             std::stringstream ss;
-            ss << "http://" << get_host_port(src.host, src.http_port) << HTTP_REQUEST_PREFIX
-               << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
-               << "/" << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+            if (snapshot_path->back() == '/') {
+                ss << "http://" << src.host << ":" << src.http_port << HTTP_REQUEST_PREFIX
+                   << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
+                   << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+            } else {
+                ss << "http://" << src.host << ":" << src.http_port << HTTP_REQUEST_PREFIX
+                   << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
+                   << "/" << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+            }
 
             remote_url_prefix = ss.str();
         }

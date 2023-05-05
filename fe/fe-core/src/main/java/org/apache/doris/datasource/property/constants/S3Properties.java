@@ -113,7 +113,7 @@ public class S3Properties extends BaseProperties {
             throw new IllegalArgumentException("Missing 'AWS_ENDPOINT' property. ");
         }
         String endpoint = props.get(Env.ENDPOINT);
-        String region = props.getOrDefault(S3Properties.REGION, S3Properties.getRegionOfEndpoint(endpoint));
+        String region = props.getOrDefault(Env.REGION, S3Properties.getRegionOfEndpoint(endpoint));
         return new CloudCredentialWithEndpoint(endpoint, region, credential);
     }
 

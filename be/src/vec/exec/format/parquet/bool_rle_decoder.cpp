@@ -58,6 +58,16 @@ Status BoolRLEDecoder::skip_values(size_t num_values) {
 
 Status BoolRLEDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                      ColumnSelectVector& select_vector, bool is_dict_filter) {
+    if (select_vector.has_filter()) {
+        return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
+    } else {
+        return _decode_values<false>(doris_column, data_type, select_vector, is_dict_filter);
+    }
+}
+
+template <bool has_filter>
+Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                      ColumnSelectVector& select_vector, bool is_dict_filter) {
     auto& column_data = static_cast<ColumnVector<UInt8>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
@@ -67,7 +77,7 @@ Status BoolRLEDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr
         return Status::IOError("Can't read enough booleans in rle decoder");
     }
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             bool value; // Can't use uint8_t directly, we should correct it.

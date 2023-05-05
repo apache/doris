@@ -68,4 +68,5 @@ public class StatisticConstants {
     public static final int FETCH_INTERVAL_IN_MS = 500;
 
     public static final int HISTOGRAM_MAX_BUCKET_NUM = 128;
+
 }

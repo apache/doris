@@ -238,7 +238,7 @@ PROPERTIES (
 
 | OceanBase Version | OceanBase JDBC Driver Version |
 |-------------------|-------------------------------|
-| 4.1.0             | oceanbase-client-2.4.2.jar    |
+| 3.2.3             | oceanbase-client-2.4.2.jar    |
 
 ```sql
 CREATE EXTERNAL RESOURCE jdbc_oceanbase
@@ -248,7 +248,8 @@ properties (
     "password"="",
     "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
     "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Driverr"
+    "driver_class" = "com.oceanbase.jdbc.Driver",
+    "oceanbase_mode" = "mysql" or "oracle"
 );
 
 CREATE EXTERNAL TABLE `ext_oceanbase` (
@@ -260,6 +261,10 @@ PROPERTIES (
     "table_type"="oceanbase"
 );
 ```
+
+> **Note:**
+>
+> When creating an OceanBase external table, you only need to specify the `oceanbase mode` parameter when creating a resource, and the table type of the table to be created is oceanbase
 
 ## Type Mapping
 
@@ -400,20 +405,8 @@ The followings list how data types in different databases are mapped in Doris.
 
 ### OceanBase
 
-|    OceanBase    |  Doris   |
-|:---------------:|:--------:|
-|     BOOLEAN     |  STRING  |
-|       BIT       |  STRING  |
-|     TINYINT     | TINYINT  |
-|    SMALLINT     | SMALLINT |
-|       INT       |   INT    |
-|     BIGINT      |  BIGINT  |
-|     VARCHAR     | VARCHAR  |
-|      DATE       |   DATE   |
-|      FLOAT      |  FLOAT   |
-|    DATETIME     | DATETIME |
-|     DOUBLE      |  DOUBLE  |
-|     DECIMAL     | DECIMAL  |
+For MySQL mode, please refer to [MySQL type mapping](#MySQL)
+For Oracle mode, please refer to [Oracle type mapping](#Oracle)
 
 ## Q&A
 

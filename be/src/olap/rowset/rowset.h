@@ -166,6 +166,10 @@ public:
     // TODO should we rename the method to remove_files() to be more specific?
     virtual Status remove() = 0;
 
+    // used for partial update, when publish, partial update may add a new rowset
+    // and we should update rowset meta
+    void merge_rowset_meta(const RowsetMetaSharedPtr& other);
+
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on
     // NOTICE: can not call this function in multithreads

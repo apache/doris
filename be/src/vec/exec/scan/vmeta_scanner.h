@@ -22,6 +22,7 @@
 
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/global_types.h"
 #include "common/status.h"
 #include "vec/data_types/data_type.h"
@@ -46,13 +47,15 @@ class VMetaScanNode;
 namespace doris::vectorized {
 
 class VMetaScanner : public VScanner {
+    ENABLE_FACTORY_CREATOR(VMetaScanner);
+
 public:
     VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
                  const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+    Status prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;

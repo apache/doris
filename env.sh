@@ -117,7 +117,7 @@ fi
 if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
     # set GCC HOME
     if [[ -z "${DORIS_GCC_HOME}" ]]; then
-        DORIS_GCC_HOME="$(dirname "$(which gcc)")"/..
+        DORIS_GCC_HOME="$(dirname "$(command -v gcc)")"/..
         export DORIS_GCC_HOME
     fi
 
@@ -135,7 +135,7 @@ if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
 elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     # set CLANG HOME
     if [[ -z "${DORIS_CLANG_HOME}" ]]; then
-        DORIS_CLANG_HOME="$(dirname "$(which clang)")"/..
+        DORIS_CLANG_HOME="$(dirname "$(command -v clang)")"/..
         export DORIS_CLANG_HOME
     fi
 
@@ -163,7 +163,7 @@ if [[ -z "${DORIS_BIN_UTILS}" ]]; then
 fi
 
 if [[ -z "${DORIS_GCC_HOME}" ]]; then
-    DORIS_GCC_HOME="$(dirname "$(which gcc)")/.."
+    DORIS_GCC_HOME="$(dirname "$(command -v gcc)")/.."
     export DORIS_GCC_HOME
 fi
 
@@ -191,8 +191,8 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
 
     # check java home
     if [[ -z "${JAVA_HOME}" ]]; then
-        JAVA="$(which java)"
-        JAVAP="$(which javap)"
+        JAVA="$(command -v java)"
+        JAVAP="$(command -v javap)"
     else
         JAVA="${JAVA_HOME}/bin/java"
         JAVAP="${JAVA_HOME}/bin/javap"

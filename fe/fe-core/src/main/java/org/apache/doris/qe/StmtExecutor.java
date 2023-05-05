@@ -1109,6 +1109,9 @@ public class StmtExecutor implements ProfileWriter {
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
         }
+        if (parsedStmt instanceof AnalyzeStmt) {
+            Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
+        }
     }
 
     // Handle kill statement.
