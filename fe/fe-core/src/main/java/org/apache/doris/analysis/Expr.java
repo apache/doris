@@ -2300,6 +2300,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
             return Type.MAX_DECIMALV2_TYPE;
         }
+        if (Config.enable_date_conversion) {
+            if (originType.getPrimitiveType() == PrimitiveType.DATE) {
+                return Type.DATEV2;
+            } else if (originType.getPrimitiveType() == PrimitiveType.DATETIME) {
+                return Type.DATETIMEV2;
+            }
+        }
         return originType;
     }
 
