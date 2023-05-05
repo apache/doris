@@ -429,15 +429,17 @@ public class StmtExecutor {
                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
 
         // limitations: partition_num, tablet_num, cardinality
-        List<ScanNode> scanNodeList = planner.getScanNodes();
-        for (ScanNode scanNode : scanNodeList) {
-            if (scanNode instanceof OlapScanNode) {
-                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
-                        olapScanNode.getSelectedPartitionNum().longValue(),
-                        olapScanNode.getSelectedTabletsNum(),
-                        olapScanNode.getCardinality(),
-                        context.getQualifiedUser());
+        if (planner != null) {
+            List<ScanNode> scanNodeList = planner.getScanNodes();
+            for (ScanNode scanNode : scanNodeList) {
+                if (scanNode instanceof OlapScanNode) {
+                    OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                    Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
+                            olapScanNode.getSelectedPartitionNum().longValue(),
+                            olapScanNode.getSelectedTabletsNum(),
+                            olapScanNode.getCardinality(),
+                            context.getQualifiedUser());
+                }
             }
         }
 
@@ -450,6 +452,12 @@ public class StmtExecutor {
         context.setStartTime();
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
+        if (!parsedStmt.isExplain()) {
+            if (checkBlockRules()) {
+                return;
+            }
+        }
+
         parseByNereids();
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
@@ -504,9 +512,7 @@ public class StmtExecutor {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt);
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
             }
-            if (checkBlockRules()) {
-                return;
-            }
+
             profile.getSummaryProfile().setQueryPlanFinishTime();
             handleQueryWithRetry(queryId);
         }
@@ -635,13 +641,13 @@ public class StmtExecutor {
                 return;
             }
 
-            if (parsedStmt instanceof QueryStmt) {
-                if (!parsedStmt.isExplain()) {
-                    // sql/sqlHash block
-                    if (checkBlockRules()) {
-                        return;
-                    }
+            if (!parsedStmt.isExplain()) {
+                // sql/sqlHash block
+                if (checkBlockRules()) {
+                    return;
                 }
+            }
+            if (parsedStmt instanceof QueryStmt) {
                 handleQueryWithRetry(queryId);
             } else if (parsedStmt instanceof SetStmt) {
                 handleSetStmt();
