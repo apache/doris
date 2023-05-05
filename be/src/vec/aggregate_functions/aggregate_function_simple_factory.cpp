@@ -84,6 +84,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_collect_list(instance);
         register_aggregate_function_sequence_match(instance);
         register_aggregate_function_avg_weighted(instance);
+        register_aggregate_function_HLL_union_agg(instance);
 
         // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
         register_aggregate_function_combinator_null(instance);
@@ -91,7 +92,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_stddev_variance_samp(instance);
         register_aggregate_function_replace_reader_load(instance);
         register_aggregate_function_window_lead_lag_first_last(instance);
-        register_aggregate_function_HLL_union_agg(instance);
         register_aggregate_function_percentile_approx(instance);
     });
     return instance;
