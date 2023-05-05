@@ -46,7 +46,6 @@ struct TTabletInfo {
     // 18: optional bool is_cooldown
     19: optional i64 cooldown_term
     20: optional Types.TUniqueId cooldown_meta_id
-    21: optional bool is_dropped
 }
 
 struct TFinishTaskRequest {

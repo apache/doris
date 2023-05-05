@@ -231,6 +231,8 @@ message TabletSchemaPB {
     optional int32 version_col_idx = 17 [default = -1];
     optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
     optional bool is_dynamic_schema = 19 [default=false];
+    optional bool is_partial_update = 20 [default=false];
+    repeated string partial_update_input_columns = 21;
 }
 
 enum TabletStatePB {
@@ -298,7 +300,6 @@ message TabletMetaPB {
     optional bool enable_unique_key_merge_on_write = 24 [default = false];
     optional int64 storage_policy_id = 25;
     optional PUniqueId cooldown_meta_id = 26;
-    optional bool is_dropped = 27;
 }
 
 message OLAPRawDeltaHeaderMessage {

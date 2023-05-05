@@ -41,8 +41,6 @@
 using namespace std;
 
 namespace doris {
-using namespace ErrorCode;
-
 using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaSharedPtr>>;
 
 static StorageEngine* k_engine = nullptr;
@@ -275,7 +273,7 @@ TEST_F(TestTablet, pad_rowset) {
     ASSERT_FALSE(_tablet->capture_rs_readers(version, &readers).ok());
     readers.clear();
 
-    PadRowsetAction action;
+    PadRowsetAction action(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
     action._pad_rowset(_tablet, version);
     ASSERT_TRUE(_tablet->capture_rs_readers(version, &readers).ok());
 }
@@ -418,23 +416,31 @@ TEST_F(TestTablet, rowset_tree_update) {
 
     RowLocation loc;
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("99", &rowset_ids, &loc, 7).is<NOT_FOUND>());
+    ASSERT_TRUE(
+            tablet->lookup_row_key("99", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
     // Version too low.
-    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 3).is<NOT_FOUND>());
+    ASSERT_TRUE(
+            tablet->lookup_row_key("101", true, &rowset_ids, &loc, 3).is<ErrorCode::NOT_FOUND>());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    LOG(INFO) << tablet->lookup_row_key("101", &rowset_ids, &loc, 7).to_string();
-    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 7).is<IO_ERROR>());
+    LOG(INFO) << tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7).to_string();
+    ASSERT_TRUE(
+            tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7).is<ErrorCode::IO_ERROR>());
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("201", &rowset_ids, &loc, 7).is<NOT_FOUND>());
-    ASSERT_TRUE(tablet->lookup_row_key("300", &rowset_ids, &loc, 7).is<IO_ERROR>());
+    ASSERT_TRUE(
+            tablet->lookup_row_key("201", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
+    ASSERT_TRUE(
+            tablet->lookup_row_key("300", true, &rowset_ids, &loc, 7).is<ErrorCode::IO_ERROR>());
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("499", &rowset_ids, &loc, 7).is<NOT_FOUND>());
+    ASSERT_TRUE(
+            tablet->lookup_row_key("499", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
     // Version too low.
-    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 7).is<NOT_FOUND>());
+    ASSERT_TRUE(
+            tablet->lookup_row_key("500", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 8).is<IO_ERROR>());
+    ASSERT_TRUE(
+            tablet->lookup_row_key("500", true, &rowset_ids, &loc, 8).is<ErrorCode::IO_ERROR>());
 }
 
 } // namespace doris

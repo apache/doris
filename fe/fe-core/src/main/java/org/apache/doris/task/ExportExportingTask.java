@@ -59,6 +59,10 @@ public class ExportExportingTask extends MasterTask {
         this.signature = job.getId();
     }
 
+    public StmtExecutor getStmtExecutor() {
+        return stmtExecutor;
+    }
+
     @Override
     protected void exec() {
         if (job.getState() == JobState.IN_QUEUE) {
@@ -85,6 +89,11 @@ public class ExportExportingTask extends MasterTask {
         List<ExportJob.OutfileInfo> outfileInfoList = Lists.newArrayList();
         // begin exporting
         for (int i = 0; i < selectStmtList.size(); ++i) {
+            // maybe user cancelled this job
+            if (job.getState() != JobState.EXPORTING) {
+                isFailed = true;
+                break;
+            }
             try (AutoCloseConnectContext r = buildConnectContext()) {
                 this.stmtExecutor = new StmtExecutor(r.connectContext, selectStmtList.get(i));
                 this.stmtExecutor.execute();

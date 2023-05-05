@@ -44,6 +44,7 @@
 #include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/scanner_context.h"
+#include "vec/exec/scan/vscanner.h"
 #include "vec/runtime/shared_scanner_controller.h"
 
 namespace doris {
@@ -197,7 +198,7 @@ protected:
     // predicate conditions, and scheduling strategy.
     // So this method needs to be implemented separately by the subclass of ScanNode.
     // Finally, a set of scanners that have been prepared are returned.
-    virtual Status _init_scanners(std::list<VScanner*>* scanners) { return Status::OK(); }
+    virtual Status _init_scanners(std::list<VScannerSPtr>* scanners) { return Status::OK(); }
 
     //  Different data sources can implement the following 3 methods to determine whether a predicate
     //  can be pushed down to the data source.
@@ -268,7 +269,6 @@ protected:
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
     doris::Mutex _rf_locks;
-    std::map<int, RuntimeFilterContext*> _conjunct_id_to_runtime_filter_ctxs;
     phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;
@@ -276,8 +276,6 @@ protected:
     // Each scan node will generates a ScannerContext to manage all Scanners.
     // See comments of ScannerContext for more details
     std::shared_ptr<ScannerContext> _scanner_ctx;
-    // Save all scanner objects.
-    ObjectPool _scanner_pool;
 
     // indicate this scan node has no more data to return
     bool _eos = false;
@@ -323,8 +321,8 @@ protected:
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
-    std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
-    std::unique_ptr<VExprContext*> _common_vexpr_ctxs_pushdown = nullptr;
+    std::vector<VExprContext*> _stale_vexpr_ctxs;
+    VExprContext* _common_vexpr_ctxs_pushdown = nullptr;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
@@ -445,7 +443,7 @@ private:
                                       const std::string& fn_name, int slot_ref_child = -1);
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<VScanner*>& scanners);
+    Status _start_scanners(const std::list<VScannerSPtr>& scanners);
 };
 
 } // namespace doris::vectorized

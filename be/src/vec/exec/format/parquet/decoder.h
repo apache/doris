@@ -173,6 +173,7 @@ protected:
      * Decode dictionary-coded values into doris_column, ensure that doris_column is ColumnDictI32 type,
      * and the coded values must be read into _indexes previously.
      */
+    template <bool has_filter>
     Status _decode_dict_values(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector,
                                bool is_dict_filter) {
         DCHECK(doris_column->is_column_dictionary() || is_dict_filter);
@@ -182,7 +183,7 @@ protected:
                 doris_column->is_column_dictionary()
                         ? assert_cast<ColumnDictI32&>(*doris_column).get_data()
                         : assert_cast<ColumnInt32&>(*doris_column).get_data();
-        while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 uint32_t* start_index = &_indexes[0];

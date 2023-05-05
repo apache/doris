@@ -25,9 +25,12 @@ suite("q14") {
     sql "set runtime_filter_mode='GLOBAL'"
 
     sql 'set exec_mem_limit=21G'
-
-
-
+    
+    def result = sql "show backends;"
+    if (result.size() != 1) {
+        print("backends num: ${result.size()}");
+        return;
+    }
     
     qt_select """
     explain shape plan

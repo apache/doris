@@ -217,9 +217,6 @@ public:
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
 
-    bool is_dropped() const;
-    void set_is_dropped(bool is_dropped);
-
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -262,9 +259,6 @@ private:
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
     std::shared_ptr<DeleteBitmap> _delete_bitmap;
-
-    // _is_dropped is true means that the table has been dropped, and the tablet will not be compacted
-    bool _is_dropped = false;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -582,14 +576,6 @@ inline bool TabletMeta::all_beta() const {
         }
     }
     return true;
-}
-
-inline bool TabletMeta::is_dropped() const {
-    return _is_dropped;
-}
-
-inline void TabletMeta::set_is_dropped(bool is_dropped) {
-    _is_dropped = is_dropped;
 }
 
 // Only for unit test now.

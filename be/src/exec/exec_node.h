@@ -258,7 +258,7 @@ protected:
     ObjectPool* _pool;
     std::vector<TupleId> _tuple_ids;
 
-    std::unique_ptr<doris::vectorized::VExprContext*> _vconjunct_ctx_ptr;
+    doris::vectorized::VExprContext* _vconjunct_ctx_ptr = nullptr;
 
     std::vector<ExecNode*> _children;
     RowDescriptor _row_descriptor;

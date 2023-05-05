@@ -288,6 +288,7 @@ private:
     RuntimeProfile::Counter* _probe_side_output_timer;
     RuntimeProfile::Counter* _build_side_compute_hash_timer;
     RuntimeProfile::Counter* _build_side_merge_block_timer;
+    RuntimeProfile::Counter* _build_runtime_filter_timer;
 
     RuntimeProfile::Counter* _build_blocks_memory_usage;
     RuntimeProfile::Counter* _hash_table_memory_usage;

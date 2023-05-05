@@ -80,6 +80,34 @@ void JsonbSerializeUtil::jsonb_to_block(const TupleDescriptor& desc, const char*
         JsonbValue* slot_value = doc->find(slot->col_unique_id());
         MutableColumnPtr dst_column = dst.get_by_position(j).column->assume_mutable();
         if (!slot_value || slot_value->isNull()) {
+            // null or not exist
+            dst_column->insert_default();
+            continue;
+        }
+        dst.get_data_type(j)->get_serde()->read_one_cell_from_jsonb(*dst_column, slot_value);
+    }
+}
+
+void JsonbSerializeUtil::jsonb_to_block(TabletSchemaSPtr schema,
+                                        const std::vector<uint32_t>& col_ids,
+                                        const ColumnString& jsonb_column, Block& dst) {
+    for (int i = 0; i < jsonb_column.size(); ++i) {
+        StringRef jsonb_data = jsonb_column.get_data_at(i);
+        jsonb_to_block(schema, col_ids, jsonb_data.data, jsonb_data.size, dst);
+    }
+}
+
+void JsonbSerializeUtil::jsonb_to_block(TabletSchemaSPtr schema,
+                                        const std::vector<uint32_t>& col_ids, const char* data,
+                                        size_t size, Block& dst) {
+    auto pdoc = JsonbDocument::createDocument(data, size);
+    JsonbDocument& doc = *pdoc;
+    for (int j = 0; j < col_ids.size(); ++j) {
+        auto column = schema->column(col_ids[j]);
+        JsonbValue* slot_value = doc->find(column.unique_id());
+        MutableColumnPtr dst_column = dst.get_by_position(j).column->assume_mutable();
+        if (!slot_value || slot_value->isNull()) {
+            // null or not exist
             dst_column->insert_default();
             continue;
         }

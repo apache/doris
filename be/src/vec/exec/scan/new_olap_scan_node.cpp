@@ -423,7 +423,7 @@ std::string NewOlapScanNode::get_name() {
     return fmt::format("VNewOlapScanNode({0})", _olap_scan_node.table_name);
 }
 
-Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
+Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         return Status::OK();
@@ -431,9 +431,9 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     SCOPED_TIMER(_scanner_init_timer);
     auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
-    if (_vconjunct_ctx_ptr && (*_vconjunct_ctx_ptr)->root()) {
+    if (_vconjunct_ctx_ptr && _vconjunct_ctx_ptr->root()) {
         _runtime_profile->add_info_string("RemainedDownPredicates",
-                                          (*_vconjunct_ctx_ptr)->root()->debug_string());
+                                          _vconjunct_ctx_ptr->root()->debug_string());
     }
 
     if (!_olap_scan_node.output_column_unique_ids.empty()) {
@@ -506,16 +506,13 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                                  const std::vector<OlapScanRange*>& key_ranges,
                                  const std::vector<RowsetReaderSharedPtr>& rs_readers,
                                  const std::vector<std::pair<int, int>>& rs_reader_seg_offsets) {
-        NewOlapScanner* scanner = new NewOlapScanner(_state, this, _limit_per_scanner,
-                                                     _olap_scan_node.is_preaggregation, scan_range,
-                                                     key_ranges, rs_readers, rs_reader_seg_offsets,
-                                                     _need_agg_finalize, _scanner_profile.get());
+        std::shared_ptr<NewOlapScanner> scanner = NewOlapScanner::create_shared(
+                _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation, scan_range,
+                key_ranges, rs_readers, rs_reader_seg_offsets, _need_agg_finalize,
+                _scanner_profile.get());
 
         scanner->set_compound_filters(_compound_filters);
-        // add scanner to pool before doing prepare.
-        // so that scanner can be automatically deconstructed if prepare failed.
-        _scanner_pool.add(scanner);
-        scanners->push_back((VScanner*)scanner);
+        scanners->push_back(scanner);
         return Status::OK();
     };
     if (is_duplicate_key) {

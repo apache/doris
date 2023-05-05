@@ -215,11 +215,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         if (iter->empty()) {
             continue;
         }
-        auto st = iter->init(_read_options);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to init iterator: " << st.to_string();
-            return Status::Error<ROWSET_READER_INIT>();
-        }
         out_iters->push_back(std::move(iter));
     }
 

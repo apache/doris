@@ -19,7 +19,7 @@
 name: Code Quality Analysis
 on:
   schedule:
-    - cron: '0 0 03 * *' # Run at 03:00 UTC every day
+    - cron: '30 3,14 * * *'
 
 jobs:
   build:
