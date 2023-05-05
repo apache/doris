@@ -686,9 +686,6 @@ CONF_Int32(aws_log_level, "3");
 // the buffer size when read data from remote storage like s3
 CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
-// Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
-CONF_Bool(enable_tcmalloc_hook, "true");
-
 // Print more detailed logs, more detailed records, etc.
 CONF_mBool(memory_debug, "false");
 
