@@ -63,6 +63,15 @@ DORIS_HOME="$(
     pwd
 )"
 export DORIS_HOME
+if [[ -z "${JAVA_HOME}" ]]; then
+    java_home="$(
+       cd "${curdir}/../.."
+       pwd
+    )"
+    export JAVA_HOME=$java_home/java8
+    export PATH=$JAVA_HOME/bin:$PATH
+    echo "${JAVA_HOME}"
+fi
 
 if [[ "$(uname -s)" != 'Darwin' ]]; then
     MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"

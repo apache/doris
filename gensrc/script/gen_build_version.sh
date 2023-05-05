@@ -27,7 +27,7 @@
 
 set -eo pipefail
 
-build_version_prefix="doris"
+build_version_prefix="velodb-doris"
 build_version_major=2
 build_version_minor=1
 build_version_patch=7
@@ -65,7 +65,7 @@ if [[ -d '.git' ]]; then
     short_revision="$(git log -1 --pretty=format:"%h")"
     url="git://${hostname}"
 else
-    revision="Unknown"
+    revision="tag"
     short_revision="${revision}"
     url="file://${hostname}"
 fi

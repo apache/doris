@@ -89,6 +89,17 @@ DORIS_HOME="$(
 )"
 export DORIS_HOME
 
+if [[ -z "${JAVA_HOME}" ]]; then
+    java_home="$(
+       cd "${curdir}/../.."
+       pwd
+    )"
+    export JAVA_HOME=$java_home/java8
+    export PATH=$JAVA_HOME/bin:$PATH
+    echo "${JAVA_HOME}"
+fi
+
+
 # export env variables from fe.conf
 #
 # JAVA_OPTS
