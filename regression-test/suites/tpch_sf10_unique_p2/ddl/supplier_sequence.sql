@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS supplier (
     s_address     VARCHAR(40) NOT NULL,
     s_nationkey   int NOT NULL,
     s_phone       VARCHAR(15) NOT NULL,
-    s_acctbal     decimal(15, 2) NOT NULL,
+    s_acctbal     decimalv3(15, 2) NOT NULL,
     s_comment     VARCHAR(101) NOT NULL
 )ENGINE=OLAP
 UNIQUE KEY(`s_suppkey`)

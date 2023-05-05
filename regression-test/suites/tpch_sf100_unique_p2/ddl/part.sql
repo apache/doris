@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS part (
     p_type        VARCHAR(25) NOT NULL,
     p_size        int NOT NULL,
     p_container   VARCHAR(10) NOT NULL,
-    p_retailprice decimal(15, 2) NOT NULL,
+    p_retailprice decimalv3(15, 2) NOT NULL,
     p_comment     VARCHAR(23) NOT NULL
 )ENGINE=OLAP
 UNIQUE KEY(`p_partkey`)

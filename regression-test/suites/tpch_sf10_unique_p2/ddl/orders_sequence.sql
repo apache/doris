@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS orders  (
     o_orderdate      DATE NOT NULL,
     o_custkey        int NOT NULL,
     o_orderstatus    VARCHAR(1) NOT NULL,
-    o_totalprice     decimal(15, 2) NOT NULL,
+    o_totalprice     decimalv3(15, 2) NOT NULL,
     o_orderpriority  VARCHAR(15) NOT NULL,
     o_clerk          VARCHAR(15) NOT NULL,
     o_shippriority   int NOT NULL,
