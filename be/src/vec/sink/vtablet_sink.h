@@ -610,8 +610,7 @@ private:
 
     RuntimeState* _state = nullptr;
 
-    std::unordered_map<int64_t, bool> _partition_opened;
-    std::mutex _partition_opened_mutex;
+    std::unordered_set<int64_t> _partition_opened;
 };
 
 } // namespace stream_load

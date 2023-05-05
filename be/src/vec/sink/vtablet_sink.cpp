@@ -1137,36 +1137,33 @@ Status VOlapTableSink::open(RuntimeState* state) {
 
 void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
     const auto& id = partition->id;
+    std::unordered_map<PartitionOpenClosure<PartitionOpenResult>*, IndexChannel*>
+            open_partition_closures;
     auto it = _partition_opened.find(id);
     if (it == _partition_opened.end()) {
-        {
-            std::unique_lock<std::mutex> l(_partition_opened_mutex);
-            auto it = _partition_opened.find(id);
-            if (it != _partition_opened.end()) {
-                return;
-            }
-            _partition_opened.insert(std::pair(id, false));
-        }
         for (int j = 0; j < partition->indexes.size(); ++j) {
             for (const auto& tid : partition->indexes[j].tablets) {
                 auto it = _channels[j]->_channels_by_tablet.find(tid);
                 for (const auto& channel : it->second) {
                     auto open_partition_closure = channel->open_partition(partition->id);
-                    auto st = channel->open_partition_wait(open_partition_closure);
-                    if (!st.ok()) {
-                        _channels[j]->mark_as_failed(
-                                channel->node_id(), channel->host(),
-                                fmt::format("{}, open failed, err: {}", channel->channel_info(),
-                                            st.to_string()),
-                                -1);
-                    }
+                    open_partition_closures.insert(
+                            std::pair(open_partition_closure, _channels[j].get()));
                 }
             }
         }
-        {
-            std::unique_lock<std::mutex> l(_partition_opened_mutex);
-            _partition_opened.insert(std::pair(id, true));
+        for (const auto& it : open_partition_closures) {
+            auto vnode_channel = it.first->channel;
+            auto index_channel = it.second;
+            auto st = vnode_channel->open_partition_wait(it.first);
+            if (!st.ok()) {
+                index_channel->mark_as_failed(
+                        vnode_channel->node_id(), vnode_channel->host(),
+                        fmt::format("{}, open failed, err: {}", vnode_channel->channel_info(),
+                                    st.to_string()),
+                        -1);
+            }
         }
+        _partition_opened.insert(id);
     }
 }
 
