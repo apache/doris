@@ -591,6 +591,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
     Block block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        input_block, &block));
+    auto num_rows = block.rows();
     std::vector<MysqlRowBuffer<is_binary_format>> rows_buffer;
     rows_buffer.resize(num_rows);
     if constexpr (is_binary_format) {
