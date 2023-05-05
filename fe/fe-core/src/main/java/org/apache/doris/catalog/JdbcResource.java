@@ -280,7 +280,7 @@ public class JdbcResource extends Resource {
             return CLICKHOUSE;
         } else if (url.startsWith(JDBC_SAP_HANA)) {
             return SAP_HANA;
-        } else if (url.startsWith(JDBC_TRINO)){
+        } else if (url.startsWith(JDBC_TRINO)) {
             return TRINO;
         } else if (url.startsWith(JDBC_PRESTO)) {
             return PRESTO;
