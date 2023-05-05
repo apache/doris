@@ -292,7 +292,8 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
         && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
         && code != ErrorCode::INVERTED_INDEX_NO_TERMS
-        && code != ErrorCode::META_KEY_NOT_FOUND;
+        && code != ErrorCode::META_KEY_NOT_FOUND
+        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST;
 }
 // clang-format on
 
