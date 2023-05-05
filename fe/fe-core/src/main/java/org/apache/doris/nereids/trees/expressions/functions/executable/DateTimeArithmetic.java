@@ -189,7 +189,7 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function microseconds-add.
      */
-    @ExecFunction(name = "seconds_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "microseconds_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal microSecondsAdd(DateTimeV2Literal date, IntegerLiteral microSecond) {
         return date.plusMicroSeconds(microSecond.getValue());
     }
