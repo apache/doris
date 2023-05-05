@@ -305,9 +305,6 @@ public:
 
 protected:
     void _fresh_exec_timer(NodeType* node) {
-        if (_runtime_profile == nullptr) {
-            return;
-        }
         node->profile()->total_time_counter()->update(
                 _runtime_profile->total_time_counter()->value());
     }
@@ -381,9 +378,6 @@ public:
 
 protected:
     void _fresh_exec_timer(NodeType* node) {
-        if (_runtime_profile == nullptr) {
-            return;
-        }
         node->runtime_profile()->total_time_counter()->update(
                 _runtime_profile->total_time_counter()->value());
     }
