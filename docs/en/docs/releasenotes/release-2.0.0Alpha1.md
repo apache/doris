@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Release 2.0.0 Alpha",
+    "title": "Release 2.0.0 Alpha1",
     "language": "en"
 }
 ---
@@ -25,9 +25,9 @@ under the License.
 -->
 
 
-The Apache Doris 2.0.0 alpha version is an alpha release that is aimed to be used for evaluating the new features of Doris 2.0.
+The Apache Doris 2.0.0 alpha1 version is an alpha release that is aimed to be used for evaluating the new features of Doris 2.0.
 
-It's recommended to deploy 2.0.0 alpha version in a new test cluster for testing but **it should not be deployed in production clusters**.
+It's recommended to deploy 2.0.0 alpha1 version in a new test cluster for testing but **it should not be deployed in production clusters**.
 
 
 # Highlight Features
