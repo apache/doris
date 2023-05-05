@@ -101,6 +101,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_COLOCATE_SCAN = "enable_colocate_scan";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
+    public static final String PIPELINE_PARALLEL_INSTANCE_NUM = "pipeline_parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
@@ -482,7 +483,16 @@ public class SessionVariable implements Serializable, Writable {
      * 1 means disable this feature
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, fuzzy = true)
-    public int parallelExecInstanceNum = 0;
+    public int parallelExecInstanceNum = 1;
+
+    /*
+     * Used when enablePipelineEngine = true to represent parallelExecInstanceNum.
+     * Specifically, if enablePipelineEngine = true and
+     * pipelineParallelExecInstanceNum = 0,
+     * then half of the current CPU cores will be used.
+     */
+    @VariableMgr.VarAttr(name = PIPELINE_PARALLEL_INSTANCE_NUM, fuzzy = true)
+    public int pipelineParallelExecInstanceNum = 1;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
@@ -883,9 +893,10 @@ public class SessionVariable implements Serializable, Writable {
                 this.externalAggPartitionBits = 4;
                 break;
         }
+        this.enablePipelineEngine = true; // test Pipeline
+        this.pipelineParallelExecInstanceNum = 0; // test Pipeline
         // pull_request_id default value is 0
         if (Config.pull_request_id % 2 == 1) {
-            this.enablePipelineEngine = true;
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
             this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
@@ -1187,11 +1198,16 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
-        if (parallelExecInstanceNum != 0) {
+        if (enablePipelineEngine) {
+            if (pipelineParallelExecInstanceNum == 0) {
+                Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
+                LOG.warn("yxc test use be info to set {}", beinfoCollector.getParallelExecInstanceNum());
+                return beinfoCollector.getParallelExecInstanceNum();
+            }
+            return pipelineParallelExecInstanceNum;
+        } else {
             return parallelExecInstanceNum;
         }
-        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
-        return beinfoCollector.getParallelExecInstanceNum();
     }
 
     public int getExchangeInstanceParallel() {

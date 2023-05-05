@@ -508,15 +508,12 @@ public class Backend implements Writable {
          * we ignore the change of capacity, because capacity info is only used in master FE.
          */
         boolean isChanged = false;
-        Backend.BeInfoCollector beinfoCollector  = Backend.getBeInfoCollector();
         for (TDisk tDisk : backendDisks.values()) {
             String rootPath = tDisk.getRootPath();
             long totalCapacityB = tDisk.getDiskTotalCapacity();
             long dataUsedCapacityB = tDisk.getDataUsedCapacity();
             long diskAvailableCapacityB = tDisk.getDiskAvailableCapacity();
             boolean isUsed = tDisk.isUsed();
-            int numCores = tDisk.getNumCores();
-            beinfoCollector.addBeInfo(id, numCores);
             DiskInfo diskInfo = disks.get(rootPath);
             if (diskInfo == null) {
                 diskInfo = new DiskInfo(rootPath);
