@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
+import org.apache.doris.datasource.paimon.PaimonHMSExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 
 import org.apache.parquet.Strings;
@@ -76,7 +77,7 @@ public class CatalogFactory {
      */
     public static CatalogIf constructorFromLog(CatalogLog log) throws DdlException {
         return constructorCatalog(log.getCatalogId(), log.getCatalogName(), log.getResource(),
-                    log.getComment(), log.getProps());
+            log.getComment(), log.getProps());
     }
 
     private static CatalogIf constructorCatalog(long catalogId, String name, String resource, String comment,
@@ -112,6 +113,9 @@ public class CatalogFactory {
                 break;
             case "iceberg":
                 catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props);
+                break;
+            case "paimon":
+                catalog = new PaimonHMSExternalCatalog(catalogId, name, resource, props);
                 break;
             case "test":
                 if (!FeConstants.runningUnitTest) {

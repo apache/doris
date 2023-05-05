@@ -26,6 +26,7 @@ import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
+import org.apache.doris.catalog.external.PaimonExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
@@ -361,6 +362,10 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
             ExternalDatabase db = getDbForReplay(log.getRefreshDbIds().get(i));
+            //TODO: temp
+            if (db == null) {
+                continue;
+            }
             db.setUnInitialized(invalidCacheInInit);
             tmpDbNameToId.put(db.getFullName(), db.getId());
             tmpIdToDb.put(db.getId(), db);
@@ -393,6 +398,14 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
             case ICEBERG:
                 for (int i = 0; i < log.getCreateCount(); i++) {
                     IcebergExternalDatabase db = new IcebergExternalDatabase(
+                            this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
+                    tmpDbNameToId.put(db.getFullName(), db.getId());
+                    tmpIdToDb.put(db.getId(), db);
+                }
+                break;
+            case PAIMON:
+                for (int i = 0; i < log.getCreateCount(); i++) {
+                    PaimonExternalDatabase db = new PaimonExternalDatabase(
                             this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
                     tmpDbNameToId.put(db.getFullName(), db.getId());
                     tmpIdToDb.put(db.getId(), db);
