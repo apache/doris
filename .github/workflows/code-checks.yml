@@ -51,6 +51,44 @@ jobs:
           sh_checker_comment: true
           sh_checker_exclude: .git .github ^docker ^thirdparty/src ^thirdparty/installed ^ui ^docs/node_modules ^tools/clickbench-tools ^extension ^output ^fs_brokers/apache_hdfs_broker/output (^|.*/)Dockerfile$ ^be/src/apache-orc
 
+  java-checkstyle:
+    name: "CheckStyle"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ${{ github.ref }} ( ${{ github.sha }} )
+        if: ${{ github.event_name != 'pull_request_target' }}
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
+        if: ${{ github.event_name == 'pull_request_target' }}
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+
+      - name: Paths Filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            fe_changes:
+              - 'fe/**'
+              - 'gensrc/proto/**'
+              - 'gensrc/thrift/**'
+
+      - name: Setup Maven Action
+        if: steps.filter.outputs.fe_changes == 'true'
+        uses: ./.github/actions/setup-maven
+        with:
+          maven-version: 3.8.4
+
+      - name: Run java checkstyle
+        if: steps.filter.outputs.fe_changes == 'true'
+        run:
+          cd fe && mvn clean checkstyle:check
+
   clang-tidy:
     name: "Clang Tidy"
     if: ${{ github.event_name == 'pull_request_target' }}
