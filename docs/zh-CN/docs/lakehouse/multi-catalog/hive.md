@@ -64,11 +64,6 @@ CREATE CATALOG hive PROPERTIES (
 ```
 
 除了 `type` 和 `hive.metastore.uris` 两个必须参数外，还可以通过更多参数来传递连接所需要的信息。
-
-> `specified_database_list`:
-> 
-> 支持只同步指定的同步多个database，以','分隔。默认为''，同步所有database。db名称是大小写敏感的。
-> 
 	
 如提供 HDFS HA 信息，示例如下：
 	

@@ -62,7 +62,7 @@ suite("test_primary_key_partial_update_publish", "p0") {
     }
 
     qt_select_default """
-        select * from ${tableName}
+        select * from ${tableName} order by id;
     """
 
     // drop drop

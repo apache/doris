@@ -61,7 +61,8 @@ public class JdbcClient {
 
     private boolean isLowerCaseTableNames = false;
 
-    private Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
+    private Map<String, Boolean> includeDatabaseMap = Maps.newHashMap();
+    private Map<String, Boolean> excludeDatabaseMap = Maps.newHashMap();
 
     // only used when isLowerCaseTableNames = true.
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
@@ -69,13 +70,16 @@ public class JdbcClient {
     private String oceanbaseMode = "";
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
-            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap,
-            String oceanbaseMode) {
+            String onlySpecifiedDatabase, String isLowerCaseTableNames, String oceanbaseMode, Map includeDatabaseMap,
+            Map excludeDatabaseMap) {
         this.jdbcUser = user;
         this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
         this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
-        if (specifiedDatabaseMap != null) {
-            this.specifiedDatabaseMap = specifiedDatabaseMap;
+        if (includeDatabaseMap != null) {
+            this.includeDatabaseMap = includeDatabaseMap;
+        }
+        if (excludeDatabaseMap != null) {
+            this.excludeDatabaseMap = excludeDatabaseMap;
         }
         this.oceanbaseMode = oceanbaseMode;
         try {
@@ -180,7 +184,7 @@ public class JdbcClient {
         Connection conn = getConnection();
         Statement stmt = null;
         ResultSet rs = null;
-        if (isOnlySpecifiedDatabase && specifiedDatabaseMap.isEmpty()) {
+        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
             return getSpecifiedDatabase(conn);
         }
         List<String> databaseNames = Lists.newArrayList();
@@ -216,11 +220,16 @@ public class JdbcClient {
             while (rs.next()) {
                 tempDatabaseNames.add(rs.getString(1));
             }
-            if (isOnlySpecifiedDatabase && !specifiedDatabaseMap.isEmpty()) {
+            if (isOnlySpecifiedDatabase) {
                 for (String db : tempDatabaseNames) {
-                    if (specifiedDatabaseMap.get(db) != null) {
-                        databaseNames.add(db);
+                    // Exclude database map take effect with higher priority over include database map
+                    if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(db)) {
+                        continue;
                     }
+                    if (!includeDatabaseMap.isEmpty() && includeDatabaseMap.containsKey(db)) {
+                        continue;
+                    }
+                    databaseNames.add(db);
                 }
             } else {
                 databaseNames = tempDatabaseNames;

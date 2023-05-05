@@ -287,6 +287,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
+    public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
+
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
@@ -323,7 +325,6 @@ public class SessionVariable implements Serializable, Writable {
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
-
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
@@ -799,6 +800,10 @@ public class SessionVariable implements Serializable, Writable {
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
     public boolean enableFileCache = true;
+
+    // Specify base path for file cache, or chose a random path.
+    @VariableMgr.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true)
+    public String fileCacheBasePath = "random";
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -1664,6 +1669,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableFileCache = enableFileCache;
     }
 
+    public String getFileCacheBasePath() {
+        return fileCacheBasePath;
+    }
+
+    public void setFileCacheBasePath(String basePath) {
+        this.fileCacheBasePath = basePath;
+    }
+
     public int getMaxTableCountUseCascadesJoinReorder() {
         return this.maxTableCountUseCascadesJoinReorder;
     }
@@ -1750,6 +1763,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 
         tResult.setEnableFileCache(enableFileCache);
+
+        tResult.setFileCacheBasePath(fileCacheBasePath);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);

@@ -48,6 +48,9 @@ using namespace ErrorCode;
 
 const static std::string HEADER_JSON = "application/json";
 
+CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
+                                   TPrivilegeHier::type hier, TPrivilegeType::type ptype)
+        : HttpHandlerWithAuth(exec_env, hier, ptype), _type(ctype) {}
 Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id) {
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     if (req_tablet_id == "") {

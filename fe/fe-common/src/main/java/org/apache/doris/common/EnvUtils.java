@@ -15,30 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.common;
 
-#include <map>
-#include <string>
+import com.google.common.base.Strings;
 
-#include "http/http_handler.h"
-
-namespace doris {
-
-class HttpRequest;
-class RestMonitorIface;
-
-class MonitorAction : public HttpHandler {
-public:
-    MonitorAction();
-
-    virtual ~MonitorAction() {}
-
-    void register_module(const std::string& name, RestMonitorIface* module);
-
-    void handle(HttpRequest* req) override;
-
-private:
-    std::map<std::string, RestMonitorIface*> _module_by_name;
-};
-
-} // namespace doris
+public class EnvUtils {
+    // get doris home from env,
+    // if not set, return ${Env.DORIS_HOME} as a placeholder
+    public static String getDorisHome() {
+        String dorisHome = System.getenv("DORIS_HOME");
+        if (Strings.isNullOrEmpty(dorisHome)) {
+            dorisHome = "${Env.DORIS_HOME}";
+        }
+        return dorisHome;
+    }
+}

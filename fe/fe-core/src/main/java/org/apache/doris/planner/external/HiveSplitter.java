@@ -29,6 +29,9 @@ import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.external.hive.util.HiveUtil;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.RemoteFiles;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.Split;
@@ -37,10 +40,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.BlockLocation;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.logging.log4j.LogManager;
@@ -115,7 +115,8 @@ public class HiveSplitter implements Splitter {
             } else {
                 // unpartitioned table, create a dummy partition to save location and inputformat,
                 // so that we can unify the interface.
-                HivePartition dummyPartition = new HivePartition(hmsTable.getRemoteTable().getSd().getInputFormat(),
+                HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
+                        hmsTable.getRemoteTable().getSd().getInputFormat(),
                         hmsTable.getRemoteTable().getSd().getLocation(), null);
                 getFileSplitByPartitions(cache, Lists.newArrayList(dummyPartition), allFiles, useSelfSplitter);
                 this.totalPartitionNum = 1;
@@ -192,17 +193,14 @@ public class HiveSplitter implements Splitter {
     }
 
     // Get File Status by using FileSystem API.
-    public static HiveMetaStoreCache.FileCacheValue getFileCache(Path path, InputFormat<?, ?> inputFormat,
+    public static HiveMetaStoreCache.FileCacheValue getFileCache(String location, InputFormat<?, ?> inputFormat,
                                                                  JobConf jobConf,
-                                                                 List<String> partitionValues) throws IOException {
-        FileSystem fs = path.getFileSystem(jobConf);
-        boolean splittable = HiveUtil.isSplittable(inputFormat, fs, path);
-        RemoteIterator<LocatedFileStatus> locatedFileStatusRemoteIterator = fs.listFiles(path, false);
+                                                                 List<String> partitionValues) throws UserException {
         HiveMetaStoreCache.FileCacheValue result = new HiveMetaStoreCache.FileCacheValue();
-        result.setSplittable(splittable);
-        while (locatedFileStatusRemoteIterator.hasNext()) {
-            result.addFile(locatedFileStatusRemoteIterator.next());
-        }
+        result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
+        RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
+        RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
+        locatedFiles.locations().forEach(result::addFile);
         result.setPartitionValues(partitionValues);
         return result;
     }

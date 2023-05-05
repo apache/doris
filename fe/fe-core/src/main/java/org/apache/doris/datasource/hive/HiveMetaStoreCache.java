@@ -29,6 +29,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.external.hive.util.HiveUtil;
+import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
@@ -54,12 +55,10 @@ import lombok.Data;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
-import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
@@ -261,7 +260,7 @@ public class HiveMetaStoreCache {
                     sd.getInputFormat(), sd.getLocation(), key, catalog.getName());
         }
         // TODO: more info?
-        return new HivePartition(sd.getInputFormat(), sd.getLocation(), key.values);
+        return new HivePartition(key.dbName, key.tblName, false, sd.getInputFormat(), sd.getLocation(), key.values);
     }
 
     private FileCacheValue loadFiles(FileCacheKey key) {
@@ -285,7 +284,7 @@ public class HiveMetaStoreCache {
                 InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
                 // TODO: This is a temp config, will remove it after the HiveSplitter is stable.
                 if (key.useSelfSplitter) {
-                    result = HiveSplitter.getFileCache(new Path(finalLocation), inputFormat,
+                    result = HiveSplitter.getFileCache(finalLocation, inputFormat,
                         jobConf, key.getPartitionValues());
                 } else {
                     InputSplit[] splits;
@@ -321,7 +320,6 @@ public class HiveMetaStoreCache {
     private String convertToS3IfNecessary(String location) {
         LOG.debug("try convert location to s3 prefix: " + location);
         if (location.startsWith(FeConstants.FS_PREFIX_COS)
-                || location.startsWith(FeConstants.FS_PREFIX_BOS)
                 || location.startsWith(FeConstants.FS_PREFIX_BOS)
                 || location.startsWith(FeConstants.FS_PREFIX_OSS)
                 || location.startsWith(FeConstants.FS_PREFIX_S3A)
@@ -360,7 +358,10 @@ public class HiveMetaStoreCache {
         long start = System.currentTimeMillis();
         List<FileCacheKey> keys = Lists.newArrayListWithExpectedSize(partitions.size());
         partitions.stream().forEach(p -> {
-            FileCacheKey fileCacheKey = new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues());
+            FileCacheKey fileCacheKey = p.isDummyPartition()
+                    ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(), p.getPath(),
+                    p.getInputFormat(), useSelfSplitter)
+                    : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues());
             fileCacheKey.setUseSelfSplitter(useSelfSplitter);
             keys.add(fileCacheKey);
         });
@@ -438,12 +439,13 @@ public class HiveMetaStoreCache {
              * A file cache entry can be created reference to
              * {@link org.apache.doris.planner.external.HiveSplitter#getSplits},
              * so we need to invalidate it if this is a non-partitioned table.
-             *
+             * We use {@link org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheKey#createDummyCacheKey}
+             * to avoid invocation by Hms Client, because this method may be invoked when salve FE replay journal logs,
+             * and FE will exit if some network problems occur.
              * */
-            Table table = catalog.getClient().getTable(dbName, tblName);
-            // we just need to assign the `location` filed because the `equals` method of `FileCacheKey`
-            // just compares the value of `location`
-            fileCacheRef.get().invalidate(new FileCacheKey(table.getSd().getLocation(), null, null));
+            FileCacheKey fileCacheKey = FileCacheKey.createDummyCacheKey(
+                    dbName, tblName, null, null, false);
+            fileCacheRef.get().invalidate(fileCacheKey);
         }
     }
 
@@ -699,6 +701,7 @@ public class HiveMetaStoreCache {
 
     @Data
     public static class FileCacheKey {
+        private String dummyKey;
         private String location;
         // not in key
         private String inputFormat;
@@ -717,6 +720,14 @@ public class HiveMetaStoreCache {
             this.useSelfSplitter = true;
         }
 
+        public static FileCacheKey createDummyCacheKey(String dbName, String tblName, String location,
+                                                       String inputFormat, boolean useSelfSplitter) {
+            FileCacheKey fileCacheKey = new FileCacheKey(location, inputFormat, null);
+            fileCacheKey.dummyKey = dbName + "." + tblName;
+            fileCacheKey.useSelfSplitter = useSelfSplitter;
+            return fileCacheKey;
+        }
+
         @Override
         public boolean equals(Object obj) {
             if (this == obj) {
@@ -725,12 +736,18 @@ public class HiveMetaStoreCache {
             if (!(obj instanceof FileCacheKey)) {
                 return false;
             }
+            if (dummyKey != null) {
+                return dummyKey.equals(((FileCacheKey) obj).dummyKey);
+            }
             return location.equals(((FileCacheKey) obj).location)
                 && partitionValues.equals(((FileCacheKey) obj).partitionValues);
         }
 
         @Override
         public int hashCode() {
+            if (dummyKey != null) {
+                return Objects.hash(dummyKey);
+            }
             return Objects.hash(location, partitionValues);
         }
 
@@ -752,14 +769,14 @@ public class HiveMetaStoreCache {
         // partitionValues would be ["part1", "part2"]
         protected List<String> partitionValues;
 
-        public void addFile(LocatedFileStatus file) {
+        public void addFile(RemoteFile file) {
             if (files == null) {
                 files = Lists.newArrayList();
             }
             HiveFileStatus status = new HiveFileStatus();
             status.setBlockLocations(file.getBlockLocations());
             status.setPath(file.getPath());
-            status.length = file.getLen();
+            status.length = file.getSize();
             status.blockSize = file.getBlockSize();
             files.add(status);
         }

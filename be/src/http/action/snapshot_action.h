@@ -20,7 +20,7 @@
 #include <cstdint>
 #include <string>
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
@@ -28,11 +28,12 @@ class HttpRequest;
 
 // make snapshot
 // be_host:be_http_port/api/snapshot?tablet_id=123&schema_hash=456
-class SnapshotAction : public HttpHandler {
+class SnapshotAction : public HttpHandlerWithAuth {
 public:
-    explicit SnapshotAction();
+    explicit SnapshotAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                            TPrivilegeType::type type);
 
-    virtual ~SnapshotAction() {}
+    ~SnapshotAction() override = default;
 
     void handle(HttpRequest* req) override;
 

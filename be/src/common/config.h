@@ -284,6 +284,7 @@ CONF_Bool(disable_storage_page_cache, "false");
 CONF_Bool(disable_storage_row_cache, "true");
 
 CONF_Bool(enable_low_cardinality_optimize, "true");
+CONF_Bool(enable_low_cardinality_cache_code, "true");
 
 // be policy
 // whether check compaction checksum
@@ -389,6 +390,8 @@ CONF_Bool(enable_https, "false");
 CONF_String(ssl_certificate_path, "");
 // Path of private key
 CONF_String(ssl_private_key_path, "");
+// Whether to check authorization
+CONF_Bool(enable_http_auth, "false");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.

@@ -14,14 +14,27 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_resource_group") {
-	sql """ADMIN SET FRONTEND CONFIG ("experimental_enable_resource_group" = "true");"""
 
-	def name1 = "g1";
-	sql "create resource group if not exists ${name1} properties('cpu_share'='10');"
-	List<List<Object>> results = sql "show resource groups;"
-    assertTrue(results.size() >= 2)
-    assertEquals(4, results[0].size())
+#pragma once
 
-	sql """ADMIN SET FRONTEND CONFIG ("experimental_enable_resource_group" = "false");"""
-}
+#include <string>
+
+#include "common/status.h"
+#include "http/http_handler.h"
+
+namespace doris {
+
+class HttpRequest;
+
+class FileCacheAction : public HttpHandler {
+public:
+    FileCacheAction() = default;
+
+    ~FileCacheAction() override = default;
+
+    void handle(HttpRequest* req) override;
+
+private:
+    Status _handle_header(HttpRequest* req, std::string* json_metrics);
+};
+} // namespace doris
