@@ -61,3 +61,5 @@ set(IO_FILES
 add_library(IO STATIC
     ${IO_FILES}
 )
+
+pch_reuse(IO)

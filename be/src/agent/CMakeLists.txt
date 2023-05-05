@@ -35,3 +35,5 @@ if (OS_MACOSX)
 endif()
 
 add_library(Agent STATIC ${AGENT_SOURCES})
+
+pch_reuse(Agent)

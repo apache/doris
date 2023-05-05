@@ -132,6 +132,10 @@ if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
     if test -x "${DORIS_GCC_HOME}/bin/ld"; then
         export DORIS_BIN_UTILS="${DORIS_GCC_HOME}/bin/"
     fi
+    if [[ -n "${ENABLE_PCH}" ]]; then
+        ENABLE_PCH=
+        echo "Warning: Due to poor GCC support for PCH, temporarily disable PCH. If you want to enable PCH, please use clang to compile."
+    fi
 elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     # set CLANG HOME
     if [[ -z "${DORIS_CLANG_HOME}" ]]; then

@@ -113,3 +113,5 @@ add_library(Olap STATIC
 if (NOT USE_MEM_TRACKER)
     target_compile_options(Olap PRIVATE -Wno-unused-lambda-capture)
 endif()
+
+pch_reuse(Olap)

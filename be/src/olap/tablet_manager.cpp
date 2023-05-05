@@ -1203,7 +1203,7 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
     RETURN_NOT_OK_LOG(store->get_shard(&shard_id), "fail to get root path shard");
     Status res = TabletMeta::create(request, TabletUid::gen_uid(), shard_id, next_unique_id,
                                     col_idx_to_unique_id, tablet_meta);
-    RETURN_NOT_OK(res);
+    OLAP_RETURN_NOT_OK(res);
     if (request.__isset.storage_format) {
         if (request.storage_format == TStorageFormat::DEFAULT) {
             (*tablet_meta)

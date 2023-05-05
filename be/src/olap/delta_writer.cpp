@@ -158,7 +158,7 @@ Status DeltaWriter::init() {
             return Status::Error<TRY_LOCK_FAILED>();
         }
         std::lock_guard<std::mutex> push_lock(_tablet->get_push_lock());
-        RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
+        OLAP_RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
                                                                   _req.txn_id, _req.load_id));
     }
     // build tablet schema in request level
@@ -173,7 +173,7 @@ Status DeltaWriter::init() {
     context.tablet_id = _tablet->table_id();
     context.is_direct_write = true;
     context.tablet = _tablet;
-    RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
+    OLAP_RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
     _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
 
@@ -181,7 +181,7 @@ Status DeltaWriter::init() {
     // unique key should flush serial because we need to make sure same key should sort
     // in the same order in all replica.
     bool should_serial = _tablet->keys_type() == KeysType::UNIQUE_KEYS;
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
+    OLAP_RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
     _is_init = true;
@@ -199,7 +199,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init && !_is_cancelled) {
-        RETURN_NOT_OK(init());
+        OLAP_RETURN_NOT_OK(init());
     }
 
     if (_is_cancelled) {
@@ -263,7 +263,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
 
     if (need_wait) {
         // wait all memtables in flush queue to be flushed.
-        RETURN_NOT_OK(_flush_token->wait());
+        OLAP_RETURN_NOT_OK(_flush_token->wait());
     }
     return Status::OK();
 }
@@ -280,7 +280,7 @@ Status DeltaWriter::wait_flush() {
             return _cancel_status;
         }
     }
-    RETURN_NOT_OK(_flush_token->wait());
+    OLAP_RETURN_NOT_OK(_flush_token->wait());
     return Status::OK();
 }
 
@@ -324,7 +324,7 @@ Status DeltaWriter::close() {
         // in same partition has data loaded.
         // so we have to also init this DeltaWriter, so that it can create an empty rowset
         // for this tablet when being closed.
-        RETURN_NOT_OK(init());
+        OLAP_RETURN_NOT_OK(init());
     }
 
     if (_is_cancelled) {

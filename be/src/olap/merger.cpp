@@ -89,14 +89,14 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.return_columns.resize(cur_tablet_schema->num_columns());
     std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
     reader_params.origin_return_columns = &reader_params.return_columns;
-    RETURN_NOT_OK(reader.init(reader_params));
+    OLAP_RETURN_NOT_OK(reader.init(reader_params));
 
     if (reader_params.record_rowids) {
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_num_rows;
         for (auto& rs_reader : reader_params.rs_readers) {
-            RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
+            OLAP_RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
             stats_output->rowid_conversion->init_segment_map(rs_reader->rowset()->rowset_id(),
                                                              segment_num_rows);
         }
@@ -219,14 +219,14 @@ Status Merger::vertical_compact_one_group(
 
     reader_params.return_columns = column_group;
     reader_params.origin_return_columns = &reader_params.return_columns;
-    RETURN_NOT_OK(reader.init(reader_params));
+    OLAP_RETURN_NOT_OK(reader.init(reader_params));
 
     if (reader_params.record_rowids) {
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_num_rows;
         for (auto& rs_reader : reader_params.rs_readers) {
-            RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
+            OLAP_RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
             stats_output->rowid_conversion->init_segment_map(rs_reader->rowset()->rowset_id(),
                                                              segment_num_rows);
         }

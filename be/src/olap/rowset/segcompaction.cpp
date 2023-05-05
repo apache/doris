@@ -258,15 +258,15 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         std::lock_guard<std::mutex> lock(_writer->_segid_statistics_map_mutex);
         _writer->_clear_statistics_for_deleting_segments_unsafe(begin, end);
     }
-    RETURN_NOT_OK(
+    OLAP_RETURN_NOT_OK(
             _writer->flush_segment_writer_for_segcompaction(&writer, total_index_size, key_bounds));
 
     if (_file_writer != nullptr) {
         _file_writer->close();
     }
 
-    RETURN_NOT_OK(_delete_original_segments(begin, end));
-    RETURN_NOT_OK(_writer->_rename_compacted_segments(begin, end));
+    OLAP_RETURN_NOT_OK(_delete_original_segments(begin, end));
+    OLAP_RETURN_NOT_OK(_writer->_rename_compacted_segments(begin, end));
 
     if (VLOG_DEBUG_IS_ON) {
         _writer->vlog_buffer.clear();

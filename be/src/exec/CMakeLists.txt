@@ -67,3 +67,5 @@ endif()
 add_library(Exec STATIC
     ${EXEC_FILES}
 )
+
+pch_reuse(Exec)

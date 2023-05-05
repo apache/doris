@@ -84,7 +84,7 @@ Status EngineChecksumTask::_compute_checksum() {
     vectorized::BlockReader reader;
     TabletReader::ReaderParams reader_params;
     vectorized::Block block;
-    RETURN_NOT_OK(TabletReader::init_reader_params_and_create_block(
+    OLAP_RETURN_NOT_OK(TabletReader::init_reader_params_and_create_block(
             tablet, READER_CHECKSUM, input_rowsets, &reader_params, &block))
 
     auto res = reader.init(reader_params);

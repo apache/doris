@@ -35,9 +35,6 @@ using std::string;
 
 namespace doris {
 
-// Make glog's STL-compatible operators visible inside this namespace.
-using ::operator<<;
-
 namespace {
 
 static SpinLock g_intern_map_lock;

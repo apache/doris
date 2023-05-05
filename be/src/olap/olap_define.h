@@ -156,8 +156,8 @@ const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
 #define OLAP_UNLIKELY(x)
 #endif
 
-#ifndef RETURN_NOT_OK
-#define RETURN_NOT_OK(s)               \
+#ifndef OLAP_RETURN_NOT_OK
+#define OLAP_RETURN_NOT_OK(s)          \
     do {                               \
         Status _s = (s);               \
         if (OLAP_UNLIKELY(!_s.ok())) { \

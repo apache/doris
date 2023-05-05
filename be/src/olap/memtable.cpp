@@ -390,9 +390,9 @@ Status MemTable::flush() {
     // and new segment ids is between [atomic_num_segments_before_flush, atomic_num_segments_after_flush),
     // and use the ids to load segment data file for calc delete bitmap.
     int64_t atomic_num_segments_before_flush = _rowset_writer->get_atomic_num_segment();
-    RETURN_NOT_OK(_do_flush(duration_ns));
+    OLAP_RETURN_NOT_OK(_do_flush(duration_ns));
     int64_t atomic_num_segments_after_flush = _rowset_writer->get_atomic_num_segment();
-    RETURN_NOT_OK(_generate_delete_bitmap(atomic_num_segments_before_flush,
+    OLAP_RETURN_NOT_OK(_generate_delete_bitmap(atomic_num_segments_before_flush,
                                           atomic_num_segments_after_flush));
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
@@ -415,7 +415,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
         // Unfold variant column
         unfold_variant_column(block);
     }
-    RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size));
+    OLAP_RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size));
     return Status::OK();
 }
 

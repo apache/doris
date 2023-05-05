@@ -38,6 +38,8 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/large_int_value.h"
+#include "vec/common/int_exp.h"
 #include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
@@ -82,6 +84,23 @@ public:
 
     template <typename T>
     static T get_scale_multiplier(int scale);
+
+    template <>
+    __int128 numeric_limits<__int128>(bool negative) {
+        return negative ? MIN_INT128 : MAX_INT128;
+    }
+    template <>
+    int32_t get_scale_multiplier<int32_t>(int scale) {
+        return common::exp10_i32(scale);
+    }
+    template <>
+    int64_t get_scale_multiplier<int64_t>(int scale) {
+        return common::exp10_i64(scale);
+    }
+    template <>
+    __int128 get_scale_multiplier<__int128>(int scale) {
+        return common::exp10_i128(scale);
+    }
 
     // This is considerably faster than glibc's implementation (25x).
     // In the case of overflow, the max/min value for the data type will be returned.
@@ -399,6 +418,23 @@ T StringParser::string_to_int_internal(const char* s, int len, int base, ParseRe
     *result = PARSE_SUCCESS;
     return static_cast<T>(negative ? -val : val);
 }
+
+// template <>
+// __int128 StringParser::numeric_limits<__int128>(bool negative) {
+//     return negative ? MIN_INT128 : MAX_INT128;
+// }
+// template <>
+// int32_t StringParser::get_scale_multiplier<int32_t>(int scale) {
+//     return common::exp10_i32(scale);
+// }
+// template <>
+// int64_t StringParser::get_scale_multiplier<int64_t>(int scale) {
+//     return common::exp10_i64(scale);
+// }
+// template <>
+// __int128 StringParser::get_scale_multiplier<__int128>(int scale) {
+//     return common::exp10_i128(scale);
+// }
 
 template <typename T>
 T StringParser::string_to_int_no_overflow(const char* s, int len, ParseResult* result) {

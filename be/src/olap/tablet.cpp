@@ -400,9 +400,9 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
         return Status::OK();
     }
     // Otherwise, the version should be not contained in any existing rowset.
-    RETURN_NOT_OK(_contains_version(rowset->version()));
+    OLAP_RETURN_NOT_OK(_contains_version(rowset->version()));
 
-    RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
+    OLAP_RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
     _timestamped_version_tracker.add_version(rowset->version());
 
@@ -637,9 +637,9 @@ Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     if (_contains_rowset(rowset->rowset_id())) {
         return Status::OK();
     }
-    RETURN_NOT_OK(_contains_version(rowset->version()));
+    OLAP_RETURN_NOT_OK(_contains_version(rowset->version()));
 
-    RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
+    OLAP_RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
 
     // Update rowset tree
@@ -882,8 +882,8 @@ void Tablet::acquire_version_and_rowsets(
 Status Tablet::capture_consistent_rowsets(const Version& spec_version,
                                           std::vector<RowsetSharedPtr>* rowsets) const {
     std::vector<Version> version_path;
-    RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
-    RETURN_NOT_OK(_capture_consistent_rowsets_unlocked(version_path, rowsets));
+    OLAP_RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
+    OLAP_RETURN_NOT_OK(_capture_consistent_rowsets_unlocked(version_path, rowsets));
     return Status::OK();
 }
 
@@ -921,8 +921,8 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
 Status Tablet::capture_rs_readers(const Version& spec_version,
                                   std::vector<RowsetReaderSharedPtr>* rs_readers) const {
     std::vector<Version> version_path;
-    RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
-    RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
+    OLAP_RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
+    OLAP_RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
     return Status::OK();
 }
 
@@ -2473,7 +2473,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedS
             continue;
         }
         SegmentCacheHandle segment_cache_handle;
-        RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
+        OLAP_RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
                 std::static_pointer_cast<BetaRowset>(rs.first), &segment_cache_handle, true));
         auto& segments = segment_cache_handle.get_segments();
         DCHECK_GT(segments.size(), rs.second);

@@ -650,7 +650,7 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
 
     // load segments
     SegmentCacheHandle segment_cache_handle;
-    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
+    OLAP_RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
             std::static_pointer_cast<BetaRowset>(rowset_reader->rowset()), &segment_cache_handle,
             false));
 
@@ -1537,7 +1537,7 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
     }
     *max_rowset = rowset;
 
-    RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
+    OLAP_RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
                                                            versions_to_be_changed));
 
     return Status::OK();
