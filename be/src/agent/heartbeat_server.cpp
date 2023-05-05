@@ -100,7 +100,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
             //step2: resolve FQDN to IP
             std::string ip;
-            Status status = hostname_to_ip(master_info.backend_ip, &ip);
+            Status status = hostname_to_ip(master_info.backend_ip, ip);
             if (!status.ok()) {
                 std::stringstream ss;
                 ss << "can not get ip from fqdn: " << status.to_string();

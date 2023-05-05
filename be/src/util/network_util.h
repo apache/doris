@@ -50,7 +50,7 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
 
 bool is_valid_ip(const std::string& ip);
 
-Status hostname_to_ip(const std::string& host, const std::string& ip);
+Status hostname_to_ip(const std::string& host, std::string& ip);
 
 // Finds the first non-localhost IP address in the given list. Returns
 // true if such an address was found, false otherwise.
