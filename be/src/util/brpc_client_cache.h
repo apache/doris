@@ -80,9 +80,9 @@ public:
         std::string realhost;
         realhost = host;
         if (!is_valid_ip(host)) {
-            realhost = hostname_to_ip(host);
-            if (realhost == "") {
-                LOG(WARNING) << "failed to get ip from host";
+            Status status = hostname_to_ip(host, &realhost);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to get ip from host:" << status.to_string();
                 return nullptr;
             }
         }

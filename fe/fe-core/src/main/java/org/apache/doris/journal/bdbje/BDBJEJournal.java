@@ -18,7 +18,6 @@
 package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
@@ -306,9 +305,6 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             bdbEnvironment = new BDBEnvironment();
             HostInfo helperNode = Env.getServingEnv().getHelperNode();
             String helperHostPort = helperNode.getHost() + ":" + helperNode.getPort();
-            if (Config.enable_fqdn_mode) {
-                helperHostPort = helperNode.getHost() + ":" + helperNode.getPort();
-            }
             try {
                 bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort, helperHostPort,
                         Env.getServingEnv().isElectable());

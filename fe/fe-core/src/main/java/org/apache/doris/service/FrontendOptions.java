@@ -62,7 +62,7 @@ public class FrontendOptions {
             System.exit(-1);
         }
         if (Config.enable_fqdn_mode) {
-            initAddrUseFqdn(hosts);
+            initAddrUsingFqdn(hosts);
         } else {
             initAddrUseIp(hosts);
         }
@@ -103,7 +103,7 @@ public class FrontendOptions {
         LOG.info("local address: {}.", localAddr);
     }
 
-    static void initAddrUseFqdn(List<InetAddress> hosts) throws UnknownHostException {
+    static void initAddrUsingFqdn(List<InetAddress> hosts) throws UnknownHostException {
         useFqdn = true;
 
         // Try to get FQDN from host
