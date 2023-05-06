@@ -156,7 +156,7 @@ function create_role_and_version() {
 
 	http_port="$(grep 'http_port' "${CURRENT_PATH}/fe1/conf/fe.conf" | sed 's/http_port[[:space:]]*=[[:space:]]*//')"
 	while true; do
-	  mysql_command "ALTER SYSTEM ADD FOLLOWER \"127.0.0.1:$((PORT + id))\"" >/dev/null 2>&1 || true
+		mysql_command "ALTER SYSTEM ADD FOLLOWER \"127.0.0.1:$((PORT + id))\"" >/dev/null 2>&1 || true
 		if header="$(curl --noproxy '127.0.0.1' --silent --head --fail -H "CLIENT_NODE_HOST:127.0.0.1" -H "CLIENT_NODE_PORT:$((PORT + id))" "http://127.0.0.1:${http_port}/check")"; then
 			break
 		fi
