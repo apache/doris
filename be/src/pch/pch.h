@@ -388,7 +388,6 @@
 // others
 #include <arpa/inet.h>
 #include <assert.h>
-#include <byteswap.h>
 #include <bzlib.h>
 #include <ctype.h>
 #include <curl/curl.h>
@@ -521,7 +520,3 @@
 #include <utility>
 #include <variant>
 #include <vector>
-
-// local headers
-// common headers
-#include "common/status.h"
