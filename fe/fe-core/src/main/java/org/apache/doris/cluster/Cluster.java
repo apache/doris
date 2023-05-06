@@ -20,7 +20,6 @@ package org.apache.doris.cluster;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.LinkDbInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -33,7 +32,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
@@ -49,9 +47,6 @@ public class Cluster implements Writable {
     private String name;
     // backend which cluster own
     private Set<Long> backendIdSet = ConcurrentHashMap.newKeySet();
-
-    private ConcurrentHashMap<String, LinkDbInfo> linkDbNames = new ConcurrentHashMap<>();
-    private ConcurrentHashMap<Long, LinkDbInfo> linkDbIds = new ConcurrentHashMap<>();
 
     private Set<Long> dbIds = ConcurrentHashMap.newKeySet();
     private Set<String> dbNames = ConcurrentHashMap.newKeySet();
@@ -85,39 +80,6 @@ public class Cluster implements Writable {
         return name;
     }
 
-    public void addLinkDb(BaseParam param) {
-        lock();
-        try {
-            if (Strings.isNullOrEmpty(param.getStringParam(1)) || param.getLongParam(1) <= 0) {
-                return;
-            }
-            final LinkDbInfo info = new LinkDbInfo(param.getStringParam(1), param.getLongParam(1));
-            linkDbNames.put(param.getStringParam(), info);
-            linkDbIds.put(param.getLongParam(), info);
-        } finally {
-            unlock();
-        }
-    }
-
-    public void removeLinkDb(BaseParam param) {
-        lock();
-        try {
-            linkDbNames.remove(param.getStringParam());
-            linkDbIds.remove(param.getLongParam());
-        } finally {
-            unlock();
-        }
-
-    }
-
-    public boolean containLink(String dest, String src) {
-        final LinkDbInfo info = linkDbNames.get(dest);
-        if (info != null && info.getName().equals(src)) {
-            return true;
-        }
-        return false;
-    }
-
     public void addDb(String name, long id) {
         if (Strings.isNullOrEmpty(name)) {
             return;
@@ -137,7 +99,6 @@ public class Cluster implements Writable {
         lock();
         try {
             ret.addAll(dbNames);
-            ret.addAll(linkDbNames.keySet());
         } finally {
             unlock();
         }
@@ -154,10 +115,6 @@ public class Cluster implements Writable {
         }
     }
 
-    public boolean containDb(String name) {
-        return dbNames.contains(name);
-    }
-
     public List<Long> getBackendIdList() {
         return Lists.newArrayList(backendIdSet);
     }
@@ -172,10 +129,6 @@ public class Cluster implements Writable {
 
     public void addBackend(long backendId) {
         backendIdSet.add(backendId);
-    }
-
-    public void addBackends(List<Long> backendIds) {
-        backendIdSet.addAll(backendIds);
     }
 
     public void removeBackend(long removedBackendId) {
@@ -223,17 +176,10 @@ public class Cluster implements Writable {
             out.writeLong(id);
         }
 
-        out.writeInt(linkDbNames.size());
-        for (Map.Entry<String, LinkDbInfo> infoMap : linkDbNames.entrySet()) {
-            Text.writeString(out, infoMap.getKey());
-            infoMap.getValue().write(out);
-        }
-
-        out.writeInt(linkDbIds.size());
-        for (Map.Entry<Long, LinkDbInfo> infoMap : linkDbIds.entrySet()) {
-            out.writeLong(infoMap.getKey());
-            infoMap.getValue().write(out);
-        }
+        // for linkDbNames
+        out.writeInt(0);
+        // for linkDbIds
+        out.writeInt(0);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -254,20 +200,9 @@ public class Cluster implements Writable {
             dbIds.add(in.readLong());
         }
 
-        count = in.readInt();
-        while (count-- > 0) {
-            final String key = Text.readString(in);
-            final LinkDbInfo value = new LinkDbInfo();
-            value.readFields(in);
-            linkDbNames.put(key, value);
-        }
-
-        count = in.readInt();
-        while (count-- > 0) {
-            final long key = in.readLong();
-            final LinkDbInfo value = new LinkDbInfo();
-            value.readFields(in);
-            linkDbIds.put(key, value);
-        }
+        // for linkDbNames
+        in.readInt();
+        // for linkDbIds
+        in.readInt();
     }
 }

@@ -81,7 +81,6 @@ import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
-import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.DropResourceGroupOperationLog;
 import org.apache.doris.persist.DropResourceOperationLog;
@@ -416,12 +415,6 @@ public class JournalEntity implements Writable {
             case OperationType.OP_UPDATE_DB: {
                 data = new DatabaseInfo();
                 ((DatabaseInfo) data).readFields(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_DROP_LINKDB: {
-                data = new DropLinkDbAndUpdateDbInfo();
-                ((DropLinkDbAndUpdateDbInfo) data).readFields(in);
                 isRead = true;
                 break;
             }
