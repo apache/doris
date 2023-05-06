@@ -149,13 +149,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
 
         // TODO: should generate different Scan sub class according to table's type
-        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext, unboundRelation.getNameParts());
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                unboundRelation.getNameParts());
         TableIf table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
-        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext, unboundRelation.getNameParts());
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                unboundRelation.getNameParts());
         TableIf table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }

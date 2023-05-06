@@ -22,13 +22,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -61,36 +59,34 @@ public class RelationUtil {
     }
 
     /**
-     * getTable
+     * get table qualifier
      */
-    public static List<String> getQualifierName(CascadesContext context, List<String> nameParts) {
+    public static List<String> getQualifierName(ConnectContext context, List<String> nameParts) {
         switch (nameParts.size()) {
             case 1: { // table
                 // Use current database name from catalog.
                 String tableName = nameParts.get(0);
-                String catalogName = context.getConnectContext().getCurrentCatalog().getName();
-                String dbName = context.getConnectContext().getDatabase();
+                String catalogName = context.getCurrentCatalog().getName();
+                String dbName = context.getDatabase();
                 return ImmutableList.of(tableName, catalogName, dbName);
             }
             case 2: { // db.table
                 // Use database name from table name parts.
-                ConnectContext connectContext = context.getConnectContext();
-                String catalogName = context.getConnectContext().getCurrentCatalog().getName();
+                String catalogName = context.getCurrentCatalog().getName();
                 // if the relation is view, nameParts.get(0) is dbName.
                 String dbName = nameParts.get(0);
                 if (!dbName.contains(ClusterNamespace.CLUSTER_DELIMITER)) {
-                    dbName = connectContext.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
+                    dbName = context.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
                 }
                 String tableName = nameParts.get(1);
                 return ImmutableList.of(tableName, catalogName, dbName);
             }
             case 3: { // catalog.db.table
                 // Use catalog and database name from name parts.
-                ConnectContext connectContext = context.getConnectContext();
                 String catalogName = nameParts.get(0);
                 String dbName = nameParts.get(1);
                 if (!dbName.contains(ClusterNamespace.CLUSTER_DELIMITER)) {
-                    dbName = connectContext.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
+                    dbName = context.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
                 }
                 String tableName = nameParts.get(2);
                 return ImmutableList.of(tableName, catalogName, dbName);
@@ -100,6 +96,9 @@ public class RelationUtil {
         }
     }
 
+    /**
+     * get table
+     */
     public static TableIf getTable(List<String> qualifierName, Env env) {
         String catalogName = qualifierName.get(0);
         String dbName = qualifierName.get(1);

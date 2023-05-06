@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
@@ -52,7 +54,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -66,7 +67,7 @@ import java.util.stream.Collectors;
  */
 public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
-    private final String tableName;
+    private final List<String> tableName;
     private final List<String> colNames;
     private final LogicalPlan logicalQuery;
     private final String labelName;
@@ -82,8 +83,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     /**
      * constructor
      */
-    public InsertIntoTableCommand(String tableName, String labelName, List<String> colNames, List<String> partitions,
-            List<String> hints, LogicalPlan logicalQuery) {
+    public InsertIntoTableCommand(List<String> tableName, String labelName, List<String> colNames,
+            List<String> partitions, List<String> hints, LogicalPlan logicalQuery) {
         super(PlanType.INSERT_INTO_SELECT_COMMAND);
         Preconditions.checkArgument(tableName != null, "tableName cannot be null in insert-into-select command");
         Preconditions.checkArgument(logicalQuery != null, "logicalQuery cannot be null in insert-into-select command");
@@ -150,20 +151,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     }
 
     private void checkDatabaseAndTable(ConnectContext ctx) {
-        Optional<Database> database = Env.getCurrentInternalCatalog().getDb(ctx.getDatabase());
-        if (!database.isPresent()) {
-            throw new AnalysisException("Unknown database: " + ctx.getDatabase());
+        List<String> qualifier = RelationUtil.getQualifierName(ctx, tableName);
+        String catalogName = qualifier.get(0);
+        String dbName = qualifier.get(1);
+        String tableName = qualifier.get(2);
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (catalog == null) {
+            throw new RuntimeException(String.format("Catalog %s does not exist.", catalogName));
         }
-        this.database = database.get();
-        Optional<Table> table = this.database.getTable(tableName);
-        if (!table.isPresent()) {
-            throw new AnalysisException("Unknown table: " + tableName);
-        }
-        // TODO: support more table type.
-        if (!(table.get() instanceof OlapTable)) {
-            throw new AnalysisException("Only support OlapTable");
-        }
-        this.table = table.get();
+        database = ((Database) catalog.getDb(dbName).orElseThrow(() ->
+                new RuntimeException("Database [" + dbName + "] does not exist.")));
+        table = database.getTable(tableName).orElseThrow(() ->
+                new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "]."));
     }
 
     private LogicalPlan extractPlan(LogicalPlan plan) {
