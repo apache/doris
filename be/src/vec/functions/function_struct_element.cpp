@@ -101,7 +101,6 @@ private:
         if (is_integer(index_type)) {
             index = index_column->get_int(0);
             size_t limit = struct_type.get_elements().size() + 1;
-            LOG(INFO) << "get_element_index:index, limit:" << index << " " << limit;
             if (index < 1 || index >= limit) {
                 return Status::RuntimeError(
                         fmt::format("Index out of bound for function {}: index {} should base from "
