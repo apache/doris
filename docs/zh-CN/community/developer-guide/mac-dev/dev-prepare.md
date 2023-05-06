@@ -81,7 +81,7 @@ under the License.
         export PATH=$DORIS_HOME/bin:$PATH
         ```
 
-## 下载Doris编译依赖
+## 下载 Doris 编译依赖
 
     1. [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation)页面有所有第三方库的源码，可以直接下载[doris-thirdparty-source.tgz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz)获得。
 
@@ -123,7 +123,7 @@ under the License.
     sh build.sh
     ```
 
-## 配置Debug环境
+## 配置 Debug 环境
 
     ```
     # 将编译好的包cp出来
