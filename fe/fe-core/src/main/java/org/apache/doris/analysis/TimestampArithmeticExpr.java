@@ -267,7 +267,8 @@ public class TimestampArithmeticExpr extends Expr {
                 // For varargs, we must compare with the last type in callArgs.argTypes.
                 int ix = Math.min(argTypes.length - 1, i);
                 if (!childrenTypes[i].matchesType(argTypes[ix])) {
-                    uncheckedCastChild(argTypes[ix], i);
+                    Type curType = Type.convertDateLikeTypeToV2(argTypes[ix]);
+                    uncheckedCastChild(curType, i);
                 }
             }
         }
