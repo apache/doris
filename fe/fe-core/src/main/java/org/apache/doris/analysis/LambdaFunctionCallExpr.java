@@ -107,7 +107,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                         lambda.debugString());
             }
             fn = new Function(fnName, Arrays.asList(argTypes), ArrayType.create(lambda.getChild(0).getType(), true),
-                    false, true, NullableMode.DEPEND_ON_ARGUMENT);
+                    true, true, NullableMode.DEPEND_ON_ARGUMENT);
             if (fn == null) {
                 LOG.warn("fn {} not exists", this.toSqlImpl());
                 throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
