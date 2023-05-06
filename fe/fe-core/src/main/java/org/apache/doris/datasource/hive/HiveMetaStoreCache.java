@@ -26,10 +26,14 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.external.hive.util.HiveUtil;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.RemoteFiles;
 import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
@@ -37,9 +41,8 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
-import org.apache.doris.planner.Split;
 import org.apache.doris.planner.external.FileSplit;
-import org.apache.doris.planner.external.HiveSplitter;
+import org.apache.doris.spi.Split;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -263,6 +266,19 @@ public class HiveMetaStoreCache {
         return new HivePartition(key.dbName, key.tblName, false, sd.getInputFormat(), sd.getLocation(), key.values);
     }
 
+    // Get File Status by using FileSystem API.
+    private FileCacheValue getFileCache(String location, InputFormat<?, ?> inputFormat,
+                                                                 JobConf jobConf,
+                                                                 List<String> partitionValues) throws UserException {
+        FileCacheValue result = new FileCacheValue();
+        result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
+        RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
+        RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
+        locatedFiles.locations().forEach(result::addFile);
+        result.setPartitionValues(partitionValues);
+        return result;
+    }
+
     private FileCacheValue loadFiles(FileCacheKey key) {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
@@ -284,8 +300,7 @@ public class HiveMetaStoreCache {
                 InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
                 // TODO: This is a temp config, will remove it after the HiveSplitter is stable.
                 if (key.useSelfSplitter) {
-                    result = HiveSplitter.getFileCache(finalLocation, inputFormat,
-                        jobConf, key.getPartitionValues());
+                    result = getFileCache(finalLocation, inputFormat, jobConf, key.getPartitionValues());
                 } else {
                     InputSplit[] splits;
                     String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);

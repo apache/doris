@@ -2371,7 +2371,7 @@ void Tablet::remove_unused_remote_files() {
 }
 
 TabletSchemaSPtr Tablet::tablet_schema() const {
-    std::shared_lock wrlock(_meta_lock);
+    std::shared_lock rlock(_meta_lock);
     return _max_version_schema;
 }
 
@@ -2382,10 +2382,6 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
         tablet_schema->schema_version() > _max_version_schema->schema_version()) {
         _max_version_schema = tablet_schema;
     }
-}
-
-TabletSchemaSPtr Tablet::get_max_version_schema(std::lock_guard<std::shared_mutex>&) {
-    return _max_version_schema;
 }
 
 // fetch value by row column

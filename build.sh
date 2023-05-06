@@ -387,7 +387,7 @@ echo "Get params:
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
 fi
-./generated-source.sh
+"${DORIS_HOME}"/generated-source.sh
 
 # Assesmble FE modules
 FE_MODULES=''

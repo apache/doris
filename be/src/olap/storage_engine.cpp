@@ -969,11 +969,6 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
 
     string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(),
                                                                 request.tablet_id);
-    res = TabletMeta::reset_tablet_uid(header_path);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail reset tablet uid file path = " << header_path << " res=" << res;
-        return res;
-    }
     res = _tablet_manager->load_tablet_from_dir(store, request.tablet_id, request.schema_hash,
                                                 schema_hash_path_stream.str(), false, restore);
     if (!res.ok()) {

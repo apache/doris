@@ -588,12 +588,10 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
 
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
-    auto block = VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, input_block,
-                                                                    status);
+    Block block;
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
+                                                                       input_block, &block));
     auto num_rows = block.rows();
-    if (UNLIKELY(num_rows == 0)) {
-        return status;
-    }
     std::vector<MysqlRowBuffer<is_binary_format>> rows_buffer;
     rows_buffer.resize(num_rows);
     if constexpr (is_binary_format) {
