@@ -63,6 +63,7 @@ E(DIR_NOT_EXIST, -101);
 E(FILE_NOT_EXIST, -102);
 E(CREATE_FILE_ERROR, -103);
 E(STL_ERROR, -105);
+E(EIO_ERROR, -106);
 E(MUTEX_ERROR, -107);
 E(PTHREAD_ERROR, -108);
 E(NETWORK_ERROR, -109);
@@ -79,6 +80,8 @@ E(EVAL_CONJUNCTS_ERROR, -120);
 E(COPY_FILE_ERROR, -121);
 E(FILE_ALREADY_EXIST, -122);
 E(BAD_CAST, -123);
+E(FILE_OR_DIR_NOT_EXIST, -124);
+E(PERMISSION_DENIED, -125);
 E(CALL_SEQUENCE_ERROR, -202);
 E(BUFFER_OVERFLOW, -204);
 E(CONFIG_ERROR, -205);
@@ -419,7 +422,10 @@ public:
     bool is_io_error() const {
         return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
                ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||
-               ErrorCode::TEST_FILE_ERROR == _code;
+               ErrorCode::TEST_FILE_ERROR == _code || ErrorCode::EIO_ERROR == _code ||
+               ErrorCode::FILE_ALREADY_EXIST == _code || ErrorCode::PERMISSION_DENIED == _code ||
+               ErrorCode::FILE_NOT_EXIST == _code || ErrorCode::DIR_NOT_EXIST ||
+               ErrorCode::FILE_OR_DIR_NOT_EXIST == _code;
     }
 
     bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }

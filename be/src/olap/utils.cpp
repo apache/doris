@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 
+#include "io/fs/err_utils.h"
 #include "util/sse_util.hpp"
 
 #ifdef DORIS_WITH_LZO
@@ -433,19 +434,17 @@ int operator-(const BinarySearchIterator& left, const BinarySearchIterator& righ
 Status read_write_test_file(const string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
-            char errmsg[64];
-            LOG(WARNING) << "fail to delete test file. "
-                         << "path=" << test_file_path << ", errno=" << errno
-                         << ", err=" << strerror_r(errno, errmsg, 64);
-            return Status::Error<IO_ERROR>();
+            auto st = io::error_from_errno("fail to delete test file. path={}, errno={}, err={}",
+                                           test_file_path, errno, io::errno_to_str());
+            LOG(WARNING) << st;
+            return st;
         }
     } else {
         if (errno != ENOENT) {
-            char errmsg[64];
-            LOG(WARNING) << "fail to access test file. "
-                         << "path=" << test_file_path << ", errno=" << errno
-                         << ", err=" << strerror_r(errno, errmsg, 64);
-            return Status::Error<IO_ERROR>();
+            auto st = io::error_from_errno("fail to access test file. path={}, errno={}, err={}",
+                                           test_file_path, errno, io::errno_to_str());
+            LOG(WARNING) << st;
+            return st;
         }
     }
 
@@ -481,9 +480,11 @@ Status read_write_test_file(const string& test_file_path) {
     size_t bytes_read = 0;
     RETURN_IF_ERROR(file_reader->read_at(0, {read_buff.get(), TEST_FILE_BUF_SIZE}, &bytes_read));
     if (memcmp(write_buff.get(), read_buff.get(), TEST_FILE_BUF_SIZE) != 0) {
-        LOG(WARNING) << "the test file write_buf and read_buf not equal, [file_name = "
-                     << test_file_path << "]";
-        return Status::Error<TEST_FILE_ERROR>();
+        auto st = Status::Error(TEST_FILE_ERROR,
+                                "the test file write_buf and read_buf not equal, [file_name = {}]",
+                                test_file_path);
+        LOG(WARNING) << st;
+        return st;
     }
     // delete file
     return io::global_local_filesystem()->delete_file(test_file_path);

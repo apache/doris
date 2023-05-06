@@ -70,7 +70,7 @@ Status LocalFileReader::close() {
         if (-1 == res) {
             std::string err = errno_to_str();
             LOG(WARNING) << fmt::format("failed to close {}: {}", _path.native(), err);
-            return Status::IOError("failed to close {}: {}", _path.native(), err);
+            return error_from_errno("failed to close {}: {}", _path.native(), err);
         }
         _fd = -1;
     }
@@ -92,7 +92,8 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
     while (bytes_req != 0) {
         auto res = ::pread(_fd, to, bytes_req, offset);
         if (UNLIKELY(-1 == res && errno != EINTR)) {
-            return Status::IOError("cannot read from {}: {}", _path.native(), std::strerror(errno));
+            return error_from_errno("cannot read from {}: {}", _path.native(),
+                                    std::strerror(errno));
         }
         if (UNLIKELY(res == 0)) {
             return Status::IOError("cannot read from {}: unexpected EOF", _path.native());
