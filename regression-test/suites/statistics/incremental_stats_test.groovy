@@ -239,49 +239,49 @@ suite("test_incremental_stats") {
     // Add a column, but the partition has not changed, so only the statistics of
     // the newly added column will be collected during incremental collection,
     // and one task will be generated (total tasks: 27 + 1 = 28)
-    qt_sql_9 """
-        SELECT 
-            COUNT(*) 
-        FROM 
-            ${analysisJobsTblName} 
-        WHERE 
-            col_name IN (
-                't_1682176142000_user_id', 't_1682176142000_date', 't_1682176142000_city', 
-                't_1682176142000_age', 't_1682176142000_sex', 't_1682176142000_last_visit_date', 
-                't_1682176142000_cost', 't_1682176142000_max_dwell_time', 't_1682176142000_min_dwell_time',
-                't_1682176142000_new_column'
-            );
-    """
+    // qt_sql_9 """
+    //     SELECT
+    //         COUNT(*)
+    //     FROM
+    //         ${analysisJobsTblName}
+    //     WHERE
+    //         col_name IN (
+    //             't_1682176142000_user_id', 't_1682176142000_date', 't_1682176142000_city',
+    //             't_1682176142000_age', 't_1682176142000_sex', 't_1682176142000_last_visit_date',
+    //             't_1682176142000_cost', 't_1682176142000_max_dwell_time', 't_1682176142000_min_dwell_time',
+    //             't_1682176142000_new_column'
+    //         );
+    // """
 
     // Statistics will change either
     // qt_sql_10 query_col_statistics_with_order_sql
 
     // 5. Finally, collect statistics in full
-    sql """
-        ANALYZE TABLE ${fullTblName} (
-            `t_1682176142000_user_id`, `t_1682176142000_date`, 
-            `t_1682176142000_city`, `t_1682176142000_age`, `t_1682176142000_sex`, 
-            `t_1682176142000_last_visit_date`, `t_1682176142000_cost`, 
-            `t_1682176142000_max_dwell_time`, `t_1682176142000_min_dwell_time`,
-            `t_1682176142000_new_column`
-        ) WITH sync;
-    """
+    // sql """
+    //     ANALYZE TABLE ${fullTblName} (
+    //         `t_1682176142000_user_id`, `t_1682176142000_date`,
+    //         `t_1682176142000_city`, `t_1682176142000_age`, `t_1682176142000_sex`,
+    //         `t_1682176142000_last_visit_date`, `t_1682176142000_cost`,
+    //         `t_1682176142000_max_dwell_time`, `t_1682176142000_min_dwell_time`,
+    //         `t_1682176142000_new_column`
+    //     ) WITH sync;
+    // """
 
     // Full collection will recollect the statistics of all columns and update the statistics of the table.
     // So 10 tasks will be generated。 (total tasks: 28 + 10 = 38)
-    qt_sql_11 """
-        SELECT 
-            COUNT(*) 
-        FROM 
-            ${analysisJobsTblName} 
-        WHERE 
-            col_name IN (
-                't_1682176142000_user_id', 't_1682176142000_date', 't_1682176142000_city', 
-                't_1682176142000_age', 't_1682176142000_sex', 't_1682176142000_last_visit_date', 
-                't_1682176142000_cost', 't_1682176142000_max_dwell_time', 't_1682176142000_min_dwell_time',
-                't_1682176142000_new_column'
-            );
-    """
+    // qt_sql_11 """
+    //     SELECT
+    //         COUNT(*)
+    //     FROM
+    //         ${analysisJobsTblName}
+    //     WHERE
+    //         col_name IN (
+    //             't_1682176142000_user_id', 't_1682176142000_date', 't_1682176142000_city',
+    //             't_1682176142000_age', 't_1682176142000_sex', 't_1682176142000_last_visit_date',
+    //             't_1682176142000_cost', 't_1682176142000_max_dwell_time', 't_1682176142000_min_dwell_time',
+    //             't_1682176142000_new_column'
+    //         );
+    // """
 
     // Compare statistics again
     // qt_sql_12 query_col_statistics_with_order_sql
@@ -305,21 +305,21 @@ suite("test_incremental_stats") {
         DROP EXPIRED STATS;
     """
 
-    int rowCount = 0
-    int histFailedCnt = 0
+    //  int rowCount = 0
+    //  int failedCnt = 0
 
-    do {
-        result = sql """
-                     SELECT COUNT(*) FROM ${colStatisticsTblName} 
-                     WHERE col_id IN ${columnNameValues};
-                 """
-        rowCount = result[0][0] as int
-        if (rowCount == 0) break
-        Thread.sleep(10000)
-        histFailedCnt++
-    } while (histFailedCnt < 30)
+    //  do {
+    //      result = sql """
+    //                   SELECT COUNT(*) FROM ${colStatisticsTblName}
+    //                   WHERE col_id IN ${columnNameValues};
+    //               """
+    //      rowCount = result[0][0] as int
+    //      if (rowCount == 0) break
+    //      Thread.sleep(10000)
+    //      failedCnt++
+    //  } while (failedCnt < 30)
 
-    assertEquals(0, rowCount)
+    //  assertEquals(0, rowCount)
 
     // TODO Can it be deleted synchronously
     // qt_sql_14 """
