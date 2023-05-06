@@ -159,10 +159,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         if (catalog == null) {
             throw new RuntimeException(String.format("Catalog %s does not exist.", catalogName));
         }
-        database = ((Database) catalog.getDb(dbName).orElseThrow(() ->
-                new RuntimeException("Database [" + dbName + "] does not exist.")));
-        table = database.getTable(tableName).orElseThrow(() ->
-                new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+        try {
+            database = ((Database) catalog.getDb(dbName).orElseThrow(() ->
+                    new RuntimeException("Database [" + dbName + "] does not exist.")));
+            table = database.getTable(tableName).orElseThrow(() ->
+                    new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+        } catch (Throwable e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
     }
 
     private LogicalPlan extractPlan(LogicalPlan plan) {
