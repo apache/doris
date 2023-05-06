@@ -91,7 +91,8 @@ enum class TypeIndex {
     Struct = 40,
     VARIANT = 41,
     QuantileState = 42,
-    Time = 43
+    Time = 43,
+    AggState
 };
 
 struct Consted {
@@ -627,6 +628,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "Struct";
     case TypeIndex::QuantileState:
         return TypeName<QuantileState<double>>::get();
+    case TypeIndex::AggState:
+        return "AggState";
     case TypeIndex::Time:
         return "Time";
     }
