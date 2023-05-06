@@ -584,7 +584,7 @@ public class StmtExecutor {
             parsedStmt = proxyStmt;
             if (!(proxyStmt instanceof LoadStmt)) {
                 Preconditions.checkState(
-                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).isExternalLoad(),
+                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needLoadManager(),
                         new IllegalStateException("enable_unified_load=true, should be external insert stmt"));
             }
         }
@@ -658,7 +658,7 @@ public class StmtExecutor {
                 handleCtasStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InsertStmt is its subclass
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
-                if (insertStmt.isExternalLoad()) {
+                if (insertStmt.needLoadManager()) {
                     // TODO(tsy): will eventually try to handle native insert and external insert together
                     // add a branch for external load
                     handleExternalInsertStmt();
@@ -723,7 +723,7 @@ public class StmtExecutor {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 // The transaction of an insert operation begin at analyze phase.
                 // So we should abort the transaction at this finally block if it encounters exception.
-                if (!insertStmt.isExternalLoad() && insertStmt.isTransactionBegin()
+                if (!insertStmt.needLoadManager() && insertStmt.isTransactionBegin()
                         && context.getState().getStateType() == MysqlStateType.ERR) {
                     try {
                         String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
@@ -853,7 +853,7 @@ public class StmtExecutor {
         }
 
         if (parsedStmt instanceof QueryStmt
-                || (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).isExternalLoad())
+                || (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager())
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
             if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
                 analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()

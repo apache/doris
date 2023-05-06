@@ -189,7 +189,7 @@ public abstract class InsertStmt extends DdlStmt {
 
     // ------------------------- for unified insert stmt -------------------------
 
-    public boolean isExternalLoad() {
+    public boolean needLoadManager() {
         return getLoadType() != LoadType.NATIVE_INSERT && getLoadType() != LoadType.UNKNOWN;
     }
 
