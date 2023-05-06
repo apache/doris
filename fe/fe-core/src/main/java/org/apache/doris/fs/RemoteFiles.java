@@ -15,15 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner;
+package org.apache.doris.fs;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.common.UserException;
+import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
 
-public interface Splitter {
-    static final long DEFAULT_SPLIT_SIZE = 128 * 1024 * 1024; // 128MB
+public class RemoteFiles {
 
-    List<Split> getSplits(List<Expr> exprs) throws UserException;
+    private final List<RemoteFile> files;
+
+    public RemoteFiles(List<RemoteFile> files) {
+        this.files = files;
+    }
+
+    public List<RemoteFile> locations() {
+        return files;
+    }
 }

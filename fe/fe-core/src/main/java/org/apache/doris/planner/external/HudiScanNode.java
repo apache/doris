@@ -18,34 +18,31 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.planner.ColumnRange;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
-/**
- * A file scan provider for hudi.
- * HudiProvier is extended with hive since they both use input format interface to get the split.
- */
-public class HudiScanProvider extends HiveScanProvider {
-
-    public HudiScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc,
-            Map<String, ColumnRange> columnNameToRange) {
-        super(hmsTable, desc, columnNameToRange);
+public class HudiScanNode extends HiveScanNode {
+    /**
+     * External file scan node for Query Hudi table
+     * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
+     * eg: s3 tvf
+     * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
+     */
+    public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+        super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv);
     }
 
     @Override
-    public TFileFormatType getFileFormatType() throws DdlException {
+    public TFileFormatType getFileFormatType() {
         return TFileFormatType.FORMAT_PARQUET;
     }
 
     @Override
-    public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
+    public List<String> getPathPartitionKeys() {
         return Collections.emptyList();
     }
 }

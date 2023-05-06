@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner;
+package org.apache.doris.common;
 
-import lombok.Data;
+import com.google.common.base.Strings;
 
-@Data
-public abstract class Split {
-    protected String[] hosts;
-
-    public Split() {}
-
-    public Split(String[] hosts) {
-        this.hosts = hosts;
+public class EnvUtils {
+    // get doris home from env,
+    // if not set, return ${Env.DORIS_HOME} as a placeholder
+    public static String getDorisHome() {
+        String dorisHome = System.getenv("DORIS_HOME");
+        if (Strings.isNullOrEmpty(dorisHome)) {
+            dorisHome = "${Env.DORIS_HOME}";
+        }
+        return dorisHome;
     }
 }

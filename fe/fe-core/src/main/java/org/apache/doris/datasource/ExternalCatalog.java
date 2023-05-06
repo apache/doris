@@ -473,4 +473,14 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         }
         return specifiedDatabaseMap;
     }
+
+    public boolean useSelfSplitter() {
+        Map<String, String> properties = catalogProperty.getProperties();
+        boolean ret = true;
+        if (properties.containsKey(HMSExternalCatalog.ENABLE_SELF_SPLITTER)
+                && properties.get(HMSExternalCatalog.ENABLE_SELF_SPLITTER).equalsIgnoreCase("false")) {
+            ret = false;
+        }
+        return ret;
+    }
 }

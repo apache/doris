@@ -31,6 +31,8 @@ public enum StatisticalType {
     HASH_JOIN_NODE,
     HIVE_SCAN_NODE,
     ICEBERG_SCAN_NODE,
+    HUDI_SCAN_NODE,
+    TVF_SCAN_NODE,
     INTERSECT_NODE,
     LOAD_SCAN_NODE,
     MYSQL_SCAN_NODE,
