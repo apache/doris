@@ -46,7 +46,7 @@ class ReadBuffer;
 
 namespace doris::vectorized {
 
-class DataTypeString final : public IDataType {
+class DataTypeString : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = String;
