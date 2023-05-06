@@ -150,7 +150,7 @@ void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_
 void DownloadAction::handle(HttpRequest* req) {
     if (_is_async) {
         // async for heavy download job, currently mainly for single-replica-load
-        auto status = _download_workers->submit_func([this, req]() { _handle(req); }).ok();
+        auto status = _download_workers->submit_func([this, req]() { _handle(req); });
         if (!status.ok()) {
             HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status.to_string());
         }
