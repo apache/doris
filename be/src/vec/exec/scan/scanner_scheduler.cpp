@@ -261,10 +261,8 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScannerSPtr scanner) {
-    auto tracker_config = [&] {
-        SCOPED_ATTACH_TASK(scanner->runtime_state());
-        Thread::set_self_name("_scanner_scan");
-    };
+    SCOPED_ATTACH_TASK(scanner->runtime_state());
+    auto tracker_config = [&] { Thread::set_self_name("_scanner_scan"); };
 #if !defined(USE_BTHREAD_SCANNER)
     tracker_config();
 #else
