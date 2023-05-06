@@ -312,6 +312,18 @@ void MemTable::_collect_vskiplist_results() {
                           return value < 0;
                       }
                   });
+        // merge new rows and old rows
+        std::inplace_merge(
+                _row_in_blocks.begin(), new_row_it, _row_in_blocks.end(),
+                [this, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
+                    auto value = (*(this->_vec_row_comparator))(l, r);
+                    if (value == 0) {
+                        same_keys_num++;
+                        return l->_row_pos > r->_row_pos;
+                    } else {
+                        return value < 0;
+                    }
+                });
         // do not need to aggregate
         if (same_keys_num == 0) {
             _add_rows_from_block(in_block);
@@ -320,8 +332,6 @@ void MemTable::_collect_vskiplist_results() {
             }
             return;
         }
-        // merge new rows and old rows
-        std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end());
         _last_sorted_pos = _row_in_blocks.size();
         std::vector<RowInBlock*> temp_row_in_blocks(_last_sorted_pos);
         std::vector<size_t> need_merge_idxs; // use bitset?
