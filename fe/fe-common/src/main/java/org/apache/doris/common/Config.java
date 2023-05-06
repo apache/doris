@@ -1442,6 +1442,18 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
 
+    /*
+     * if true, will allow the system to collect statistics automatically
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_auto_collect_statistics = true;
+
+    /*
+     * the system automatically checks the time interval for statistics
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int auto_check_statistics_in_sec = 300;
+
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
      */
