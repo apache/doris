@@ -849,10 +849,7 @@ public class Backend implements Writable {
         }
 
         public int getParallelExecInstanceNum() {
-            if (getMinNumCores() == Integer.MAX_VALUE) {
-                return 1;
-            }
-            return (getMinNumCores() + 1) / 2;
+            return 16;
         }
 
         public BeInfoCollector getBeInfoCollectorById(long beId) {
