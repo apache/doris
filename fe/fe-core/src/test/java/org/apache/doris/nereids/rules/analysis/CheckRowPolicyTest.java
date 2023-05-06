@@ -39,7 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;

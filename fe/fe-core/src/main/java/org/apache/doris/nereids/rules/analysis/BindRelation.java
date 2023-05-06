@@ -54,7 +54,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -94,13 +94,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 // Use current database name from catalog.
                 return bindWithCurrentDb(ctx.cascadesContext, ctx.root);
             }
-            case 2: { // db.table
+            case 2:
+                // db.table
                 // Use database name from table name parts.
-                return bindWithDbNameFromNamePart(ctx.cascadesContext, ctx.root);
-            }
-            case 3: { // catalog.db.table
+            case 3: {
+                // catalog.db.table
                 // Use catalog and database name from name parts.
-                return bindWithCatalogNameFromNamePart(ctx.cascadesContext, ctx.root);
+                return bind(ctx.cascadesContext, ctx.root);
             }
             default:
                 throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
@@ -149,37 +149,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
 
         // TODO: should generate different Scan sub class according to table's type
-        List<String> tableQualifier = Lists.newArrayList(catalogName, dbName, tableName);
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext, unboundRelation.getNameParts());
+        TableIf table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
-    private LogicalPlan bindWithDbNameFromNamePart(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
-        List<String> nameParts = unboundRelation.getNameParts();
-        ConnectContext connectContext = cascadesContext.getConnectContext();
-        String catalogName = cascadesContext.getConnectContext().getCurrentCatalog().getName();
-        // if the relation is view, nameParts.get(0) is dbName.
-        String dbName = nameParts.get(0);
-        if (!dbName.contains(ClusterNamespace.CLUSTER_DELIMITER)) {
-            dbName = connectContext.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
-        }
-        String tableName = nameParts.get(1);
-        TableIf table = getTable(catalogName, dbName, tableName, connectContext.getEnv());
-        List<String> tableQualifier = Lists.newArrayList(catalogName, dbName, tableName);
-        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
-    }
-
-    private LogicalPlan bindWithCatalogNameFromNamePart(CascadesContext cascadesContext,
-                                                        UnboundRelation unboundRelation) {
-        List<String> nameParts = unboundRelation.getNameParts();
-        ConnectContext connectContext = cascadesContext.getConnectContext();
-        String catalogName = nameParts.get(0);
-        String dbName = nameParts.get(1);
-        if (!dbName.contains(ClusterNamespace.CLUSTER_DELIMITER)) {
-            dbName = connectContext.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
-        }
-        String tableName = nameParts.get(2);
-        TableIf table = getTable(catalogName, dbName, tableName, connectContext.getEnv());
-        List<String> tableQualifier = Lists.newArrayList(catalogName, dbName, tableName);
+    private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext, unboundRelation.getNameParts());
+        TableIf table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
