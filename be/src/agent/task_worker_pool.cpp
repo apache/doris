@@ -295,6 +295,9 @@ bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_
         // no need to report task of these types
         return true;
     }
+    if (signature == -1) { // No need to report task with unintialized signature
+        return true;
+    }
     std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
     std::set<int64_t>& signature_set = _s_task_signatures[task_type];
     return signature_set.insert(signature).second;
@@ -965,7 +968,6 @@ void TaskWorkerPool::_clear_transaction_task_worker_thread_callback() {
 void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
-        TUpdateTabletMetaInfoReq update_tablet_meta_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             _worker_thread_condition_variable.wait(
@@ -973,68 +975,55 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
             if (!_is_work) {
                 return;
             }
-
             agent_task_req = _tasks.front();
-            update_tablet_meta_req = agent_task_req.update_tablet_meta_info_req;
             _tasks.pop_front();
         }
         LOG(INFO) << "get update tablet meta task. signature=" << agent_task_req.signature;
 
         Status status;
-
+        auto& update_tablet_meta_req = agent_task_req.update_tablet_meta_info_req;
         for (auto& tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                     tablet_meta_info.tablet_id);
             if (tablet == nullptr) {
-                LOG(WARNING) << "could not find tablet when update partition id. tablet_id="
-                             << tablet_meta_info.tablet_id
-                             << ", schema_hash=" << tablet_meta_info.schema_hash;
+                LOG(WARNING) << "could not find tablet when update tablet meta. tablet_id="
+                             << tablet_meta_info.tablet_id;
                 continue;
             }
-            std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
-            // update tablet meta
-            if (!tablet_meta_info.__isset.meta_type) {
-                tablet->set_partition_id(tablet_meta_info.partition_id);
-            } else {
-                switch (tablet_meta_info.meta_type) {
-                case TTabletMetaType::PARTITIONID: // FIXME(plat1ko): deprecate?
-                    tablet->set_partition_id(tablet_meta_info.partition_id);
-                    break;
-                case TTabletMetaType::INMEMORY:
-                    if (tablet_meta_info.__isset.storage_policy_id) {
-                        LOG(INFO) << "set tablet storage_policy_id="
-                                  << tablet_meta_info.storage_policy_id;
-                        tablet->tablet_meta()->set_storage_policy_id(
-                                tablet_meta_info.storage_policy_id);
-                    }
-                    if (tablet_meta_info.__isset.is_in_memory) {
-                        tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
-                                tablet_meta_info.is_in_memory);
-                        // The field is_in_memory should not be in the tablet_schema.
-                        // it should be in the tablet_meta.
-                        for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                            rowset_meta->tablet_schema()->set_is_in_memory(
-                                    tablet_meta_info.is_in_memory);
-                        }
-                        tablet->get_max_version_schema(wrlock)->set_is_in_memory(
-                                tablet_meta_info.is_in_memory);
-                    }
-                    break;
-                }
+            bool need_to_save = false;
+            if (tablet_meta_info.__isset.storage_policy_id) {
+                tablet->tablet_meta()->set_storage_policy_id(tablet_meta_info.storage_policy_id);
+                need_to_save = true;
             }
-            tablet->save_meta();
+            if (tablet_meta_info.__isset.is_in_memory) {
+                tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
+                        tablet_meta_info.is_in_memory);
+                std::shared_lock rlock(tablet->get_header_lock());
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_is_in_memory(tablet_meta_info.is_in_memory);
+                }
+                tablet->tablet_schema_unlocked()->set_is_in_memory(tablet_meta_info.is_in_memory);
+                need_to_save = true;
+            }
+            if (tablet_meta_info.__isset.replica_id) {
+                tablet->tablet_meta()->set_replica_id(tablet_meta_info.replica_id);
+            }
+            if (need_to_save) {
+                std::shared_lock rlock(tablet->get_header_lock());
+                tablet->save_meta();
+            }
         }
 
         LOG(INFO) << "finish update tablet meta task. signature=" << agent_task_req.signature;
-
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_task_status(status.to_thrift());
-        finish_task_request.__set_backend(_backend);
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
-
-        _finish_task(finish_task_request);
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+        if (agent_task_req.signature != -1) {
+            TFinishTaskRequest finish_task_request;
+            finish_task_request.__set_task_status(status.to_thrift());
+            finish_task_request.__set_backend(_backend);
+            finish_task_request.__set_task_type(agent_task_req.task_type);
+            finish_task_request.__set_signature(agent_task_req.signature);
+            _finish_task(finish_task_request);
+            _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+        }
     }
 }
 

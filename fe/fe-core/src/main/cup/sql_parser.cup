@@ -272,6 +272,7 @@ terminal String
     KW_NGRAM_BF,
     KW_BLOB,
     KW_BOOLEAN,
+    KW_BRIEF,
     KW_BROKER,
     KW_BUCKETS,
     KW_BUILD,
@@ -493,6 +494,7 @@ terminal String
     KW_PASSWORD_REUSE,
     KW_PATH,
     KW_PAUSE,
+    KW_PERIOD,
     KW_PIPE,
     KW_PLUGIN,
     KW_PLUGINS,
@@ -3717,9 +3719,13 @@ show_param ::=
     {:
         RESULT = new ShowCreateTableStmt(table);
     :}
-    | KW_CREATE KW_VIEW table_name:table
+    | KW_BRIEF KW_CREATE KW_TABLE table_name:table
     {:
         RESULT = new ShowCreateTableStmt(table, true);
+    :}
+    | KW_CREATE KW_VIEW table_name:table
+    {:
+        RESULT = new ShowCreateTableStmt(table, true, false);
     :}
     /* Create database */
     | KW_CREATE KW_DATABASE ident:db
@@ -5804,6 +5810,12 @@ with_analysis_properties ::=
             put("num.buckets", String.valueOf(numBuckets.intValue()));
         }};
     :}
+    | KW_PERIOD INTEGER_LITERAL:periodInSec
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("period.seconds", String.valueOf(periodInSec.intValue()));
+        }};
+    :}
     ;
 
 opt_with_analysis_properties ::=
@@ -7105,6 +7117,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BOOLEAN:id
     {: RESULT = id; :}
+    | KW_BRIEF:id
+    {: RESULT = id; :}
     | KW_BROKER:id
     {: RESULT = id; :}
     | KW_S3:id
@@ -7488,6 +7502,10 @@ keyword ::=
     | KW_EXPIRED: id
     {: RESULT = id; :}
     | KW_SAMPLE:id
+    {: RESULT = id; :}
+    | KW_INCREMENTAL:id
+    {: RESULT = id; :}
+    | KW_PERIOD:id
     {: RESULT = id; :}
     ;
 
