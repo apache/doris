@@ -134,7 +134,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.clone.DynamicPartitionScheduler;
@@ -175,7 +174,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
@@ -1581,30 +1579,22 @@ public class ShowExecutor {
         }
     }
 
-    private void handleShowHMSTablePartitions(ShowPartitionsStmt showStmt) throws AnalysisException {
-        CatalogIf catalog = showStmt.getCatalog();
-        DatabaseIf database = catalog.getDbOrAnalysisException(showStmt.getTableName().getDb());
-        HMSExternalTable hmsTable = (HMSExternalTable) database.getTableNullable(showStmt.getTableName().getTbl());
-        List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
-
+    private void handleShowHMSTablePartitions(ShowPartitionsStmt showStmt) {
+        HMSExternalCatalog catalog = (HMSExternalCatalog) (showStmt.getCatalog());
         List<List<String>> rows = new ArrayList<>();
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) catalog);
-        if (!partitionColumnTypes.isEmpty()) {
-            HiveMetaStoreCache.HivePartitionValues hivePartitionValues =
-                    cache.getPartitionValues(hmsTable.getDbName(), hmsTable.getName(), partitionColumnTypes);
-            Set<String> partitions = hivePartitionValues.getPartitionNameToIdMap().keySet();
-            for (String partition : partitions) {
-                List<String> list = new ArrayList<>();
-                list.add(partition);
-                rows.add(list);
-            }
-
-            // sort by partition name
-            rows.sort((x, y) -> {
-                return x.get(0).compareTo(y.get(0));
-            });
+        String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
+        List<String> partitionNames = catalog.getClient().listPartitionNames(dbName,
+                showStmt.getTableName().getTbl());
+        for (String partition : partitionNames) {
+            List<String> list = new ArrayList<>();
+            list.add(partition);
+            rows.add(list);
         }
+
+        // sort by partition name
+        rows.sort((x, y) -> {
+            return x.get(0).compareTo(y.get(0));
+        });
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }

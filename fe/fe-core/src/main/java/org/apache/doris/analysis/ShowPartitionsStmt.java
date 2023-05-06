@@ -34,6 +34,7 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -151,13 +152,15 @@ public class ShowPartitionsStmt extends ShowStmt {
     public void analyzeImpl(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
+        catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
+        if (catalog == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FOR_CATALOG);
+        }
+
         // disallow unsupported catalog
-        String catalogName = tableName.getCtl();
-        catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-        String catalogType = catalog.getType();
-        if (!Strings.isNullOrEmpty(catalogName) && !(catalog.isInternalCatalog() || catalogType.equals("hms"))) {
-            throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in '%s'", catalogType,
-                this.getClass().getSimpleName()));
+        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog)) {
+            throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
+                catalog.getType()));
         }
 
         // analyze where clause if not null

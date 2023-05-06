@@ -52,7 +52,7 @@ public interface CatalogIf<T extends DatabaseIf> {
     List<String> getDbNames();
 
     default boolean isInternalCatalog() {
-        return InternalCatalog.INTERNAL_CATALOG_NAME.equals(getName());
+        return this instanceof InternalCatalog;
     }
 
     // Will be used when querying the information_schema table
