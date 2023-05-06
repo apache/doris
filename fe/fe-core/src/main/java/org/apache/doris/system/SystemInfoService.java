@@ -311,6 +311,10 @@ public class SystemInfoService {
         return idToBackendRef.get(backendId);
     }
 
+    public DiskInfo getDisk(long pathHash) {
+        return pathHashToDishInfoRef.get(pathHash);
+    }
+
     public boolean checkBackendLoadAvailable(long backendId) {
         Backend backend = idToBackendRef.get(backendId);
         if (backend == null || !backend.isLoadAvailable()) {

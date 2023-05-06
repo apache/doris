@@ -446,12 +446,14 @@ public class Tablet extends MetaObject implements Writable {
         int aliveAndVersionComplete = 0;
         int stable = 0;
         int availableInCluster = 0;
+        int decommissionNum = 0;
 
         Replica needFurtherRepairReplica = null;
         Set<String> hosts = Sets.newHashSet();
         ArrayList<Long> versions = new ArrayList<>();
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendId());
+            DiskInfo disk = systemInfoService.getDisk(replica.getPathHash());
             if (backend == null || !backend.isAlive() || !replica.isAlive()
                     || checkHost(hosts, backend) || replica.tooSlow() || !backend.isMixNode()) {
                 // this replica is not alive,
@@ -470,6 +472,11 @@ public class Tablet extends MetaObject implements Writable {
 
             if (!backend.isScheduleAvailable()) {
                 // this replica is alive, version complete, but backend is not available
+                continue;
+            }
+
+            if (disk != null && disk.isDecommissioned()) {
+                decommissionNum++;
                 continue;
             }
             stable++;
@@ -541,6 +548,10 @@ public class Tablet extends MetaObject implements Writable {
                 return Pair.of(TabletStatus.FORCE_REDUNDANT,
                         stable < (replicationNum / 2) + 1
                                 ? TabletSchedCtx.Priority.NORMAL : TabletSchedCtx.Priority.LOW);
+            }
+            if (decommissionNum > 0) {
+                return Pair.of(TabletStatus.REPLICA_RELOCATING,
+                        TabletSchedCtx.Priority.fromInteger(Config.decommission_tablet_sched_priority));
             }
             if (stable < (replicationNum / 2) + 1) {
                 return Pair.of(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.NORMAL);

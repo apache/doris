@@ -52,6 +52,7 @@ import org.apache.doris.analysis.ShowDataTypesStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
+import org.apache.doris.analysis.ShowDisksStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEncryptKeysStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
@@ -149,6 +150,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.proc.BackendsProcDir;
+import org.apache.doris.common.proc.DisksProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
@@ -329,6 +331,8 @@ public class ShowExecutor {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
             handleShowBackends();
+        } else if (stmt instanceof ShowDisksStmt) {
+            handleShowDisks();
         } else if (stmt instanceof ShowFrontendsStmt) {
             handleShowFrontends();
         } else if (stmt instanceof ShowRepositoriesStmt) {
@@ -1804,6 +1808,20 @@ public class ShowExecutor {
         });
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), backendInfos);
+    }
+
+    private void handleShowDisks() throws AnalysisException {
+        final ShowDisksStmt showStmt = (ShowDisksStmt) stmt;
+        List<List<String>> diskInfos = DisksProcDir.getDiskInfos(showStmt.getHostInfo());
+
+        diskInfos.sort(new Comparator<List<String>>() {
+            @Override
+            public int compare(List<String> o1, List<String> o2) {
+                return o1.get(0).compareTo(o2.get(0));
+            }
+        });
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), diskInfos);
     }
 
     private void handleShowFrontends() {

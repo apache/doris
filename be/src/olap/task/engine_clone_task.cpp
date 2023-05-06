@@ -116,11 +116,12 @@ Status EngineCloneTask::_do_clone() {
     // Check local tablet exist or not
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
+    DataDir* src_store = StorageEngine::instance()->get_store(_clone_req.src_path_hash);
     bool is_new_tablet = tablet == nullptr;
     // try to incremental clone
     std::vector<Version> missed_versions;
     // try to repair a tablet with missing version
-    if (tablet != nullptr) {
+    if (tablet != nullptr && src_store != nullptr && !src_store->is_decommissioned()) {
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
             return Status::Error<TRY_LOCK_FAILED>();

@@ -513,6 +513,7 @@ public class Backend implements Writable {
             long dataUsedCapacityB = tDisk.getDataUsedCapacity();
             long diskAvailableCapacityB = tDisk.getDiskAvailableCapacity();
             boolean isUsed = tDisk.isUsed();
+            boolean isDecommissioned = tDisk.isDecommissioned();
 
             DiskInfo diskInfo = disks.get(rootPath);
             if (diskInfo == null) {
@@ -547,6 +548,11 @@ public class Backend implements Writable {
                     isChanged = true;
                 }
             }
+
+            if (diskInfo.setDecommissioned(isDecommissioned)) {
+                isChanged = true;
+            }
+
             LOG.debug("update disk info. backendId: {}, diskInfo: {}", id, diskInfo.toString());
         }
 

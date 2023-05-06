@@ -174,4 +174,6 @@ service BackendService {
 
     // check tablet rowset type
     TCheckStorageFormatResult check_storage_format();
+
+    Status.TStatus decommission_disk(1: AgentService.TDecommissionDiskReq request);
 }

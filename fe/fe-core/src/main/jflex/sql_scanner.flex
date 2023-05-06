@@ -186,6 +186,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("describe", new Integer(SqlParserSymbols.KW_DESCRIBE));
         keywordMap.put("diagnose", new Integer(SqlParserSymbols.KW_DIAGNOSE));
         keywordMap.put("disk", new Integer(SqlParserSymbols.KW_DISK));
+        keywordMap.put("disks", new Integer(SqlParserSymbols.KW_DISKS));
         keywordMap.put("distinct", new Integer(SqlParserSymbols.KW_DISTINCT));
         keywordMap.put("distinctpc", new Integer(SqlParserSymbols.KW_DISTINCTPC));
         keywordMap.put("distinctpc", new Integer(SqlParserSymbols.KW_DISTINCTPC));

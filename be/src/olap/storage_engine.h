@@ -104,6 +104,7 @@ public:
     // for avoiding that all the tablet would be deployed one disk.
     std::vector<DataDir*> get_stores_for_create_tablet(TStorageMedium::type storage_medium);
     DataDir* get_store(const std::string& path);
+    DataDir* get_store(size_t hash_path);
 
     uint32_t available_storage_medium_type_count() const {
         return _available_storage_medium_type_count;
@@ -197,6 +198,8 @@ public:
     }
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
+
+    Status set_decommissioned(string store_path, bool value);
 
 private:
     // Instance should be inited from `static open()`

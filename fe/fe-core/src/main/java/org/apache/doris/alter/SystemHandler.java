@@ -21,9 +21,11 @@ import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.AddFollowerClause;
 import org.apache.doris.analysis.AddObserverClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
+import org.apache.doris.analysis.CancelDecommissionBackendStmt;
+import org.apache.doris.analysis.CancelDecommissionDiskStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
+import org.apache.doris.analysis.DecommissionDiskClause;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
 import org.apache.doris.analysis.DropObserverClause;
@@ -37,11 +39,13 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
+import org.apache.doris.task.AgentClient;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -139,6 +143,8 @@ public class SystemHandler extends AlterHandler {
                 LOG.info("set backend {} to decommission", backend.getId());
             }
 
+        } else if (alterClause instanceof DecommissionDiskClause) {
+            handleDecommissionDiskClause((DecommissionDiskClause) alterClause);
         } else if (alterClause instanceof AddObserverClause) {
             AddObserverClause clause = (AddObserverClause) alterClause;
             Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getIp(), clause.getHostName(),
@@ -227,11 +233,20 @@ public class SystemHandler extends AlterHandler {
 
     @Override
     public synchronized void cancel(CancelStmt stmt) throws DdlException {
-        CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) stmt;
+        if (stmt instanceof CancelDecommissionBackendStmt) {
+            handleCancelDecommissionBackendStmt((CancelDecommissionBackendStmt) stmt);
+        } else if (stmt instanceof CancelDecommissionDiskStmt) {
+            handleCancelDecommissionDiskClause((CancelDecommissionDiskStmt) stmt);
+        } else {
+            Preconditions.checkState(false, stmt.getClass());
+        }
+    }
+
+    private void handleCancelDecommissionBackendStmt(CancelDecommissionBackendStmt stmt) throws DdlException {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         // check if backends is under decommission
         List<Backend> backends = Lists.newArrayList();
-        List<HostInfo> hostInfos = cancelAlterSystemStmt.getHostInfos();
+        List<HostInfo> hostInfos = stmt.getHostInfos();
         for (HostInfo hostInfo : hostInfos) {
             // check if exist
             Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(),
@@ -257,6 +272,26 @@ public class SystemHandler extends AlterHandler {
             } else {
                 LOG.info("backend is not decommissioned[{}]", backend.getIp());
             }
+        }
+    }
+
+    private void handleDecommissionDiskClause(DecommissionDiskClause alterClause) throws DdlException {
+        HostInfo hostInfo = alterClause.getHostInfo();
+        List<String> rootPaths = alterClause.getRootPaths();
+        AgentClient client = new AgentClient(hostInfo.getIp(), hostInfo.getPort());
+        Status status = client.decommissionDisk(rootPaths, true);
+        if (!status.ok()) {
+            throw new DdlException("decommission disk " + rootPaths + " on " + hostInfo + " error.");
+        }
+    }
+
+    private void handleCancelDecommissionDiskClause(CancelDecommissionDiskStmt alterClause) throws DdlException {
+        HostInfo hostInfo = alterClause.getHostInfo();
+        List<String> rootPaths = alterClause.getRootPaths();
+        AgentClient client = new AgentClient(hostInfo.getIp(), hostInfo.getPort());
+        Status status = client.decommissionDisk(rootPaths, false);
+        if (!status.ok()) {
+            throw new DdlException("cancel decommission disk " + rootPaths + " on " + hostInfo + " error.");
         }
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -130,6 +131,21 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     return isUp ? HIGH : (origPriority == Priority.VERY_HIGH ? NORMAL : LOW);
                 default:
                     return isUp ? NORMAL : LOW;
+            }
+        }
+
+        public static Priority fromInteger(int x) {
+            switch (x) {
+                case 0:
+                    return LOW;
+                case 1:
+                    return NORMAL;
+                case 2:
+                    return HIGH;
+                case 3:
+                    return VERY_HIGH;
+                default:
+                    return null;
             }
         }
 
@@ -493,8 +509,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         String host = backend.getIp();
         for (Replica replica : tablet.getReplicas()) {
             Backend be = infoService.getBackend(replica.getBackendId());
+            DiskInfo disk = infoService.getDisk(replica.getPathHash());
             if (be == null) {
                 // BE has been dropped, skip it
+                continue;
+            }
+            if (disk == null || !disk.isScheduleAvailable()) {
                 continue;
             }
             if (!Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && host.equals(be.getIp())) {

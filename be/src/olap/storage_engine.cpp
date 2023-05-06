@@ -268,7 +268,7 @@ void StorageEngine::_update_storage_medium_type_count() {
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& it : _store_map) {
-        if (it.second->is_used()) {
+        if (it.second->is_available()) {
             available_storage_medium_types.insert(it.second->storage_medium());
         }
     }
@@ -310,7 +310,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
         }
     } else {
         for (auto& it : _store_map) {
-            if (it.second->is_used()) {
+            if (it.second->is_available()) {
                 stores.push_back(it.second);
             }
         }
@@ -449,13 +449,23 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
+Status StorageEngine::set_decommissioned(string store_path, bool value) {
+    std::lock_guard<std::mutex> l(_store_lock);
+    auto store = get_store(store_path);
+    if (store == nullptr) {
+        LOG(WARNING) << "invalid store path, path=" << store_path;
+        return Status::Error<INVALID_ROOT_PATH>();
+    }
+    return store->set_decommissioned(value);
+}
+
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         TStorageMedium::type storage_medium) {
     std::vector<DataDir*> stores;
     {
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
-            if (it.second->is_used()) {
+            if (it.second->is_available()) {
                 if (_available_storage_medium_type_count == 1 ||
                     it.second->storage_medium() == storage_medium) {
                     stores.push_back(it.second);
@@ -488,6 +498,15 @@ DataDir* StorageEngine::get_store(const std::string& path) {
         return nullptr;
     }
     return it->second;
+}
+
+DataDir* StorageEngine::get_store(size_t path_hash) {
+    for (const auto& store : _store_map) {
+        if (store.second->path_hash() == path_hash) {
+            return store.second;
+        }
+    }
+    return nullptr;
 }
 
 static bool too_many_disks_are_failed(uint32_t unused_num, uint32_t total_num) {

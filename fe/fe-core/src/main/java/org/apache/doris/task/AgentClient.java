@@ -22,6 +22,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
+import org.apache.doris.thrift.TDecommissionDiskReq;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -31,6 +32,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 public class AgentClient {
     private static final Logger LOG = LogManager.getLogger(AgentClient.class);
@@ -138,6 +141,22 @@ public class AgentClient {
             ok = true;
         } catch (Exception e) {
             LOG.warn("checkStorageFormat error", e);
+        } finally {
+            returnClient();
+        }
+        return result;
+    }
+
+    public Status decommissionDisk(List<String> rootPaths, boolean value) {
+        Status result = Status.CANCELLED;
+        LOG.debug("decommission disk {}, value: {}", rootPaths, value);
+        try {
+            borrowClient();
+            TDecommissionDiskReq request = new TDecommissionDiskReq(rootPaths, value);
+            TStatus status = client.decommissionDisk(request);
+            result = new Status(status);
+        } catch (Exception e) {
+            LOG.warn("decommission disk error", e);
         } finally {
             returnClient();
         }

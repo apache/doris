@@ -62,6 +62,8 @@ public:
     const io::FileSystemSPtr& fs() const { return _fs; }
 
     bool is_used() const { return _is_used; }
+    bool is_decommissioned() const { return _is_decommissioned; }
+    bool is_available() const { return _is_used && !_is_decommissioned; }
     int32_t cluster_id() const { return _cluster_id; }
     bool cluster_id_incomplete() const { return _cluster_id_incomplete; }
 
@@ -72,6 +74,7 @@ public:
         info.disk_capacity = _disk_capacity_bytes;
         info.available = _available_bytes;
         info.is_used = _is_used;
+        info.is_decommissioned = _is_decommissioned;
         info.storage_medium = _storage_medium;
         return info;
     }
@@ -80,6 +83,9 @@ public:
     // invalid be config for example two be use the same
     // data path
     Status set_cluster_id(int32_t cluster_id);
+
+    Status set_decommissioned(bool value);
+
     void health_check();
 
     Status get_shard(uint64_t* shard);
@@ -150,11 +156,14 @@ private:
     Status _init_cluster_id();
     Status _init_capacity_and_create_shards();
     Status _init_meta();
+    Status _init_decommission();
 
     Status _check_disk();
     Status _read_and_write_test_file();
     Status read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
+    Status _create_decommission_file(const std::string& path);
+    Status _delete_decommission_file(const std::string& path);
     // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
     // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
     // process will log fatal.
@@ -179,6 +188,7 @@ private:
     size_t _disk_capacity_bytes;
     TStorageMedium::type _storage_medium;
     bool _is_used;
+    bool _is_decommissioned;
 
     TabletManager* _tablet_manager;
     TxnManager* _txn_manager;

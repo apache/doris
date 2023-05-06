@@ -1086,6 +1086,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int decommission_tablet_check_threshold = 5000;
 
+    /**  priority of scheduling tablet on decommissioned disks
+     *   0: LOW;
+     *   1: NORMAL;
+     *   2: HIGH;
+     *   3: VERY_HIGH;
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int decommission_tablet_sched_priority = 1;
+
     /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */

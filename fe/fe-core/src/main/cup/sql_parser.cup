@@ -332,6 +332,7 @@ terminal String
     KW_DESCRIBE,
     KW_DIAGNOSE,
     KW_DISK,
+    KW_DISKS,
     KW_DISTINCT,
     KW_DISTINCTPC,
     KW_DISTINCTPCSA,
@@ -1578,6 +1579,10 @@ alter_system_clause ::=
     | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
     {:
         RESULT = new DecommissionBackendClause(hostPorts);
+    :}
+    | KW_DECOMMISSION KW_DISK string_list:rootPaths KW_ON STRING_LITERAL:hostPort
+    {:
+        RESULT = new DecommissionDiskClause(hostPort, rootPaths);
     :}
     | KW_ADD KW_OBSERVER STRING_LITERAL:hostPort
     {:
@@ -3846,6 +3851,10 @@ show_param ::=
     {:
         RESULT = new ShowBackendsStmt();
     :}
+    | KW_DISKS KW_ON STRING_LITERAL:backend
+    {:
+        RESULT = new ShowDisksStmt(backend);
+    :}
     | KW_TRASH KW_ON STRING_LITERAL:backend
     {:
         RESULT = new ShowTrashDiskStmt(backend);
@@ -4212,7 +4221,11 @@ cancel_param ::=
     :}
     | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
     {:
-        RESULT = new CancelAlterSystemStmt(hostPorts);
+        RESULT = new CancelDecommissionBackendStmt(hostPorts);
+    :}
+    | KW_DECOMMISSION KW_DISK string_list:rootPaths KW_ON STRING_LITERAL:hostPort
+    {:
+        RESULT = new CancelDecommissionDiskStmt(hostPort, rootPaths);
     :}
     | KW_BACKUP opt_db:db
     {:
@@ -7035,6 +7048,8 @@ keyword ::=
     | KW_HDFS:id
     {: RESULT = id; :}
     | KW_BACKENDS:id
+    {: RESULT = id; :}
+    | KW_DISKS:id
     {: RESULT = id; :}
     | KW_BUILTIN:id
     {: RESULT = id; :}

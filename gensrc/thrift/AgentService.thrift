@@ -457,3 +457,8 @@ struct TAgentPublishRequest {
     2: required list<TTopicUpdate> updates
 }
 
+struct TDecommissionDiskReq {
+    1: required list<string> root_paths;
+    2: required bool value;
+    3: optional i32 timeout_s;
+}

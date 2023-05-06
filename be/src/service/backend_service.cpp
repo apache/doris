@@ -373,4 +373,16 @@ void BackendService::clean_trash() {
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
     StorageEngine::instance()->tablet_manager()->get_all_tablets_storage_format(&result);
 }
+
+void BackendService::decommission_disk(TStatus& t_status, const TDecommissionDiskReq& request) {
+    for (const string& root_path : request.root_paths) {
+        Status status = StorageEngine::instance()->set_decommissioned(root_path, request.value);
+        if (!status.ok()) {
+            LOG(WARNING) << "decommission disk failed! root_path: " << root_path
+                         << ", value: " << request.value;
+            return status.to_thrift(&t_status);
+        }
+    }
+    return Status::OK().to_thrift(&t_status);
+}
 } // namespace doris

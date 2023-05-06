@@ -713,8 +713,9 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> currentAllocMap = Maps.newHashMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
-                    && be.isMixNode()) {
+            DiskInfo disk = infoService.getDisk(replica.getPathHash());
+            if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow() && be.isMixNode()
+                    && disk != null && disk.isScheduleAvailable()) {
                 Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
                 currentAllocMap.put(be.getLocationTag(), (short) (num + 1));
             }

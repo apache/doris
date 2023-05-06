@@ -188,8 +188,8 @@ public class BackendLoadStatistic {
             }
 
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
-                    diskInfo.getPathHash(), diskInfo.getStorageMedium(),
-                    diskInfo.getTotalCapacityB(), diskInfo.getDiskUsedCapacityB(), diskInfo.getState());
+                    diskInfo.getPathHash(), diskInfo.getStorageMedium(), diskInfo.getTotalCapacityB(),
+                    diskInfo.getDiskUsedCapacityB(), diskInfo.getState(), diskInfo.isDecommissioned());
             pathStatistics.add(pathStatistic);
         }
 
@@ -303,6 +303,10 @@ public class BackendLoadStatistic {
             RootPathLoadStatistic pathStatistic = pathStatistics.get(i);
             // if this is a supplement task, ignore the storage medium
             if (!isSupplement && pathStatistic.getStorageMedium() != medium) {
+                continue;
+            }
+
+            if (pathStatistic.isDecommissioned()) {
                 continue;
             }
 

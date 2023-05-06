@@ -127,6 +127,8 @@ public:
 
     void check_storage_format(TCheckStorageFormatResult& result) override;
 
+    void decommission_disk(TStatus& t_status, const TDecommissionDiskReq& request) override;
+
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
     ExecEnv* _exec_env;

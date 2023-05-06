@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -30,6 +31,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DiskInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(DiskInfo.class);
@@ -53,6 +55,10 @@ public class DiskInfo implements Writable {
     private long diskAvailableCapacityB;
     @SerializedName("state")
     private DiskState state;
+    @SerializedName("isDecommissioned")
+    private AtomicBoolean isDecommissioned;
+    @SerializedName("decommissionType")
+    private volatile int decommissionType;
     // path hash and storage medium are reported from Backend and no need to persist
     private long pathHash = 0;
     private TStorageMedium storageMedium;
@@ -69,6 +75,8 @@ public class DiskInfo implements Writable {
         this.state = DiskState.ONLINE;
         this.pathHash = 0;
         this.storageMedium = TStorageMedium.HDD;
+        this.isDecommissioned = new AtomicBoolean(false);
+        this.decommissionType = DecommissionType.SystemDecommission.ordinal();
     }
 
     public String getRootPath() {
@@ -173,7 +181,8 @@ public class DiskInfo implements Writable {
     public String toString() {
         return "DiskInfo [rootPath=" + rootPath + "(" + pathHash + "), totalCapacityB=" + totalCapacityB
                 + ", dataUsedCapacityB=" + dataUsedCapacityB + ", diskAvailableCapacityB="
-                + diskAvailableCapacityB + ", state=" + state + ", medium: " + storageMedium + "]";
+                + diskAvailableCapacityB + ", state=" + state + ", medium: " + storageMedium
+                + ", isDecommission: " + isDecommissioned + "]";
     }
 
     @Override
@@ -185,5 +194,36 @@ public class DiskInfo implements Writable {
     public static DiskInfo read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, DiskInfo.class);
+    }
+
+    public boolean setDecommissioned(boolean isDecommissioned) {
+        if (this.isDecommissioned == null) {
+            this.isDecommissioned =  new AtomicBoolean(isDecommissioned);
+            return true;
+        }
+        if (this.isDecommissioned.compareAndSet(!isDecommissioned, isDecommissioned)) {
+            LOG.warn("{} set decommission: {}", this.toString(), isDecommissioned);
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isDecommissioned() {
+        return isDecommissioned != null && isDecommissioned.get();
+    }
+
+    public void setDecommissionType(DecommissionType type) {
+        decommissionType = type.ordinal();
+    }
+
+    public DecommissionType getDecommissionType() {
+        if (decommissionType == DecommissionType.ClusterDecommission.ordinal()) {
+            return DecommissionType.ClusterDecommission;
+        }
+        return DecommissionType.SystemDecommission;
+    }
+
+    public boolean isScheduleAvailable() {
+        return state == DiskState.ONLINE && !isDecommissioned();
     }
 }

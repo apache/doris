@@ -120,6 +120,7 @@ Status DataDir::init() {
 
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_cluster_id(), "_init_cluster_id failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_decommission(), "_init_decommission failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity_and_create_shards(),
                                    "_init_capacity_and_create_shards failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_meta(), "_init_meta failed");
@@ -140,6 +141,14 @@ Status DataDir::_init_cluster_id() {
     if (_cluster_id == -1) {
         _cluster_id_incomplete = true;
     }
+    return Status::OK();
+}
+
+Status DataDir::_init_decommission() {
+    auto path = fmt::format("{}/{}", _path, DECOMMISSION_PREFIX);
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
+    _is_decommissioned = exists;
     return Status::OK();
 }
 
@@ -214,6 +223,21 @@ Status DataDir::set_cluster_id(int32_t cluster_id) {
     return _write_cluster_id_to_path(cluster_id_path, cluster_id);
 }
 
+Status DataDir::set_decommissioned(bool value) {
+    if (_is_decommissioned != value) {
+        auto path = fmt::format("{}/{}", _path, DECOMMISSION_PREFIX);
+        if (value) {
+            RETURN_IF_ERROR(_create_decommission_file(path));
+        } else {
+            RETURN_IF_ERROR(_delete_decommission_file(path));
+        }
+        _is_decommissioned = value;
+    } else {
+        LOG(ERROR) << "going to set decommission to already assigned store, value=" << value;
+    }
+    return Status::OK();
+}
+
 Status DataDir::_write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
     std::stringstream cluster_id_ss;
     cluster_id_ss << cluster_id;
@@ -224,6 +248,26 @@ Status DataDir::_write_cluster_id_to_path(const std::string& path, int32_t clust
         RETURN_IF_ERROR(io::global_local_filesystem()->create_file(path, &file_writer));
         RETURN_IF_ERROR(file_writer->append(cluster_id_ss.str()));
         RETURN_IF_ERROR(file_writer->close());
+    }
+    return Status::OK();
+}
+
+Status DataDir::_create_decommission_file(const std::string& path) {
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
+    if (!exists) {
+        io::FileWriterPtr file_writer;
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(path, &file_writer));
+        RETURN_IF_ERROR(file_writer->close());
+    }
+    return Status::OK();
+}
+
+Status DataDir::_delete_decommission_file(const std::string& path) {
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
+    if (exists) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(path));
     }
     return Status::OK();
 }

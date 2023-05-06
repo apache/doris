@@ -359,7 +359,6 @@ public class TabletChecker extends MasterDaemon {
                         partition.getVisibleVersion(),
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         aliveBeIdsInCluster);
-
                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
                     // Only set last status check time when status is healthy.
                     tablet.setLastStatusCheckTime(startTime);

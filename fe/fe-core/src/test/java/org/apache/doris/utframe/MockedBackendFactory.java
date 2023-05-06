@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCloneReq;
+import org.apache.doris.thrift.TDecommissionDiskReq;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
@@ -294,6 +295,11 @@ public class MockedBackendFactory {
         @Override
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
+        }
+
+        @Override
+        public TStatus decommissionDisk(TDecommissionDiskReq request) throws TException {
+            return new TStatus(TStatusCode.OK);
         }
     }
 

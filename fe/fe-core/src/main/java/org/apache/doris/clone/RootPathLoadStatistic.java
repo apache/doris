@@ -32,11 +32,12 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     private long capacityB;
     private long usedCapacityB;
     private DiskState diskState;
+    private boolean decommissioned;
 
     private Classification clazz = Classification.INIT;
 
     public RootPathLoadStatistic(long beId, String path, Long pathHash, TStorageMedium storageMedium,
-            long capacityB, long usedCapacityB, DiskState diskState) {
+            long capacityB, long usedCapacityB, DiskState diskState, boolean decommissioned) {
         this.beId = beId;
         this.path = path;
         this.pathHash = pathHash;
@@ -44,6 +45,7 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         this.capacityB = capacityB <= 0 ? 1 : capacityB;
         this.usedCapacityB = usedCapacityB;
         this.diskState = diskState;
+        this.decommissioned = decommissioned;
     }
 
     public long getBeId() {
@@ -84,6 +86,10 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
 
     public DiskState getDiskState() {
         return diskState;
+    }
+
+    public boolean isDecommissioned() {
+        return this.decommissioned;
     }
 
     public BalanceStatus isFit(long tabletSize, boolean isSupplement) {

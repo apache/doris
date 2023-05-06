@@ -49,6 +49,7 @@ public class AlterSystemStmt extends DdlStmt {
         Preconditions.checkState((alterClause instanceof AddBackendClause)
                 || (alterClause instanceof DropBackendClause)
                 || (alterClause instanceof DecommissionBackendClause)
+                || (alterClause instanceof DecommissionDiskClause)
                 || (alterClause instanceof AddObserverClause)
                 || (alterClause instanceof DropObserverClause)
                 || (alterClause instanceof AddFollowerClause)
