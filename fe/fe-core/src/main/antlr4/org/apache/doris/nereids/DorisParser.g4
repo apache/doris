@@ -45,6 +45,10 @@ statement
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
         query                                                          #insertIntoQuery
+    | UPDATE table=identifier tableAlias
+        SET updateAssignmentSeq
+        fromClause?
+        whereClause                                                    #update
     ;
 
 // -----------------Command accessories-----------------
@@ -256,6 +260,14 @@ tableAlias
 
 multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
+    ;
+
+updateAssignmentSeq
+    : assignments=updateAssignment (COMMA assignments=updateAssignment)*
+    ;
+
+updateAssignment
+    : multipartIdentifier EQ (expression | DEFAULT)
     ;
 
 // -----------------Expression-----------------
@@ -525,6 +537,7 @@ nonReserved
     | DATE_DIFF
     | DAY
     | DBPROPERTIES
+    | DEFAULT
     | DEFINED
     | DELETE
     | DELIMITED
