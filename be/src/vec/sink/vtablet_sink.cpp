@@ -529,9 +529,6 @@ Status VNodeChannel::open_partition_wait(
            << ", error_text=" << open_partition_closure->cntl.ErrorText();
         _cancelled = true;
         LOG(WARNING) << ss.str() << " " << channel_info();
-        if (open_partition_closure->unref()) {
-            delete open_partition_closure;
-        }
         auto error_code = open_partition_closure->cntl.ErrorCode();
         auto error_text = open_partition_closure->cntl.ErrorText();
         if (open_partition_closure->unref()) {
