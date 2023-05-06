@@ -848,6 +848,8 @@ public class JdbcClient {
             return charType;
         } else if (trinoType.startsWith("timestamp")) {
             return ScalarType.createDatetimeV2Type(6);
+        } else if (trinoType.startsWith("varchar")) {
+            return ScalarType.createStringType();
         }
         switch (trinoType) {
             case "integer":
@@ -864,8 +866,6 @@ public class JdbcClient {
                 return Type.FLOAT;
             case "boolean":
                 return Type.BOOLEAN;
-            case "varchar":
-                return ScalarType.createStringType();
             case "date":
                 return ScalarType.createDateV2Type();
             default:
