@@ -54,8 +54,32 @@ suite("sql_drop_partition_from_index") {
      def errorSqlResult = """ ALTER TABLE ${testTable} DROP PARTITION p1 FROM INDEX """
      assertTrue(errorSqlResult != null)
 
+     // index that does not exist.
+     try {
+       sql """ ALTER TABLE ${testTable} DROP PARTITION p1 FROM INDEX not_exist_index """
+       throw new IllegalStateException("Should be no such index error")
+     } catch (java.sql.SQLException t) {
+       assertTrue(true)
+     }
+
+     // drop base index.
      sql""" ALTER TABLE ${testTable} DROP PARTITION p1 FROM INDEX ${testTable} """
+     explain {
+       sql(" SELECT k1, k2+k3 FROM ${testTable} PARTITION(p1); ")
+       contains "(${testMv})"
+     }
      qt_select """ SELECT k1, k2+k3 FROM ${testTable} PARTITION(p1) """
+
+     // drop all index.
+     sql""" ALTER TABLE ${testTable} DROP PARTITION p1 FROM INDEX ${testMv} """
+
+     try {
+       sql """ SELECT k1, k2+k3 FROM ${testTable} PARTITION(p1) """
+       throw new IllegalStateException("Should be no such partition error")
+     } catch (java.sql.SQLException t) {
+       assertTrue(true)
+     }
+
     } finally {
      sql """ DROP MATERIALIZED VIEW ${testMv} ON ${testTable} """
      sql """ DROP TABLE ${testTable} """
