@@ -21,7 +21,6 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
-#include <bitset>
 #include <cstddef>
 #include <limits>
 #include <shared_mutex>
@@ -274,6 +273,16 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
                                  new_row->_row_pos, nullptr);
     }
 }
+void MemTable::_add_rows_from_block(vectorized::Block& in_block) {
+    std::vector<int> row_pos_vec;
+    DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
+    row_pos_vec.reserve(in_block.rows());
+    for (int i = 0; i < _row_in_blocks.size(); i++) {
+        row_pos_vec.emplace_back(_row_in_blocks[i]->_row_pos);
+    }
+    _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
+                                   row_pos_vec.data() + in_block.rows());
+}
 template <bool is_final>
 void MemTable::_collect_vskiplist_results() {
     VecTable::Iterator it(_vec_skip_list.get());
@@ -291,16 +300,26 @@ void MemTable::_collect_vskiplist_results() {
                 vectorized::MutableBlock::build_mutable_block(&in_block);
         _vec_row_comparator->set_block(&mutable_block);
         auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
+        size_t same_keys_num = 0;
         // sort new rows
         std::sort(new_row_it, _row_in_blocks.end(),
-                  [this](const RowInBlock* l, const RowInBlock* r) -> bool {
+                  [this, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
                       auto value = (*(this->_vec_row_comparator))(l, r);
                       if (value == 0) {
+                          same_keys_num++;
                           return l->_row_pos > r->_row_pos;
                       } else {
                           return value < 0;
                       }
                   });
+        // do not need to aggregate
+        if (same_keys_num == 0) {
+            _add_rows_from_block(in_block);
+            if (is_final) {
+                _vec_skip_list.reset();
+            }
+            return;
+        }
         // merge new rows and old rows
         std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end());
         _last_sorted_pos = _row_in_blocks.size();

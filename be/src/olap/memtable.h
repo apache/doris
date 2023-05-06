@@ -184,6 +184,7 @@ private:
     void _collect_vskiplist_results();
     void _collect_dup_table_with_keys();
     void _collect_dup_table_without_keys();
+    void _add_rows_from_block(vectorized::Block& in_block);
     bool _is_first_insertion;
 
     void _init_agg_functions(const vectorized::Block* block);
