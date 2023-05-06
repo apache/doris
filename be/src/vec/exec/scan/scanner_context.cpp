@@ -87,16 +87,15 @@ Status ScannerContext::init() {
     _scanner_wait_batch_timer = _parent->_scanner_wait_batch_timer;
     // 2. Calculate how many blocks need to be preallocated.
     // The calculation logic is as follows:
-    //  1. Assuming that at most M rows can be scanned in one scan(config::doris_scanner_row_num),
-    //     then figure out how many blocks are required for one scan(_block_per_scanner).
+    //  1. figure out the size of a block and how many blocks are required for one scan(_block_per_scanner).
     //  2. The maximum number of concurrency * the blocks required for one scan,
     //     that is, the number of blocks that need to be pre-allocated
-    auto doris_scanner_row_num =
-            limit == -1 ? config::doris_scanner_row_num
-                        : std::min(static_cast<int64_t>(config::doris_scanner_row_num), limit);
     int real_block_size =
             limit == -1 ? _batch_size : std::min(static_cast<int64_t>(_batch_size), limit);
-    _block_per_scanner = (doris_scanner_row_num + (real_block_size - 1)) / real_block_size;
+    _block_per_scanner = limit == -1
+                                 ? _state->scanner_once_block_num()
+                                 : std::min(static_cast<int64_t>(_state->scanner_once_block_num()),
+                                            (limit + (real_block_size - 1)) / real_block_size);
     auto pre_alloc_block_count = _max_thread_num * _block_per_scanner;
 
     // The free blocks is used for final output block of scanners.

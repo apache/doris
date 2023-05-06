@@ -273,8 +273,6 @@ DECLARE_mInt32(doris_scan_range_max_mb);
 DECLARE_mInt32(doris_scan_block_max_mb);
 // size of scanner queue between scanner thread and compute thread
 DECLARE_mInt32(doris_scanner_queue_size);
-// single read execute fragment row number
-DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
 // number of max scan keys

@@ -368,11 +368,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：TransferThread与OlapScanner之间RowBatch的缓存队列的长度。Doris进行数据扫描时是异步进行的，OlapScanner扫描上来的Rowbatch会放入缓存队列之中，等待上层TransferThread取走。
 * 默认值：1024
 
-#### `doris_scanner_row_num`
-
-* 描述：每个扫描线程单次执行最多返回的数据行数
-* 默认值：16384
-
 #### `doris_scanner_row_bytes`
 
 * 描述：每个扫描线程单次执行最多返回的数据字节

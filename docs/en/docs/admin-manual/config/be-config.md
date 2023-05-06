@@ -357,11 +357,6 @@ There are two ways to configure BE configuration items:
 * Description: The length of the RowBatch buffer queue between TransferThread and OlapScanner. When Doris performs data scanning, it is performed asynchronously. The Rowbatch scanned by OlapScanner will be placed in the scanner buffer queue, waiting for the upper TransferThread to take it away.
 * Default value: 1024
 
-#### `doris_scanner_row_num`
-
-* Description: The maximum number of data rows returned by each scanning thread in a single execution
-* Default value: 16384
-
 #### `doris_scanner_row_bytes`
 
 * Description: single read execute fragment row bytes

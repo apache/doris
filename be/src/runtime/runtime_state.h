@@ -137,6 +137,11 @@ public:
                _query_options.enable_common_expr_pushdown;
     }
 
+    int scanner_once_block_num() const {
+        return _query_options.__isset.scanner_once_block_num ? _query_options.scanner_once_block_num
+                                                             : 5;
+    }
+
     Status query_status() {
         std::lock_guard<std::mutex> l(_process_status_lock);
         return _process_status;

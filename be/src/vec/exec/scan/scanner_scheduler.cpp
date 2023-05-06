@@ -300,8 +300,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     // judge if we need to yield. So we record all raw data read in this round
     // scan, if this exceeds row number or bytes threshold, we yield this thread.
     std::vector<vectorized::BlockUPtr> blocks;
-    int64_t raw_rows_read = scanner->get_rows_read();
-    int64_t raw_rows_threshold = raw_rows_read + config::doris_scanner_row_num;
+    int64_t remain_scan_block_num = state->scanner_once_block_num();
     int64_t raw_bytes_read = 0;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     bool has_free_block = true;
@@ -315,7 +314,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
     while (!eos && raw_bytes_read < raw_bytes_threshold &&
-           ((raw_rows_read < raw_rows_threshold && has_free_block) ||
+           ((remain_scan_block_num > 0 && has_free_block) ||
             num_rows_in_block < state->batch_size())) {
         if (UNLIKELY(ctx->done())) {
             // No need to set status on error here.
@@ -357,9 +356,9 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
                 ctx->return_free_block(std::move(block));
             } else {
                 blocks.push_back(std::move(block));
+                remain_scan_block_num--;
             }
         }
-        raw_rows_read = scanner->get_rows_read();
     } // end for while
 
     // if we failed, check status.
