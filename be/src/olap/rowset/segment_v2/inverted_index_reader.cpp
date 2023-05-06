@@ -38,7 +38,7 @@
 #include <math.h>
 #include <string.h>
 
-#include <CLucene/util/croaring/roaring.hh>
+#include <roaring/roaring.hh>
 #include <algorithm>
 #include <filesystem>
 #include <ostream>
@@ -686,7 +686,7 @@ void InvertedIndexVisitor::visit(std::vector<char>& doc_id, std::vector<uint8_t>
     visit(roaring::Roaring::read(doc_id.data(), false));
 }
 
-void InvertedIndexVisitor::visit(Roaring* doc_id, std::vector<uint8_t>& packed_value) {
+void InvertedIndexVisitor::visit(roaring::Roaring* doc_id, std::vector<uint8_t>& packed_value) {
     if (!matches(packed_value.data())) {
         return;
     }
