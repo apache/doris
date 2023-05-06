@@ -300,7 +300,7 @@ public:
 
     TabletSchemaSPtr tablet_schema() const override;
 
-    TabletSchemaSPtr get_max_version_schema(std::lock_guard<std::shared_mutex>&);
+    const TabletSchemaSPtr& tablet_schema_unlocked() const { return _max_version_schema; }
 
     // Find the related rowset with specified version and return its tablet schema
     TabletSchemaSPtr tablet_schema(Version version) const {
