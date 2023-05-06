@@ -102,6 +102,9 @@ import org.apache.doris.nereids.DorisParser.TvfPropertyContext;
 import org.apache.doris.nereids.DorisParser.TvfPropertyItemContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
+import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
+import org.apache.doris.nereids.DorisParser.UpdateAssignmentSeqContext;
+import org.apache.doris.nereids.DorisParser.UpdateContext;
 import org.apache.doris.nereids.DorisParser.UserIdentifyContext;
 import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
@@ -389,6 +392,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new CreatePolicyCommand(PolicyTypeEnum.ROW, ctx.name.getText(),
                 ctx.EXISTS() != null, nameParts, Optional.of(filterType), visitUserIdentify(ctx.user),
                 Optional.of(getExpression(ctx.booleanExpression())), ImmutableMap.of());
+    }
+
+    @Override
+    public Object visitUpdate(UpdateContext ctx) {
+        return super.visitUpdate(ctx);
     }
 
     @Override
@@ -1316,6 +1324,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ctx.ident.stream()
             .map(RuleContext::getText)
             .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public List<Pair<String, Expression>> visitUpdateAssignmentSeq(UpdateAssignmentSeqContext ctx) {
+        return null;
+    }
+
+    @Override
+    public Object visitUpdateAssignment(UpdateAssignmentContext ctx) {
+        return super.visitUpdateAssignment(ctx);
     }
 
     /**
