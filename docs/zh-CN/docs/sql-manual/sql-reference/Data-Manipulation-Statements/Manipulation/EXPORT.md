@@ -70,7 +70,7 @@ WITH BROKER/S3/HDFS
 
   可以指定如下参数：
 
-  - `label`: 可选参数，指定此次Export任务的label,当不指定时希望会随机给一个label。
+  - `label`: 可选参数，指定此次Export任务的label,当不指定时系统会随机给一个label。
   - `column_separator`：指定导出的列分隔符，默认为\t。仅支持单字节。
   - `line_delimiter`：指定导出的行分隔符，默认为\n。仅支持单字节。
   - `columns`：指定导出作业表的某些列。
@@ -78,6 +78,8 @@ WITH BROKER/S3/HDFS
   - `format`：导出作业的文件格式，支持：parquet, orc, csv, csv_with_names、csv_with_names_and_types。 默认为csv格式。
   - `max_file_size`：导出作业单个文件大小限制，如果结果超过这个值，将切割成多个文件。
   - `delete_existing_files`: 默认为false，若指定为true,则会先删除`export_path`所指定目录下的所有文件，然后导出数据到该目录下。例如："export_path" = "/user/tmp", 则会删除"/user/"下所有文件及目录；"file_path" = "/user/tmp/", 则会删除"/user/tmp/"下所有文件及目录。
+
+  > 注意：要使用delete_existing_files参数，还需要在fe.conf中添加配置`enable_delete_existing_files = true`并重启fe，此时delete_existing_files才会生效。delete_existing_files = true 是一个危险的操作，建议只在测试环境中使用。
 
 
 
