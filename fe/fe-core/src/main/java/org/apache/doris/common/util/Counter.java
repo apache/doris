@@ -28,8 +28,9 @@ public class Counter {
         return value;
     }
 
-    public void setValue(long newValue) {
-        value = newValue;
+    public void setValue(TUnit type, long value) {
+        this.type = type.getValue();
+        this.value = value;
     }
 
     public TUnit getType() {

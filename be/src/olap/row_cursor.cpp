@@ -30,7 +30,6 @@
 #include "olap/olap_define.h"
 #include "util/slice.h"
 
-using std::min;
 using std::nothrow;
 using std::string;
 using std::vector;
@@ -77,7 +76,7 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
 
 Status RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
                         const std::vector<uint32_t>& columns) {
-    _schema.reset(new Schema(*shared_schema.get()));
+    _schema.reset(new Schema(*shared_schema));
     return _init(columns);
 }
 

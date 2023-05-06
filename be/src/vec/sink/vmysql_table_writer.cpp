@@ -102,14 +102,10 @@ Status VMysqlTableWriter::append(vectorized::Block* block) {
     if (block == nullptr || block->rows() == 0) {
         return status;
     }
-
-    auto output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, *block, status);
-
+    Block output_block;
+    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _vec_output_expr_ctxs, *block, &output_block));
     auto num_rows = output_block.rows();
-    if (UNLIKELY(num_rows == 0)) {
-        return status;
-    }
     materialize_block_inplace(output_block);
     for (int i = 0; i < num_rows; ++i) {
         RETURN_IF_ERROR(insert_row(output_block, i));

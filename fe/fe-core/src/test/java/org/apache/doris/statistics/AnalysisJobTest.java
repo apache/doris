@@ -24,11 +24,13 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -37,6 +39,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Set;
 
 public class AnalysisJobTest extends TestWithFeService {
 
@@ -110,11 +114,15 @@ public class AnalysisJobTest extends TestWithFeService {
                 times = 2;
             }
         };
+        HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
+        colToPartitions.put("col1", Collections.singleton("t1"));
         AnalysisTaskInfo analysisJobInfo = new AnalysisTaskInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
-                .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL)
+                .setColName("col1").setJobType(JobType.MANUAL)
+                .setAnalysisMode(AnalysisMode.FULL)
+                .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.COLUMN)
-                .setPartitionNames(Collections.singleton("t1"))
+                .setColToPartitions(colToPartitions)
                 .build();
         new OlapAnalysisTask(analysisJobInfo).execute();
     }

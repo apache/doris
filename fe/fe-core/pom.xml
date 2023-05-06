@@ -29,6 +29,8 @@ under the License.
     <artifactId>fe-core</artifactId>
     <packaging>jar</packaging>
     <properties>
+        <doris.home>${basedir}/../../</doris.home>
+        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
         <antlr4.version>4.9.3</antlr4.version>
         <awssdk.version>2.17.257</awssdk.version>

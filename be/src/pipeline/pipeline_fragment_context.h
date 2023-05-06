@@ -151,10 +151,11 @@ private:
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
-    std::atomic_int _closed_tasks = 0;
+    std::mutex _task_mutex;
+    int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    std::atomic_int _total_tasks = 0;
+    int _total_tasks = 0;
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     int32_t _next_operator_builder_id = 10000;
