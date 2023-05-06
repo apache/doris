@@ -181,14 +181,6 @@ public class ShowExecutorTest {
                 catalog.getDbNullable("testCluster:emptyDb");
                 minTimes = 0;
                 result = null;
-
-                catalog.getClusterDbNames("testCluster");
-                minTimes = 0;
-                result = Lists.newArrayList("testCluster:testDb");
-
-                catalog.getClusterDbNames("");
-                minTimes = 0;
-                result = Lists.newArrayList("");
             }
         };
 

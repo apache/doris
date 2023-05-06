@@ -118,7 +118,6 @@ public class CatalogTestUtil {
         Env.getCurrentSystemInfo().addBackend(backend1);
         Env.getCurrentSystemInfo().addBackend(backend2);
         Env.getCurrentSystemInfo().addBackend(backend3);
-        env.initDefaultCluster();
 
         Database db = createSimpleDb(testDbId1, testTableId1, testPartitionId1, testIndexId1, testTabletId1,
                 testStartVersion);

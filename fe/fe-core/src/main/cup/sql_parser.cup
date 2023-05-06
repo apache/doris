@@ -1565,11 +1565,7 @@ opt_enable_feature_properties ::=
 alter_system_clause ::=
     KW_ADD KW_BACKEND string_list:hostPorts opt_properties:properties
     {:
-        RESULT = new AddBackendClause(hostPorts, false, properties);
-    :}
-    | KW_ADD KW_FREE KW_BACKEND string_list:hostPorts
-    {:
-        RESULT = new AddBackendClause(hostPorts, true, Maps.newHashMap());
+        RESULT = new AddBackendClause(hostPorts, properties);
     :}
     | KW_DROP KW_BACKEND string_list:hostPorts
     {:
@@ -3674,10 +3670,6 @@ show_param ::=
     | KW_CREATE opt_var_type:type KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
     {:
         RESULT = new ShowCreateFunctionStmt(type, dbName, functionName, args);
-    :}
-    | KW_MIGRATIONS
-    {:
-        RESULT = new ShowMigrationsStmt();
     :}
     /* Database */
     | KW_DATABASES opt_wild_where

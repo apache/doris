@@ -148,10 +148,6 @@ public class AccessTestUtil {
                     catalog.getDbNames();
                     minTimes = 0;
                     result = Lists.newArrayList("testCluster:testDb");
-
-                    catalog.getClusterDbNames("testCluster");
-                    minTimes = 0;
-                    result = Lists.newArrayList("testCluster:testDb");
                 }
             };
 
@@ -193,10 +189,6 @@ public class AccessTestUtil {
                     env.getLoadInstance();
                     minTimes = 0;
                     result = new Load();
-
-                    catalog.getClusterDbNames("testCluster");
-                    minTimes = 0;
-                    result = Lists.newArrayList("testCluster:testDb");
 
                     env.changeDb((ConnectContext) any, "blockDb");
                     minTimes = 0;
@@ -375,10 +367,6 @@ public class AccessTestUtil {
                     result = new Database();
 
                     catalog.getDbNames();
-                    minTimes = 0;
-                    result = Lists.newArrayList("testCluster:testDb");
-
-                    catalog.getClusterDbNames("testCluster");
                     minTimes = 0;
                     result = Lists.newArrayList("testCluster:testDb");
 

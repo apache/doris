@@ -33,7 +33,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -483,16 +482,6 @@ public class EditLog {
                     MetaContext.get().setMetaVersion(version);
                     break;
                 }
-                case OperationType.OP_CREATE_CLUSTER: {
-                    final Cluster value = (Cluster) journal.getData();
-                    env.getInternalCatalog().replayCreateCluster(value);
-                    break;
-                }
-                case OperationType.OP_UPDATE_DB: {
-                    final DatabaseInfo param = (DatabaseInfo) journal.getData();
-                    env.replayUpdateDb(param);
-                    break;
-                }
                 case OperationType.OP_ADD_BROKER: {
                     final BrokerMgr.ModifyBrokerInfo param = (BrokerMgr.ModifyBrokerInfo) journal.getData();
                     env.getBrokerMgr().replayAddBrokers(param.brokerName, param.brokerAddresses);
@@ -511,11 +500,6 @@ public class EditLog {
                 case OperationType.OP_SET_LOAD_ERROR_HUB: {
                     // final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
                     // ignore load error hub
-                    break;
-                }
-                case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
-                    final BackendIdsUpdateInfo info = (BackendIdsUpdateInfo) journal.getData();
-                    env.replayUpdateClusterAndBackends(info);
                     break;
                 }
                 case OperationType.OP_UPSERT_TRANSACTION_STATE: {
@@ -1327,10 +1311,6 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_DB, databaseInfo);
     }
 
-    public void logUpdateDatabase(DatabaseInfo databaseInfo) {
-        logEdit(OperationType.OP_UPDATE_DB, databaseInfo);
-    }
-
     public void logTableRename(TableInfo tableInfo) {
         logEdit(OperationType.OP_RENAME_TABLE, tableInfo);
     }
@@ -1349,10 +1329,6 @@ public class EditLog {
 
     public void logColumnRename(TableRenameColumnInfo info) {
         logEdit(OperationType.OP_RENAME_COLUMN, info);
-    }
-
-    public void logCreateCluster(Cluster cluster) {
-        logEdit(OperationType.OP_CREATE_CLUSTER, cluster);
     }
 
     public void logAddBroker(BrokerMgr.ModifyBrokerInfo info) {
@@ -1374,10 +1350,6 @@ public class EditLog {
     public void logExportUpdateState(long jobId, ExportJob.JobState newState) {
         ExportJob.StateTransfer transfer = new ExportJob.StateTransfer(jobId, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
-    }
-
-    public void logUpdateClusterAndBackendState(BackendIdsUpdateInfo info) {
-        logEdit(OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS, info);
     }
 
     // for TransactionState
