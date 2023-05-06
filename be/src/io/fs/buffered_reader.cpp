@@ -726,9 +726,22 @@ Status DelegateReader::create_file_reader(RuntimeProfile* profile,
     if (reader->size() < IN_MEMORY_FILE_SIZE) {
         *file_reader = std::make_shared<InMemoryFileReader>(reader);
     } else if (access_mode == AccessMode::SEQUENTIAL) {
-        io::FileReaderSPtr safeReader = std::make_shared<ThreadSafeReader>(reader);
-        *file_reader = std::make_shared<io::PrefetchBufferedReader>(profile, safeReader, file_range,
-                                                                    io_ctx);
+        bool is_thread_safe = false;
+        if (typeid_cast<io::S3FileReader*>(reader.get())) {
+            is_thread_safe = true;
+        } else if (io::CachedRemoteFileReader* cached_reader =
+                           typeid_cast<io::CachedRemoteFileReader*>(reader.get())) {
+            if (typeid_cast<io::S3FileReader*>(cached_reader->get_remote_reader())) {
+                is_thread_safe = true;
+            }
+        }
+        if (is_thread_safe) {
+            // PrefetchBufferedReader needs thread-safe reader to prefetch data concurrently.
+            *file_reader = std::make_shared<io::PrefetchBufferedReader>(profile, reader, file_range,
+                                                                        io_ctx);
+        } else {
+            *file_reader = std::move(reader);
+        }
     } else {
         *file_reader = std::move(reader);
     }
