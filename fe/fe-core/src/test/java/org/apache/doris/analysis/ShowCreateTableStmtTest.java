@@ -32,7 +32,13 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
         createDatabase("test");
         useDatabase("test");
         createTable("create table table1\n"
-                + "(k1 int comment 'test column k1', k2 int comment 'test column k2')  comment 'test table1' distributed by hash(k1) buckets 1\n"
+                + "(k1 int comment 'test column k1', k2 int comment 'test column k2')  comment 'test table1' "
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "(\n"
+                + "    PARTITION `p01` VALUES LESS THAN (\"10\"),\n"
+                + "    PARTITION `p02` VALUES LESS THAN (\"100\")\n"
+                + ") "
+                + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
     }
 
@@ -46,4 +52,12 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
         Assertions.assertTrue(showSql.contains("COMMENT 'test table1'"));
     }
 
+    @Test
+    public void testBrief() throws Exception {
+        String sql = "show brief create table table1";
+        ShowResultSet showResultSet = showCreateTable(sql);
+        String showSql = showResultSet.getResultRows().get(0).get(1);
+        Assertions.assertTrue(!showSql.contains("PARTITION BY"));
+        Assertions.assertTrue(!showSql.contains("PARTITION `p01`"));
+    }
 }
