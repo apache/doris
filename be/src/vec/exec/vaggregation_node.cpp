@@ -717,7 +717,7 @@ Status AggregationNode::_serialize_without_key(RuntimeState* state, Block* block
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             _aggregate_evaluators[i]->function()->serialize_without_key_to_column(
-                    _agg_data->without_key + _offsets_of_aggregate_states[i], value_columns[i]);
+                    _agg_data->without_key + _offsets_of_aggregate_states[i], *value_columns[i]);
         }
     } else {
         std::vector<VectorBufferWriter> value_buffer_writers;

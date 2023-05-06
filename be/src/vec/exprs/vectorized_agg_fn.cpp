@@ -33,12 +33,16 @@
 #include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sort.h"
+#include "vec/aggregate_functions/aggregate_function_state_merge.h"
+#include "vec/aggregate_functions/aggregate_function_state_union.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class RowDescriptor;
@@ -50,6 +54,19 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
+
+template <class FunctionType>
+AggregateFunctionPtr get_agg_state_function(const std::string& name,
+                                            const DataTypes& argument_types,
+                                            DataTypePtr return_type) {
+    auto agg_function = AggregateFunctionSimpleFactory::instance().get(
+            name, ((DataTypeAggState*)argument_types[0].get())->get_sub_types(),
+            return_type->is_nullable());
+    if (agg_function == nullptr) {
+        return nullptr;
+    }
+    return FunctionType::create(agg_function, argument_types, return_type);
+}
 
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         : _fn(desc.fn),
@@ -143,6 +160,19 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         }
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = AggregateRpcUdaf::create(_fn, argument_types, _data_type);
+    } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
+        if (match_suffix(_fn.name.function_name, AGG_UNION_SUFFIX)) {
+            _function = get_agg_state_function<AggregateStateUnion>(
+                    remove_suffix(_fn.name.function_name, AGG_UNION_SUFFIX), argument_types,
+                    _data_type);
+        } else if (match_suffix(_fn.name.function_name, AGG_MERGE_SUFFIX)) {
+            _function = get_agg_state_function<AggregateStateMerge>(
+                    remove_suffix(_fn.name.function_name, AGG_MERGE_SUFFIX), argument_types,
+                    _data_type);
+        } else {
+            return Status::InternalError(
+                    "Aggregate Function {} is not endwith '_merge' or '_union'", _fn.signature);
+        }
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
                 _fn.name.function_name, argument_types, _data_type->is_nullable());

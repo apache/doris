@@ -32,15 +32,19 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/function_agg_state.h"
 #include "vec/functions/function_java_udf.h"
 #include "vec/functions/function_rpc.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class RowDescriptor;
@@ -49,6 +53,8 @@ class TExprNode;
 } // namespace doris
 
 namespace doris::vectorized {
+
+const std::string AGG_STATE_SUFFIX = "_state";
 
 VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {}
 
@@ -62,6 +68,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
         argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());
     }
+
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
@@ -71,6 +78,28 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             return Status::InternalError(
                     "Java UDF is not enabled, you can change be config enable_java_support to true "
                     "and restart be.");
+        }
+    } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
+        DataTypes argument_types;
+        for (auto column : argument_template) {
+            argument_types.emplace_back(column.type);
+        }
+
+        if (match_suffix(_fn.name.function_name, AGG_STATE_SUFFIX)) {
+            if (_data_type->is_nullable()) {
+                return Status::InternalError("State function's return type must be not nullable");
+            }
+            auto agg_function = AggregateFunctionSimpleFactory::instance().get(
+                    remove_suffix(_fn.name.function_name, AGG_STATE_SUFFIX), argument_types,
+                    _data_type->is_nullable());
+            if (agg_function == nullptr) {
+                return Status::InternalError("Aggregate Function {} is not implemented",
+                                             _fn.signature);
+            }
+
+            _function = FunctionAggState::create(argument_types, _data_type, agg_function);
+        } else {
+            return Status::InternalError("Function {} is not endwith '_state'", _fn.signature);
         }
     } else {
         // get the function. won't prepare function.

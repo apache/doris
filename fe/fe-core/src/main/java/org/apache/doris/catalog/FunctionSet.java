@@ -1259,6 +1259,9 @@ public class FunctionSet<T> {
      * Adds a builtin to this database. The function must not already exist.
      */
     public void addBuiltin(Function fn) {
+        if (fn instanceof AggregateFunction) {
+            addFunction(ScalarFunction.convertAggStateFunction((AggregateFunction) fn), true);
+        }
         addFunction(fn, true);
     }
 

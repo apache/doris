@@ -234,7 +234,8 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
                 _agg_functions[cid]->create(data);
                 _agg_functions[cid]->add(data,
                                          const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                         row_in_block->_row_pos, nullptr);
+                                         row_in_block->_row_pos, _arena.get());
+
             } catch (...) {
                 for (size_t i = _schema->num_key_columns(); i < cid; ++i) {
                     _agg_functions[i]->destroy(row_in_block->agg_places(i));
@@ -265,7 +266,7 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
         auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
         _agg_functions[cid]->add(row_in_skiplist->agg_places(cid),
                                  const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                 new_row->_row_pos, nullptr);
+                                 new_row->_row_pos, _arena.get());
     }
 }
 template <bool is_final>
@@ -293,7 +294,9 @@ void MemTable::_collect_vskiplist_results() {
                 auto function = _agg_functions[i];
                 auto agg_place = it.key()->agg_places(i);
                 auto col_ptr = _output_mutable_block.get_column_by_position(i).get();
+
                 function->insert_result_into(agg_place, *col_ptr);
+
                 if constexpr (is_final) {
                     function->destroy(agg_place);
                 } else {

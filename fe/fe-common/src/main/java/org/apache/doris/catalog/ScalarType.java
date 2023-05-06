@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
@@ -1182,21 +1181,6 @@ public class ScalarType extends Type {
 
     public static boolean canCastTo(ScalarType type, ScalarType targetType) {
         return PrimitiveType.isImplicitCast(type.getPrimitiveType(), targetType.getPrimitiveType());
-    }
-
-    @Override
-    public TColumnType toColumnTypeThrift() {
-        TColumnType thrift = new TColumnType();
-        thrift.type = type.toThrift();
-        if (type == PrimitiveType.CHAR || type == PrimitiveType.VARCHAR || type == PrimitiveType.HLL) {
-            thrift.setLen(len);
-        }
-        if (type == PrimitiveType.DECIMALV2 || type.isDecimalV3Type()
-                || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
-            thrift.setPrecision(precision);
-            thrift.setScale(scale);
-        }
-        return thrift;
     }
 
     @Override
