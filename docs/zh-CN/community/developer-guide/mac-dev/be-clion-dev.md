@@ -42,7 +42,7 @@ under the License.
 
     参考下图配置
 
-    ![deployment3](images/mac-clion-deployment3.png)
+    ![deployment3](/images/mac-clion-deployment3.png)
 
     配置完成确认后第一次会自动加载 CMake 文件，若没有自动加载，可手动右键点击 $DORIS_HOME/be/CMakeLists.txt 选择加载
 
