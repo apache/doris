@@ -243,59 +243,6 @@ private:
  */
 class DelegateReader {
 public:
-    class ThreadSafeReader : public io::FileReader {
-    public:
-        ThreadSafeReader(io::FileReaderSPtr reader) : _reader(std::move(reader)) {
-            _size = _reader->size();
-            if (typeid_cast<io::S3FileReader*>(_reader.get()) ||
-                typeid_cast<io::BrokerFileReader*>(_reader.get())) {
-                _is_thread_safe = true;
-            } else if (io::CachedRemoteFileReader* cached_reader =
-                               typeid_cast<io::CachedRemoteFileReader*>(_reader.get())) {
-                if (typeid_cast<io::S3FileReader*>(cached_reader->get_remote_reader()) ||
-                    typeid_cast<io::BrokerFileReader*>(cached_reader->get_remote_reader())) {
-                    _is_thread_safe = true;
-                }
-            }
-        }
-
-        ~ThreadSafeReader() override { close(); }
-
-        Status close() override {
-            if (!_closed) {
-                _closed = true;
-                return _reader->close();
-            }
-            return Status::OK();
-        }
-
-        const io::Path& path() const override { return _reader->path(); }
-
-        size_t size() const override { return _size; }
-
-        bool closed() const override { return _closed; }
-
-        std::shared_ptr<io::FileSystem> fs() const override { return _reader->fs(); }
-
-    protected:
-        Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                            const IOContext* io_ctx) override {
-            if (_is_thread_safe) {
-                return _reader->read_at(offset, result, bytes_read, io_ctx);
-            } else {
-                std::lock_guard<std::mutex> lock(_lock);
-                return _reader->read_at(offset, result, bytes_read, io_ctx);
-            }
-        }
-
-    private:
-        io::FileReaderSPtr _reader;
-        size_t _size;
-        bool _is_thread_safe = false;
-        bool _closed = false;
-        std::mutex _lock;
-    };
-
     enum AccessMode { SEQUENTIAL, RANDOM };
 
     static constexpr size_t IN_MEMORY_FILE_SIZE = 8 * 1024 * 1024;
@@ -304,7 +251,7 @@ public:
             RuntimeProfile* profile, const FileSystemProperties& system_properties,
             const FileDescription& file_description, std::shared_ptr<io::FileSystem>* file_system,
             io::FileReaderSPtr* file_reader, AccessMode access_mode = SEQUENTIAL,
-            io::FileCachePolicy cache_policy = io::FileCachePolicy::NO_CACHE,
+            io::FileReaderOptions reader_options = FileFactory::NO_CACHE_READER_OPTIONS,
             const IOContext* io_ctx = nullptr,
             const PrefetchRange file_range = PrefetchRange(0, 0));
 };

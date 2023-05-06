@@ -651,7 +651,7 @@ public class ConnectProcessor {
                 && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
                 || executor.getParsedStmt() instanceof LogicalPlanAdapter
                 || executor.getParsedStmt() instanceof InsertStmt)) {
-            executor.writeProfile(true);
+            executor.updateProfile(true);
             StatsErrorEstimator statsErrorEstimator = ConnectContext.get().getStatsErrorEstimator();
             if (statsErrorEstimator != null) {
                 statsErrorEstimator.updateProfile(ConnectContext.get().queryId());

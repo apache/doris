@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -40,9 +41,12 @@ public class MergeProjects extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
+        // TODO modify ExtractAndNormalizeWindowExpression to handle nested window functions
+        // here we just don't merge two projects if there is any window function
         return logicalProject(logicalProject())
-                .then(project -> mergeProjects(project))
-                .toRule(RuleType.MERGE_PROJECTS);
+                .whenNot(project -> containsWindowExpression(project.getProjects())
+                        && containsWindowExpression(project.child().getProjects()))
+                .then(project -> mergeProjects(project)).toRule(RuleType.MERGE_PROJECTS);
     }
 
     public static Plan mergeProjects(LogicalProject project) {
@@ -50,5 +54,9 @@ public class MergeProjects extends OneRewriteRuleFactory {
         List<NamedExpression> projectExpressions = project.mergeProjections(childProject);
         LogicalProject newProject = childProject.canEliminate() ? project : childProject;
         return newProject.withProjectsAndChild(projectExpressions, childProject.child(0));
+    }
+
+    private boolean containsWindowExpression(List<NamedExpression> expressions) {
+        return expressions.stream().anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance));
     }
 }

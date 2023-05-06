@@ -18,12 +18,12 @@
 package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -35,7 +35,6 @@ import java.io.FileNotFoundException;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 
 public class S3FileSystem extends ObjFileSystem {
 
@@ -43,11 +42,17 @@ public class S3FileSystem extends ObjFileSystem {
 
     public S3FileSystem(Map<String, String> properties) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, new S3ObjStorage(properties));
-        this.properties = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        this.properties.putAll(properties);
+    }
+
+    @VisibleForTesting
+    public S3FileSystem(S3ObjStorage storage) {
+        super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, storage);
+        this.properties.putAll(storage.getProperties());
     }
 
     @Override
-    protected FileSystem getFileSystem(String remotePath) throws UserException {
+    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem == null) {
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
@@ -65,7 +70,7 @@ public class S3FileSystem extends ObjFileSystem {
     @Override
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
-            FileSystem s3AFileSystem = getFileSystem(remotePath);
+            FileSystem s3AFileSystem = nativeFileSystem(remotePath);
             Path pathPattern = new Path(remotePath);
             FileStatus[] files = s3AFileSystem.globStatus(pathPattern);
             if (files == null) {

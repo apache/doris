@@ -390,6 +390,8 @@ CONF_Bool(enable_https, "false");
 CONF_String(ssl_certificate_path, "");
 // Path of private key
 CONF_String(ssl_private_key_path, "");
+// Whether to check authorization
+CONF_Bool(enable_http_auth, "false");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
@@ -683,9 +685,6 @@ CONF_Int32(aws_log_level, "3");
 
 // the buffer size when read data from remote storage like s3
 CONF_mInt32(remote_storage_read_buffer_mb, "16");
-
-// Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
-CONF_Bool(enable_tcmalloc_hook, "true");
 
 // Print more detailed logs, more detailed records, etc.
 CONF_mBool(memory_debug, "false");

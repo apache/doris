@@ -654,6 +654,7 @@ Status PipelineFragmentContext::submit() {
     for (auto& task : _tasks) {
         st = scheduler->schedule_task(task.get());
         if (!st) {
+            std::lock_guard<std::mutex> l(_status_lock);
             cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             _total_tasks = submit_tasks;
             break;
@@ -661,6 +662,7 @@ Status PipelineFragmentContext::submit() {
         submit_tasks++;
     }
     if (!st.ok()) {
+        std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks == _total_tasks) {
             std::call_once(_close_once_flag, [this] { _close_action(); });
         }
@@ -727,6 +729,7 @@ void PipelineFragmentContext::_close_action() {
 }
 
 void PipelineFragmentContext::close_a_pipeline() {
+    std::lock_guard<std::mutex> l(_task_mutex);
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
         std::call_once(_close_once_flag, [this] { _close_action(); });

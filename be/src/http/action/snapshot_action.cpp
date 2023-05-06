@@ -36,7 +36,9 @@ namespace doris {
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-SnapshotAction::SnapshotAction() {}
+SnapshotAction::SnapshotAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                               TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 
 void SnapshotAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();

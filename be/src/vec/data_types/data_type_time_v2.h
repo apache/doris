@@ -34,6 +34,8 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
+#include "vec/data_types/serde/data_type_datetimev2_serde.h"
+#include "vec/data_types/serde/data_type_datev2_serde.h"
 #include "vec/data_types/serde/data_type_number_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
@@ -65,6 +67,8 @@ public:
 
     bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
+
+    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDateV2SerDe>(); }
 
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
@@ -113,7 +117,7 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeNumberSerDe<UInt64>>();
+        return std::make_shared<DataTypeDateTimeV2SerDe>();
     };
 
     MutableColumnPtr create_column() const override;

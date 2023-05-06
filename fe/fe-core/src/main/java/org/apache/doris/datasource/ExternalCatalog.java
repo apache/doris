@@ -449,8 +449,16 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         throw new NotImplementedException("createDatabase not implemented");
     }
 
-    public Map getSpecifiedDatabaseMap() {
-        String specifiedDatabaseList = catalogProperty.getOrDefault(Resource.SPECIFIED_DATABASE_LIST, "");
+    public Map getIncludeDatabaseMap() {
+        return getSpecifiedDatabaseMap(Resource.INCLUDE_DATABASE_LIST);
+    }
+
+    public Map getExcludeDatabaseMap() {
+        return getSpecifiedDatabaseMap(Resource.EXCLUDE_DATABASE_LIST);
+    }
+
+    public Map getSpecifiedDatabaseMap(String catalogPropertyKey) {
+        String specifiedDatabaseList = catalogProperty.getOrDefault(catalogPropertyKey, "");
         Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
         specifiedDatabaseList = specifiedDatabaseList.trim();
         if (specifiedDatabaseList.isEmpty()) {
@@ -464,5 +472,15 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
             }
         }
         return specifiedDatabaseMap;
+    }
+
+    public boolean useSelfSplitter() {
+        Map<String, String> properties = catalogProperty.getProperties();
+        boolean ret = true;
+        if (properties.containsKey(HMSExternalCatalog.ENABLE_SELF_SPLITTER)
+                && properties.get(HMSExternalCatalog.ENABLE_SELF_SPLITTER).equalsIgnoreCase("false")) {
+            ret = false;
+        }
+        return ret;
     }
 }

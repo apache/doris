@@ -182,14 +182,6 @@ public class SessionVariablesTest extends TestWithFeService {
                 }
             };
 
-            new Expectations(profileManager) {
-                {
-                    profileManager.pushProfile((RuntimeProfile) any);
-                    // if enable_profile=true, method pushProfile will be called once
-                    times = 1;
-                }
-            };
-
             ExportExportingTask task = new ExportExportingTask(job);
             task.run();
             Assertions.assertTrue(job.isFinalState());
@@ -197,7 +189,6 @@ public class SessionVariablesTest extends TestWithFeService {
             e.printStackTrace();
             Assertions.fail(e.getMessage());
         }
-
     }
 
     @Test

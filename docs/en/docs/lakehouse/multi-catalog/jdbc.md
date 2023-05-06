@@ -202,6 +202,7 @@ When Trino is mapped, Doris's Database corresponds to a Schema in Trino that spe
 
 9. OceanBase
 
+<<<<<<< HEAD
 <version since="dev"></version>
 
 ```sql
@@ -237,8 +238,9 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 | `driver_class `           | Yes             |               | JDBC Driver Class                                  |
 | `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                  |
 | `lower_case_table_names`  | No              | "false"       | Whether to synchronize jdbc external data source table names in lower case. |
-| `specified_database_list` | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.|
 | `oceanbase_mode`          | No              | ""            | When the connected external data source is OceanBase, the mode must be specified as mysql or oracle                        |
+| `include_database_list` | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive. |
+| `exclude_database_list` | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
 > `driver_url` can be specified in three ways:
 >
 > 1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
@@ -248,9 +250,16 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 > 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
 
 > `only_specified_database`:
+> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`.
 >
-> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. When `only_specified_database=true` and `specified_database_list` is empty, only the database in jdbc_url specified to be synchronized. When `only_specified_database=true` and `specified_database_list` with some database names，and these names will specified to be synchronized。
-> 
+> `include_database_list`:
+> When `only_specified_database=true`, only synchronize the specified databases. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+>
+> `exclude_database_list`:
+> When `only_specified_database=true`, specify databases that do not need to synchronize. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+>
+> When `include_database_list` and `exclude_database_list` specify overlapping databases, `exclude_database_list` would take effect with higher privilege over `include_database_list`.
+>
 > If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
 
 
