@@ -424,13 +424,13 @@ TEST_F(TestTablet, rowset_tree_update) {
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
     LOG(INFO) << tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7).to_string();
-    ASSERT_TRUE(
-            tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7).is<ErrorCode::IO_ERROR>());
+    ASSERT_TRUE(tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7)
+                        .is<ErrorCode::FILE_OR_DIR_NOT_EXIST>());
     // Key not in range.
     ASSERT_TRUE(
             tablet->lookup_row_key("201", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
-    ASSERT_TRUE(
-            tablet->lookup_row_key("300", true, &rowset_ids, &loc, 7).is<ErrorCode::IO_ERROR>());
+    ASSERT_TRUE(tablet->lookup_row_key("300", true, &rowset_ids, &loc, 7)
+                        .is<ErrorCode::FILE_OR_DIR_NOT_EXIST>());
     // Key not in range.
     ASSERT_TRUE(
             tablet->lookup_row_key("499", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
@@ -439,8 +439,8 @@ TEST_F(TestTablet, rowset_tree_update) {
             tablet->lookup_row_key("500", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("500", true, &rowset_ids, &loc, 8).is<ErrorCode::IO_ERROR>());
+    ASSERT_TRUE(tablet->lookup_row_key("500", true, &rowset_ids, &loc, 8)
+                        .is<ErrorCode::FILE_OR_DIR_NOT_EXIST>());
 }
 
 } // namespace doris

@@ -56,8 +56,8 @@ LocalFileSystem::~LocalFileSystem() = default;
 
 Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
-    if (-1 == fd) {
-        return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
+    if (fd < 0) {
+        return error_from_errno("failed to open {}: {}", file.native(), errno_to_str());
     }
     *writer = std::make_unique<LocalFileWriter>(
             std::move(file), fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
@@ -72,7 +72,7 @@ Status LocalFileSystem::open_file_impl(const Path& file,
     int fd = -1;
     RETRY_ON_EINTR(fd, open(file.c_str(), O_RDONLY));
     if (fd < 0) {
-        return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
+        return error_from_errno("failed to open {}: {}", file.native(), errno_to_str());
     }
     *reader = std::make_shared<LocalFileReader>(
             std::move(file), fsize, fd,
@@ -91,7 +91,7 @@ Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_ex
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     if (ec) {
-        return Status::IOError("failed to create {}: {}", dir.native(), errcode_to_str(ec));
+        return error_from_errno("failed to create {}: {}", dir.native(), errcode_to_str(ec));
     }
     return Status::OK();
 }
@@ -108,7 +108,7 @@ Status LocalFileSystem::delete_file_impl(const Path& file) {
     std::error_code ec;
     std::filesystem::remove(file, ec);
     if (ec) {
-        return Status::IOError("failed to delete {}: {}", file.native(), errcode_to_str(ec));
+        return error_from_ec(ec, "failed to delete {}: {}", file.native(), errcode_to_str(ec));
     }
     return Status::OK();
 }
@@ -125,7 +125,7 @@ Status LocalFileSystem::delete_directory_impl(const Path& dir) {
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
     if (ec) {
-        return Status::IOError("failed to delete {}: {}", dir.native(), errcode_to_str(ec));
+        return error_from_ec(ec, "failed to delete {}: {}", dir.native(), errcode_to_str(ec));
     }
     return Status::OK();
 }
@@ -156,7 +156,8 @@ Status LocalFileSystem::exists_impl(const Path& path, bool* res) const {
     std::error_code ec;
     *res = std::filesystem::exists(path, ec);
     if (ec) {
-        return Status::IOError("failed to check exists {}: {}", path.native(), errcode_to_str(ec));
+        return error_from_ec(ec, "failed to check exists {}: {}", path.native(),
+                             errcode_to_str(ec));
     }
     return Status::OK();
 }
@@ -165,7 +166,8 @@ Status LocalFileSystem::file_size_impl(const Path& file, int64_t* file_size) con
     std::error_code ec;
     *file_size = std::filesystem::file_size(file, ec);
     if (ec) {
-        return Status::IOError("failed to get file size {}: {}", file.native(), errcode_to_str(ec));
+        return error_from_ec(ec, "failed to get file size {}: {}", file.native(),
+                             errcode_to_str(ec));
     }
     return Status::OK();
 }
@@ -196,7 +198,7 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
         files->push_back(std::move(file_info));
     }
     if (ec) {
-        return Status::IOError("failed to list {}: {}", dir.native(), errcode_to_str(ec));
+        return error_from_ec(ec, "failed to list {}: {}", dir.native(), errcode_to_str(ec));
     }
     return Status::OK();
 }
@@ -205,8 +207,8 @@ Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name)
     std::error_code ec;
     std::filesystem::rename(orig_name, new_name, ec);
     if (ec) {
-        return Status::IOError("failed to rename {} to {}: {}", orig_name.native(),
-                               new_name.native(), errcode_to_str(ec));
+        return error_from_ec(ec, "failed to rename {} to {}: {}", orig_name.native(),
+                             new_name.native(), errcode_to_str(ec));
     }
     return Status::OK();
 }
@@ -223,8 +225,8 @@ Status LocalFileSystem::link_file(const Path& src, const Path& dest) {
 
 Status LocalFileSystem::link_file_impl(const Path& src, const Path& dest) {
     if (::link(src.c_str(), dest.c_str()) != 0) {
-        return Status::IOError("failed to create hard link from {} to {}: {}", src.native(),
-                               dest.native(), errno_to_str());
+        return error_from_errno("failed to create hard link from {} to {}: {}", src.native(),
+                                dest.native(), errno_to_str());
     }
     return Status::OK();
 }
@@ -233,8 +235,8 @@ Status LocalFileSystem::canonicalize(const Path& path, std::string* real_path) {
     std::error_code ec;
     Path res = std::filesystem::canonical(path, ec);
     if (ec) {
-        return Status::IOError("failed to canonicalize path {}: {}", path.native(),
-                               errcode_to_str(ec));
+        return error_from_ec(ec, "failed to canonicalize path {}: {}", path.native(),
+                             errcode_to_str(ec));
     }
     *real_path = res.string();
     return Status::OK();
@@ -247,8 +249,8 @@ Status LocalFileSystem::is_directory(const Path& path, bool* res) {
     if (ec) {
         LOG(WARNING) << fmt::format("failed to check is dir {}: {}", tmp_path.native(),
                                     errcode_to_str(ec));
-        return Status::IOError("failed to check is dir {}: {}", tmp_path.native(),
-                               errcode_to_str(ec));
+        return error_from_ec(ec, "failed to check is dir {}: {}", tmp_path.native(),
+                             errcode_to_str(ec));
     }
     return Status::OK();
 }
@@ -261,8 +263,8 @@ Status LocalFileSystem::md5sum(const Path& file, std::string* md5sum) {
 Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
     int fd = open(file.c_str(), O_RDONLY);
     if (fd < 0) {
-        return Status::IOError("failed to open file for md5sum {}: {}", file.native(),
-                               errno_to_str());
+        return error_from_errno("failed to open file for md5sum {}: {}", file.native(),
+                                errno_to_str());
     }
 
     struct stat statbuf;
@@ -317,14 +319,14 @@ Status LocalFileSystem::mtime(const Path& file, time_t* m_time) {
 Status LocalFileSystem::mtime_impl(const Path& file, time_t* m_time) {
     int fd = open(file.c_str(), O_RDONLY);
     if (fd < 0) {
-        return Status::IOError("failed to get mtime for file {}: {}", file.native(),
-                               errno_to_str());
+        return error_from_errno("failed to get mtime for file {}: {}", file.native(),
+                                errno_to_str());
     }
 
     Defer defer {[&]() { close(fd); }};
     struct stat statbuf;
     if (fstat(fd, &statbuf) < 0) {
-        return Status::IOError("failed to stat file {}: {}", file.native(), errno_to_str());
+        return error_from_errno("failed to stat file {}: {}", file.native(), errno_to_str());
     }
     *m_time = statbuf.st_mtime;
     return Status::OK();
@@ -349,8 +351,8 @@ Status LocalFileSystem::get_space_info_impl(const Path& path, size_t* capacity, 
     std::error_code ec;
     std::filesystem::space_info info = std::filesystem::space(path, ec);
     if (ec) {
-        return Status::IOError("failed to get available space for path {}: {}", path.native(),
-                               errcode_to_str(ec));
+        return error_from_errno("failed to get available space for path {}: {}", path.native(),
+                                errcode_to_str(ec));
     }
     *capacity = info.capacity;
     *available = info.available;
@@ -367,8 +369,8 @@ Status LocalFileSystem::copy_dirs_impl(const Path& src, const Path& dest) {
     std::error_code ec;
     std::filesystem::copy(src, dest, std::filesystem::copy_options::recursive, ec);
     if (ec) {
-        return Status::IOError("failed to copy from {} to {}: {}", src.native(), dest.native(),
-                               errcode_to_str(ec));
+        return error_from_errno("failed to copy from {} to {}: {}", src.native(), dest.native(),
+                                errcode_to_str(ec));
     }
     return Status::OK();
 }
