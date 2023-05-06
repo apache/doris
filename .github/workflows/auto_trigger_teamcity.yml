@@ -58,13 +58,14 @@ jobs:
           echo "latest_commit_id : ${{ env.LATEST_COMMIT }}"
           
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "buildall" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
-            trigger_pipelines="SelectdbCore_BeUt_MsUt SelectdbCore_Ut_FeUt SelectdbCore_BeUt_CloutBeUt SelectdbCore_BeUt_LocalBeUt ${trigger_pipelines}"
+            trigger_pipelines="SelectdbCore_Ut_MsUt SelectdbCore_Ut_FeUt SelectdbCore_BeUt_CloutBeUt SelectdbCore_BeUt_LocalBeUt ${trigger_pipelines}"
           fi
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "ms_ut" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
-            trigger_pipelines="SelectdbCore_BeUt_MsUt  ${trigger_pipelines}"
+            trigger_pipelines="SelectdbCore_Ut_MsUt  ${trigger_pipelines}"
           fi
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "fe_ut" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
             trigger_pipelines="SelectdbCore_Ut_FeUt ${trigger_pipelines}"
+          fi
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "cloud_be_ut" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
             trigger_pipelines="SelectdbCore_BeUt_CloutBeUt ${trigger_pipelines}"
           fi
