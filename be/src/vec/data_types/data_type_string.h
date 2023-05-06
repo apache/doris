@@ -70,6 +70,12 @@ public:
 
     Field get_default() const override;
 
+    Field get_field(const TExprNode& node) const override {
+        DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
+        DCHECK(node.__isset.string_literal);
+        return node.string_literal.value;
+    }
+
     bool equals(const IDataType& rhs) const override;
 
     bool get_is_parametric() const override { return false; }

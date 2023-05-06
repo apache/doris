@@ -76,6 +76,8 @@ public:
 
     Field get_default() const override;
 
+    Field get_field(const TExprNode& node) const override { return Null(); }
+
     bool equals(const IDataType& rhs) const override;
 
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {

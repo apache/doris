@@ -206,6 +206,32 @@ public:
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     Field get_default() const override;
+
+    Field get_field(const TExprNode& node) const override {
+        DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
+        DCHECK(node.__isset.decimal_literal);
+        // decimalv2
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128>>) {
+            DecimalV2Value value;
+            if (value.parse_from_str(node.decimal_literal.value.c_str(),
+                                     node.decimal_literal.value.size()) == E_DEC_OK) {
+                return DecimalField<Decimal128>(value.value(), value.scale());
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid decimal(scale: {}) value: {}", value.scale(),
+                                       node.decimal_literal.value);
+            }
+        }
+        // decimal
+        T val;
+        if (!parse_from_string(node.decimal_literal.value, &val)) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid value: {} for type {}", node.decimal_literal.value,
+                                   do_get_name());
+        };
+        return DecimalField<T>(val, scale);
+    }
+
     bool can_be_promoted() const override { return true; }
     DataTypePtr promote_numeric_type() const override;
     MutableColumnPtr create_column() const override;

@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -103,6 +104,7 @@ public:
       */
     virtual Field get_default() const = 0;
 
+    virtual Field get_field(const TExprNode& node) const = 0;
     /** The data type can be promoted in order to try to avoid overflows.
       * Data types which can be promoted are typically Number or Decimal data types.
       */

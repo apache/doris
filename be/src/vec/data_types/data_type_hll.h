@@ -100,6 +100,10 @@ public:
         return String();
     }
 
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for HLL";
+    }
+
     static void serialize_as_stream(const HyperLogLog& value, BufferWritable& buf);
 
     static void deserialize_as_stream(HyperLogLog& value, BufferReadable& buf);
