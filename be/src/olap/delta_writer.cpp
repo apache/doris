@@ -561,11 +561,11 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
     request.set_allocated_rowset_meta(&rowset_meta_pb);
     request.set_host(BackendOptions::get_localhost());
-    request.set_http_port(config::single_replica_load_download_port);
+    request.set_http_port(config::webserver_port);
     string tablet_path = _tablet->tablet_path();
     request.set_rowset_path(tablet_path);
     request.set_token(ExecEnv::GetInstance()->token());
-    request.set_brpc_port(config::single_replica_load_brpc_port);
+    request.set_brpc_port(config::brpc_port);
     request.set_node_id(node_info.id());
     for (int segment_id = 0; segment_id < _cur_rowset->rowset_meta()->num_segments();
          segment_id++) {

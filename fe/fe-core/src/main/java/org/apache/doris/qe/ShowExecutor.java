@@ -983,7 +983,8 @@ public class ShowExecutor {
                 return;
             }
             List<String> createTableStmt = Lists.newArrayList();
-            Env.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */, -1L);
+            Env.getDdlStmt(null, null, table, createTableStmt, null, null, false,
+                    true /* hide password */, false, -1L, showStmt.isNeedBriefDdl());
             if (createTableStmt.isEmpty()) {
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
                 return;

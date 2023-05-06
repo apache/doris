@@ -157,6 +157,7 @@ import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.loadv2.ProgressManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
@@ -214,6 +215,7 @@ import org.apache.doris.resource.resourcegroup.ResourceGroupMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.StatisticsAutoAnalyzer;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.system.Backend;
@@ -311,6 +313,7 @@ public class Env {
     private GlobalFunctionMgr globalFunctionMgr;
     private Load load;
     private LoadManager loadManager;
+    private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private RoutineLoadManager routineLoadManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
@@ -451,6 +454,8 @@ public class Env {
     private ResourceGroupMgr resourceGroupMgr;
 
     private StatisticsCleaner statisticsCleaner;
+
+    private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -626,6 +631,7 @@ public class Env {
 
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
+        this.progressManager = new ProgressManager();
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
         this.loadEtlChecker = new LoadEtlChecker(loadManager);
@@ -653,6 +659,7 @@ public class Env {
         if (Config.enable_stats && !isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
             this.statisticsCleaner = new StatisticsCleaner();
+            this.statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.resourceGroupMgr = new ResourceGroupMgr();
@@ -879,6 +886,9 @@ public class Env {
         }
         if (statisticsCleaner != null) {
             statisticsCleaner.start();
+        }
+        if (statisticsAutoAnalyzer != null) {
+            statisticsAutoAnalyzer.start();
         }
     }
 
@@ -2766,7 +2776,7 @@ public class Env {
     public static void getDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
             List<String> createRollupStmt, boolean separatePartition, boolean hidePassword, long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false, specificVersion);
+                hidePassword, false, specificVersion, false);
     }
 
     /**
@@ -2776,7 +2786,7 @@ public class Env {
      */
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
             List<String> addPartitionStmt, List<String> createRollupStmt, boolean separatePartition,
-            boolean hidePassword, boolean getDdlForLike, long specificVersion) {
+            boolean hidePassword, boolean getDdlForLike, long specificVersion, boolean getBriefDdl) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -2888,7 +2898,8 @@ public class Env {
             if (separatePartition) {
                 partitionId = Lists.newArrayList();
             }
-            if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+            if (!getBriefDdl && (partitionInfo.getType() == PartitionType.RANGE
+                    || partitionInfo.getType() == PartitionType.LIST)) {
                 sb.append("\n").append(partitionInfo.toSql(olapTable, partitionId));
             }
 
@@ -3551,6 +3562,14 @@ public class Env {
 
     public LoadManager getLoadManager() {
         return loadManager;
+    }
+
+    public ProgressManager getProgressManager() {
+        return progressManager;
+    }
+
+    public static ProgressManager getCurrentProgressManager() {
+        return getCurrentEnv().getProgressManager();
     }
 
     public StreamLoadRecordMgr getStreamLoadRecordMgr() {
@@ -5377,5 +5396,9 @@ public class Env {
 
     public StatisticsCleaner getStatisticsCleaner() {
         return statisticsCleaner;
+    }
+
+    public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
+        return statisticsAutoAnalyzer;
     }
 }
