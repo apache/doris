@@ -31,7 +31,7 @@ DORIS_HOME=$(
 )
 export DORIS_HOME
 
-if [[ ! $(command -v clang-format-16) ]]; then
+if [[ ! -n $(command -v clang-format-16) ]]; then
     echo "clang-format-16 not founded, please install clang-format-16 or upgrade your clang-format version to 16"
     exit 1
 fi
