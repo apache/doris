@@ -524,5 +524,4 @@
 
 // local headers
 // common headers
-#include "common/config.h"
 #include "common/status.h"
