@@ -284,25 +284,14 @@ public class StmtExecutor {
         builder.sqlStatement(originStmt.originStmt);
         builder.isCached(isCached ? "Yes" : "No");
 
-    private Map<String, String> getSummaryInfo() {
-        Map<String, String> infos = Maps.newLinkedHashMap();
-        infos.put(ProfileManager.JOB_ID, "N/A");
-        infos.put(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
-        infos.put(ProfileManager.QUERY_TYPE, queryType);
-        infos.put(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
-        infos.put(ProfileManager.USER, context.getQualifiedUser());
-        infos.put(ProfileManager.DEFAULT_DB, context.getDatabase());
-        infos.put(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
-        infos.put(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
-
-        Map<String, Integer> beToInstancesNum =
-                coord == null ? Maps.newTreeMap() : coord.getBeToInstancesNum();
-        infos.put(ProfileManager.TOTAL_INSTANCES_NUM,
-                String.valueOf(beToInstancesNum.values().stream().reduce(0, Integer::sum)));
-        infos.put(ProfileManager.INSTANCES_NUM_PER_BE, beToInstancesNum.toString());
-        infos.put(ProfileManager.PARALLEL_FRAGMENT_EXEC_INSTANCE,
-                String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
-        return infos;
+        Map<String, Integer> beToInstancesNum = coord == null ? Maps.newTreeMap() : coord.getBeToInstancesNum();
+        builder.totalInstancesNum(String.valueOf(beToInstancesNum.values().stream().reduce(0, Integer::sum)));
+        builder.instancesNumPerBe(
+                beToInstancesNum.entrySet().stream().map(entry -> entry.getKey() + ":" + entry.getValue())
+                        .collect(Collectors.joining(",")));
+        builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
+        builder.traceId(context.getSessionVariable().getTraceId());
+        return builder.build();
     }
 
     public void addProfileToSpan() {
@@ -2216,5 +2205,4 @@ public class StmtExecutor {
         return profile.getSummaryProfile();
     }
 }
-
 
