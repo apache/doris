@@ -42,9 +42,9 @@ public class RuntimeProfileTest {
         RuntimeProfile profile1 = new RuntimeProfile("profile1");
         RuntimeProfile profile2 = new RuntimeProfile("profile2");
         RuntimeProfile profile3 = new RuntimeProfile("profile3");
-        profile1.getCounterTotalTime().setValue(1);
-        profile2.getCounterTotalTime().setValue(3);
-        profile3.getCounterTotalTime().setValue(2);
+        profile1.getCounterTotalTime().setValue(TUnit.TIME_NS, 1);
+        profile2.getCounterTotalTime().setValue(TUnit.TIME_NS, 3);
+        profile3.getCounterTotalTime().setValue(TUnit.TIME_NS, 2);
         profile.addChild(profile1);
         profile.addChild(profile2);
         profile.addChild(profile3);
@@ -102,7 +102,7 @@ public class RuntimeProfileTest {
         profile.addCounter("key", TUnit.UNIT, "");
         Assert.assertNotNull(profile.getCounterMap().get("key"));
         Assert.assertNull(profile.getCounterMap().get("key2"));
-        profile.getCounterMap().get("key").setValue(1);
+        profile.getCounterMap().get("key").setValue(TUnit.TIME_NS, 1);
         Assert.assertEquals(profile.getCounterMap().get("key").getValue(), 1);
     }
 

@@ -30,8 +30,8 @@ import java.util.List;
 
 /**
  * This class enumerate all subgraph of HyperGraph. CSG means connected subgraph
- * and CMP means complement subgraph. More details are in Dynamic Programming
- * Strikes Back and Build Query Optimizer.
+ * and CMP means complement subgraph.
+ * More details are in Paper: Dynamic Programming Strikes Back and Build Query Optimizer.
  */
 public class SubgraphEnumerator {
     //The receiver receives the csg and cmp and record them, named DPTable in paper

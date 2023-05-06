@@ -82,9 +82,9 @@ Status VJdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
     if (block == nullptr || block->rows() == 0) {
         return status;
     }
-
-    auto output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _output_vexpr_ctxs, *block, status);
+    Block output_block;
+    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _output_vexpr_ctxs, *block, &output_block));
     materialize_block_inplace(output_block);
 
     uint32_t start_send_row = 0;
