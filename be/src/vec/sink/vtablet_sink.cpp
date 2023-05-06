@@ -353,9 +353,14 @@ Status VNodeChannel::open_wait() {
            << ", error_text=" << _open_closure->cntl.ErrorText();
         _cancelled = true;
         LOG(WARNING) << ss.str() << " " << channel_info();
+        auto error_code = _open_closure->cntl.ErrorCode();
+        auto error_text = _open_closure->cntl.ErrorText();
+        if (_open_closure->unref()) {
+            delete _open_closure;
+        }
+        _open_closure = nullptr;
         return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
-                                     berror(_open_closure->cntl.ErrorCode()),
-                                     _open_closure->cntl.ErrorText());
+                                     berror(error_code), error_text);
     }
     Status status(_open_closure->result.status());
     if (_open_closure->unref()) {
@@ -528,9 +533,14 @@ Status VNodeChannel::open_partition_wait(
             delete open_partition_closure;
         }
         open_partition_closure = nullptr;
+        auto error_code = open_partition_closure->cntl.ErrorCode();
+        auto error_text = open_partition_closure->cntl.ErrorText();
+        if (open_partition_closure->unref()) {
+            delete open_partition_closure;
+        }
+        open_partition_closure = nullptr;
         return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
-                                     berror(open_partition_closure->cntl.ErrorCode()),
-                                     open_partition_closure->cntl.ErrorText());
+                                     berror(error_code), error_text);
     }
     Status status(open_partition_closure->result.status());
     if (open_partition_closure->unref()) {
