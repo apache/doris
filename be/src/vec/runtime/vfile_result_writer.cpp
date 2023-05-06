@@ -229,12 +229,9 @@ Status VFileResultWriter::append_block(Block& block) {
     Status status = Status::OK();
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
-    auto output_block =
-            VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, block, status);
-    auto num_rows = output_block.rows();
-    if (UNLIKELY(num_rows == 0)) {
-        return status;
-    }
+    Block output_block;
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, block,
+                                                                       &output_block));
     if (_vfile_writer) {
         _write_file(output_block);
     } else {

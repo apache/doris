@@ -21,7 +21,7 @@ suite("alter_column_stats") {
         CREATE TABLE statistics_test (
             `id` BIGINT,
             `col1` VARCHAR,
-            `col2` DATE
+            `col2` DATEV2
         ) DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 3
         PROPERTIES (

@@ -18,7 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.catalog.Function.CompareMode;
 
+import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -50,6 +52,19 @@ public class FunctionSetTest {
         newArgTypes = newFunction.getArgs();
         Assert.assertTrue(newArgTypes[0].matchesType(newArgTypes[2]));
         Assert.assertTrue(newArgTypes[0].matchesType(ScalarType.VARCHAR));
+    }
+
+    @Test
+    public void testAddInferenceFunction() {
+        TemplateType type1 = new TemplateType("T");
+        TemplateType type2 = new TemplateType("T");
+        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
+                "test_a", Type.ANY_TYPE, Lists.newArrayList(type1, type2), false,
+                "", "", "", true));
+        Type[] argTypes = {ArrayType.create(), ScalarType.INT};
+        Function desc = new Function(new FunctionName("test_a"), Arrays.asList(argTypes), ScalarType.INVALID, false);
+        Function result = functionSet.getFunction(desc, CompareMode.IS_IDENTICAL);
+        Assert.assertNull(result);
     }
 
 }

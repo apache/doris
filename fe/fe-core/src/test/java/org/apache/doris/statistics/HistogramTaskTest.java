@@ -22,6 +22,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.system.SystemInfoService;
@@ -103,7 +104,9 @@ public class HistogramTaskTest extends TestWithFeService {
         AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder()
                 .setJobId(0).setTaskId(0).setCatalogName("internal")
                 .setDbName(SystemInfoService.DEFAULT_CLUSTER + ":" + "histogram_task_test").setTblName("t1")
-                .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL)
+                .setColName("col1").setJobType(JobType.MANUAL)
+                .setAnalysisMode(AnalysisMode.FULL)
+                .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.HISTOGRAM)
                 .build();
         HistogramTask task = new HistogramTask(analysisTaskInfo);

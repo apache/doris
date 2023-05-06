@@ -71,7 +71,7 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    Status prepare(VExprContext** vconjunct_ctx_ptr,
+    Status prepare(VExprContext* vconjunct_ctx_ptr,
                    std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                    const std::unordered_map<std::string, int>* colname_to_slot_id);
 
@@ -128,7 +128,7 @@ protected:
     std::unordered_set<std::string> _missing_cols;
 
     // For load task
-    std::unique_ptr<doris::vectorized::VExprContext*> _pre_conjunct_ctx_ptr;
+    doris::vectorized::VExprContext* _pre_conjunct_ctx_ptr = nullptr;
     std::unique_ptr<RowDescriptor> _src_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;

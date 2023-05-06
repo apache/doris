@@ -140,23 +140,25 @@ public class SimpleDemo  {
     }
 
     /*required*/
-    public void serialize(State state, DataOutputStream out) throws Exception {
+    public void serialize(State state, DataOutputStream out)  {
         /* serialize some data into buffer */
         try {
             out.writeInt(state.sum);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            /* Do not throw exceptions */
+            log.info(e.getMessage());
         }
     }
 
     /*required*/
-    public void deserialize(State state, DataInputStream in) throws Exception {
+    public void deserialize(State state, DataInputStream in)  {
         /* deserialize get data from buffer before you put */
         int val = 0;
         try {
             val = in.readInt();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            /* Do not throw exceptions */
+            log.info(e.getMessage());
         }
         state.sum = val;
     }
@@ -185,6 +187,131 @@ CREATE AGGREGATE FUNCTION simple_sum(INT) RETURNS INT PROPERTIES (
     "type"="JAVA_UDF"
 );
 ```
+
+```JAVA
+package org.apache.doris.udf.demo;
+
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.logging.Logger;
+
+/*UDAF for calculating the median*/
+public class MedianUDAF {
+    Logger log = Logger.getLogger("MedianUDAF");
+
+    // State storage
+    public static class State {
+        // Precision of the result
+        int scale = 0;
+        // Whether this is the first time to execute add() for the data under a certain aggregation condition of a certain tablet
+        boolean isFirst = true;
+        //Data storage
+        public StringBuilder stringBuilder;
+    }
+
+    //State initialization
+    public State create() {
+        State state = new State();
+        //Pre-initialize based on the amount of data to be aggregated for each aggregation condition under each tablet, for improved performance
+        state.stringBuilder = new StringBuilder(1000);
+        return state;
+    }
+
+
+    // Handle the data for each unit under each aggregation condition for each tablet
+    public void add(State state, Double val, int scale) {
+        try {
+            if (val != null && state.isFirst) {
+                state.stringBuilder.append(scale).append(",").append(val).append(",");
+                state.isFirst = false;
+            } else if (val != null) {
+                state.stringBuilder.append(val).append(",");
+            }
+        } catch (Exception e) {
+            // If it is not guaranteed that there will be no exceptions, it is recommended to maximize the exception capture for each method, as the processing of java-thrown exceptions is currently not supported
+            log.info("Exception encountered while retrieving data: " + e.getMessage());
+        }
+    }
+
+    // Output the data after processing for aggregation
+    public void serialize(State state, DataOutputStream out) {
+        try {
+            // Only DataOutputStream is currently provided, if object serialization is required, consider methods such as concatenating strings, converting to json, serializing to byte arrays, etc.
+            // If you want to serialize the State object, you may need to implement the serialization interface for the inner class State yourself
+            // In the end, it will be transmitted through DataOutputStream
+            out.writeUTF(state.stringBuilder.toString());
+        } catch (Exception e) {
+            log.info("Exception encountered while serializing data:" + e.getMessage());
+        }
+    }
+
+    // Retrieve the data output by each data processing unit
+    public void deserialize(State state, DataInputStream in) {
+        try {
+            String string = in.readUTF();
+            state.scale = Integer.parseInt(String.valueOf(string.charAt(0)));
+            StringBuilder stringBuilder = new StringBuilder(string.substring(2));
+            state.stringBuilder = stringBuilder;
+        } catch (Exception e) {
+            log.info("Exception encountered while deserializing data: " + e.getMessage());
+        }
+    }
+
+    // Merge the processing results of data under a certain key according to the aggregation condition, where state1 is the initialized instance for the first merge of each key
+    public void merge(State state1, State state2) {
+        try {
+            state1.scale = state2.scale;
+            state1.stringBuilder.append(state2.stringBuilder.toString());
+        } catch (Exception e) {
+            log.info("Exception encountered while merging results: " + e.getMessage());
+        }
+    }
+
+    // Aggregate the data for each key after merging and output the final result
+    public Double getValue(State state) {
+        try {
+            String[] strings = state.stringBuilder.toString( ).split(",");
+            double[] doubles = new double[strings.length + 1];
+            doubles = Arrays.stream(strings).mapToDouble(Double::parseDouble).toArray();
+
+            Arrays.sort(doubles);
+            double n = doubles.length - 1;
+            double index = n * 0.5;
+
+            int low = (int) Math.floor(index);
+            int high = (int) Math.ceil(index);
+
+            double value = low == high ? (doubles[low] + doubles[high]) * 0.5 : doubles[high];
+
+            BigDecimal decimal = new BigDecimal(value);
+            return decimal.setScale(state.scale, BigDecimal.ROUND_HALF_UP).doubleValue();
+        } catch (Exception e) {
+            log.info("Exception encountered while calculating result：" + e.getMessage());
+        }
+        return 0.0;
+    }
+
+    //This method is executed after each processing unit is completed
+    public void destroy(State state) {
+    }
+
+}
+
+```
+
+```sql
+CREATE AGGREGATE FUNCTION middle_quantiles(DOUBLE,INT) RETURNS DOUBLE PROPERTIES (
+    "file"="file:///pathTo/java-udaf.jar",
+    "symbol"="org.apache.doris.udf.demo.MiddleNumberUDAF",
+    "always_nullable"="true",
+    "type"="JAVA_UDF"
+);
+```
+
+
 * The implemented jar package can be stored at local or in a remote server and downloaded via http, And each BE node must be able to obtain the jar package;
 Otherwise, the error status message "Couldn't open file..." will be returned
 
@@ -207,7 +334,7 @@ Examples of Java UDF are provided in the `samples/doris-demo/java-udf-demo/` dir
 
 ## Instructions
 1. Complex data types (HLL, bitmap) are not supported.
-2. Currently, users are allowed to specify the maximum heap size of the JVM themselves. The configuration item is jvm_ max_ heap_ size.
+2. Currently, users are allowed to specify the maximum heap size of the JVM themselves. The configuration item is jvm_ max_ heap_ size. The configuration item is in the global configuration file 'be.conf' under the installation directory of the BE. The default value is 512M. If data aggregation is required, it is recommended to increase the value to improve performance and reduce the risk of memory overflow.
 3. The udf of char type needs to use the String type when creating a function.
 4. Due to the problem that the jvm loads classes with the same name, do not use multiple classes with the same name as udf implementations at the same time. If you want to update the udf of a class with the same name, you need to restart be to reload the classpath.
 
