@@ -492,7 +492,7 @@ public class SessionVariable implements Serializable, Writable {
      * then half of the current CPU cores will be used.
      */
     @VariableMgr.VarAttr(name = PIPELINE_PARALLEL_INSTANCE_NUM, fuzzy = true)
-    public int pipelineParallelExecInstanceNum = 1;
+    public int pipelineParallelExecInstanceNum = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
