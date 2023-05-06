@@ -868,12 +868,12 @@ public class SystemInfoService {
         if (!policy.allowOnSameHost) {
             Map<String, List<Backend>> backendMaps = Maps.newHashMap();
             for (Backend backend : candidates) {
-                if (backendMaps.containsKey(backend.getIp())) {
-                    backendMaps.get(backend.getIp()).add(backend);
+                if (backendMaps.containsKey(backend.getHost())) {
+                    backendMaps.get(backend.getHost()).add(backend);
                 } else {
                     List<Backend> list = Lists.newArrayList();
                     list.add(backend);
-                    backendMaps.put(backend.getIp(), list);
+                    backendMaps.put(backend.getHost(), list);
                 }
             }
             candidates.clear();
