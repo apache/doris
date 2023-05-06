@@ -43,6 +43,7 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -578,8 +579,9 @@ public class OlapScanNode extends ScanNode {
         cardinality = 0;
         for (long selectedPartitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(selectedPartitionId);
-            final MaterializedIndex baseIndex = partition.getBaseIndex();
-            cardinality += baseIndex.getRowCount();
+            final long indexRowCount = partition.getMaterializedIndices(IndexExtState.ALL).stream().findFirst()
+                    .map(MaterializedIndex::getRowCount).orElse(0L);
+            cardinality += indexRowCount;
         }
     }
 

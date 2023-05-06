@@ -1089,7 +1089,10 @@ public class OlapTable extends Table {
     public long getRowCount() {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            rowCount += entry.getValue().getBaseIndex().getRowCount();
+            // if baseIndex is not null, it will be the selected index to compute row count.
+            final long indexRowCount = entry.getValue().getMaterializedIndices(IndexExtState.ALL).stream().findFirst()
+                    .map(MaterializedIndex::getRowCount).orElse(0L);
+            rowCount += indexRowCount;
         }
         return rowCount;
     }

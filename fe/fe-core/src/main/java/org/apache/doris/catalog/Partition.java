@@ -231,7 +231,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public MaterializedIndex getIndex(long indexId) {
-        if (baseIndex.getId() == indexId) {
+        if (baseIndex != null && baseIndex.getId() == indexId) {
             return baseIndex;
         }
         if (idToVisibleRollupIndex.containsKey(indexId)) {
