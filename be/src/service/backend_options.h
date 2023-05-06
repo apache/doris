@@ -21,6 +21,7 @@
 
 #include <string>
 #include <vector>
+
 #include "gen_cpp/Types_types.h"
 
 namespace doris {
