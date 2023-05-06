@@ -1637,8 +1637,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     LOG.info("drop partition from index[{}] which does not exist", indexName);
                     return;
                 } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_DROP_PARTITION_FROM_INDEX_NON_EXISTENT, indexName,
-                            partitionName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_INDEX, indexName);
                 }
             }
         }

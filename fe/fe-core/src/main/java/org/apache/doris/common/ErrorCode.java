@@ -1194,7 +1194,7 @@ public enum ErrorCode {
     ERR_NONSSL_HANDSHAKE_RESPONSE(5091, new byte[] {'4', '2', '0', '0'},
             "SSL mode on but received non-ssl handshake response from client."),
 
-    ERR_DROP_PARTITION_FROM_INDEX_NON_EXISTENT(5092, new byte[]{'H', 'Y', '0', '0', '0'}, "Index '%s' is not existent for partition %s.");
+    ERR_NO_SUCH_INDEX(5092, new byte[]{'H', 'Y', '0', '0', '0'}, "index '%s' doesn't exist");
 
     // This is error code
     private final int code;
