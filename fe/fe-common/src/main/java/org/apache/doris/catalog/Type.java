@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -1672,10 +1673,12 @@ public abstract class Type {
     }
 
     public static Type convertDateLikeTypeToV2(Type type) {
-        if (type.isDate()) {
-            return Type.DATEV2;
-        } else if (type.isDatetime()) {
-            return Type.DATETIMEV2;
+        if (Config.enable_date_conversion) {
+            if (type.isDate()) {
+                return Type.DATEV2;
+            } else if (type.isDatetime()) {
+                return Type.DATETIMEV2;
+            }
         }
         return type;
     }
