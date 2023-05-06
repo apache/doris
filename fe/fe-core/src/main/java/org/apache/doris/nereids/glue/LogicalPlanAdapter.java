@@ -71,7 +71,7 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
     public ExplainOptions getExplainOptions() {
         return logicalPlan instanceof ExplainCommand
                 ? new ExplainOptions(((ExplainCommand) logicalPlan).getLevel())
-                : null;
+                : super.getExplainOptions();
     }
 
     public ArrayList<String> getColLabels() {

@@ -100,9 +100,9 @@ public class RelationUtil {
      * get table
      */
     public static TableIf getTable(List<String> qualifierName, Env env) {
-        String catalogName = qualifierName.get(0);
-        String dbName = qualifierName.get(1);
-        String tableName = qualifierName.get(2);
+        String catalogName = qualifierName.get(1);
+        String dbName = qualifierName.get(2);
+        String tableName = qualifierName.get(0);
         CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogName);
         if (catalog == null) {
             throw new RuntimeException(String.format("Catalog %s does not exist.", catalogName));

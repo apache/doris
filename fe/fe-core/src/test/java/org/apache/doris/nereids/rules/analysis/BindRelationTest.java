@@ -20,8 +20,8 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.PlanRewriter;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
