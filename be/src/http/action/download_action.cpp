@@ -47,15 +47,13 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
         }
         _allow_paths.emplace_back(std::move(p));
     }
-    if (num_workers > 0) {
+    _is_async = (num_workers > 0);
+    if (_is_async) {
         // for single-replica-load
         ThreadPoolBuilder("DownloadThreadPool")
                 .set_min_threads(num_workers)
                 .set_max_threads(num_workers)
                 .build(&_download_workers);
-        _is_async = true;
-    } else {
-        _is_async = false;
     }
 }
 
@@ -152,7 +150,10 @@ void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_
 void DownloadAction::handle(HttpRequest* req) {
     if (_is_async) {
         // async for heavy download job, currently mainly for single-replica-load
-        CHECK(_download_workers->submit_func([this, req]() { _handle(req); }).ok());
+        auto status = _download_workers->submit_func([this, req]() { _handle(req); }).ok();
+        if (!status.ok()) {
+            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status.to_string());
+        }
     } else {
         _handle(req);
     }
