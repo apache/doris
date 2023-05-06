@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.glue;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Queriable;
@@ -24,6 +25,7 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.util.ArrayList;
@@ -63,6 +65,13 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
     @Override
     public OutFileClause getOutFileClause() {
         return null;
+    }
+
+    @Override
+    public ExplainOptions getExplainOptions() {
+        return logicalPlan instanceof ExplainCommand
+                ? new ExplainOptions(((ExplainCommand) logicalPlan).getLevel())
+                : null;
     }
 
     public ArrayList<String> getColLabels() {
