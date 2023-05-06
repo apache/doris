@@ -160,9 +160,9 @@ public class InsertStmtTest {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String sql = "values(1,'a',2,'b')";
 
-        org.apache.doris.analysis.SqlScanner input = new org.apache.doris.analysis.SqlScanner(new StringReader(sql),
+        SqlScanner input = new SqlScanner(new StringReader(sql),
                 ctx.getSessionVariable().getSqlMode());
-        org.apache.doris.analysis.SqlParser parser = new org.apache.doris.analysis.SqlParser(input);
+        SqlParser parser = new SqlParser(input);
         Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         StatementBase statementBase = null;
         try {
@@ -225,9 +225,9 @@ public class InsertStmtTest {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String sql = "select kk1, kk2, kk3, kk4 from db.tbl";
 
-        org.apache.doris.analysis.SqlScanner input = new org.apache.doris.analysis.SqlScanner(new StringReader(sql),
+        SqlScanner input = new SqlScanner(new StringReader(sql),
                 ctx.getSessionVariable().getSqlMode());
-        org.apache.doris.analysis.SqlParser parser = new org.apache.doris.analysis.SqlParser(input);
+        SqlParser parser = new SqlParser(input);
         Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         StatementBase statementBase = null;
         try {

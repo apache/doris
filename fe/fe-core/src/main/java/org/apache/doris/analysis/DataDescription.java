@@ -810,8 +810,7 @@ public class DataDescription implements InsertStmt.DataDesc {
             return;
         }
         String columnsSQL = "COLUMNS (" + columnDef + ")";
-        org.apache.doris.analysis.SqlParser parser = new org.apache.doris.analysis.SqlParser(
-                new org.apache.doris.analysis.SqlScanner(new StringReader(columnsSQL)));
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
         try {
             columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);

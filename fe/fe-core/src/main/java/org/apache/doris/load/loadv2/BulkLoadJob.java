@@ -378,7 +378,7 @@ public abstract class BulkLoadJob extends LoadJob {
         return null;
     }
 
-    // ---------------- for lod stmt ----------------
+    // ---------------- for load stmt ----------------
     public static BulkLoadJob fromInsertStmt(InsertStmt insertStmt) throws DdlException {
         // get db id
         String dbName = insertStmt.getLoadLabel().getDbName();
