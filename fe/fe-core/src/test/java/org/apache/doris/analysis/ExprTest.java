@@ -152,7 +152,7 @@ public class ExprTest {
         Assert.assertEquals(nullLiteral.getType(), Type.DATE);
         NullLiteral castNullLiteral = (NullLiteral) nullLiteral.uncheckedCastTo(Type.DATETIME);
         Assert.assertEquals(nullLiteral.getType(), Type.DATE);
-        Assert.assertEquals(castNullLiteral.getType(), Type.DATETIME);
+        Assert.assertEquals(castNullLiteral.getType(), Type.DATETIMEV2);
         Assert.assertFalse(nullLiteral == castNullLiteral);
         NullLiteral castNullLiteral2 = (NullLiteral) nullLiteral.uncheckedCastTo(Type.DATE);
         Assert.assertTrue(nullLiteral == castNullLiteral2);
