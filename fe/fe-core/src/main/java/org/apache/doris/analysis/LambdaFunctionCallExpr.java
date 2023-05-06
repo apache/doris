@@ -108,10 +108,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             }
             fn = new Function(fnName, Arrays.asList(argTypes), ArrayType.create(lambda.getChild(0).getType(), true),
                     true, true, NullableMode.DEPEND_ON_ARGUMENT);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
-            }
         } else if (fnName.getFunction().equalsIgnoreCase("array_exists")
                 || fnName.getFunction().equalsIgnoreCase("array_first_index")
                 || fnName.getFunction().equalsIgnoreCase("array_count")) {
@@ -143,10 +139,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
             fn = getBuiltinFunction(fnName.getFunction(), newArgTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
-            }
         } else if (fnName.getFunction().equalsIgnoreCase("array_filter")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() != 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have two params");
@@ -175,10 +167,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
-            }
         } else if (fnName.getFunction().equalsIgnoreCase("array_sortby")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
