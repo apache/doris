@@ -388,6 +388,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     exec_status.set_t_status(&params);
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
+    params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
 
     DCHECK(req.runtime_state != nullptr);
     if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
