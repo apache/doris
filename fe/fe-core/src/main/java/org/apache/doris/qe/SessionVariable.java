@@ -1201,7 +1201,6 @@ public class SessionVariable implements Serializable, Writable {
         if (enablePipelineEngine) {
             if (pipelineParallelExecInstanceNum == 0) {
                 Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
-                LOG.warn("yxc test use be info to set {}", beinfoCollector.getParallelExecInstanceNum());
                 return beinfoCollector.getParallelExecInstanceNum();
             }
             return pipelineParallelExecInstanceNum;

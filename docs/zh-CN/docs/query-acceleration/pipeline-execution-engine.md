@@ -76,3 +76,10 @@ set enable_pipeline_engine = true;
 ```
 set parallel_fragment_exec_instance_num = 16;
 ```
+
+#### pipeline_parallel_fragment_exec_instance_num
+`pipeline_parallel_fragment_exec_instance_num`代表了 SQL 查询进行查询并发的 Instance 数目。Doris默认的配置为`1`,这个配置会影响Pipeline 执行引擎的查询线程数。特殊的，当设置为0时，查询线程数为当前cpu核心数目的一半大小。
+
+```
+set pipeline_parallel_fragment_exec_instance_num = 0;
+```
