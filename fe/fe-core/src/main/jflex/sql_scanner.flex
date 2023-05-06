@@ -123,6 +123,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("ngram_bf", new Integer(SqlParserSymbols.KW_NGRAM_BF));
         keywordMap.put("blob", new Integer(SqlParserSymbols.KW_BLOB));
         keywordMap.put("boolean", new Integer(SqlParserSymbols.KW_BOOLEAN));
+        keywordMap.put("brief", new Integer(SqlParserSymbols.KW_BRIEF));
         keywordMap.put("broker", new Integer(SqlParserSymbols.KW_BROKER));
         keywordMap.put("buckets", new Integer(SqlParserSymbols.KW_BUCKETS));
         keywordMap.put("build", new Integer(SqlParserSymbols.KW_BUILD));
