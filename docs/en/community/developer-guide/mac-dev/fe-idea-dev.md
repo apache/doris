@@ -24,15 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## Use IntelliJ IDEA to build a macOS FE development environment
-
-### Open the FE directory of the Doris code
+## Open the FE directory of the Doris code
 
 **Here we do not directly open the root directory of the Doris project, but open the FE directory (very important!! In order not to conflict with CLion**
 
 ![deployment1](/images/mac-idea-deployment1.png)
 
-### Generate FE code
+## Generate FE code
 
 1. Open the IDEA terminal and go to the root directory of the code to execute
 
@@ -51,7 +49,7 @@ under the License.
     cp -r build/help-resource.zip ../fe/fe-core/target/classes
     ```
 
-### Configure Debug FE
+## Configure Debug FE
 
 - select edit configuration
 
@@ -75,7 +73,7 @@ under the License.
     ```
     ![deployment5](/images/mac-idea-deployment5.png)
 
-### Start FE
+## Start FE
 
 Click Run or Debug to start compiling, and fe will start after compiling
 

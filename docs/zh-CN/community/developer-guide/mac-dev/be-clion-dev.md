@@ -24,13 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## 使用 CLion 搭建 macOS BE 开发环境
-
-### 打开 Doris 代码根目录
+## 打开 Doris 代码根目录
 
 ![deployment1](/images/mac-clion-deployment1.png)
 
-### 配置 CLion
+## 配置 CLion
 
 1. 配置工具链
 
@@ -38,21 +36,21 @@ under the License.
 
     ![deployment2](/images/mac-clion-deployment2.png)
    
-2. 配置CMake
+2. 配置 CMake
 
     参考下图配置
 
     ![deployment3](/images/mac-clion-deployment3.png)
 
-    配置完成确认后第一次会自动加载 CMake 文件，若没有自动加载，可手动右键点击 $DORIS_HOME/be/CMakeLists.txt 选择加载
+    配置完成确认后第一次会自动加载 CMake 文件，若没有自动加载，可手动右键点击 `$DORIS_HOME/be/CMakeLists.txt` 选择加载
 
-### 配置 Debug BE
+## 配置 Debug BE
 
 选择编辑配置
 
   ![deployment4](/images/mac-clion-deployment4.png)
 
-给doris_be添加环境变量
+给 doris_be 添加环境变量
 
 参照 Doris 代码根目录下的 `be/bin/start_be.sh` 中 export 的环境变量进行环境变量配置。 
 其中环境变量的Doris目录值指向准备工作里里自己copy出来的目录。
@@ -73,7 +71,7 @@ DORIS_HOME=~/DorisDev/doris-run/be
 ![deployment6](/images/mac-clion-deployment6.png)
 
 
-### 启动Debug
+## 启动Debug
 
 点击 Run 或者 Debug 就会开始编译，编译完 be 就会启动
 

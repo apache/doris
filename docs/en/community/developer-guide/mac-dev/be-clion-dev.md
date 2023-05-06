@@ -24,13 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## Use CLion to build a macOS BE development environment
-
-### Open the Doris code root directory
+## Open the Doris code root directory
 
 ![deployment1](/images/mac-clion-deployment1.png)
 
-### Configure CLion
+## Configure CLion
 
 1. Configure Toolchain
 
@@ -46,7 +44,7 @@ under the License.
 
    After the configuration is completed and confirmed, the CMake file will be automatically loaded for the first time. If it is not automatically loaded, you can manually right-click `$DORIS_HOME/be/CMakeLists.txt` and select Load
 
-### Configure Debug BE
+## Configure Debug BE
 
 select edit configuration
 
@@ -73,7 +71,7 @@ DORIS_HOME=~/DorisDev/doris-run/be
 ![deployment6](/images/mac-clion-deployment6.png)
 
 
-### Start BE
+## Start BE
 
 Click Run or Debug to start compiling, and be will start after compiling
 

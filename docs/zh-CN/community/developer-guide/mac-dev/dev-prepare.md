@@ -24,9 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## 环境准备
-
-1. 安装环境依赖
+## 安装环境依赖
 
     ```
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
@@ -44,7 +42,7 @@ under the License.
             - texinfo: `export PATH = "/opt/homebrew/opt/texinfo/bin:$PATH`
             - python: `ln -s -f /opt/homebrew/bin/python3 /opt/homebrew/bin/python`
    
-2. 安装 thrift
+## 安装 thrift
 
     **注意：** 仅在只调试FE的情况下需要安装 thrift，同时调试 BE 和 FE 时，BE 的三方库包含 thrift
 
@@ -65,7 +63,7 @@ under the License.
     参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
     ```
 
-3. 拉取自己的代码
+## 拉取自己的代码
 
     1. 拉取代码
 
@@ -83,7 +81,7 @@ under the License.
         export PATH=$DORIS_HOME/bin:$PATH
         ```
 
-4. 下载Doris编译依赖
+## 下载Doris编译依赖
 
     1. [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation)页面有所有第三方库的源码，可以直接下载[doris-thirdparty-source.tgz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz)获得。
 
@@ -108,7 +106,7 @@ under the License.
         ```
     3. 运行`protoc`和`thrift`的时候可能会遇到**无法打开，因为无法验证开发者**的问题，可以到前往`安全性与隐私`。点按`通用`面板中的`仍要打开`按钮，以确认打算打开该二进制。参考[https://support.apple.com/zh-cn/HT202491](https://support.apple.com/zh-cn/HT202491)。
 
-5. 修改系统最大文件句柄数
+## 修改系统最大文件句柄数
 
     ```
     # bash
@@ -118,14 +116,14 @@ under the License.
     echo 'ulimit -n 65536' >>~/.zshrc
     ```
 
-6. 编译 Doris
+## 编译 Doris
 
     ```
     cd $DORIS_HOME
     sh build.sh
     ```
 
-7. 配置Debug环境
+## 配置Debug环境
 
     ```
     # 将编译好的包cp出来
@@ -137,7 +135,7 @@ under the License.
     2、BE 额外配置 min_file_descriptor_number = 10000
     ```
 
-8. 开始用 IDE 进行 Debug
+## 开始用 IDE 进行 Debug
 
     [CLion Mac 调试 BE](./be-clion-dev.md)
 

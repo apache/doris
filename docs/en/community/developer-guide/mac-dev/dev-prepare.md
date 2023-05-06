@@ -24,9 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## 环境准备
-
-1. Install environment dependency
+## Install environment dependency
 
     ```
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
@@ -44,7 +42,7 @@ under the License.
             - texinfo: `export PATH = "/opt/homebrew/opt/texinfo/bin:$PATH`
             - python: `ln -s -f /opt/homebrew/bin/python3 /opt/homebrew/bin/python`
    
-2. Install thrift
+## Install thrift
 
     **Note：** Thrift needs to be installed only when debugging FE only. When debugging BE and FE at the same time, the three-party library of BE contains thrift
 
@@ -65,7 +63,7 @@ under the License.
     reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
     ```
 
-3. pull your own code
+## pull your own code
 
     1. pull code
 
@@ -83,7 +81,7 @@ under the License.
         export PATH=$DORIS_HOME/bin:$PATH
         ```
 
-4. Download Doris compilation dependencies
+## Download Doris compilation dependencies
 
    1. The [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page contains the source code of all third-party libraries. You can download [doris-thirdparty-source.tgz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz) to obtain them.
 
@@ -108,7 +106,7 @@ under the License.
        ```
    3. When running `protoc` or `thrift`, you may meet an error which says **the app can not be opened because the developer cannot be verified**. Go to `Security & Privacy`. Click the `Open Anyway` button in the `General` pane to confirm your intent to open the app. See [https://support.apple.com/en-us/HT202491](https://support.apple.com/en-us/HT202491).
 
-5. Set `file descriptors`
+## Set `file descriptors`
 
     ```
     # bash
@@ -118,14 +116,14 @@ under the License.
     echo 'ulimit -n 65536' >>~/.zshrc
     ```
 
-6. compile Doris
+## compile Doris
 
     ```
     cd $DORIS_HOME
     sh build.sh
     ```
 
-7. Configure Debug environment
+## Configure Debug environment
 
     ```
     # cp out the compiled package
@@ -137,7 +135,7 @@ under the License.
     2、BE additional configuration min_file_descriptor_number = 10000
     ```
 
-8. Start Debugging with IDE
+## Start Debugging with IDE
 
     [CLion Debug BE On Mac](./be-clion-dev.md)
 

@@ -24,15 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## 使用 IntelliJ IDEA 搭建 macOS FE 开发环境
-
-### 打开 Doris 代码的 FE 目录
+## 打开 Doris 代码的 FE 目录
 
 **这里我们不要直接打开Doris项目根目录，要打开FE的目录（很重要！！为了不和CLion发生冲突**
 
 ![deployment1](/images/mac-idea-deployment1.png)
 
-### 生成FE代码
+## 生成 FE 代码
 
 1. 打开 IDEA 终端，到代码根目录下执行
    `sh generated-source.sh`
@@ -40,7 +38,7 @@ under the License.
     等待显示 Done 就可以了
     
     ![deployment2](/images/mac-idea-deployment2.png)
-2. Copy help-resource.zip 文档
+2. Copy help-resource.zip 
 
     ```
     进入doris/docs目录，执行以下命令
@@ -49,7 +47,7 @@ under the License.
     cp -r build/help-resource.zip ../fe/fe-core/target/classes
     ```
 
-### 配置Debug FE
+## 配置 Debug FE
 
 - 选择编辑配置
 
@@ -57,7 +55,7 @@ under the License.
 
 - 添加 DorisFE 配置
 
-  左上角+号添加一个应用程序的配置，具体配置参考下图
+  左上角 + 号添加一个应用程序的配置，具体配置参考下图
 
   ![deployment4](/images/mac-idea-deployment4.png)
 
@@ -73,7 +71,7 @@ under the License.
     ```
     ![deployment5](/images/mac-idea-deployment5.png)
 
-### 启动 FE
+## 启动 FE
 
 点击 Run 或者 Debug 就会开始编译，编译完 fe 就会启动
 
