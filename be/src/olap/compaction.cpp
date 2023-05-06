@@ -171,8 +171,8 @@ Status Compaction::do_compact_ordered_rowsets() {
     auto seg_id = 0;
     std::vector<KeyBoundsPB> segment_key_bounds;
     for (auto rowset : _input_rowsets) {
-        RETURN_IF_ERROR(rowset->link_files_to(_tablet->tablet_path(), _output_rs_writer->rowset_id(),
-                                            seg_id));
+        RETURN_IF_ERROR(rowset->link_files_to(_tablet->tablet_path(),
+                                              _output_rs_writer->rowset_id(), seg_id));
         seg_id += rowset->num_segments();
 
         std::vector<KeyBoundsPB> key_bounds;
