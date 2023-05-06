@@ -497,12 +497,7 @@ PartitionOpenClosure<PartitionOpenResult>* VNodeChannel::open_partition(int64_t 
 
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
-        if (remain_ms <= 0) {
-            cancel(fmt::format("{}, err: timeout", channel_info()));
-            return nullptr;
-        } else {
-            remain_ms = config::min_load_rpc_timeout_ms;
-        }
+        remain_ms = config::min_load_rpc_timeout_ms;
     }
     open_partition_closure->cntl.set_timeout_ms(remain_ms);
     if (config::partition_open_ignore_eovercrowded) {
@@ -516,10 +511,6 @@ PartitionOpenClosure<PartitionOpenResult>* VNodeChannel::open_partition(int64_t 
 
 Status VNodeChannel::open_partition_wait(
         PartitionOpenClosure<PartitionOpenResult>* open_partition_closure) {
-    if (open_partition_closure == nullptr) {
-        Status status(open_partition_closure->result.status());
-        return status;
-    }
     open_partition_closure->join();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     if (open_partition_closure->cntl.Failed()) {
@@ -538,6 +529,10 @@ Status VNodeChannel::open_partition_wait(
                                      open_partition_closure->cntl.ErrorText());
     }
     Status status(open_partition_closure->result.status());
+    if (open_partition_closure->unref()) {
+        delete open_partition_closure;
+    }
+    open_partition_closure = nullptr;
 
     if (!status.ok()) {
         _cancelled = true;
