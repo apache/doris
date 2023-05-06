@@ -19,8 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
