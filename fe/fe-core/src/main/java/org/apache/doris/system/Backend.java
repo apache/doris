@@ -849,7 +849,7 @@ public class Backend implements Writable {
         }
 
         public int getParallelExecInstanceNum() {
-            return 16;
+            return 8;
         }
 
         public BeInfoCollector getBeInfoCollectorById(long beId) {
