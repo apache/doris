@@ -68,7 +68,7 @@ public class RelationUtil {
                 String tableName = nameParts.get(0);
                 String catalogName = context.getCurrentCatalog().getName();
                 String dbName = context.getDatabase();
-                return ImmutableList.of(tableName, catalogName, dbName);
+                return ImmutableList.of(catalogName, dbName, tableName);
             }
             case 2: { // db.table
                 // Use database name from table name parts.
@@ -79,7 +79,7 @@ public class RelationUtil {
                     dbName = context.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
                 }
                 String tableName = nameParts.get(1);
-                return ImmutableList.of(tableName, catalogName, dbName);
+                return ImmutableList.of(catalogName, dbName, tableName);
             }
             case 3: { // catalog.db.table
                 // Use catalog and database name from name parts.
@@ -89,7 +89,7 @@ public class RelationUtil {
                     dbName = context.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
                 }
                 String tableName = nameParts.get(2);
-                return ImmutableList.of(tableName, catalogName, dbName);
+                return ImmutableList.of(catalogName, dbName, tableName);
             }
             default:
                 throw new IllegalStateException("Table name [" + String.join(".", nameParts) + "] is invalid.");
@@ -100,9 +100,9 @@ public class RelationUtil {
      * get table
      */
     public static TableIf getTable(List<String> qualifierName, Env env) {
-        String catalogName = qualifierName.get(1);
-        String dbName = qualifierName.get(2);
-        String tableName = qualifierName.get(0);
+        String catalogName = qualifierName.get(0);
+        String dbName = qualifierName.get(1);
+        String tableName = qualifierName.get(2);
         CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogName);
         if (catalog == null) {
             throw new RuntimeException(String.format("Catalog %s does not exist.", catalogName));
