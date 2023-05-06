@@ -260,8 +260,6 @@ public class TimestampArithmeticExpr extends Expr {
         Type[] childrenTypes = collectChildReturnTypes();
         fn = getBuiltinFunction(funcOpName.toLowerCase(), childrenTypes,
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        // to handle null_type, we find fn like months_add(null, int) -> months_add(datetime, int)
-        // and we change the argType to months_add(datetimev2, int)
         Preconditions.checkArgument(fn != null);
         Type[] argTypes = fn.getArgs();
         if (argTypes.length > 0) {
