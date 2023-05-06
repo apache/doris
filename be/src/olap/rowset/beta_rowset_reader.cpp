@@ -194,7 +194,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // use cache is true when do vertica compaction
     bool should_use_cache = use_cache || read_context->reader_type == ReaderType::READER_QUERY;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle,
-                                                           should_use_cache));
+                                                             should_use_cache));
 
     // create iterator for each segment
     auto& segments = _segment_cache_handle.get_segments();

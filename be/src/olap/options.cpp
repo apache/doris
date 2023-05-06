@@ -32,11 +32,11 @@
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
-#include "util/string_util.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "util/path_util.h"
+#include "util/string_util.h"
 
 namespace doris {
 using namespace ErrorCode;

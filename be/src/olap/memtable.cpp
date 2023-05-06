@@ -413,7 +413,7 @@ Status MemTable::flush() {
     int64_t atomic_num_segments_after_flush = _rowset_writer->get_atomic_num_segment();
     if (!_tablet_schema->is_partial_update()) {
         RETURN_IF_ERROR(_generate_delete_bitmap(atomic_num_segments_before_flush,
-                                              atomic_num_segments_after_flush));
+                                                atomic_num_segments_after_flush));
     }
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);

@@ -179,7 +179,7 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
             // src be local rowset
             RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
             RETURN_IF_ERROR(_rename_rowset_id(visible_rowset, clone_dir, tablet_schema, rowset_id,
-                                            rowset_meta));
+                                              rowset_meta));
             RowsetId src_rs_id;
             if (visible_rowset.rowset_id() > 0) {
                 src_rs_id.init(visible_rowset.rowset_id());
@@ -207,7 +207,7 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
             // src be local rowset
             RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
             RETURN_IF_ERROR(_rename_rowset_id(stale_rowset, clone_dir, tablet_schema, rowset_id,
-                                            rowset_meta));
+                                              rowset_meta));
             RowsetId src_rs_id;
             if (stale_rowset.rowset_id() > 0) {
                 src_rs_id.init(stale_rowset.rowset_id());
