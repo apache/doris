@@ -506,6 +506,10 @@ if (COMPILER_CLANG)
         message(FATAL_ERROR "Need Clang version at least 13")
     endif()
 
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16")
+        message(WARNING "Doris recommended to use Clang-16 to build backend")
+    endif()
+
     add_compile_options(-fcolor-diagnostics 
                         -Wpedantic
                         -Wunused-template
