@@ -262,12 +262,6 @@ public class TimestampArithmeticExpr extends Expr {
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         // to handle null_type, we find fn like months_add(null, int) -> months_add(datetime, int)
         // and we change the argType to months_add(datetimev2, int)
-        if (Config.enable_date_conversion && fn != null) {
-            Type[] argTypes = Arrays.stream(fn.getArgs()).map(Type::convertDateLikeTypeToV2)
-                    .toArray(Type[]::new);
-            fn = getBuiltinFunction(funcOpName.toLowerCase(), argTypes,
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        }
         Preconditions.checkArgument(fn != null);
         Type[] argTypes = fn.getArgs();
         if (argTypes.length > 0) {
