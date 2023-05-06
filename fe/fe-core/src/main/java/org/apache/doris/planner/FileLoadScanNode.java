@@ -42,7 +42,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.external.FileGroupInfo;
 import org.apache.doris.planner.external.FileScanNode;
-import org.apache.doris.planner.external.FileScanProviderIf;
 import org.apache.doris.planner.external.LoadScanProvider;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
@@ -82,7 +81,7 @@ public class FileLoadScanNode extends FileScanNode {
     // Each DataDescription in a load stmt conreponding to a FileGroupInfo in this list.
     private final List<FileGroupInfo> fileGroupInfos = Lists.newArrayList();
     // For load, the num of providers equals to the num of file group infos.
-    private final List<FileScanProviderIf> scanProviders = Lists.newArrayList();
+    private final List<LoadScanProvider> scanProviders = Lists.newArrayList();
     // For load, the num of ParamCreateContext equals to the num of file group infos.
     private final List<ParamCreateContext> contexts = Lists.newArrayList();
 
@@ -128,13 +127,13 @@ public class FileLoadScanNode extends FileScanNode {
 
     // For each scan provider, create a corresponding ParamCreateContext
     private void initParamCreateContexts(Analyzer analyzer) throws UserException {
-        for (FileScanProviderIf scanProvider : scanProviders) {
+        for (LoadScanProvider scanProvider : scanProviders) {
             ParamCreateContext context = scanProvider.createContext(analyzer);
             // set where and preceding filter.
             // FIXME(cmy): we should support set different expr for different file group.
             initAndSetPrecedingFilter(context.fileGroup.getPrecedingFilterExpr(), context.srcTupleDescriptor, analyzer);
             initAndSetWhereExpr(context.fileGroup.getWhereExpr(), context.destTupleDescriptor, analyzer);
-            setDefaultValueExprs(scanProvider, context.srcSlotDescByName, context.params, true);
+            setDefaultValueExprs(scanProvider.getTargetTable(), context.srcSlotDescByName, context.params, true);
             this.contexts.add(context);
         }
     }
@@ -196,7 +195,7 @@ public class FileLoadScanNode extends FileScanNode {
                 contexts.size() + " vs. " + scanProviders.size());
         for (int i = 0; i < contexts.size(); ++i) {
             FileLoadScanNode.ParamCreateContext context = contexts.get(i);
-            FileScanProviderIf scanProvider = scanProviders.get(i);
+            LoadScanProvider scanProvider = scanProviders.get(i);
             finalizeParamsForLoad(context, analyzer);
             createScanRangeLocations(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();

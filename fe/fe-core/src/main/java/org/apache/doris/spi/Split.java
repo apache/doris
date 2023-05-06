@@ -15,20 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+package org.apache.doris.spi;
 
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
+/**
+ * Split interface. e.g. Tablet for Olap Table.
+ */
+public interface Split {
 
-import org.apache.hadoop.hive.metastore.api.Table;
+    String[] getHosts();
 
-import java.util.Map;
+    Object getInfo();
 
-public abstract class HMSTableScanProvider extends QueryScanProvider {
-
-    public abstract String getMetaStoreUrl();
-
-    public abstract Table getRemoteHiveTable() throws DdlException, MetaNotFoundException;
-
-    public abstract Map<String, String> getTableProperties() throws MetaNotFoundException;
 }

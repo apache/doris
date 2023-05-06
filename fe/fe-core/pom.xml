@@ -836,6 +836,7 @@ under the License.
                                 <argument>${doris.home}/docs/en/docs/advanced/variables.md</argument>
                                 <argument>${doris.home}/docs/zh-CN/docs/advanced/variables.md</argument>
                             </arguments>
+                            <skip>${skip.doc}</skip>
                         </configuration>
                     </execution>
                 </executions>

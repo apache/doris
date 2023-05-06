@@ -33,7 +33,6 @@ import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -214,13 +213,6 @@ public class StmtExecutorTest {
                 // mock coordinator
                 coordinator.exec();
                 minTimes = 0;
-
-                coordinator.endProfile();
-                minTimes = 0;
-
-                coordinator.getQueryProfile();
-                minTimes = 0;
-                result = new RuntimeProfile();
 
                 coordinator.getNext();
                 minTimes = 0;
