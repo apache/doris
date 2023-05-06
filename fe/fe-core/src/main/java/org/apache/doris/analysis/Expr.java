@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
@@ -40,6 +41,7 @@ import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprOpcode;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -74,6 +76,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Name of the function that needs to be implemented by every Expr that
     // supports negation.
     private static final String NEGATE_FN = "negate";
+
+    public static final String AGG_STATE_SUFFIX = "_state";
+    public static final String AGG_MERGE_SUFFIX = "_merge";
 
     protected boolean disableTableName = false;
 
@@ -436,6 +441,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             setSelectivity();
         }
         analysisDone();
+        if (type.isAggStateType() && !(this instanceof SlotRef)) {
+            type = new ScalarType(Arrays.asList(collectChildReturnTypes()),
+                    Arrays.asList(collectChildReturnNullables()));
+        }
     }
 
     /**
@@ -480,6 +489,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             childTypes[i] = children.get(i).type;
         }
         return childTypes;
+    }
+
+    protected Boolean[] collectChildReturnNullables() {
+        Boolean[] childNullables = new Boolean[children.size()];
+        for (int i = 0; i < children.size(); ++i) {
+            childNullables[i] = children.get(i).isNullable();
+        }
+        return childNullables;
     }
 
     public List<Expr> getChildrenWithoutCast() {
@@ -978,10 +995,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Append a flattened version of this expr, including all children, to 'container'.
     protected void treeToThriftHelper(TExpr container) {
         TExprNode msg = new TExprNode();
+        if (type.isAggStateType() && ((ScalarType) type).getSubTypes() == null) {
+            type = new ScalarType(Arrays.asList(collectChildReturnTypes()),
+                    Arrays.asList(collectChildReturnNullables()));
+        }
         msg.type = type.toThrift();
         msg.num_children = children.size();
         if (fn != null) {
-            msg.setFn(fn.toThrift(type, collectChildReturnTypes()));
+            msg.setFn(fn.toThrift(type, collectChildReturnTypes(), collectChildReturnNullables()));
             if (fn.hasVarArgs()) {
                 msg.setVarargStartIdx(fn.getNumArgs() - 1);
             }
@@ -1361,7 +1382,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
-        if (!targetType.isComplexType() && targetType.getPrimitiveType() == type.getPrimitiveType()) {
+        if (!targetType.isComplexType() && !targetType.isAggStateType()
+                && targetType.getPrimitiveType() == type.getPrimitiveType()) {
             if (targetType.isDecimalV2() && type.isDecimalV2()) {
                 return this;
             } else if (!PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
@@ -1371,6 +1393,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return this;
             }
         }
+        if (targetType.isAggStateType() != targetType.isAggStateType()) {
+            throw new AnalysisException("AggState can't cast from other type.");
+        }
+
         // bitmap must match exactly
         if (targetType.getPrimitiveType() == PrimitiveType.BITMAP) {
             throw new AnalysisException("bitmap column require the function return type is BITMAP");
@@ -1431,8 +1457,32 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return this;
         }
 
-        if (this.type.equals(targetType)) {
-            return this;
+        if (this.type.isAggStateType()) {
+            List<Type> subTypes = ((ScalarType) targetType).getSubTypes();
+
+            if (this instanceof FunctionCallExpr) {
+                if (subTypes.size() != getChildren().size()) {
+                    throw new AnalysisException("AggState's subTypes size not euqal to children number");
+                }
+                for (int i = 0; i < subTypes.size(); i++) {
+                    setChild(i, getChild(i).castTo(subTypes.get(i)));
+                }
+                type = targetType;
+            } else {
+                List<Type> selfSubTypes = ((ScalarType) type).getSubTypes();
+                if (subTypes.size() != selfSubTypes.size()) {
+                    throw new AnalysisException("AggState's subTypes size did not match");
+                }
+                for (int i = 0; i < subTypes.size(); i++) {
+                    if (subTypes.get(i) != selfSubTypes.get(i)) {
+                        throw new AnalysisException("AggState's subType did not match");
+                    }
+                }
+            }
+        } else {
+            if (this.type.equals(targetType)) {
+                return this;
+            }
         }
 
         if (targetType.getPrimitiveType() == PrimitiveType.DECIMALV2
@@ -1755,17 +1805,50 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
-        FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
-                VectorizedUtil.isVectorized());
-        Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
-        if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
-            if (this.children.size() == 1
-                    && !(this.children.get(0) instanceof LiteralExpr)) {
-                throw new AnalysisException("The param of rand function must be literal");
+        if (name.toLowerCase().endsWith(AGG_MERGE_SUFFIX)) {
+            name = name.substring(0, name.length() - AGG_MERGE_SUFFIX.length());
+
+            List<Type> argList = Arrays.asList(getActualArgTypes(argTypes));
+            if (argList.size() != 1 || !argList.get(0).isAggStateType()) {
+                throw new AnalysisException("AGG_MERGE function must input one agg_state");
             }
+            ScalarType aggState = (ScalarType) argList.get(0);
+            if (aggState.getSubTypes() == null) {
+                throw new AnalysisException("agg_state's subTypes is null");
+            }
+
+            Function searchDesc = new Function(new FunctionName(name), aggState.getSubTypes(), Type.INVALID, false,
+                    true);
+
+            Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
+            if (f == null) {
+                return null;
+            }
+            if (f instanceof AggregateFunction) {
+                f = ((AggregateFunction) f).clone();
+                f.setName(new FunctionName(name + AGG_MERGE_SUFFIX));
+                f.setArgs(argList);
+                f.setBinaryType(TFunctionBinaryType.AGG_STATE);
+                return f;
+            } else {
+                throw new AnalysisException("AGG_MERGE function must be used to aggregate function.");
+            }
+        } else {
+            FunctionName fnName = new FunctionName(name);
+            Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
+                    true);
+            Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
+            if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
+                if (this.children.size() == 1
+                        && !(this.children.get(0) instanceof LiteralExpr)) {
+                    throw new AnalysisException("The param of rand function must be literal");
+                }
+            }
+            if (name.toLowerCase().endsWith(AGG_STATE_SUFFIX) && f != null) {
+                f.setBinaryType(TFunctionBinaryType.AGG_STATE);
+            }
+            return f;
         }
-        return f;
     }
 
     protected Function getTableFunction(String name, Type[] argTypes, Function.CompareMode mode) {
