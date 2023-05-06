@@ -221,6 +221,8 @@ public:
 
     int64_t num_bytes_load_total() { return _num_bytes_load_total.load(); }
 
+    int64_t num_finished_range() { return _num_finished_scan_range.load(); }
+
     int64_t num_rows_load_total() { return _num_rows_load_total.load(); }
 
     int64_t num_rows_load_filtered() { return _num_rows_load_filtered.load(); }
@@ -237,6 +239,10 @@ public:
 
     void update_num_bytes_load_total(int64_t bytes_load) {
         _num_bytes_load_total.fetch_add(bytes_load);
+    }
+
+    void update_num_finished_scan_range(int64_t finished_range) {
+        _num_finished_scan_range.fetch_add(finished_range);
     }
 
     void update_num_rows_load_filtered(int64_t num_rows) {
@@ -466,6 +472,7 @@ private:
     std::atomic<int64_t> _num_print_error_rows;
 
     std::atomic<int64_t> _num_bytes_load_total; // total bytes read from source
+    std::atomic<int64_t> _num_finished_scan_range;
 
     std::vector<std::string> _export_output_files;
     std::string _import_label;
