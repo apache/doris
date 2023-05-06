@@ -93,8 +93,8 @@ Status ScannerContext::init() {
     int real_block_size =
             limit == -1 ? _batch_size : std::min(static_cast<int64_t>(_batch_size), limit);
     _block_per_scanner = limit == -1
-                                 ? _state->scanner_once_block_num()
-                                 : std::min(static_cast<int64_t>(_state->scanner_once_block_num()),
+                                 ? _state->max_block_num_per_scan()
+                                 : std::min(static_cast<int64_t>(_state->max_block_num_per_scan()),
                                             (limit + (real_block_size - 1)) / real_block_size);
     auto pre_alloc_block_count = _max_thread_num * _block_per_scanner;
 

@@ -321,7 +321,7 @@ Translated with www.DeepL.com/Translator (free version)
 
     For the specific meaning of this variable, please refer to the description of `doris_max_scan_key_num` in [BE Configuration](../admin-manual/config/be-config.md). This variable is set to -1 by default, which means that the configuration value in `be.conf` is used. If the setting is greater than 0, the query in the current session will use the variable value, and ignore the configuration value in `be.conf`.
 
-* `scanner_once_block_num`
+* `max_block_num_per_scan`
 
     The maximum number of blocks returned by each scan thread in a single execution, the default is 5.
 

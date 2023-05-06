@@ -222,7 +222,7 @@ struct TQueryOptions {
 
   73: optional i64 scan_queue_mem_limit
 
-  74: optional i32 scanner_once_block_num
+  74: optional i32 max_block_num_per_scan
 }
     
 

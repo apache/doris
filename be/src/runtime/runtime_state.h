@@ -137,8 +137,8 @@ public:
                _query_options.enable_common_expr_pushdown;
     }
 
-    int scanner_once_block_num() const {
-        return _query_options.__isset.scanner_once_block_num ? _query_options.scanner_once_block_num
+    int max_block_num_per_scan() const {
+        return _query_options.__isset.max_block_num_per_scan ? _query_options.max_block_num_per_scan
                                                              : 5;
     }
 

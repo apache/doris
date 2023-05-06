@@ -132,7 +132,7 @@ public class SessionVariable implements Serializable, Writable {
     // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
     public static final String MAX_SCAN_KEY_NUM = "max_scan_key_num";
     // single read execute fragment block number
-    public static final String SCANNER_ONCE_BLOCK_NUM = "scanner_once_block_num";
+    public static final String MAX_BLOCK_NUM_PER_SCAN = "max_block_num_per_scan";
     public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN = "max_pushdown_conditions_per_column";
 
     // when true, the partition column must be set to NOT NULL.
@@ -543,8 +543,8 @@ public class SessionVariable implements Serializable, Writable {
     // -1 means unset, BE will use its config value
     @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
     public int maxScanKeyNum = -1;
-    @VariableMgr.VarAttr(name = SCANNER_ONCE_BLOCK_NUM, fuzzy = true)
-    public int scannerOnceBlockNum = 5;
+    @VariableMgr.VarAttr(name = MAX_BLOCK_NUM_PER_SCAN, fuzzy = true)
+    public int maxBlockNumPerScan = 5;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
     public int maxPushdownConditionsPerColumn = -1;
     @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
@@ -908,7 +908,7 @@ public class SessionVariable implements Serializable, Writable {
         Random random = new Random(System.currentTimeMillis());
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
-        this.scannerOnceBlockNum = random.nextInt(8);
+        this.maxBlockNumPerScan = random.nextInt(8);
         this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
@@ -1816,7 +1816,7 @@ public class SessionVariable implements Serializable, Writable {
         if (maxScanKeyNum > -1) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
         }
-        tResult.setScannerOnceBlockNum(scannerOnceBlockNum);
+        tResult.setMaxBlockNumPerScan(maxBlockNumPerScan);
         if (maxPushdownConditionsPerColumn > -1) {
             tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
         }

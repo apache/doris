@@ -318,7 +318,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
   该变量的具体含义请参阅 [BE 配置项](../admin-manual/config/be-config.md) 中 `doris_max_scan_key_num` 的说明。该变量默认置为 -1，表示使用 `be.conf` 中的配置值。如果设置大于 0，则当前会话中的查询会使用该变量值，而忽略 `be.conf` 中的配置值。
 
-- `scanner_once_block_num`
+- `max_block_num_per_scan`
 
   每个扫描线程单次执行最多返回的Block个数，默认为 5。
 
