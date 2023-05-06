@@ -131,7 +131,7 @@ public:
 
     Roaring64Map(const Roaring64Map& r) : roarings(r.roarings), copyOnWrite(r.copyOnWrite) {}
 
-    Roaring64Map(Roaring64Map&& r) : roarings(r.roarings), copyOnWrite(r.copyOnWrite) {}
+    Roaring64Map(Roaring64Map&& r) : roarings(std::move(r.roarings)), copyOnWrite(r.copyOnWrite) {}
 
     /**
      * Copy assignment operator.
