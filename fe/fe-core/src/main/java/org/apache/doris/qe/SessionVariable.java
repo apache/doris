@@ -612,7 +612,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean checkOverflowForDecimal = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
-    private boolean enableDPHypOptimizer = false;
+    public boolean enableDPHypOptimizer = false;
 
     /**
      * This variable is used to select n-th optimized plan in memo.
@@ -1550,16 +1550,8 @@ public class SessionVariable implements Serializable, Writable {
         this.enableNereidsPlanner = enableNereidsPlanner;
     }
 
-    public boolean isEnableDPHypOptimizer() {
-        return isEnableNereidsPlanner() && enableDPHypOptimizer;
-    }
-
     public int getNthOptimizedPlan() {
         return nthOptimizedPlan;
-    }
-
-    public void setEnableDphypOptimizer(boolean enableDPHypOptimizer) {
-        this.enableDPHypOptimizer = enableDPHypOptimizer;
     }
 
     public Set<String> getDisableNereidsRules() {

@@ -1184,11 +1184,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     vectorized::Block block(input_block->get_columns_with_type_and_name());
     if (!_output_vexpr_ctxs.empty()) {
         // Do vectorized expr here to speed up load
-        block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-                _output_vexpr_ctxs, *input_block, status);
-        if (UNLIKELY(block.rows() == 0)) {
-            return status;
-        }
+        RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+                _output_vexpr_ctxs, *input_block, &block));
     }
 
     auto num_rows = block.rows();

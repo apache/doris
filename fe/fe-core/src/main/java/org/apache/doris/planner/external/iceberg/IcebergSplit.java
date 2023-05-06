@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner.external.iceberg;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.planner.external.FileSplit;
 
 import lombok.Data;
@@ -31,8 +30,6 @@ public class IcebergSplit extends FileSplit {
         super(file, start, length, fileLength, hosts, null);
     }
 
-    private Analyzer analyzer;
-    private String dataFilePath;
     private Integer formatVersion;
     private List<IcebergDeleteFileFilter> deleteFileFilters;
 }
