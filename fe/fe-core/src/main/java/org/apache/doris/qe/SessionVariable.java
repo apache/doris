@@ -850,6 +850,7 @@ public class SessionVariable implements Serializable, Writable {
     public void initFuzzyModeVariables() {
         Random random = new Random(System.currentTimeMillis());
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
+        this.pipelineParallelExecInstanceNum = random.nextInt(8) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
@@ -886,10 +887,9 @@ public class SessionVariable implements Serializable, Writable {
                 this.externalAggPartitionBits = 4;
                 break;
         }
-        this.enablePipelineEngine = true; // test Pipeline
-        this.pipelineParallelExecInstanceNum = 0; // test Pipeline
         // pull_request_id default value is 0
         if (Config.pull_request_id % 2 == 1) {
+            this.enablePipelineEngine = true;
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
             this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
