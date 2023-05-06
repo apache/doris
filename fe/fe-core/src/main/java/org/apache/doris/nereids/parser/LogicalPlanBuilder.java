@@ -213,6 +213,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -395,8 +396,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitUpdate(UpdateContext ctx) {
-        return super.visitUpdate(ctx);
+    public Command visitUpdate(UpdateContext ctx) {
+        LogicalPlan query = null;
+        if (ctx.fromClause() != null) {
+            query = visitFromClause(ctx.fromClause());
+        } else {
+            query = new UnboundRelation(RelationUtil.newRelationId(), );
+        }
+        return new UpdateCommand(ctx.table.getText(), visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()),
+                visitFromClause(ctx.fromClause()));
     }
 
     @Override
@@ -1327,13 +1335,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public List<Pair<String, Expression>> visitUpdateAssignmentSeq(UpdateAssignmentSeqContext ctx) {
-        return null;
+    public List<Pair<List<String>, Expression>> visitUpdateAssignmentSeq(UpdateAssignmentSeqContext ctx) {
+        return ctx.assignments.stream().map(this::visitUpdateAssignment).collect(Collectors.toList());
     }
 
     @Override
-    public Object visitUpdateAssignment(UpdateAssignmentContext ctx) {
-        return super.visitUpdateAssignment(ctx);
+    public Pair<List<String>, Expression> visitUpdateAssignment(UpdateAssignmentContext ctx) {
+        return Pair.of(visitMultipartIdentifier(ctx.multipartIdentifier()), getExpression(ctx.expression()));
     }
 
     /**

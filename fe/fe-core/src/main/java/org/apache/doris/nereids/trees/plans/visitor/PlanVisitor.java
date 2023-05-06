@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
@@ -119,8 +120,12 @@ public abstract class PlanVisitor<R, C> {
         return visitCommand(explain, context);
     }
 
-    public R visitCreatePolicyCommand(CreatePolicyCommand explain, C context) {
-        return visitCommand(explain, context);
+    public R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
+        return visitCommand(createPolicy, context);
+    }
+
+    public R visitUpdateCommand(UpdateCommand update, C context) {
+        return visitCommand(update, context);
     }
 
     public R visitInsertIntoCommand(InsertIntoTableCommand insertIntoSelectCommand,
