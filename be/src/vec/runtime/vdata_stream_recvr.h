@@ -80,6 +80,7 @@ public:
 
     void add_block(Block* block, int sender_id, bool use_move);
 
+    // all check of empty sould be inside a lock to ensure effectiveness.
     bool sender_queue_empty(int sender_id);
 
     bool ready_to_read();
@@ -189,10 +190,11 @@ public:
 
     void close();
 
-    bool queue_empty() { return _block_queue_empty; }
+    // all check of empty sould be inside a lock to ensure effectiveness.
+    bool queue_empty() const { return _block_queue_empty; }
 
 protected:
-    virtual void _update_block_queue_empty() {}
+    void _update_block_queue_empty_in_lock() { _block_queue_empty = _block_queue.empty(); }
     Status _inner_get_batch(Block* block, bool* eos);
 
     // Not managed by this class
@@ -203,7 +205,7 @@ protected:
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;
     std::list<std::pair<BlockUPtr, size_t>> _block_queue;
-    std::atomic_bool _block_queue_empty = true;
+    bool _block_queue_empty = true;
 
     bool _received_first_batch;
     // sender_id
@@ -220,15 +222,14 @@ public:
             : SenderQueue(parent_recvr, num_senders, profile) {}
 
     bool should_wait() override {
-        return !_is_cancelled && _block_queue_empty && _num_remaining_senders > 0;
+        return !_is_cancelled && queue_empty() && _num_remaining_senders > 0;
     }
 
-    void _update_block_queue_empty() override { _block_queue_empty = _block_queue.empty(); }
-
     Status get_batch(Block* block, bool* eos) override {
-        CHECK(!should_wait()) << " _is_cancelled: " << _is_cancelled
-                              << ", _block_queue_empty: " << _block_queue_empty
-                              << ", _num_remaining_senders: " << _num_remaining_senders;
+        // pipeline is a model of push. so when we get a batch, there is a batch.
+        DCHECK(!should_wait()) << " _is_cancelled: " << _is_cancelled
+                               << ", _block_queue_empty: " << _block_queue_empty
+                               << ", _num_remaining_senders: " << _num_remaining_senders;
         std::lock_guard<std::mutex> l(_lock); // protect _block_queue
         return _inner_get_batch(block, eos);
     }
@@ -255,10 +256,10 @@ public:
         {
             std::unique_lock<std::mutex> l(_lock);
             _block_queue.emplace_back(std::move(nblock), block_mem_size);
+            _update_block_queue_empty_in_lock();
         }
         COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
         _recvr->_blocks_memory_usage->add(block_mem_size);
-        _update_block_queue_empty();
         _data_arrival_cv.notify_one();
     }
 };

@@ -21,6 +21,7 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <functional>
@@ -58,14 +59,13 @@ VDataStreamRecvr::SenderQueue::~SenderQueue() {
 
 bool VDataStreamRecvr::SenderQueue::should_wait() {
     DCHECK(false) << "VDataStreamRecvr::SenderQueue::should_wait execute";
-    std::unique_lock<std::mutex> l(_lock);
-    return !_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0;
+    return !_is_cancelled && queue_empty() && _num_remaining_senders > 0;
 }
 
 Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     std::unique_lock<std::mutex> l(_lock);
     // wait until something shows up or we know we're done
-    while (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
+    while (should_wait()) {
         VLOG_ROW << "wait arrival fragment_instance_id=" << _recvr->fragment_instance_id()
                  << " node=" << _recvr->dest_node_id();
         // Don't count time spent waiting on the sender as active time.
@@ -73,6 +73,8 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
         CANCEL_SAFE_SCOPED_TIMER_ATOMIC(
                 _received_first_batch ? nullptr : _recvr->_first_batch_wait_total_timer,
                 &_is_cancelled);
+        // this thread for consuming data will block until data has arrvied or all senders have finished.
+        // unless all senders have finished, excactly one consumer will be awaken up.
         _data_arrival_cv.wait(l);
     }
     return _inner_get_batch(block, eos);
@@ -83,7 +85,8 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) 
         return Status::Cancelled("Cancelled");
     }
 
-    if (_block_queue.empty()) {
+    // because data's arrival will notify excact one reciever, so queue's empty means all senders' finished.
+    if (queue_empty()) {
         DCHECK_EQ(_num_remaining_senders, 0);
         *eos = true;
         return Status::OK();
@@ -91,11 +94,10 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) 
 
     _received_first_batch = true;
 
-    DCHECK(!_block_queue.empty());
     auto [next_block, block_byte_size] = std::move(_block_queue.front());
     _recvr->_blocks_memory_usage->add(-block_byte_size);
     _block_queue.pop_front();
-    _update_block_queue_empty();
+    _update_block_queue_empty_in_lock();
 
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
@@ -114,6 +116,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
                                               int64_t packet_seq,
                                               ::google::protobuf::Closure** done) {
     {
+        //TODO: all mutex should be split by there related object.
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
             return;
@@ -133,7 +136,8 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
         auto pblock_byte_size = pblock.ByteSizeLong();
         COUNTER_UPDATE(_recvr->_bytes_received_counter, pblock_byte_size);
 
-        if (_num_remaining_senders <= 0) {
+        DCHECK(_num_remaining_senders >= 0);
+        if (!_num_remaining_senders) {
             DCHECK(_sender_eos_set.end() != _sender_eos_set.find(be_number));
             return;
         }
@@ -161,9 +165,11 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     COUNTER_UPDATE(_recvr->_deserialize_row_batch_timer, deserialize_time);
     COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
     COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
-
-    _block_queue.emplace_back(std::move(block), block_byte_size);
-    _update_block_queue_empty();
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _block_queue.emplace_back(std::move(block), block_byte_size);
+        _update_block_queue_empty_in_lock();
+    }
     // if done is nullptr, this function can't delay this response
     if (done != nullptr && _recvr->exceeds_limit(block_byte_size)) {
         MonotonicStopWatch monotonicStopWatch;
@@ -207,8 +213,11 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     }
     COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_bytes_received);
 
-    _block_queue.emplace_back(std::move(nblock), block_mem_size);
-    _update_block_queue_empty();
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _block_queue.emplace_back(std::move(nblock), block_mem_size);
+        _update_block_queue_empty_in_lock();
+    }
     _data_arrival_cv.notify_one();
 
     if (_recvr->exceeds_limit(block_mem_size)) {
@@ -240,7 +249,7 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     VLOG_FILE << "decremented senders: fragment_instance_id=" << _recvr->fragment_instance_id()
               << " node_id=" << _recvr->dest_node_id() << " #senders=" << _num_remaining_senders;
     if (_num_remaining_senders == 0) {
-        _data_arrival_cv.notify_one();
+        _data_arrival_cv.notify_all();
     }
 }
 
@@ -254,12 +263,8 @@ void VDataStreamRecvr::SenderQueue::cancel() {
         VLOG_QUERY << "cancelled stream: _fragment_instance_id=" << _recvr->fragment_instance_id()
                    << " node_id=" << _recvr->dest_node_id();
     }
-    // Wake up all threads waiting to produce/consume batches.  They will all
-    // notice that the stream is cancelled and handle it.
+
     _data_arrival_cv.notify_all();
-    // _data_removal_cv.notify_all();
-    // PeriodicCounterUpdater::StopTimeSeriesCounter(
-    //         _recvr->_bytes_received_time_series_counter);
 
     {
         std::lock_guard<std::mutex> l(_lock);
