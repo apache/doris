@@ -15,20 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+#pragma once
 
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
+#include <string>
 
-import org.apache.hadoop.hive.metastore.api.Table;
+#include "common/status.h"
+#include "http/http_handler.h"
 
-import java.util.Map;
+namespace doris {
 
-public abstract class HMSTableScanProvider extends QueryScanProvider {
+class HttpRequest;
 
-    public abstract String getMetaStoreUrl();
+class FileCacheAction : public HttpHandler {
+public:
+    FileCacheAction() = default;
 
-    public abstract Table getRemoteHiveTable() throws DdlException, MetaNotFoundException;
+    ~FileCacheAction() override = default;
 
-    public abstract Map<String, String> getTableProperties() throws MetaNotFoundException;
-}
+    void handle(HttpRequest* req) override;
+
+private:
+    Status _handle_header(HttpRequest* req, std::string* json_metrics);
+};
+} // namespace doris

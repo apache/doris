@@ -1520,6 +1520,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private PrivPredicate getPrivPredicate(TPrivilegeType privType) {
+        if (privType == null) {
+            return null;
+        }
         switch (privType) {
             case SHOW:
                 return PrivPredicate.SHOW;

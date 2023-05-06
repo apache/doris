@@ -17,32 +17,34 @@
 
 package org.apache.doris.planner.external;
 
-import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HivePartition;
-import org.apache.doris.external.hive.util.HiveUtil;
-import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.ListPartitionPrunerV2;
-import org.apache.doris.planner.Split;
-import org.apache.doris.planner.Splitter;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.spi.Split;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileTextScanRangeParams;
+import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Lists;
-import org.apache.hadoop.fs.BlockLocation;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.LocatedFileStatus;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.RemoteIterator;
-import org.apache.hadoop.mapred.InputFormat;
-import org.apache.hadoop.mapred.JobConf;
+import com.google.common.collect.Maps;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -50,23 +52,52 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
-public class HiveSplitter implements Splitter {
+public class HiveScanNode extends FileQueryScanNode {
+    private static final Logger LOG = LogManager.getLogger(HiveScanNode.class);
 
-    private static final Logger LOG = LogManager.getLogger(HiveSplitter.class);
+    public static final String PROP_FIELD_DELIMITER = "field.delim";
+    public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
+    public static final String DEFAULT_LINE_DELIMITER = "\n";
 
-    private HMSExternalTable hmsTable;
-    private Map<String, ColumnRange> columnNameToRange;
-    private int totalPartitionNum = 0;
-    private int readPartitionNum = 0;
+    private final HMSExternalTable hmsTable;
 
-    public HiveSplitter(HMSExternalTable hmsTable, Map<String, ColumnRange> columnNameToRange) {
-        this.hmsTable = hmsTable;
-        this.columnNameToRange = columnNameToRange;
+    /**
+     * * External file scan node for Query Hive table
+     * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
+     * eg: s3 tvf
+     * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
+     */
+    public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+        super(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv);
+        hmsTable = (HMSExternalTable) desc.getTable();
+    }
+
+    public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+                        StatisticalType statisticalType, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+        hmsTable = (HMSExternalTable) desc.getTable();
     }
 
     @Override
-    public List<Split> getSplits(List<Expr> exprs) throws UserException {
+    protected void doInitialize() throws UserException {
+        super.doInitialize();
+        genSlotToSchemaIdMap();
+        String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
+        if (inputFormat.contains("TextInputFormat")) {
+            for (SlotDescriptor slot : desc.getSlots()) {
+                if (!slot.getType().isScalarType()) {
+                    throw new UserException("For column `" + slot.getColumn().getName()
+                        + "`, The column types ARRAY/MAP/STRUCT are not supported yet"
+                        + " for text input format of Hive. ");
+                }
+            }
+        }
+    }
+
+    @Override
+    protected List<Split> getSplits() throws UserException {
         long start = System.currentTimeMillis();
         try {
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
@@ -78,14 +109,7 @@ public class HiveSplitter implements Splitter {
                 hivePartitionValues = cache.getPartitionValues(hmsTable.getDbName(), hmsTable.getName(),
                     partitionColumnTypes);
             }
-            Map<String, String> properties = hmsTable.getCatalog().getCatalogProperty().getProperties();
-            boolean useSelfSplitter = true;
-            if (properties.containsKey(HMSExternalCatalog.ENABLE_SELF_SPLITTER)
-                    && properties.get(HMSExternalCatalog.ENABLE_SELF_SPLITTER).equalsIgnoreCase("false")) {
-                LOG.debug("Using self splitter for hmsTable {}", hmsTable.getName());
-                useSelfSplitter = false;
-            }
-
+            boolean useSelfSplitter = hmsTable.getCatalog().useSelfSplitter();
             List<Split> allFiles = Lists.newArrayList();
             if (hivePartitionValues != null) {
                 // 2. prune partitions by expr
@@ -135,88 +159,88 @@ public class HiveSplitter implements Splitter {
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
                                           List<Split> allFiles, boolean useSelfSplitter) throws IOException {
+
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue :
                 cache.getFilesByPartitions(partitions, useSelfSplitter)) {
+            // This if branch is to support old splitter, will remove later.
             if (fileCacheValue.getSplits() != null) {
                 allFiles.addAll(fileCacheValue.getSplits());
             }
             if (fileCacheValue.getFiles() != null) {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                    allFiles.addAll(splitFile(status, isSplittable, fileCacheValue.getPartitionValues()));
+                    allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
+                            status.getBlockLocations(), status.getLength(),
+                            isSplittable, fileCacheValue.getPartitionValues()));
                 }
             }
         }
     }
 
-    private List<Split> splitFile(HiveMetaStoreCache.HiveFileStatus status,
-                                  boolean splittable, List<String> partitionValues) throws IOException {
-        List<Split> result = Lists.newArrayList();
-        if (!splittable) {
-            LOG.debug("Path {} is not splittable.", status.getPath());
-            BlockLocation block = status.getBlockLocations()[0];
-            result.add(new FileSplit(status.getPath(), 0, status.getLength(),
-                    status.getLength(), block.getHosts(), partitionValues));
-            return result;
-        }
-        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
-        if (splitSize <= 0) {
-            splitSize = status.getBlockSize();
-        }
-        // Min split size is DEFAULT_SPLIT_SIZE(128MB).
-        splitSize = splitSize > DEFAULT_SPLIT_SIZE ? splitSize : DEFAULT_SPLIT_SIZE;
-        BlockLocation[] blockLocations = status.getBlockLocations();
-        long length = status.getLength();
-        long bytesRemaining;
-        for (bytesRemaining = length; (double) bytesRemaining / (double) splitSize > 1.1D;
-                bytesRemaining -= splitSize) {
-            int location = getBlockIndex(blockLocations, length - bytesRemaining);
-            result.add(new FileSplit(status.getPath(), length - bytesRemaining,
-                    splitSize, length, blockLocations[location].getHosts(), partitionValues));
-        }
-        if (bytesRemaining != 0L) {
-            int location = getBlockIndex(blockLocations, length - bytesRemaining);
-            result.add(new FileSplit(status.getPath(), length - bytesRemaining,
-                    bytesRemaining, length, blockLocations[location].getHosts(), partitionValues));
-        }
-
-        LOG.debug("Path {} includes {} splits.", status.getPath(), result.size());
-        return result;
+    @Override
+    public List<String> getPathPartitionKeys() {
+        return hmsTable.getRemoteTable().getPartitionKeys()
+            .stream().map(FieldSchema::getName).collect(Collectors.toList());
     }
 
-    public int getTotalPartitionNum() {
-        return totalPartitionNum;
+    @Override
+    public TableIf getTargetTable() {
+        return hmsTable;
     }
 
-    public int getReadPartitionNum() {
-        return readPartitionNum;
+    @Override
+    protected TFileType getLocationType() throws UserException {
+        String location = hmsTable.getRemoteTable().getSd().getLocation();
+        return getTFileType(location).orElseThrow(() ->
+            new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
     }
 
-    // Get File Status by using FileSystem API.
-    public static HiveMetaStoreCache.FileCacheValue getFileCache(Path path, InputFormat<?, ?> inputFormat,
-                                                                 JobConf jobConf,
-                                                                 List<String> partitionValues) throws IOException {
-        FileSystem fs = path.getFileSystem(jobConf);
-        boolean splittable = HiveUtil.isSplittable(inputFormat, fs, path);
-        RemoteIterator<LocatedFileStatus> locatedFileStatusRemoteIterator = fs.listFiles(path, false);
-        HiveMetaStoreCache.FileCacheValue result = new HiveMetaStoreCache.FileCacheValue();
-        result.setSplittable(splittable);
-        while (locatedFileStatusRemoteIterator.hasNext()) {
-            result.addFile(locatedFileStatusRemoteIterator.next());
+    @Override
+    public TFileFormatType getFileFormatType() throws UserException {
+        TFileFormatType type = null;
+        String inputFormatName = hmsTable.getRemoteTable().getSd().getInputFormat();
+        String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
+        if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
+            type = TFileFormatType.FORMAT_PARQUET;
+        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
+            type = TFileFormatType.FORMAT_ORC;
+        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
+            type = TFileFormatType.FORMAT_CSV_PLAIN;
         }
-        result.setPartitionValues(partitionValues);
-        return result;
+        return type;
     }
 
-    private static int getBlockIndex(BlockLocation[] blkLocations, long offset) {
-        for (int i = 0; i < blkLocations.length; ++i) {
-            if (blkLocations[i].getOffset() <= offset
-                    && offset < blkLocations[i].getOffset() + blkLocations[i].getLength()) {
-                return i;
+    @Override
+    protected Map<String, String> getLocationProperties() throws UserException  {
+        return hmsTable.getCatalogProperties();
+    }
+
+    @Override
+    protected TFileAttributes getFileAttributes() throws UserException {
+        TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+        textParams.setColumnSeparator(hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters()
+                .getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER));
+        textParams.setLineDelimiter(DEFAULT_LINE_DELIMITER);
+        TFileAttributes fileAttributes = new TFileAttributes();
+        fileAttributes.setTextParams(textParams);
+        fileAttributes.setHeaderType("");
+        return fileAttributes;
+    }
+
+    // To Support Hive 1.x orc internal column name like (_col0, _col1, _col2...)
+    private void genSlotToSchemaIdMap() {
+        List<Column> baseSchema = desc.getTable().getBaseSchema();
+        Map<String, Integer> columnNameToPosition = Maps.newHashMap();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            int idx = 0;
+            for (Column col : baseSchema) {
+                if (col.getName().equals(slot.getColumn().getName())) {
+                    columnNameToPosition.put(col.getName(), idx);
+                    break;
+                }
+                idx += 1;
             }
         }
-        BlockLocation last = blkLocations[blkLocations.length - 1];
-        long fileLength = last.getOffset() + last.getLength() - 1L;
-        throw new IllegalArgumentException(String.format("Offset %d is outside of file (0..%d)", offset, fileLength));
+        params.setSlotNameToSchemaPos(columnNameToPosition);
     }
 }

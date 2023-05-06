@@ -15,10 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.spi;
 
-// this interface is used to write profile to ProfileManager when a task is running.
-public interface ProfileWriter {
+/**
+ * Split interface. e.g. Tablet for Olap Table.
+ */
+public interface Split {
 
-    void writeProfile(boolean waitReportDone);
+    String[] getHosts();
+
+    Object getInfo();
+
 }
