@@ -30,6 +30,7 @@ import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
@@ -76,11 +77,12 @@ public class StatisticsRepository {
             + FULL_QUALIFIED_COLUMN_HISTOGRAM_NAME
             + " WHERE `id` = '${id}'";
 
-    private static final String PERSIST_ANALYSIS_TASK_SQL_TEMPLATE = "INSERT INTO "
-            + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME + " VALUES(${jobId}, ${taskId}, '${catalogName}', '${dbName}',"
-            + "'${tblName}','${colName}', '${indexId}','${jobType}', '${analysisType}', "
-            + "'${message}', '${lastExecTimeInMs}',"
-            + "'${state}', '${scheduleType}')";
+    private static final String PERSIST_ANALYSIS_TASK_SQL_TEMPLATE =
+            "INSERT INTO " + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
+                    + " VALUES(${jobId}, ${taskId}, '${catalogName}', '${dbName}', '${tblName}', "
+                    + "'${colName}', '${indexId}', '${colPartitions}', '${jobType}', '${analysisType}', "
+                    + "'${analysisMode}', '${analysisMethod}', '${scheduleType}', '${state}', ${samplePercent}, "
+                    + "${sampleRows}, ${maxBucketNum}, ${periodTimeInMs}, ${lastExecTimeInMs}, '${message}')";
 
     private static final String INSERT_INTO_COLUMN_STATISTICS = "INSERT INTO "
             + FULL_QUALIFIED_COLUMN_STATISTICS_NAME + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, '${idxId}',"
@@ -113,6 +115,14 @@ public class StatisticsRepository {
             + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
             + " WHERE tbl_id = ${tblId}"
             + " AND part_id IS NOT NULL";
+
+    private static final String FETCH_PERIODIC_ANALYSIS_JOB_SQL = "SELECT * FROM "
+            + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
+            + " WHERE task_id = -1 "
+            + " AND schedule_type = 'PERIOD' "
+            + " AND state = 'FINISHED' "
+            + " AND last_exec_time_in_ms > 0 "
+            + " AND (${currentTimeStamp} - last_exec_time_in_ms >= period_time_in_ms)";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
@@ -231,12 +241,19 @@ public class StatisticsRepository {
         params.put("tblName", analysisTaskInfo.tblName);
         params.put("colName", analysisTaskInfo.colName == null ? "" : analysisTaskInfo.colName);
         params.put("indexId", analysisTaskInfo.indexId == null ? "-1" : String.valueOf(analysisTaskInfo.indexId));
+        params.put("colPartitions", analysisTaskInfo.getColToPartitionStr());
         params.put("jobType", analysisTaskInfo.jobType.toString());
-        params.put("analysisType", analysisTaskInfo.analysisMethod.toString());
-        params.put("message", "");
-        params.put("lastExecTimeInMs", "0");
-        params.put("state", AnalysisState.PENDING.toString());
+        params.put("analysisType", analysisTaskInfo.analysisType.toString());
+        params.put("analysisMode", analysisTaskInfo.analysisMode.toString());
+        params.put("analysisMethod", analysisTaskInfo.analysisMethod.toString());
         params.put("scheduleType", analysisTaskInfo.scheduleType.toString());
+        params.put("state", analysisTaskInfo.state.toString());
+        params.put("samplePercent", String.valueOf(analysisTaskInfo.samplePercent));
+        params.put("sampleRows", String.valueOf(analysisTaskInfo.sampleRows));
+        params.put("maxBucketNum", String.valueOf(analysisTaskInfo.maxBucketNum));
+        params.put("periodTimeInMs", String.valueOf(analysisTaskInfo.periodTimeInMs));
+        params.put("lastExecTimeInMs", String.valueOf(analysisTaskInfo.lastExecTimeInMs));
+        params.put("message", "");
         StatisticsUtil.execUpdate(
                 new StringSubstitutor(params).replace(PERSIST_ANALYSIS_TASK_SQL_TEMPLATE));
     }
@@ -337,5 +354,18 @@ public class StatisticsRepository {
         });
 
         return columnToPartitions;
+    }
+
+    public static List<ResultRow> fetchPeriodicAnalysisJobs() {
+        ImmutableMap<String, String> params = ImmutableMap
+                .of("currentTimeStamp", String.valueOf(System.currentTimeMillis()));
+        try {
+            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+            String sql = stringSubstitutor.replace(FETCH_PERIODIC_ANALYSIS_JOB_SQL);
+            return StatisticsUtil.execStatisticQuery(sql);
+        } catch (Exception e) {
+            LOG.warn("Failed to update status", e);
+            return Collections.emptyList();
+        }
     }
 }
