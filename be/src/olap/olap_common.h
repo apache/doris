@@ -149,7 +149,7 @@ enum class FieldType {
 // Note that in practice, not all types can use all the following aggregation methods
 // For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
 // The implementation of the Field class does not perform such checks, and should be constrained when creating the table
-enum FieldAggregationMethod {
+enum class FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
     OLAP_FIELD_AGGREGATION_MIN = 2,

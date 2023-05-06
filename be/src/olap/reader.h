@@ -68,8 +68,7 @@ class VExprContext;
 // So we should compare the common prefix columns of lhs and rhs.
 //
 // NOTE: if you are not sure if you can use it, please don't use this function.
-template <typename LhsRowType, typename RhsRowType>
-int compare_row_key(const LhsRowType& lhs, const RhsRowType& rhs) {
+inline int compare_row_key(const RowCursor& lhs, const RowCursor& rhs) {
     auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
     for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
         auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
