@@ -617,7 +617,7 @@ public class Coordinator {
             } else if (!enablePpFuzzy) {
                 sendFragment();
             }
-        } else {
+        } else if (!enablePpFuzzy) {
             OlapScanNode planRoot = (OlapScanNode) fragments.get(0).getPlanRoot();
             Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
             pointExec.setCandidateBackends(planRoot.getScanBackendIds());
