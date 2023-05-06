@@ -128,7 +128,7 @@ public class Alter {
 
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
         if (olapTable.isDuplicateWithoutKey()) {
-            throw new DdlException("The materialized view only support create from one duplicate table without keys!");
+            throw new DdlException("The materialized view not support create from one duplicate table without keys!");
         }
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
     }
