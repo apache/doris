@@ -31,7 +31,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.fs.obj.BlobStorage;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -121,7 +121,7 @@ public class BackupJobTest {
     private EditLog editLog;
 
     private Repository repo = new Repository(repoId, "repo", false, "my_repo",
-            BlobStorage.create("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
+            FileSystemFactory.get("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
 
     @BeforeClass
     public static void start() {

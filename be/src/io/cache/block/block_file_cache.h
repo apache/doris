@@ -106,6 +106,8 @@ public:
 
     static Key hash(const std::string& path);
 
+    virtual size_t try_release() = 0;
+
     std::string get_path_in_local_cache(const Key& key, size_t offset, CacheType type) const;
 
     std::string get_path_in_local_cache(const Key& key) const;

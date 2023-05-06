@@ -24,7 +24,6 @@ import org.apache.doris.common.util.NetUtils;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.net.InetAddresses;
-import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,15 +43,6 @@ public class FrontendOptions {
 
     public static void init() throws UnknownHostException {
         localAddr = null;
-        if (!"0.0.0.0".equals(Config.frontend_address)) {
-            if (!InetAddressValidator.getInstance().isValidInet4Address(Config.frontend_address)) {
-                throw new UnknownHostException("invalid frontend_address: " + Config.frontend_address);
-            }
-            localAddr = InetAddress.getByName(Config.frontend_address);
-            LOG.info("use configured address. {}", localAddr);
-            return;
-        }
-
         analyzePriorityCidrs();
 
         // if not set frontend_address, get a non-loopback ip
