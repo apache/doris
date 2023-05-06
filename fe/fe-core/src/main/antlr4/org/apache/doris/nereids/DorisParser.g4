@@ -263,7 +263,7 @@ multipartIdentifier
     ;
 
 updateAssignmentSeq
-    : assignments=updateAssignment (COMMA assignments=updateAssignment)*
+    : assignments+=updateAssignment (COMMA assignments+=updateAssignment)*
     ;
 
 updateAssignment
