@@ -120,6 +120,7 @@ Status ScannerScheduler::submit(ScannerContext* ctx) {
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
         return Status::InternalError("failed to submit scanner context to scheduler");
     }
+    ctx->incr_num_scheduling_ctx();
     return Status::OK();
 }
 

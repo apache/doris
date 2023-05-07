@@ -115,10 +115,6 @@ Status ScannerContext::init() {
     thread_token = _state->get_query_ctx()->get_token();
 #endif
 
-    // 4. This ctx will be submitted to the scanner scheduler right after init.
-    // So set _num_scheduling_ctx to 1 here.
-    _num_scheduling_ctx = 1;
-
     _num_unfinished_scanners = _scanners.size();
 
     COUNTER_SET(_parent->_pre_alloc_free_blocks_num, (int64_t)pre_alloc_block_count);
@@ -183,7 +179,6 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     // At this point, consumers are required to trigger new scheduling to ensure that
     // data can be continuously fetched.
     if (has_enough_space_in_blocks_queue() && _num_running_scanners == 0) {
-        _num_scheduling_ctx++;
         _scanner_scheduler->submit(this);
     }
     // Wait for block from queue
@@ -307,11 +302,8 @@ std::string ScannerContext::debug_string() {
 
 void ScannerContext::reschedule_scanner_ctx() {
     std::lock_guard l(_transfer_lock);
-    auto submit_st = _scanner_scheduler->submit(this);
+    _scanner_scheduler->submit(this);
     //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
-    if (submit_st.ok()) {
-        _num_scheduling_ctx++;
-    }
 }
 
 void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
@@ -321,11 +313,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
     }
     std::lock_guard l(_transfer_lock);
     if (has_enough_space_in_blocks_queue()) {
-        _num_scheduling_ctx++;
-        auto submit_st = _scanner_scheduler->submit(this);
-        if (!submit_st.ok()) {
-            _num_scheduling_ctx--;
-        }
+        _scanner_scheduler->submit(this);
     }
 
     // Notice that after calling "_scanners.push_front(scanner)", there may be other ctx in scheduler

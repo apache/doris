@@ -115,6 +115,8 @@ public:
 
     int get_num_scheduling_ctx() const { return _num_scheduling_ctx; }
 
+    void incr_num_scheduling_ctx() { ++_num_scheduling_ctx; }
+
     void get_next_batch_of_scanners(std::list<VScannerSPtr>* current_run);
 
     void clear_and_join(VScanNode* node, RuntimeState* state);
