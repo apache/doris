@@ -215,6 +215,10 @@ struct TQueryOptions {
 
   // Specify base path for file cache
   70: optional string file_cache_base_path
+
+  71: optional bool enable_parquet_lazy_mat = true
+
+  72: optional bool enable_orc_lazy_mat = true
 }
     
 

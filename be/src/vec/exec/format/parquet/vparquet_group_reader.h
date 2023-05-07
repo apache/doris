@@ -187,14 +187,6 @@ private:
     Status _rewrite_dict_predicates();
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
     void _convert_dict_cols_to_string_cols(Block* block);
-    Status _execute_conjuncts(const std::vector<VExprContext*>& ctxs,
-                              const std::vector<IColumn::Filter*>& filters, Block* block,
-                              IColumn::Filter* result_filter, bool* can_filter_all);
-    Status _execute_conjuncts_and_filter_block(const std::vector<VExprContext*>& ctxs,
-                                               const std::vector<IColumn::Filter*>& filters,
-                                               Block* block,
-                                               std::vector<uint32_t>& columns_to_filter,
-                                               int column_to_keep);
 
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;

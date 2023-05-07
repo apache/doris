@@ -92,10 +92,11 @@ public:
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                  io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache = nullptr);
+                  io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache = nullptr,
+                  bool enable_lazy_mat = true);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  io::IOContext* io_ctx, RuntimeState* state);
+                  io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
     // for test
@@ -252,14 +253,15 @@ private:
     bool _closed = false;
     io::IOContext* _io_ctx;
     RuntimeState* _state;
+    // Cache to save some common part such as file footer.
+    // Owned by scan node and shared by all parquet readers of this scan node.
+    // Maybe null if not used
+    ShardedKVCache* _kv_cache = nullptr;
+    bool _enable_lazy_mat = true;
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
     const std::unordered_map<std::string, int>* _colname_to_slot_id;
     const std::vector<VExprContext*>* _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, std::vector<VExprContext*>>* _slot_id_to_filter_conjuncts;
-    // Cache to save some common part such as file footer.
-    // Owned by scan node and shared by all parquet readers of this scan node.
-    // Maybe null if not used
-    ShardedKVCache* _kv_cache = nullptr;
 };
 } // namespace doris::vectorized
