@@ -22,6 +22,7 @@ header:
     - "be/src/common/status.h"
     - "be/src/env/env.h"
     - "be/src/env/env_posix.cpp"
+    - "**/clucene/**"
     - "**/apache-orc/**"
     - "**/glibc-compatibility/**"
     - "**/gutil/**"
