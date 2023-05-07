@@ -354,7 +354,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableProfile = false;
 
     // if true, coordinator do not send planfragment to be, and just ends the query.
-    @VariableMgr.VarAttr(name = ENABLE_PP_FUZZY)
+    @VariableMgr.VarAttr(name = ENABLE_PP_FUZZY, needForward = true)
     public boolean enablePpFuzzy = false;
 
     // using hashset instead of group by + count can improve performance

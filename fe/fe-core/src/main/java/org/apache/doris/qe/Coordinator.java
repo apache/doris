@@ -566,6 +566,9 @@ public class Coordinator {
     // be for a query like 'SELECT 1').
     // A call to Exec() must precede all other member function calls.
     public void exec() throws Exception {
+        if (enablePpFuzzy) {
+            return;
+        }
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
                     DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
@@ -622,12 +625,12 @@ public class Coordinator {
         }
         executionProfile.markInstances(instanceIds);
         if (!isPointQuery) {
-            if (enablePipelineEngine && !enablePpFuzzy) {
+            if (enablePipelineEngine) {
                 sendPipelineCtx();
-            } else if (!enablePpFuzzy) {
+            } else {
                 sendFragment();
             }
-        } else if (!enablePpFuzzy) {
+        } else {
             OlapScanNode planRoot = (OlapScanNode) fragments.get(0).getPlanRoot();
             Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
             pointExec.setCandidateBackends(planRoot.getScanBackendIds());
