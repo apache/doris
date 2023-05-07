@@ -26,7 +26,7 @@
 
 namespace doris::vectorized {
 
-// array_count([1, 2, 3, 0, 0]) -> [3]
+// array_count([0, 1, 1, 1, 0, 0]) -> [3]
 class FunctionArrayCount : public IFunction {
 public:
     static constexpr auto name = "array_count";
@@ -49,7 +49,7 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-                
+
         const ColumnArray* array_column = nullptr;
         const UInt8* array_null_map = nullptr;
         if (src_column->is_nullable()) {
@@ -60,29 +60,48 @@ public:
             array_column = assert_cast<const ColumnArray*>(src_column.get());
         }
 
-        auto& src_nested_data = array_column->get_data();
-        auto& src_offset = array_column->get_offsets();
-
-        auto result_data_col = ColumnInt64::create(input_rows_count, 0);
-        auto& result_data = result_data_col->get_data();
-        
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (array_null_map && array_null_map[i]) {
-                continue;
-            }
-            
-            // default count is 0 if no-zero elment is not found
-            Int64 count = 0;
-            for (size_t off = src_offset[i - 1]; off < src_offset[i]; ++off) {
-                if (!src_nested_data.is_null_at(off) && src_nested_data.get_bool(off)) {
-                    ++count;
-                }
-            }
-
-            result_data[i] = count;
+        if (!array_column) {
+            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
+                                        block.get_by_position(arguments[0]).type->get_name());
         }
 
-        block.replace_by_position(result, std::move(result_data_col));
+        const auto& offsets = array_column->get_offsets();
+        ColumnPtr nested_column = nullptr;
+        const UInt8* nested_null_map = nullptr;
+        if (array_column->get_data().is_nullable()) {
+            const auto& nested_null_column =
+                    assert_cast<const ColumnNullable&>(array_column->get_data());
+            nested_null_map = nested_null_column.get_null_map_column().get_data().data();
+            nested_column = nested_null_column.get_nested_column_ptr();
+        } else {
+            nested_column = array_column->get_data_ptr();
+        }
+
+        const auto& nested_data = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+
+        auto dst_column = ColumnInt64::create(offsets.size());
+        auto& dst_data = dst_column->get_data();
+
+        for (size_t row = 0; row < offsets.size(); ++row) {
+            Int64 res = 0;
+            if (array_null_map && array_null_map[row]) {
+                dst_data[row] = res;
+                continue;
+            }
+            size_t off = offsets[row - 1];
+            size_t len = offsets[row] - off;
+            for (size_t pos = 0; pos < len; ++pos) {
+                if (nested_null_map && nested_null_map[pos + off]) {
+                    continue;
+                }
+                if (nested_data[pos + off] != 0) {
+                    ++res;
+                }
+            }
+            dst_data[row] = res;
+        }
+
+        block.replace_by_position(result, std::move(dst_column));
         return Status::OK();
     }
 };
