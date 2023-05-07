@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -181,17 +180,14 @@ public class SystemInfoService {
     // for deploy manager
     public void addBackends(List<HostInfo> hostInfos, boolean isFree)
             throws UserException {
-        addBackends(hostInfos, isFree, "", Tag.DEFAULT_BACKEND_TAG.toMap());
+        addBackends(hostInfos, Tag.DEFAULT_BACKEND_TAG.toMap());
     }
 
     /**
      * @param hostInfos : backend's ip, hostName and port
-     * @param isFree : if true the backend is not owned by any cluster
-     * @param destCluster : if not null or empty backend will be added to destCluster
      * @throws DdlException
      */
-    public void addBackends(List<HostInfo> hostInfos, boolean isFree, String destCluster,
-            Map<String, String> tagMap) throws UserException {
+    public void addBackends(List<HostInfo> hostInfos, Map<String, String> tagMap) throws UserException {
         for (HostInfo hostInfo : hostInfos) {
             if (Config.enable_fqdn_mode && StringUtils.isEmpty(hostInfo.getHostName())) {
                 throw new DdlException("backend's hostName should not be empty while enable_fqdn_mode is true");
@@ -205,7 +201,7 @@ public class SystemInfoService {
         }
 
         for (HostInfo hostInfo : hostInfos) {
-            addBackend(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort(), isFree, destCluster, tagMap);
+            addBackend(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort(), tagMap);
         }
     }
 
@@ -218,16 +214,12 @@ public class SystemInfoService {
     }
 
     private void setBackendOwner(Backend backend, String clusterName) {
-        final Cluster cluster = Env.getCurrentEnv().getCluster(clusterName);
-        Preconditions.checkState(cluster != null);
-        cluster.addBackend(backend.getId());
         backend.setOwnerClusterName(clusterName);
         backend.setBackendState(BackendState.using);
     }
 
     // Final entry of adding backend
-    private void addBackend(String ip, String hostName, int heartbeatPort, boolean isFree, String destCluster,
-            Map<String, String> tagMap) {
+    private void addBackend(String ip, String hostName, int heartbeatPort, Map<String, String> tagMap) {
         Backend newBackend = new Backend(Env.getCurrentEnv().getNextId(), ip, hostName, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
@@ -241,15 +233,8 @@ public class SystemInfoService {
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
-        if (!Strings.isNullOrEmpty(destCluster)) {
-            // add backend to destCluster
-            setBackendOwner(newBackend, destCluster);
-        } else if (!isFree) {
-            // add backend to DEFAULT_CLUSTER
-            setBackendOwner(newBackend, DEFAULT_CLUSTER);
-        } else {
-            // backend is free
-        }
+        // add backend to DEFAULT_CLUSTER
+        setBackendOwner(newBackend, DEFAULT_CLUSTER);
 
         // set tags
         newBackend.setTagMap(tagMap);
@@ -305,13 +290,6 @@ public class SystemInfoService {
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
-        // update cluster
-        final Cluster cluster = Env.getCurrentEnv().getCluster(droppedBackend.getOwnerClusterName());
-        if (null != cluster) {
-            cluster.removeBackend(droppedBackend.getId());
-        } else {
-            LOG.error("Cluster " + droppedBackend.getOwnerClusterName() + " no exist.");
-        }
         // log
         Env.getCurrentEnv().getEditLog().logDropBackend(droppedBackend);
         LOG.info("finished to drop {}", droppedBackend);
@@ -1215,18 +1193,6 @@ public class SystemInfoService {
         copiedReportVersions.put(newBackend.getId(), new AtomicLong(0L));
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
-
-        // to add be to DEFAULT_CLUSTER
-        if (newBackend.getBackendState() == BackendState.using) {
-            final Cluster cluster = Env.getCurrentEnv().getCluster(DEFAULT_CLUSTER);
-            if (null != cluster) {
-                // replay log
-                cluster.addBackend(newBackend.getId());
-            } else {
-                // This happens in loading image when fe is restarted, because loadCluster is after loadBackend,
-                // cluster is not created. Be in cluster will be updated in loadCluster.
-            }
-        }
     }
 
     public void replayDropBackend(Backend backend) {
@@ -1242,14 +1208,6 @@ public class SystemInfoService {
         copiedReportVersions.remove(backend.getId());
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
-
-        // update cluster
-        final Cluster cluster = Env.getCurrentEnv().getCluster(backend.getOwnerClusterName());
-        if (null != cluster) {
-            cluster.removeBackend(backend.getId());
-        } else {
-            LOG.error("Cluster " + backend.getOwnerClusterName() + " no exist.");
-        }
     }
 
     public void updateBackendState(Backend be) {
