@@ -41,15 +41,18 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    bool use_default_implementation_for_constants() const override { return true; }
+    
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2}; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeInt64>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto src_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-
+        const auto& [src_column, src_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
         const ColumnArray* array_column = nullptr;
         const UInt8* array_null_map = nullptr;
         if (src_column->is_nullable()) {
