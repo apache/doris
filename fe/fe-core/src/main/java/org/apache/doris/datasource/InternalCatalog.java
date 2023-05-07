@@ -207,6 +207,15 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Getter
     private IcebergTableCreationRecordMgr icebergTableCreationRecordMgr = new IcebergTableCreationRecordMgr();
 
+    public InternalCatalog() {
+        // create info schema db
+        final InfoSchemaDb db = new InfoSchemaDb(SystemInfoService.DEFAULT_CLUSTER);
+        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        // do not call unprotectedCreateDb, because it will cause loop recursive when initializing Env singleton
+        idToDb.put(db.getId(), db);
+        fullNameToDb.put(db.getFullName(), db);
+    }
+
     @Override
     public long getId() {
         return INTERNAL_CATALOG_ID;

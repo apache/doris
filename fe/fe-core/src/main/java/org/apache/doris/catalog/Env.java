@@ -237,7 +237,6 @@ import com.google.common.collect.Queues;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
-import lombok.Setter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -332,10 +331,6 @@ public class Env {
     // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
     private AtomicBoolean canRead = new AtomicBoolean(false);
     private BlockingQueue<FrontendNodeType> typeTransferQueue;
-
-    // false if default_cluster is not created.
-    @Setter
-    private boolean isDefaultClusterCreated = false;
 
     // node name is used for bdbje NodeName.
     private String nodeName;
@@ -584,8 +579,6 @@ public class Env {
         this.functionRegistry = new FunctionRegistry();
 
         this.metaReplayState = new MetaReplayState();
-
-        this.isDefaultClusterCreated = false;
 
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
@@ -1700,7 +1693,9 @@ public class Env {
         newChecksum ^= catalogId;
         idGenerator.setId(catalogId);
 
-        isDefaultClusterCreated = dis.readBoolean();
+        // compatible with isDefaultClusterCreated, now is deprecated.
+        // just read and skip it.
+        dis.readBoolean();
 
         LOG.info("finished replay header from image");
         return newChecksum;
@@ -2003,7 +1998,9 @@ public class Env {
         checksum ^= id;
         dos.writeLong(id);
 
-        dos.writeBoolean(isDefaultClusterCreated);
+        // compatible with isDefaultClusterCreated value, now is deprecated,
+        // so just write a true value.
+        dos.writeBoolean(true);
 
         return checksum;
     }
