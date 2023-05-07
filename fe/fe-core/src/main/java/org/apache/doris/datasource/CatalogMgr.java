@@ -542,10 +542,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
             //zhs 这边没做约束直接就改了参数
+            System.out.println("即将进入约束");
             if (catalog instanceof ExternalCatalog) {
                 ((ExternalCatalog) catalog).checkProperties();
+                System.out.println("结束约束");
             }
+
             catalog.modifyCatalogProps(log.getNewProps());
+            System.out.println("结束replayAlterCatalogProps");
         } finally {
             writeUnlock();
         }

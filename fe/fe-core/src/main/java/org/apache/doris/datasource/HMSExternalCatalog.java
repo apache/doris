@@ -101,6 +101,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (Strings.isNullOrEmpty(namenodes)) {
             throw new DdlException("Missing dfs.ha.namenodes." + dfsNameservices + " property");
         }
+        System.out.println("zhs 检查 namenode.rpc-address");
+        for (Map.Entry<String, String> entry:catalogProperty.getProperties().entrySet()){
+            System.out.println(entry.getKey()+": "+entry.getValue());
+        }
         String[] names = namenodes.split(",");
         for (String name : names) {
             String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsNameservices + "." + name,
@@ -116,6 +120,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "Missing dfs.client.failover.proxy.provider." + dfsNameservices + " property");
         }
+        System.out.println("zhs 检查 hms结束");
     }
 
     public String getHiveMetastoreUris() {
