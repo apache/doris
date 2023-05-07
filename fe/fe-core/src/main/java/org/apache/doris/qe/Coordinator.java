@@ -566,6 +566,7 @@ public class Coordinator {
     // be for a query like 'SELECT 1').
     // A call to Exec() must precede all other member function calls.
     public void exec() throws Exception {
+        // just ends the query
         if (enablePpFuzzy) {
             return;
         }
