@@ -1642,10 +1642,6 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             raw_bytes_read += row_batch->tuple_data_pool()->total_reserved_bytes();
         }
         raw_rows_read = scanner->raw_rows_read();
-        if (limit() != -1 && raw_rows_read >= limit()) {
-            eos = true;
-            break;
-        }
     }
 
     {
