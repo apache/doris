@@ -28,6 +28,7 @@
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
 #include "util/stack_util.h"
+#include "vec/columns/column_const.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
@@ -213,7 +214,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(
     return Status::OK();
 }
 
-Block VExprContext::get_output_block_after_execute_exprs(
+Status VExprContext::get_output_block_after_execute_exprs(
         const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs, const Block& input_block,
         Block* output_block) {
     vectorized::Block tmp_block(input_block.get_columns_with_type_and_name());
