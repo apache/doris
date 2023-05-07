@@ -45,7 +45,6 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
     }
     auto column_desc = schema.column(_column_id);
     roaring::Roaring roaring;
-    Status s = Status::OK();
     auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
 
     if (is_string_type(column_desc->type()) ||
@@ -55,14 +54,14 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         int32_t length = _value.length();
         char* buffer = const_cast<char*>(_value.c_str());
         match_value.replace(buffer, length); //is it safe?
-        s = iterator->read_from_inverted_index(column_desc->name(), &match_value,
-                                               inverted_index_query_type, num_rows, &roaring);
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(
+                column_desc->name(), &match_value, inverted_index_query_type, num_rows, &roaring));
     } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY &&
                is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
         char buf[column_desc->get_sub_field(0)->type_info()->size()];
         column_desc->get_sub_field(0)->from_string(buf, _value);
-        s = iterator->read_from_inverted_index(column_desc->name(), buf, inverted_index_query_type,
-                                               num_rows, &roaring, true);
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(
+                column_desc->name(), buf, inverted_index_query_type, num_rows, &roaring, true));
     }
 
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL
@@ -76,7 +75,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
     }
 
     *bitmap &= roaring;
-    return s;
+    return Status::OK();
 }
 
 InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType match_type) const {
