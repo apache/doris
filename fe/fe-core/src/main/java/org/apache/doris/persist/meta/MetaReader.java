@@ -99,10 +99,10 @@ public class MetaReader {
                     LOG.info("Skip {} module since empty meta length in the end.", metaIndex.name);
                     continue;
                 }
-                // Should skip some bytes because ignore some meta, such as load job
-                if (metaIndex.name.equals("loadJob")
-                        || metaIndex.name.equals("cooldownJob")) {
-                    LOG.info("Skip {} module", metaIndex.name);
+                // skip deprecated modules
+                if (PersistMetaModules.DEPRECATED_MODULE_NAMES.contains(metaIndex.name)) {
+                    LOG.warn("meta modules {} is deprecated, ignore and skip it");
+                    // If this is the last module, nothing need to do.
                     if (i < metaFooter.metaIndices.size() - 1) {
                         IOUtils.skipFully(dis, metaFooter.metaIndices.get(i + 1).offset - metaIndex.offset);
                     }
