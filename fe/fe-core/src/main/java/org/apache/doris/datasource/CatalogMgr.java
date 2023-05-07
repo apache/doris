@@ -325,6 +325,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogProps(log);
+            System.out.println("replayAlterCatalogProps(log)之后");
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
@@ -536,10 +537,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for alter catalog props event.
      */
-    public void replayAlterCatalogProps(CatalogLog log) {
+    public void replayAlterCatalogProps(CatalogLog log) throws DdlException {
         writeLock();
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
+            //zhs 这边没做约束直接就改了参数
+            if (catalog instanceof ExternalCatalog) {
+                ((ExternalCatalog) catalog).checkProperties();
+            }
             catalog.modifyCatalogProps(log.getNewProps());
         } finally {
             writeUnlock();

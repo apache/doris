@@ -293,6 +293,11 @@ public class CatalogMgrTest extends TestWithFeService {
         testAlterFileCache();
     }
 
+    @Test
+    public void testExceptionCase() throws Exception {
+
+    }
+
     private void testCatalogMgrPersist() throws Exception {
         File file = new File("./CatalogMgrTest");
         file.createNewFile();
