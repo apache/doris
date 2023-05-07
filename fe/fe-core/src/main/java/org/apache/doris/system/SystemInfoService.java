@@ -38,6 +38,7 @@ import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -969,26 +970,48 @@ public class SystemInfoService {
     public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium storageMedium)
             throws DdlException {
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
 
-        for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
-            BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder().setCluster(clusterName)
-                    .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(entry.getKey()))
-                    .setStorageMedium(storageMedium);
-            if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
-                builder.allowOnSameHost();
+        int aliveBackendNum = (int) copiedBackends.values().stream().filter(Backend::isAlive).count();
+        if (aliveBackendNum < replicaAlloc.getTotalReplicaNum()) {
+            throw new DdlException("replication num should be less than the number of available backends. "
+                    + "replication num is " + replicaAlloc.getTotalReplicaNum()
+                    + ", available backend num is " + aliveBackendNum);
+        } else {
+            List<String> failedEntries = Lists.newArrayList();
+
+            for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
+                BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder().setCluster(clusterName)
+                        .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(entry.getKey()))
+                        .setStorageMedium(storageMedium);
+                if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
+                    builder.allowOnSameHost();
+                }
+
+                BeSelectionPolicy policy = builder.build();
+                List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+                if (beIds.isEmpty()) {
+                    LOG.error("failed backend(s) for policy:" + policy);
+                    String errorReplication = "replication tag: " + entry.getKey()
+                            + ", replication num: " + entry.getValue()
+                            + ", storage medium: " + storageMedium;
+                    failedEntries.add(errorReplication);
+                } else {
+                    chosenBackendIds.put(entry.getKey(), beIds);
+                    totalReplicaNum += beIds.size();
+                }
             }
 
-            BeSelectionPolicy policy = builder.build();
-            List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
-            if (beIds.isEmpty()) {
-                throw new DdlException("Failed to find " + entry.getValue() + " backend(s) for policy: " + policy);
+            if (!failedEntries.isEmpty()) {
+                String failedMsg = Joiner.on("\n").join(failedEntries);
+                throw new DdlException("Failed to find enough backend, please check the replication num,"
+                        + "replication tag and storage medium.\n" + "Create failed replications:\n" + failedMsg);
             }
-            chosenBackendIds.put(entry.getKey(), beIds);
-            totalReplicaNum += beIds.size();
         }
+
         Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
         return chosenBackendIds;
     }
