@@ -215,7 +215,7 @@ public:
         return 0;
     }
     size_t operator()(const Int64& x) {
-        // // Only Int64 at present
+        // // Only Int64 | Int32 at present
         // field_types.insert(FieldType::Int64);
         // type_indexes.insert(TypeIndex::Int64);
         // return 0;

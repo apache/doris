@@ -539,16 +539,11 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
             flush_block.insert({data_type->create_column(), data_type, column.name()});
         }
     }
-    // // Schema version updated, update currently flush_schema
-    // i (schema_view.schema_version > _tablet_schema->schema_version()) {
-    //     flush_schema->set_schema_version(schema_view.schema_version);
-    //     _tablet->update_max_version_schema(flush_schema);
-    // }
     // Last schema alignment before flush to disk, due to the schema maybe variant before this procedure
     // Eg. add columnA(INT) -> drop ColumnA -> add ColumnA(Double), then columnA could be type of `Double`,
     // unfold will cast to Double type
-    vectorized::schema_util::unfold_object(
-            flush_block.get_position_by_name(BeConsts::DYNAMIC_COLUMN_NAME), flush_block, true);
+    RETURN_IF_ERROR(vectorized::schema_util::unfold_object(
+            flush_block.get_position_by_name(BeConsts::DYNAMIC_COLUMN_NAME), flush_block, true));
     flush_block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
     ctx->flush_schema = flush_schema;
     block.swap(flush_block);

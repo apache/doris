@@ -94,7 +94,8 @@ public:
     Status init(const FlushContext* flush_ctx = nullptr);
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key, const FlushContext* flush_ctx = nullptr);
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key,
+                const FlushContext* flush_ctx = nullptr);
 
     template <typename RowType>
     Status append_row(const RowType& row);

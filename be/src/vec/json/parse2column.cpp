@@ -227,7 +227,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         if (!paths_set.insert(paths[i].get_path()).second) {
             // return Status::DataQualityError(
             //         fmt::format("Object has ambiguous path {}, {}", paths[i].get_path()));
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Object has ambiguous path {}, {}",
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Object has ambiguous path {}",
                                    paths[i].get_path());
         }
 
