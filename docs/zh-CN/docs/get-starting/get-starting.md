@@ -321,7 +321,7 @@ use demo;
 CREATE TABLE IF NOT EXISTS demo.example_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
-    `date` DATE NOT NULL COMMENT "数据灌入日期时间",
+    `date` DATEV2 NOT NULL COMMENT "数据灌入日期时间",
     `city` VARCHAR(20) COMMENT "用户所在城市",
     `age` SMALLINT COMMENT "用户年龄",
     `sex` TINYINT COMMENT "用户性别",

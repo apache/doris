@@ -314,7 +314,7 @@ use demo;
 CREATE TABLE IF NOT EXISTS demo.example_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "user id",
-    `date` DATE NOT NULL COMMENT "",
+    `date` DATEV2 NOT NULL COMMENT "",
     `city` VARCHAR(20) COMMENT "",
     `age` SMALLINT COMMENT "",
     `sex` TINYINT COMMENT "",
