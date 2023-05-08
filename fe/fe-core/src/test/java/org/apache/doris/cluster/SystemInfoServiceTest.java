@@ -109,10 +109,6 @@ public class SystemInfoServiceTest {
                 minTimes = 0;
                 result = table;
 
-                env.getCluster(anyString);
-                minTimes = 0;
-                result = new Cluster("cluster", 1);
-
                 env.clear();
                 minTimes = 0;
 

@@ -15,15 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.cluster;
 
-public enum AlterClusterType {
-
-    ALTER_CLUSTER_PROPERTIES("delete_whiteList");
-
-    private String type;
-
-    private AlterClusterType(String type) {
-        this.type = type;
-    }
+/**
+ * This class is only use to replace the default_cluster.
+ * It should be removed after the default_cluster is removed.
+ */
+public class DummyCluster {
 }

@@ -225,17 +225,13 @@ public class DateLiteral extends LiteralExpr {
         Timestamp timestamp = new Timestamp(unixTimestamp);
 
         ZonedDateTime zonedDateTime = ZonedDateTime.ofInstant(timestamp.toInstant(), ZoneId.of(timeZone.getID()));
-
-        // Ignore DST transition
-        LocalDateTime time = zonedDateTime.minusSeconds(
-                zonedDateTime.getOffset().getTotalSeconds() - timeZone.getRawOffset() / 1000).toLocalDateTime();
-        year = time.getYear();
-        month = time.getMonthValue();
-        day = time.getDayOfMonth();
-        hour = time.getHour();
-        minute = time.getMinute();
-        second = time.getSecond();
-        microsecond = time.get(ChronoField.MICRO_OF_SECOND);
+        year = zonedDateTime.getYear();
+        month = zonedDateTime.getMonthValue();
+        day = zonedDateTime.getDayOfMonth();
+        hour = zonedDateTime.getHour();
+        minute = zonedDateTime.getMinute();
+        second = zonedDateTime.getSecond();
+        microsecond = zonedDateTime.get(ChronoField.MICRO_OF_SECOND);
         if (type.equals(Type.DATE)) {
             hour = 0;
             minute = 0;
