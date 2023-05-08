@@ -1,6 +1,6 @@
 ---
 {
-    "title": "动态schema表",
+    "title": "动态 Schema 表",
     "language": "zh-CN"
 }
 ---
@@ -24,18 +24,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 动态表
+<version since="2.0.0"></version>
 
-<version since="2.0.0">
-
-动态表
-
-</version>
-
-动态schema表是一种特殊的表，其schema随着导入自动进行扩展。目前该功能，主要用于半结构数据，例如JSON等的导入、自动列生成。因为JSON是类型自描述的，所以我们可以从原始文档中提取schema信息，推断最终类型信息。这种特殊的表可以减少人工schema change的操作，并轻松导入半结构数据并自动扩展其schema。
+动态 Schema 表是一种特殊的表，其 Schema 随着导入自动进行扩展。目前该功能，主要用于半结构数据，例如 JSON 等的导入、自动列生成。因为 JSON 是类型自描述的，所以我们可以从原始文档中提取 Schema 信息，推断最终类型信息。这种特殊的表可以减少人工 Schema Change 的操作，并轻松导入半结构数据并自动扩展其 Schema。
 
 ## 名词解释
-- schema change, 改变表的结构， 例如增加列、减少列， 修改列类型
+- Schema Change, 改变表的结构， 例如增加列、减少列， 修改列类型
 - 静态列， 在建表时指定的列， 例如分区列、主键列
 - 动态列， 随着导入自动识别并增加的列
 
@@ -111,16 +105,16 @@ curl -X PUT -T example_batch.json --location-trusted -u root: -H "read_json_by_l
 -- 指定 -H "strip_outer_array:true"， 整个文件当做一个JSON array解析， array中的每个元素是一行， 解析效率更高效
 curl -X PUT -T example_batch_array.json --location-trusted -u root: -H "strip_outer_array:true" -H "format:json"   http://127.0.0.1:8147/api/regression_test_dynamic_table/test_dynamic_table/_stream_load
 ```
-对于dynamic table， 你也可以使用S3load或者Routine load, 使用方式类似
+对于 Dynamic Table， 你也可以使用 S3 Load 或者 Routine Load, 使用方式类似
 
 ## 对动态列增加索引
 ```sql
--- 将在titile列上新建倒排索引， 并按照english分词
+-- 将在 titile 列上新建倒排索引， 并按照english分词
 CREATE INDEX title_idx ON test_dynamic_table (`title`) using inverted PROPERTIES("parser"="english")
 ```
 
 ## 类型冲突
-在第一批导入会自动推断出统一的类型， 并以此作为最终的Column类型，所以建议保持Column类型的一致, 例如
+在第一批导入会自动推断出统一的类型， 并以此作为最终的 Column 类型，所以建议保持 Column 类型的一致, 例如
 ```
 {"id" : 123}
 {"id" : "123"}
