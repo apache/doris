@@ -76,7 +76,9 @@ public:
 
     Field get_default() const override;
 
-    Field get_field(const TExprNode& node) const override { return Null(); }
+    Field get_field(const TExprNode& node) const override {
+        return nested_data_type->get_field(node);
+    }
 
     bool equals(const IDataType& rhs) const override;
 

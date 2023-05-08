@@ -322,14 +322,17 @@ doris::TExprNode create_literal(const U& value) {
 TEST(TEST_VEXPR, LITERALTEST) {
     using namespace doris;
     using namespace doris::vectorized;
+    // bool
     {
         VLiteral literal(create_literal<TYPE_BOOLEAN>(true));
+        std::cout << "data type: " << literal.data_type().get()->get_name() << std::endl;
         Block block;
         int ret = -1;
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         bool v = ctn.column->get_bool(0);
         EXPECT_EQ(v, true);
+        EXPECT_EQ("1", literal.value());
     }
     {
         VLiteral literal(create_literal<TYPE_SMALLINT>(1024));
@@ -339,6 +342,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
     {
         VLiteral literal(create_literal<TYPE_INT>(1024));
@@ -348,6 +352,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
     {
         VLiteral literal(create_literal<TYPE_BIGINT>(1024));
@@ -357,6 +362,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
     {
         VLiteral literal(create_literal<TYPE_LARGEINT, __int128_t>(1024));
@@ -366,6 +372,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int128_t>();
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
     {
         VLiteral literal(create_literal<TYPE_FLOAT, float>(1024.0f));
@@ -375,6 +382,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
         EXPECT_FLOAT_EQ(v, 1024.0f);
+        EXPECT_EQ("1024", literal.value());
     }
     {
         VLiteral literal(create_literal<TYPE_DOUBLE, double>(1024.0));
@@ -384,6 +392,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
         EXPECT_FLOAT_EQ(v, 1024.0);
+        EXPECT_EQ("1024", literal.value());
     }
     {
         vectorized::VecDateTimeValue data_time_value;
@@ -398,6 +407,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int64_t>();
         EXPECT_EQ(v, dt);
+        EXPECT_EQ("2021-04-07", literal.value());
     }
     {
         vectorized::DateV2Value<doris::vectorized::DateV2ValueType> data_time_value;
@@ -412,6 +422,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<uint32_t>();
         EXPECT_EQ(v, dt);
+        EXPECT_EQ("2021-04-07", literal.value());
     }
     {
         VLiteral literal(create_literal<TYPE_DECIMALV2, std::string>(std::string("1234.56")));
@@ -421,5 +432,6 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<DecimalField<Decimal128>>();
         EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
+        EXPECT_EQ("1234.560000000", literal.value());
     }
 }
