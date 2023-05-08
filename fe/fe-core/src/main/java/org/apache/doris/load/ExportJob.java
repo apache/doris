@@ -143,6 +143,8 @@ public class ExportJob implements Writable {
     private int timeoutSecond;
     @SerializedName("maxFileSize")
     private String maxFileSize;
+    @SerializedName("deleteExistingFiles")
+    private String deleteExistingFiles;
     // progress has two functions at EXPORTING stage:
     // 1. when progress < 100, it indicates exporting
     // 2. set progress = 100 ONLY when exporting progress is completely done
@@ -222,6 +224,7 @@ public class ExportJob implements Writable {
         this.userIdentity = stmt.getUserIdentity();
         this.format = stmt.getFormat();
         this.maxFileSize = stmt.getMaxFileSize();
+        this.deleteExistingFiles = stmt.getDeleteExistingFiles();
         this.partitions = stmt.getPartitions();
 
         this.exportTable = db.getTableOrDdlException(stmt.getTblName().getTbl());
@@ -286,6 +289,9 @@ public class ExportJob implements Writable {
         }
         if (!maxFileSize.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_MAX_FILE_SIZE, maxFileSize);
+        }
+        if (!deleteExistingFiles.isEmpty()) {
+            outfileProperties.put(OutFileClause.PROP_DELETE_EXISTING_FILES, deleteExistingFiles);
         }
 
         // broker properties
@@ -357,6 +363,10 @@ public class ExportJob implements Writable {
 
     public String getMaxFileSize() {
         return maxFileSize;
+    }
+
+    public String getDeleteExistingFiles() {
+        return deleteExistingFiles;
     }
 
     public String getQualifiedUser() {

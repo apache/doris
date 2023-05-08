@@ -1923,5 +1923,13 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
+
+    /**
+     * This config used for export/outfile.
+     * Whether delete all files in the directory specified by export/outfile.
+     * It is a very dangerous operation, should only be used in test env.
+     */
+    @ConfField(mutable = false)
+    public static boolean enable_delete_existing_files  = false;
 }
 
