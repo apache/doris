@@ -178,7 +178,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 | Database | Schema   |
 | Table    | Table    |
 
-8. Trino
+8. Trino/Presto
 
 <version since="1.2.4"></version>
 
@@ -200,6 +200,9 @@ CREATE CATALOG trino_catalog PROPERTIES (
 | Catalog  | Catalog | 
 | Database | Schema  |
 | Table    | Table   |
+
+**注意：**
+<version since="dev" type="inline"> 同样支持使用 Presto JDBC Driver 进行连接 </version>
 
 9. OceanBase
 
@@ -453,7 +456,7 @@ set enable_odbc_transcation = true;
 | CHAR           | CHAR                     |                                                                                       |
 | NCHAR          | CHAR                     |                                                                                       |
 
-### Trino
+### Trino/Presto
 
 | Trino Type                                           | Doris Type               | Comment                                                                   |
 |------------------------------------------------------|--------------------------|---------------------------------------------------------------------------|
@@ -472,7 +475,7 @@ set enable_odbc_transcation = true;
 | <version since="dev" type="inline"> array </version> | ARRAY                    | Array内部类型适配逻辑参考上述类型，不支持嵌套类型                                  |
 | others                                               | UNSUPPORTED              |                                                                           |
 
-**Note:**
+**注意：**
 目前仅针对Trino连接的Hive做了测试，其他的Trino连接的数据源暂时未测试。
 
 ### OceanBase

@@ -389,6 +389,7 @@ enum TOdbcTableType {
     CLICKHOUSE,
     SAP_HANA,
     TRINO,
+    PRESTO,
     OCEANBASE,
     OCEANBASE_ORACLE
 }
