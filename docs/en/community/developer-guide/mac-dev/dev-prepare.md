@@ -26,118 +26,117 @@ under the License.
 
 ## Install environment dependency
 
-    ```
-    brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-    python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
-    ```
+```shell
+brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
+python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
+```
    
-    **Dependency description:**
-        1. Java, Maven, etc. can be downloaded separately for easy management
-            - Mac recommend [Zulu JDK8](https://www.azul.com/downloads/?version=java-8-lts&os=macos&package=jdk#zulu)
-            - Maven Download from [Maven website](https://maven.apache.org/download.cgi) is ok
+**Dependency description:**
+1. Java, Maven, etc. can be downloaded separately for easy management
+    - Mac recommend [Zulu JDK8](https://www.azul.com/downloads/?version=java-8-lts&os=macos&package=jdk#zulu)
+    - Maven Download from [Maven website](https://maven.apache.org/download.cgi) is ok
             - Self-downloaded Java and Maven need to configure environment variables
-        2. Other dependent environment variables (example for Apple Silicon Macs)
-            - llvm: `export PATH="/opt/homebrew/opt/llvm/bin:$PATH"`
-            - bison: `export PATH = "/opt/homebrew/opt/bison/bin:$PATH`
-            - texinfo: `export PATH = "/opt/homebrew/opt/texinfo/bin:$PATH`
-            - python: `ln -s -f /opt/homebrew/bin/python3 /opt/homebrew/bin/python`
+2. Other dependent environment variables (example for Apple Silicon Macs)
+    - llvm: `export PATH="/opt/homebrew/opt/llvm/bin:$PATH"`
+    - bison: `export PATH = "/opt/homebrew/opt/bison/bin:$PATH`
+    - texinfo: `export PATH = "/opt/homebrew/opt/texinfo/bin:$PATH`
+    - python: `ln -s -f /opt/homebrew/bin/python3 /opt/homebrew/bin/python`
    
 ## Install thrift
 
-    **Note：** Thrift needs to be installed only when debugging FE only. When debugging BE and FE at the same time, the three-party library of BE contains thrift
+**Note：** Thrift needs to be installed only when debugging FE only. When debugging BE and FE at the same time, the three-party library of BE contains thrift
 
-    ```
-    MacOS: 
-       1. Download：`brew install thrift@0.16.0`
-       2. Create a soft link： 
-          `mkdir -p ./thirdparty/installed/bin`
-          # Apple Silicon 芯片 macOS
-          `ln -s /opt/homebrew/Cellar/thrift@0.16.0/0.16.0/bin/thrift ./thirdparty/installed/bin/thrift`
-          # Intel 芯片 macOS
-          `ln -s /usr/local/Cellar/thrift@0.16.0/0.16.0/bin/thrift ./thirdparty/installed/bin/thrift`
+```shell
+MacOS: 
+    1. Download：`brew install thrift@0.16.0`
+    2. Create a soft link： 
+        `mkdir -p ./thirdparty/installed/bin`
+        # Apple Silicon CPU macOS
+        `ln -s /opt/homebrew/Cellar/thrift@0.16.0/0.16.0/bin/thrift ./thirdparty/installed/bin/thrift`
+        # Intel CPU macOS
+        `ln -s /usr/local/Cellar/thrift@0.16.0/0.16.0/bin/thrift ./thirdparty/installed/bin/thrift`
     
-    Note：macOS implement `brew install thrift@0.16.0` it may report an error that the version cannot be found. The solution is as follows, execute in the terminal:
-       1. `brew tap-new $USER/local-tap`
-       2. `brew extract --version='0.16.0' thrift $USER/local-tap`
-       3. `brew install thrift@0.16.0`
-    reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
-    ```
+Note：macOS implement `brew install thrift@0.16.0` it may report an error that the version cannot be found. The solution is as follows, execute in the terminal:
+    1. `brew tap-new $USER/local-tap`
+    2. `brew extract --version='0.16.0' thrift $USER/local-tap`
+    3. `brew install thrift@0.16.0`
+reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
+```
 
 ## pull your own code
 
-    1. pull code
+1. pull code
 
-        ``` 
-        cd ~
-        mkdir DorisDev
-        cd DorisDev
-        git clone https://github.com/GitHubID/doris.git
-        ```
+    ```shell
+    cd ~
+    mkdir DorisDev
+    cd DorisDev
+    git clone https://github.com/GitHubID/doris.git
+    ```
 
-    2. set environment variables
+2. set environment variables
  
-        ```
-        export DORIS_HOME=~/DorisDev/doris
-        export PATH=$DORIS_HOME/bin:$PATH
-        ```
+    ```shell
+    export DORIS_HOME=~/DorisDev/doris
+    export PATH=$DORIS_HOME/bin:$PATH
+    ```
 
 ## Download Doris compilation dependencies
 
-   1. The [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page contains the source code of all third-party libraries. You can download [doris-thirdparty-source.tgz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz) to obtain them.
+1. The [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page contains the source code of all third-party libraries. You can download [doris-thirdparty-source.tgz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz) to obtain them.
 
-   2. You can download the _**precompiled**_ third party library from the [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page. You may refer to the following commands:
-       ```shell
-       cd thirdparty
-       rm -rf installed
+2. You can download the _**precompiled**_ third party library from the [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page. You may refer to the following commands:
+    ```shell
+    cd thirdparty
+    rm -rf installed
 
-       # Intel chips
-       curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-           -o - | tar -Jxf -
+    # Intel chips
+    curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
+        -o - | tar -Jxf -
 
-       # Apple Silicon chips
-       curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-arm64.tar.xz \
-           -o - | tar -Jxf -
+    # Apple Silicon chips
+    curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-arm64.tar.xz \
+        -o - | tar -Jxf -
 
-       # Make sure that protoc and thrift can run successfully.
-       cd installed/bin
+    # Make sure that protoc and thrift can run successfully.
+    cd installed/bin
 
-       ./protoc --version
-       ./thrift --version
-       ```
-   3. When running `protoc` or `thrift`, you may meet an error which says **the app can not be opened because the developer cannot be verified**. Go to `Security & Privacy`. Click the `Open Anyway` button in the `General` pane to confirm your intent to open the app. See [https://support.apple.com/en-us/HT202491](https://support.apple.com/en-us/HT202491).
+    ./protoc --version
+    ./thrift --version
+    ```
+3. When running `protoc` or `thrift`, you may meet an error which says **the app can not be opened because the developer cannot be verified**. Go to `Security & Privacy`. Click the `Open Anyway` button in the `General` pane to confirm your intent to open the app. See [https://support.apple.com/en-us/HT202491](https://support.apple.com/en-us/HT202491).
 
 ## Set `file descriptors`
 
-    ```
-    # bash
-    echo 'ulimit -n 65536' >>~/.bashrc
+```shell
+# bash
+echo 'ulimit -n 65536' >>~/.bashrc
     
-    # zsh
-    echo 'ulimit -n 65536' >>~/.zshrc
-    ```
+# zsh
+echo 'ulimit -n 65536' >>~/.zshrc
+```
 
 ## compile Doris
 
-    ```
-    cd $DORIS_HOME
-    sh build.sh
-    ```
+```shell
+cd $DORIS_HOME
+sh build.sh
+```
 
 ## Configure Debug environment
 
-    ```
-    # cp out the compiled package
+```shell
+# cp out the compiled package
     
-    cp -r output ../doris-run
+cp -r output ../doris-run
     
-    # Configure FE/BE's conf
-    1、IP、directory
-    2、BE additional configuration min_file_descriptor_number = 10000
-    ```
+# Configure FE/BE's conf
+1、IP、directory
+2、BE additional configuration min_file_descriptor_number = 10000
+```
 
 ## Start Debugging with IDE
 
-    [CLion Debug BE On Mac](./be-clion-dev.md)
+[CLion Debug BE On Mac](./be-clion-dev.md)
 
-    [IntelliJ IDEA Debug FE On Mac](./fe-idea-dev.md)
-    
+[IntelliJ IDEA Debug FE On Mac](./fe-idea-dev.md)
