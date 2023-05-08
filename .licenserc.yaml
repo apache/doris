@@ -67,6 +67,7 @@ header:
     - "be/src/util/sse2neon.h"
     - "be/src/util/utf8_check.cpp"
     - "be/src/util/cityhash102"
+    - "be/src/pch/*"
     - "build-support/run_clang_format.py"
     - "regression-test/data"
     - "docs/.vuepress/public/css/animate.min.css"
