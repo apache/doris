@@ -126,4 +126,30 @@ void DataTypeHLL::to_string(const class doris::vectorized::IColumn& column, size
     ostr.write(result.c_str(), result.size());
 }
 
+std::string DataTypeHLL::to_string(const IColumn& column, size_t row_num) const {
+    auto col_row = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = col_row.first;
+    row_num = col_row.second;
+
+    auto& data = const_cast<HyperLogLog&>(assert_cast<const ColumnHLL&>(*ptr).get_element(row_num));
+
+    std::string result(data.max_serialized_size(), '0');
+    data.serialize((uint8_t*)result.data());
+    return result;
+}
+
+Status DataTypeHLL::from_string(ReadBuffer& rb, IColumn* column) const {
+    auto& data_column = assert_cast<ColumnHLL&>(*column);
+    auto& data = data_column.get_data();
+
+    std::string str;
+    str = rb.to_string();
+    HyperLogLog hll;
+    if (!hll.deserialize(Slice(str))) {
+        LOG(WARNING) << "deserialize hll from string fail!";
+    }
+    data.push_back(std::move(hll));
+    return Status::OK();
+}
+
 } // namespace doris::vectorized

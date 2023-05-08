@@ -87,8 +87,9 @@ public:
 
     bool can_be_inside_low_cardinality() const override { return false; }
 
-    std::string to_string(const IColumn& column, size_t row_num) const override { return "HLL()"; }
+    std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     Field get_default() const override {
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
