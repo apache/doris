@@ -19,32 +19,29 @@
 // and modified by Doris
 
 #pragma once
-#include <mutex>
-#include <string>
-#include <type_traits>
+#include <gen_cpp/Types_types.h>
 
-#include "arrow/type.h"
-#include "common/consts.h"
-#include "gen_cpp/data.pb.h"
-#include "olap/field.h"
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 #include "olap/tablet_schema.h"
 #include "runtime/types.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_fixed_length_object.h"
-#include "vec/data_types/data_type_hll.h"
-#include "vec/data_types/data_type_jsonb.h"
-#include "vec/data_types/data_type_map.h"
-#include "vec/data_types/data_type_nothing.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_quantilestate.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_struct.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+
+namespace arrow {
+class DataType;
+} // namespace arrow
+namespace doris {
+class Field;
+class PColumnMeta;
+enum class FieldType;
+
+namespace vectorized {
+enum class TypeIndex;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -54,99 +51,12 @@ class DataTypeFactory {
 
 public:
     static DataTypeFactory& instance() {
-        static std::once_flag oc;
         static DataTypeFactory instance;
-        std::call_once(oc, []() {
-            std::unordered_map<std::string, DataTypePtr> base_type_map {
-                    {"UInt8", std::make_shared<DataTypeUInt8>()},
-                    {"UInt16", std::make_shared<DataTypeUInt16>()},
-                    {"UInt32", std::make_shared<DataTypeUInt32>()},
-                    {"UInt64", std::make_shared<DataTypeUInt64>()},
-                    {"Int8", std::make_shared<DataTypeInt8>()},
-                    {"Int16", std::make_shared<DataTypeInt16>()},
-                    {"Int32", std::make_shared<DataTypeInt32>()},
-                    {"Int64", std::make_shared<DataTypeInt64>()},
-                    {"Int128", std::make_shared<DataTypeInt128>()},
-                    {"Float32", std::make_shared<DataTypeFloat32>()},
-                    {"Float64", std::make_shared<DataTypeFloat64>()},
-                    {"Date", std::make_shared<DataTypeDate>()},
-                    {"DateV2", std::make_shared<DataTypeDateV2>()},
-                    {"DateTime", std::make_shared<DataTypeDateTime>()},
-                    {"DateTimeV2", std::make_shared<DataTypeDateTimeV2>()},
-                    {"String", std::make_shared<DataTypeString>()},
-                    {"Decimal", std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)},
-                    {"Decimal32", std::make_shared<DataTypeDecimal<Decimal32>>(
-                                          BeConsts::MAX_DECIMAL32_PRECISION, 0)},
-                    {"Decimal64", std::make_shared<DataTypeDecimal<Decimal64>>(
-                                          BeConsts::MAX_DECIMAL64_PRECISION, 0)},
-                    {"Decimal128", std::make_shared<DataTypeDecimal<Decimal128>>(
-                                           BeConsts::MAX_DECIMAL128_PRECISION, 0)},
-                    {"Decimal128I", std::make_shared<DataTypeDecimal<Decimal128I>>(
-                                            BeConsts::MAX_DECIMAL128_PRECISION, 0)},
-                    {"Jsonb", std::make_shared<DataTypeJsonb>()},
-                    {"BitMap", std::make_shared<DataTypeBitMap>()},
-                    {"Hll", std::make_shared<DataTypeHLL>()},
-                    {"QuantileState", std::make_shared<DataTypeQuantileStateDouble>()},
-            };
-            for (auto const& [key, val] : base_type_map) {
-                instance.register_data_type(key, val);
-                instance.register_data_type("Array(" + key + ")",
-                                            std::make_shared<vectorized::DataTypeArray>(val));
-                instance.register_data_type(
-                        "Array(Nullable(" + key + "))",
-                        std::make_shared<vectorized::DataTypeArray>(
-                                std::make_shared<vectorized::DataTypeNullable>(val)));
-            }
-        });
         return instance;
     }
 
-    // TODO(xy): support creator to create dynamic struct type
-    DataTypePtr get(const std::string& name) { return _data_type_map[name]; }
-    // TODO(xy): support creator to create dynamic struct type
-    const std::string& get(const DataTypePtr& data_type) const {
-        auto type_ptr = data_type->is_nullable()
-                                ? ((DataTypeNullable*)(data_type.get()))->get_nested_type()
-                                : data_type;
-        for (const auto& entity : _invert_data_type_map) {
-            if (entity.first->equals(*type_ptr)) {
-                return entity.second;
-            }
-            if (is_decimal(type_ptr) && type_ptr->get_type_id() == entity.first->get_type_id()) {
-                return entity.second;
-            }
-            if (is_array(type_ptr) && is_array(entity.first)) {
-                auto nested_nullable_type_ptr =
-                        (assert_cast<const DataTypeArray*>(type_ptr.get()))->get_nested_type();
-                auto nested_nullable_entity_ptr =
-                        (assert_cast<const DataTypeArray*>(entity.first.get()))->get_nested_type();
-                // There must be nullable inside array type.
-                if (nested_nullable_type_ptr->is_nullable() &&
-                    nested_nullable_entity_ptr->is_nullable()) {
-                    auto nested_type_ptr = ((DataTypeNullable*)(nested_nullable_type_ptr.get()))
-                                                   ->get_nested_type();
-                    auto nested_entity_ptr = ((DataTypeNullable*)(nested_nullable_entity_ptr.get()))
-                                                     ->get_nested_type();
-                    if (is_decimal(nested_type_ptr) &&
-                        nested_type_ptr->get_type_id() == nested_entity_ptr->get_type_id()) {
-                        return entity.second;
-                    }
-                }
-            }
-        }
-        if (type_ptr->get_type_id() == TypeIndex::Struct ||
-            type_ptr->get_type_id() == TypeIndex::Map) {
-            DataTypeFactory::instance().register_data_type(type_ptr->get_name(), type_ptr);
-            for (const auto& entity : _invert_data_type_map) {
-                if (entity.first->equals(*type_ptr)) {
-                    return entity.second;
-                }
-            }
-        }
-        return _empty_string;
-    }
-
     DataTypePtr create_data_type(const doris::Field& col_desc);
+    DataTypePtr create_data_type(const TypeIndex& type_index, bool is_nullable = false);
     DataTypePtr create_data_type(const TabletColumn& col_desc, bool is_nullable = false);
 
     DataTypePtr create_data_type(const TypeDescriptor& col_desc, bool is_nullable = true);
@@ -166,13 +76,6 @@ public:
 private:
     DataTypePtr _create_primitive_data_type(const FieldType& type, int precision, int scale) const;
 
-    void register_data_type(const std::string& name, const DataTypePtr& data_type) {
-        _data_type_map.emplace(name, data_type);
-        _invert_data_type_map.emplace_back(data_type, name);
-    }
-    // TODO: Here is a little trick here, use bimap to replace map and vector
-    DataTypeMap _data_type_map;
-    InvertedDataTypeMap _invert_data_type_map;
     std::string _empty_string;
 };
 } // namespace doris::vectorized

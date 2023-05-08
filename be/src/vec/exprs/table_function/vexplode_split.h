@@ -17,25 +17,38 @@
 
 #pragma once
 
-#include "gutil/strings/stringpiece.h"
-#include "vec/columns/column.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <string_view>
+#include <vector>
+
+#include "common/status.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
+
+namespace doris {
+namespace vectorized {
+class Block;
+class ColumnString;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 class VExplodeSplitTableFunction final : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VExplodeSplitTableFunction);
+
 public:
     VExplodeSplitTableFunction();
     ~VExplodeSplitTableFunction() override = default;
 
     Status open() override;
-    Status process_init(vectorized::Block* block) override;
+    Status process_init(Block* block) override;
     Status process_row(size_t row_idx) override;
     Status process_close() override;
-    Status get_value(void** output) override;
-    Status get_value_length(int64_t* length) override;
-    Status reset() override;
+    void get_value(MutableColumnPtr& column) override;
 
 private:
     std::vector<std::string_view> _backup;

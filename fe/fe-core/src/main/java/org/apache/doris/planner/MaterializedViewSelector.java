@@ -36,6 +36,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
+import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -56,15 +57,17 @@ import java.util.TreeSet;
 
 /**
  * The new materialized view selector supports SPJ<->SPJG.
- * It means this selector can judge any combination of those two options SPJ and SPJG.
+ * It means this selector can judge any combination of those two options SPJ and
+ * SPJG.
  * For example, the type of query is SPJG while the type of MV is SPJ.
  * At the same time, it is compatible with all the features of the old version.
  *
  * What is SPJ and SPJG?
  * The SPJ query is "Select Projection and Join" such as:
- *     select t1.c1 from t1, t2 where t1.c2=t2.c2 and t1.c3=1;
+ * select t1.c1 from t1, t2 where t1.c2=t2.c2 and t1.c3=1;
  * The SPJG query is "Select Projection Join and Group-by" such as:
- *     select t1.c1, sum(t2.c1) from t1, t2 where t1.c2=t2.c2 and t1.c3=1 group by t1.c 1;
+ * select t1.c1, sum(t2.c1) from t1, t2 where t1.c2=t2.c2 and t1.c3=1 group by
+ * t1.c 1;
  */
 public class MaterializedViewSelector {
     private static final Logger LOG = LogManager.getLogger(MaterializedViewSelector.class);
@@ -82,15 +85,19 @@ public class MaterializedViewSelector {
     private boolean isSPJQuery;
     private Map<Long, Set<String>> columnNamesInGrouping = Maps.newHashMap();
     private Map<Long, Set<FunctionCallExpr>> aggColumnsInQuery = Maps.newHashMap();
-    //    private Map<String, Set<AggregatedColumn>> aggregateColumnsInQuery = Maps.newHashMap();
+    // private Map<String, Set<AggregatedColumn>> aggregateColumnsInQuery =
+    // Maps.newHashMap();
     private Map<Long, Set<String>> columnNamesInQueryOutput = Maps.newHashMap();
 
     private boolean disableSPJGView;
 
-    // The Following 2 variables should be reset each time before calling selectBestMV();
+    // The Following 2 variables should be reset each time before calling
+    // selectBestMV();
     // Unlike the "isPreAggregation" in OlapScanNode which defaults to false,
-    // it defaults to true here. It is because in this class, we started to choose MV under the premise
-    // that the default base tables are duplicate key tables. For the aggregation key table,
+    // it defaults to true here. It is because in this class, we started to choose
+    // MV under the premise
+    // that the default base tables are duplicate key tables. For the aggregation
+    // key table,
     // this variable will be set to false compensatively at the end.
     private boolean isPreAggregation = true;
     private String reasonOfDisable;
@@ -124,7 +131,7 @@ public class MaterializedViewSelector {
         }
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
         LOG.debug("The best materialized view is {} for scan node {} in query {}, "
-                        + "isPreAggregation: {}, reasonOfDisable: {}, cost {}",
+                + "isPreAggregation: {}, reasonOfDisable: {}, cost {}",
                 bestIndexId, scanNode.getId(), selectStmt.toSql(), isPreAggregation, reasonOfDisable,
                 (System.currentTimeMillis() - start));
         return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);
@@ -139,13 +146,13 @@ public class MaterializedViewSelector {
         // Step1: all of predicates is compensating predicates
         Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta = scanNode.getOlapTable().getVisibleIndexIdToMeta();
         OlapTable table = scanNode.getOlapTable();
-        String tableName = table.getName();
         Preconditions.checkState(table != null);
         long tableId = table.getId();
 
         boolean selectBaseIndex = false;
         for (Expr expr : selectStmt.getAllExprs()) {
-            if (selectStmt.isDisableTuplesMVRewriter(selectStmt.getExprFromAliasSMap(expr))) {
+            if (expr.isBound(scanNode.getTupleId())
+                    && selectStmt.isDisableTuplesMVRewriter(selectStmt.getExprFromAliasSMap(expr))) {
                 selectBaseIndex = true;
             }
         }
@@ -153,15 +160,17 @@ public class MaterializedViewSelector {
         // Step2: check all columns in compensating predicates are available in the view
         // output
         checkCompensatingPredicates(columnNamesInPredicates.get(tableId), candidateIndexIdToMeta, selectBaseIndex,
-                tableName);
+                scanNode.getTupleId());
         // Step3: group by list in query is the subset of group by list in view or view
         // contains no aggregation
-        checkGrouping(table, columnNamesInGrouping.get(tableId), candidateIndexIdToMeta, selectBaseIndex);
+        checkGrouping(table, columnNamesInGrouping.get(tableId), candidateIndexIdToMeta, selectBaseIndex,
+                scanNode.getTupleId());
         // Step4: aggregation functions are available in the view output
-        checkAggregationFunction(table, aggColumnsInQuery.get(tableId), candidateIndexIdToMeta);
+        checkAggregationFunction(table, aggColumnsInQuery.get(tableId), candidateIndexIdToMeta, scanNode.getTupleId());
         // Step5: columns required to compute output expr are available in the view
         // output
-        checkOutputColumns(columnNamesInQueryOutput.get(tableId), candidateIndexIdToMeta, selectBaseIndex, tableName);
+        checkOutputColumns(columnNamesInQueryOutput.get(tableId), candidateIndexIdToMeta, selectBaseIndex,
+                scanNode.getTupleId());
         // Step6: if table type is aggregate and the candidateIndexIdToSchema is empty,
         if ((table.getKeysType() == KeysType.AGG_KEYS || (table.getKeysType() == KeysType.UNIQUE_KEYS
                 && !table.getTableProperty().getEnableUniqueKeyMergeOnWrite()))
@@ -185,7 +194,7 @@ public class MaterializedViewSelector {
             compensateCandidateIndex(candidateIndexIdToMeta, scanNode.getOlapTable().getVisibleIndexIdToMeta(),
                     table);
             checkOutputColumns(columnNamesInQueryOutput.get(tableId), candidateIndexIdToMeta, selectBaseIndex,
-                    tableName);
+                    scanNode.getTupleId());
         }
         Map<Long, List<Column>> result = Maps.newHashMap();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : candidateIndexIdToMeta.entrySet()) {
@@ -200,13 +209,16 @@ public class MaterializedViewSelector {
         if (v2RollupIndexId != null) {
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null && connectContext.getSessionVariable().isUseV2Rollup()) {
-                // if user set `use_v2_rollup` variable to true, and there is a segment v2 rollup,
-                // just return the segment v2 rollup, because user want to check the v2 format data.
+                // if user set `use_v2_rollup` variable to true, and there is a segment v2
+                // rollup,
+                // just return the segment v2 rollup, because user want to check the v2 format
+                // data.
                 if (candidateIndexIdToSchema.containsKey(v2RollupIndexId)) {
                     return v2RollupIndexId;
                 }
             } else {
-                // `use_v2_rollup` is not set, so v2 format rollup should not be selected, remove it from
+                // `use_v2_rollup` is not set, so v2 format rollup should not be selected,
+                // remove it from
                 // candidateIndexIdToSchema
                 candidateIndexIdToSchema.remove(v2RollupIndexId);
             }
@@ -216,8 +228,8 @@ public class MaterializedViewSelector {
         final Set<String> equivalenceColumns = Sets.newHashSet();
         final Set<String> unequivalenceColumns = Sets.newHashSet();
         scanNode.collectColumns(analyzer, equivalenceColumns, unequivalenceColumns);
-        Set<Long> indexesMatchingBestPrefixIndex =
-                matchBestPrefixIndex(candidateIndexIdToSchema, equivalenceColumns, unequivalenceColumns);
+        Set<Long> indexesMatchingBestPrefixIndex = matchBestPrefixIndex(candidateIndexIdToSchema, equivalenceColumns,
+                unequivalenceColumns);
 
         // Step2: the best index that satisfies the least number of rows
         return selectBestRowCountIndex(indexesMatchingBestPrefixIndex, scanNode.getOlapTable(), scanNode
@@ -225,8 +237,8 @@ public class MaterializedViewSelector {
     }
 
     private Set<Long> matchBestPrefixIndex(Map<Long, List<Column>> candidateIndexIdToSchema,
-                                           Set<String> equivalenceColumns,
-                                           Set<String> unequivalenceColumns) {
+            Set<String> equivalenceColumns,
+            Set<String> unequivalenceColumns) {
         if (equivalenceColumns.size() == 0 && unequivalenceColumns.size() == 0) {
             return candidateIndexIdToSchema.keySet();
         }
@@ -263,7 +275,7 @@ public class MaterializedViewSelector {
     }
 
     private long selectBestRowCountIndex(Set<Long> indexesMatchingBestPrefixIndex, OlapTable olapTable,
-                                         Collection<Long> partitionIds) {
+            Collection<Long> partitionIds) {
         long minRowCount = Long.MAX_VALUE;
         long selectedIndexId = 0;
         for (Long indexId : indexesMatchingBestPrefixIndex) {
@@ -290,13 +302,8 @@ public class MaterializedViewSelector {
     // Step2: check all columns in compensating predicates are available in the view
     // output
     private void checkCompensatingPredicates(Set<String> columnsInPredicates,
-            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, boolean selectBaseIndex, String tableName)
+            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, boolean selectBaseIndex, TupleId tid)
             throws AnalysisException {
-        // When the query statement does not contain any columns in predicates, all
-        // candidate index can pass this check
-        if (columnsInPredicates == null) {
-            return;
-        }
         Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, MaterializedIndexMeta> entry = iterator.next();
@@ -320,6 +327,18 @@ public class MaterializedViewSelector {
                 continue;
             }
 
+            if (entry.getValue().getWhereClause() != null) {
+                if (selectStmt.getOriginalWhereClause() == null || !selectStmt.getOriginalWhereClause()
+                        .containsSubPredicate(entry.getValue().getWhereClause())) {
+                    iterator.remove();
+                }
+                continue;
+            }
+
+            if (columnsInPredicates == null) {
+                continue;
+            }
+
             List<Expr> predicateExprs = Lists.newArrayList();
             if (selectStmt.getWhereClause() != null) {
                 predicateExprs.add(selectStmt.getExprFromAliasSMap(selectStmt.getWhereClause()));
@@ -336,7 +355,7 @@ public class MaterializedViewSelector {
                 continue;
             }
 
-            if (!matchAllExpr(predicateExprs, indexExprs, tableName)) {
+            if (!matchAllExpr(predicateExprs, indexExprs, tid)) {
                 iterator.remove();
             }
         }
@@ -345,10 +364,10 @@ public class MaterializedViewSelector {
     }
 
     /**
-     * View      Query        result
-     * SPJ       SPJG OR SPJ  pass
-     * SPJG      SPJ          fail
-     * SPJG      SPJG         pass
+     * View Query result
+     * SPJ SPJG OR SPJ pass
+     * SPJG SPJ fail
+     * SPJG SPJG pass
      * 1. grouping columns in query is subset of grouping columns in view
      * 2. the empty grouping columns in query is subset of all of views
      *
@@ -360,7 +379,7 @@ public class MaterializedViewSelector {
     // Step3: group by list in query is the subset of group by list in view or view
     // contains no aggregation
     private void checkGrouping(OlapTable table, Set<String> columnsInGrouping,
-            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, boolean selectBaseIndex)
+            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, boolean selectBaseIndex, TupleId tid)
             throws AnalysisException {
         Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -429,7 +448,7 @@ public class MaterializedViewSelector {
                 continue;
             }
 
-            if (!matchAllExpr(groupingExprs, indexExprs, table.getName())) {
+            if (!matchAllExpr(groupingExprs, indexExprs, tid)) {
                 iterator.remove();
             }
         }
@@ -439,11 +458,11 @@ public class MaterializedViewSelector {
 
     // Step4: aggregation functions are available in the view output
     private void checkAggregationFunction(OlapTable table, Set<FunctionCallExpr> aggregatedColumnsInQueryOutput,
-            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta) throws AnalysisException {
+            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, TupleId tid) throws AnalysisException {
         boolean haveMvSlot = false;
         if (aggregatedColumnsInQueryOutput != null) {
             for (FunctionCallExpr expr : aggregatedColumnsInQueryOutput) {
-                if (expr.haveMvSlot()) {
+                if (expr.haveMvSlot(tid)) {
                     haveMvSlot = true;
                 }
             }
@@ -472,7 +491,7 @@ public class MaterializedViewSelector {
                 continue;
             }
             if (aggregatedColumnsInQueryOutput != null
-                    && matchAllExpr(new ArrayList<>(aggregatedColumnsInQueryOutput), indexExprs, table.getName())) {
+                    && matchAllExpr(new ArrayList<>(aggregatedColumnsInQueryOutput), indexExprs, tid)) {
                 continue;
             }
 
@@ -493,15 +512,11 @@ public class MaterializedViewSelector {
             }
         }
         LOG.debug("Those mv pass the test of aggregation function:"
-                          + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+                + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
-    private boolean matchAllExpr(List<Expr> exprs, List<Expr> indexExprs, String tableName)
+    private boolean matchAllExpr(List<Expr> exprs, List<Expr> indexExprs, TupleId tid)
             throws AnalysisException {
-        if (exprs.isEmpty()) {
-            return false;
-        }
-
         for (Expr expr : exprs) {
             if (expr == null) {
                 throw new AnalysisException("match expr input null");
@@ -514,7 +529,7 @@ public class MaterializedViewSelector {
                 continue;
             }
 
-            if (expr.matchExprs(indexExprs, selectStmt, false, tableName)) {
+            if (expr.matchExprs(indexExprs, selectStmt, false, analyzer.getTupleDesc(tid))) {
                 continue;
             }
             return false;
@@ -525,7 +540,8 @@ public class MaterializedViewSelector {
     // Step5: columns required to compute output expr are available in the view
     // output
     private void checkOutputColumns(Set<String> columnNamesInQueryOutput,
-            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, boolean selectBaseIndex, String tableName)
+            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, boolean selectBaseIndex,
+            TupleId tid)
             throws AnalysisException {
         if (columnNamesInQueryOutput == null) {
             return;
@@ -537,6 +553,14 @@ public class MaterializedViewSelector {
         }
         columnNamesInQueryOutput
                 .forEach(name -> queryColumnNames.add(CreateMaterializedViewStmt.mvColumnBreaker(name)));
+
+        if (selectBaseIndex) {
+            for (Expr expr : exprs) {
+                if (expr.haveMvSlot(tid)) {
+                    throw new MVSelectFailedException("need selectBaseIndex but have mv expr");
+                }
+            }
+        }
 
         Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -551,8 +575,10 @@ public class MaterializedViewSelector {
             candidateIndexSchema
                     .forEach(column -> indexColumnNames.add(CreateMaterializedViewStmt
                             .mvColumnBreaker(MaterializedIndexMeta.normalizeName(column.getName()))));
+
             // Rollup index have no define expr.
-            if (indexExprs.isEmpty() && !indexColumnNames.containsAll(queryColumnNames)) {
+            if (entry.getValue().getWhereClause() == null && indexExprs.isEmpty()
+                    && !indexColumnNames.containsAll(queryColumnNames)) {
                 iterator.remove();
                 continue;
             }
@@ -565,7 +591,7 @@ public class MaterializedViewSelector {
                 continue;
             }
 
-            if (!matchAllExpr(exprs, indexExprs, tableName)) {
+            if (!matchAllExpr(exprs, indexExprs, tid)) {
                 iterator.remove();
             }
         }
@@ -573,8 +599,8 @@ public class MaterializedViewSelector {
                 + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
-    private void compensateCandidateIndex(Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, Map<Long,
-            MaterializedIndexMeta> allVisibleIndexes, OlapTable table) {
+    private void compensateCandidateIndex(Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta,
+            Map<Long, MaterializedIndexMeta> allVisibleIndexes, OlapTable table) {
         isPreAggregation = false;
         reasonOfDisable = "The aggregate operator does not match";
         int keySizeOfBaseIndex = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
@@ -585,7 +611,7 @@ public class MaterializedViewSelector {
             }
         }
         LOG.debug("Those mv pass the test of output columns:"
-                          + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
+                + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
     private void init() {
@@ -628,7 +654,8 @@ public class MaterializedViewSelector {
         }
 
         // Step4: compute the output column
-        // ISSUE-3174: all of columns which belong to top tuple should be considered in selector.
+        // ISSUE-3174: all of columns which belong to top tuple should be considered in
+        // selector.
         List<TupleId> tupleIds = selectStmt.getTableRefIdsWithoutInlineView();
         for (TupleId tupleId : tupleIds) {
             TupleDescriptor tupleDescriptor = analyzer.getTupleDesc(tupleId);
@@ -671,7 +698,8 @@ public class MaterializedViewSelector {
                 continue;
             }
             SlotRef slotRef = new SlotRef(null, column.getName());
-            // This slot desc is only used to temporarily store column that will be used in subsequent MVExprRewriter.
+            // This slot desc is only used to temporarily store column that will be used in
+            // subsequent MVExprRewriter.
             SlotDescriptor slotDescriptor = new SlotDescriptor(null, null);
             slotDescriptor.setColumn(column);
             slotRef.setDesc(slotDescriptor);

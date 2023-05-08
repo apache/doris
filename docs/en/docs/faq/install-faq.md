@@ -267,7 +267,7 @@ This is a bug in bdbje that has not yet been resolved. In this case, you can onl
 
 ### Q12. Doris compile and install JDK version incompatibility problem
 
-When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation.md)
+When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation-general.md)
 
 ### Q13. Error starting FE or unit test locally Cannot find external parser table action_table.dat
 Run the following command
@@ -310,3 +310,9 @@ If the following `Failed to initialize JNI` error occurs when starting BE after 
 Failed to initialize JNI: Failed to find the library libjvm.so.
 ```
 You need to set the `JAVA_HOME` environment variable, or add `export JAVA_HOME=your_java_home_path` in the first line of the `start_be.sh` startup script, and then restart the BE node.
+
+### Q17. Docker: backend fails to start
+This may be due to the CPU not supporting AVX2, check the backend logs with `docker logs -f be`.
+If the CPU does not support AVX2, the `apache/doris:1.2.2-be-x86_64-noavx2` image must be used,
+instead of `apache/doris:1.2.2-be-x86_64`.
+Note that the image version number will change over time, check [Dockerhub](https://registry.hub.docker.com/r/apache/doris/tags?page=1&name=avx2) for the most recent version.

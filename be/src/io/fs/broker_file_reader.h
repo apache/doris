@@ -19,16 +19,23 @@
 
 #include <gen_cpp/PaloBrokerService_types.h>
 #include <gen_cpp/Types_types.h>
+#include <stddef.h>
 
 #include <atomic>
+#include <memory>
 
+#include "common/status.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/path.h"
 #include "runtime/client_cache.h"
+#include "util/slice.h"
+
 namespace doris {
 namespace io {
 
-class BrokerFileSystem;
+class IOContext;
 
 class BrokerFileReader : public FileReader {
 public:
@@ -39,9 +46,6 @@ public:
 
     Status close() override;
 
-    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                   size_t* bytes_read) override;
-
     const Path& path() const override { return _path; }
 
     size_t size() const override { return _file_size; }
@@ -50,11 +54,15 @@ public:
 
     FileSystemSPtr fs() const override { return _fs; }
 
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
+
 private:
-    const Path& _path;
+    const Path _path;
     size_t _file_size;
 
-    const TNetworkAddress& _broker_addr;
+    const TNetworkAddress _broker_addr;
     TBrokerFD _fd;
 
     std::shared_ptr<BrokerFileSystem> _fs;

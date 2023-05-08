@@ -33,8 +33,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.cluster.BaseParam;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -59,7 +57,6 @@ import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
@@ -79,6 +76,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.resource.resourcegroup.ResourceGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -353,7 +351,7 @@ public class EditLog {
                 case OperationType.OP_EXPORT_UPDATE_STATE:
                     ExportJob.StateTransfer op = (ExportJob.StateTransfer) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
-                    exportMgr.replayUpdateJobState(op.getJobId(), op.getState());
+                    exportMgr.replayUpdateJobState(op);
                     break;
                 case OperationType.OP_FINISH_DELETE: {
                     DeleteInfo info = (DeleteInfo) journal.getData();
@@ -484,41 +482,6 @@ public class EditLog {
                     MetaContext.get().setMetaVersion(version);
                     break;
                 }
-                case OperationType.OP_CREATE_CLUSTER: {
-                    final Cluster value = (Cluster) journal.getData();
-                    env.replayCreateCluster(value);
-                    break;
-                }
-                case OperationType.OP_DROP_CLUSTER: {
-                    final ClusterInfo value = (ClusterInfo) journal.getData();
-                    env.replayDropCluster(value);
-                    break;
-                }
-                case OperationType.OP_EXPAND_CLUSTER: {
-                    final ClusterInfo info = (ClusterInfo) journal.getData();
-                    env.replayExpandCluster(info);
-                    break;
-                }
-                case OperationType.OP_LINK_CLUSTER: {
-                    final BaseParam param = (BaseParam) journal.getData();
-                    env.replayLinkDb(param);
-                    break;
-                }
-                case OperationType.OP_MIGRATE_CLUSTER: {
-                    final BaseParam param = (BaseParam) journal.getData();
-                    env.replayMigrateDb(param);
-                    break;
-                }
-                case OperationType.OP_UPDATE_DB: {
-                    final DatabaseInfo param = (DatabaseInfo) journal.getData();
-                    env.replayUpdateDb(param);
-                    break;
-                }
-                case OperationType.OP_DROP_LINKDB: {
-                    final DropLinkDbAndUpdateDbInfo param = (DropLinkDbAndUpdateDbInfo) journal.getData();
-                    env.replayDropLinkDb(param);
-                    break;
-                }
                 case OperationType.OP_ADD_BROKER: {
                     final BrokerMgr.ModifyBrokerInfo param = (BrokerMgr.ModifyBrokerInfo) journal.getData();
                     env.getBrokerMgr().replayAddBrokers(param.brokerName, param.brokerAddresses);
@@ -537,11 +500,6 @@ public class EditLog {
                 case OperationType.OP_SET_LOAD_ERROR_HUB: {
                     // final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
                     // ignore load error hub
-                    break;
-                }
-                case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
-                    final BackendIdsUpdateInfo info = (BackendIdsUpdateInfo) journal.getData();
-                    env.replayUpdateClusterAndBackends(info);
                     break;
                 }
                 case OperationType.OP_UPSERT_TRANSACTION_STATE: {
@@ -626,6 +584,16 @@ public class EditLog {
                 case OperationType.OP_DROP_FUNCTION: {
                     FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
                     Env.getCurrentEnv().replayDropFunction(function);
+                    break;
+                }
+                case OperationType.OP_ADD_GLOBAL_FUNCTION: {
+                    final Function function = (Function) journal.getData();
+                    Env.getCurrentEnv().replayCreateGlobalFunction(function);
+                    break;
+                }
+                case OperationType.OP_DROP_GLOBAL_FUNCTION: {
+                    FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
+                    Env.getCurrentEnv().replayDropGlobalFunction(function);
                     break;
                 }
                 case OperationType.OP_CREATE_ENCRYPTKEY: {
@@ -857,7 +825,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayCreateCatalog(log);
+                    env.getCatalogMgr().replayCreateCatalog(log, true);
                     break;
                 }
                 case OperationType.OP_DROP_CATALOG: {
@@ -880,9 +848,14 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshCatalog(log);
                     break;
                 }
-                case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
+                case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
                     final TableAddOrDropColumnsInfo info = (TableAddOrDropColumnsInfo) journal.getData();
-                    env.getSchemaChangeHandler().replayModifyTableAddOrDropColumns(info);
+                    env.getSchemaChangeHandler().replayModifyTableLightSchemaChange(info);
+                    break;
+                }
+                case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
+                    final AlterLightSchemaChangeInfo info = (AlterLightSchemaChangeInfo) journal.getData();
+                    env.getSchemaChangeHandler().replayAlterLightSchChange(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
@@ -991,6 +964,22 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshExternalPartitions(log);
                     break;
                 }
+                case OperationType.OP_CREATE_RESOURCE_GROUP: {
+                    final ResourceGroup resourceGroup = (ResourceGroup) journal.getData();
+                    env.getResourceGroupMgr().replayCreateResourceGroup(resourceGroup);
+                    break;
+                }
+                case OperationType.OP_DROP_RESOURCE_GROUP: {
+                    final DropResourceGroupOperationLog operationLog =
+                            (DropResourceGroupOperationLog) journal.getData();
+                    env.getResourceGroupMgr().replayDropResourceGroup(operationLog);
+                    break;
+                }
+                case OperationType.OP_ALTER_RESOURCE_GROUP: {
+                    final ResourceGroup resource = (ResourceGroup) journal.getData();
+                    env.getResourceGroupMgr().replayAlterResourceGroup(resource);
+                    break;
+                }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
                     break;
@@ -1062,7 +1051,6 @@ public class EditLog {
         }
 
         long start = System.currentTimeMillis();
-
         try {
             journal.write(op, writable);
         } catch (Throwable t) {
@@ -1323,10 +1311,6 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_DB, databaseInfo);
     }
 
-    public void logUpdateDatabase(DatabaseInfo databaseInfo) {
-        logEdit(OperationType.OP_UPDATE_DB, databaseInfo);
-    }
-
     public void logTableRename(TableInfo tableInfo) {
         logEdit(OperationType.OP_RENAME_TABLE, tableInfo);
     }
@@ -1347,30 +1331,6 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_COLUMN, info);
     }
 
-    public void logCreateCluster(Cluster cluster) {
-        logEdit(OperationType.OP_CREATE_CLUSTER, cluster);
-    }
-
-    public void logDropCluster(ClusterInfo info) {
-        logEdit(OperationType.OP_DROP_CLUSTER, info);
-    }
-
-    public void logExpandCluster(ClusterInfo ci) {
-        logEdit(OperationType.OP_EXPAND_CLUSTER, ci);
-    }
-
-    public void logLinkCluster(BaseParam param) {
-        logEdit(OperationType.OP_LINK_CLUSTER, param);
-    }
-
-    public void logMigrateCluster(BaseParam param) {
-        logEdit(OperationType.OP_MIGRATE_CLUSTER, param);
-    }
-
-    public void logDropLinkDb(DropLinkDbAndUpdateDbInfo info) {
-        logEdit(OperationType.OP_DROP_LINKDB, info);
-    }
-
     public void logAddBroker(BrokerMgr.ModifyBrokerInfo info) {
         logEdit(OperationType.OP_ADD_BROKER, info);
     }
@@ -1383,10 +1343,6 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_ALL_BROKER, new Text(brokerName));
     }
 
-    public void logSetLoadErrorHub(LoadErrorHub.Param param) {
-        logEdit(OperationType.OP_SET_LOAD_ERROR_HUB, param);
-    }
-
     public void logExportCreate(ExportJob job) {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
     }
@@ -1394,10 +1350,6 @@ public class EditLog {
     public void logExportUpdateState(long jobId, ExportJob.JobState newState) {
         ExportJob.StateTransfer transfer = new ExportJob.StateTransfer(jobId, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
-    }
-
-    public void logUpdateClusterAndBackendState(BackendIdsUpdateInfo info) {
-        logEdit(OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS, info);
     }
 
     // for TransactionState
@@ -1461,8 +1413,16 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_FUNCTION, function);
     }
 
+    public void logAddGlobalFunction(Function function) {
+        logEdit(OperationType.OP_ADD_GLOBAL_FUNCTION, function);
+    }
+
     public void logDropFunction(FunctionSearchDesc function) {
         logEdit(OperationType.OP_DROP_FUNCTION, function);
+    }
+
+    public void logDropGlobalFunction(FunctionSearchDesc function) {
+        logEdit(OperationType.OP_DROP_GLOBAL_FUNCTION, function);
     }
 
     public void logAddEncryptKey(EncryptKey encryptKey) {
@@ -1530,6 +1490,18 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
     }
 
+    public void logAlterResourceGroup(ResourceGroup resourceGroup) {
+        logEdit(OperationType.OP_ALTER_RESOURCE_GROUP, resourceGroup);
+    }
+
+    public void logCreateResourceGroup(ResourceGroup resourceGroup) {
+        logEdit(OperationType.OP_CREATE_RESOURCE_GROUP, resourceGroup);
+    }
+
+    public void logDropResourceGroup(DropResourceGroupOperationLog operationLog) {
+        logEdit(OperationType.OP_DROP_RESOURCE_GROUP, operationLog);
+    }
+
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
         logEdit(OperationType.OP_ALTER_STORAGE_POLICY, storagePolicy);
     }
@@ -1576,6 +1548,10 @@ public class EditLog {
 
     public void logModifyInMemory(ModifyTablePropertyOperationLog info) {
         logEdit(OperationType.OP_MODIFY_IN_MEMORY, info);
+    }
+
+    public void logAlterLightSchemaChange(AlterLightSchemaChangeInfo info) {
+        logEdit(OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE, info);
     }
 
     public void logReplaceTempPartition(ReplacePartitionOperationLog info) {
@@ -1719,7 +1695,7 @@ public class EditLog {
     }
 
     public void logModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS, info);
+        logEdit(OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE, info);
     }
 
     public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {

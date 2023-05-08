@@ -20,8 +20,28 @@
 
 #include "vec/data_types/data_type_struct.h"
 
+#include <ctype.h>
+#include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <typeinfo>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -69,6 +89,7 @@ std::string DataTypeStruct::do_get_name() const {
         if (i != 0) {
             s << ", ";
         }
+        s << names[i] << ":";
         s << elems[i]->get_name();
     }
     s << ")";
@@ -344,7 +365,12 @@ MutableColumnPtr DataTypeStruct::create_column() const {
 }
 
 Field DataTypeStruct::get_default() const {
-    return Tuple();
+    size_t size = elems.size();
+    Tuple t;
+    for (size_t i = 0; i < size; ++i) {
+        t.push_back(elems[i]->get_default());
+    }
+    return t;
 }
 
 void DataTypeStruct::insert_default_into(IColumn& column) const {

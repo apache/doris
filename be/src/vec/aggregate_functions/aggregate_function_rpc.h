@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/function_service.pb.h>
+
 #include <cstdint>
 #include <memory>
 
 #include "common/status.h"
-#include "exprs/rpc_fn_comm.h"
-#include "gen_cpp/Exprs_types.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "runtime/exec_env.h"
@@ -33,13 +34,13 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
-#include "vec/common/exception.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function_rpc.h"
 #include "vec/io/io_helper.h"
 namespace doris::vectorized {
 
@@ -152,20 +153,10 @@ public:
                             int end, const DataTypes& argument_types) {
         for (int i = 0; i < argument_types.size(); i++) {
             PValues* arg = request.add_args();
-            if (auto* nullable = vectorized::check_and_get_column<const vectorized::ColumnNullable>(
-                        *columns[i])) {
-                auto data_col = nullable->get_nested_column_ptr();
-                auto& null_col = nullable->get_null_map_column();
-                auto data_type = std::reinterpret_pointer_cast<const vectorized::DataTypeNullable>(
-                        argument_types[i]);
-                data_col->get_data_at(0);
-                convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
-                                               data_type->get_nested_type(), null_col, arg, start,
-                                               end);
-
-            } else {
-                convert_col_to_pvalue<false>(columns[i]->convert_to_full_column_if_const(),
-                                             argument_types[i], arg, start, end);
+            auto data_type = argument_types[i];
+            if (auto st = data_type->get_serde()->write_column_to_pb(*columns[i], *arg, start, end);
+                st != Status::OK()) {
+                return st;
             }
         }
         return Status::OK();
@@ -358,7 +349,8 @@ public:
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data(argument_types.size());
         Status status = Status::OK();
-        RETURN_IF_STATUS_ERROR(status, data(place).init(_fn));
+        SAFE_CREATE(RETURN_IF_STATUS_ERROR(status, data(place).init(_fn)),
+                    this->data(place).~Data());
     }
 
     String get_name() const override { return _fn.name.function_name; }

@@ -17,7 +17,14 @@
 
 #include "vec/exec/scan/vscanner.h"
 
+#include <glog/logging.h>
+
+#include "common/config.h"
+#include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/vscan_node.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
@@ -33,10 +40,10 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, Runtim
     _is_load = (_input_tuple_desc != nullptr);
 }
 
-Status VScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+Status VScanner::prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr) {
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
+        RETURN_IF_ERROR(vconjunct_ctx_ptr->clone(_state, &_vconjunct_ctx));
     }
     return Status::OK();
 }

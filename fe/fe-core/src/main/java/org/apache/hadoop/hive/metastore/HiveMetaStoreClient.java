@@ -21,6 +21,7 @@ package org.apache.hadoop.hive.metastore;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.datasource.hive.HiveVersionUtil;
 import org.apache.doris.datasource.hive.HiveVersionUtil.HiveVersion;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -217,15 +218,15 @@ import org.apache.hadoop.hive.metastore.utils.SecurityUtils;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringUtils;
-import org.apache.thrift.TApplicationException;
-import org.apache.thrift.TException;
-import org.apache.thrift.protocol.TBinaryProtocol;
-import org.apache.thrift.protocol.TCompactProtocol;
-import org.apache.thrift.protocol.TProtocol;
-import org.apache.thrift.transport.TSocket;
-import org.apache.thrift.transport.TTransport;
-import org.apache.thrift.transport.TTransportException;
-import org.apache.thrift.transport.layered.TFramedTransport;
+import shade.doris.hive.org.apache.thrift.TApplicationException;
+import shade.doris.hive.org.apache.thrift.TException;
+import shade.doris.hive.org.apache.thrift.protocol.TBinaryProtocol;
+import shade.doris.hive.org.apache.thrift.protocol.TCompactProtocol;
+import shade.doris.hive.org.apache.thrift.protocol.TProtocol;
+import shade.doris.hive.org.apache.thrift.transport.TSocket;
+import shade.doris.hive.org.apache.thrift.transport.TTransport;
+import shade.doris.hive.org.apache.thrift.transport.TTransportException;
+import shade.doris.hive.org.apache.thrift.transport.TFramedTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -340,7 +341,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
       this.conf = new Configuration(conf);
     }
 
-    hiveVersion = HiveVersionUtil.getVersion(conf.get(HMSResource.HIVE_VERSION));
+    hiveVersion = HiveVersionUtil.getVersion(conf.get(HMSProperties.HIVE_VERSION));
 
     version = MetastoreConf.getBoolVar(conf, ConfVars.HIVE_IN_TEST) ? TEST_VERSION : VERSION;
     filterHook = loadFilterHooks();
@@ -653,12 +654,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
               throw new MetaException(e.toString());
             }
           } else {
-            try {
-              transport = new TSocket(store.getHost(), store.getPort(), clientSocketTimeout);
-            } catch (TTransportException e) {
-              tte = e;
-              throw new MetaException(e.toString());
-            }
+            transport = new TSocket(store.getHost(), store.getPort(), clientSocketTimeout);
           }
 
           if (useSasl) {
@@ -696,12 +692,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
             }
           } else {
             if (useFramedTransport) {
-              try {
-                transport = new TFramedTransport(transport);
-              } catch (TTransportException e) {
-                tte = e;
-                throw new MetaException(e.toString());
-              }
+              transport = new TFramedTransport(transport);
             }
           }
 

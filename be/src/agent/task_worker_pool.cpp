@@ -17,47 +17,66 @@
 
 #include "agent/task_worker_pool.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
-#include <pthread.h>
-#include <sys/stat.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <unistd.h>
 
-#include <boost/lexical_cast.hpp>
-#include <chrono>
-#include <csignal>
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <ctime>
+#include <functional>
 #include <memory>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "agent/utils.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "env/env.h"
-#include "gen_cpp/Types_types.h"
+#include "gutil/ref_counted.h"
+#include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/task/engine_alter_tablet_task.h"
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clone_task.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/engine_storage_migration_task.h"
+#include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
-#include "util/file_utils.h"
 #include "util/random.h"
+#include "util/s3_util.h"
 #include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
+#include "util/time.h"
 #include "util/trace.h"
 
 namespace doris {
@@ -274,6 +293,9 @@ bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_
     if (task_type == TTaskType::type::PUSH_STORAGE_POLICY ||
         task_type == TTaskType::type::PUSH_COOLDOWN_CONF) {
         // no need to report task of these types
+        return true;
+    }
+    if (signature == -1) { // No need to report task with unintialized signature
         return true;
     }
     std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
@@ -652,7 +674,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     // Check last schema change status, if failed delete tablet file
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
-    TTabletId new_tablet_id;
+    TTabletId new_tablet_id = 0;
     TSchemaHash new_schema_hash = 0;
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
@@ -825,6 +847,8 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                     _tasks.push_back(agent_task_req);
                     _worker_thread_condition_variable.notify_one();
                 }
+                LOG(INFO) << "wait for previous publish version task to be done"
+                          << "transaction_id: " << publish_version_req.transaction_id;
                 break;
             } else {
                 LOG_WARNING("failed to publish version")
@@ -944,7 +968,6 @@ void TaskWorkerPool::_clear_transaction_task_worker_thread_callback() {
 void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
-        TUpdateTabletMetaInfoReq update_tablet_meta_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             _worker_thread_condition_variable.wait(
@@ -952,68 +975,55 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
             if (!_is_work) {
                 return;
             }
-
             agent_task_req = _tasks.front();
-            update_tablet_meta_req = agent_task_req.update_tablet_meta_info_req;
             _tasks.pop_front();
         }
         LOG(INFO) << "get update tablet meta task. signature=" << agent_task_req.signature;
 
         Status status;
-
+        auto& update_tablet_meta_req = agent_task_req.update_tablet_meta_info_req;
         for (auto& tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                     tablet_meta_info.tablet_id);
             if (tablet == nullptr) {
-                LOG(WARNING) << "could not find tablet when update partition id. tablet_id="
-                             << tablet_meta_info.tablet_id
-                             << ", schema_hash=" << tablet_meta_info.schema_hash;
+                LOG(WARNING) << "could not find tablet when update tablet meta. tablet_id="
+                             << tablet_meta_info.tablet_id;
                 continue;
             }
-            std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
-            // update tablet meta
-            if (!tablet_meta_info.__isset.meta_type) {
-                tablet->set_partition_id(tablet_meta_info.partition_id);
-            } else {
-                switch (tablet_meta_info.meta_type) {
-                case TTabletMetaType::PARTITIONID: // FIXME(plat1ko): deprecate?
-                    tablet->set_partition_id(tablet_meta_info.partition_id);
-                    break;
-                case TTabletMetaType::INMEMORY:
-                    if (tablet_meta_info.__isset.storage_policy_id) {
-                        LOG(INFO) << "set tablet storage_policy_id="
-                                  << tablet_meta_info.storage_policy_id;
-                        tablet->tablet_meta()->set_storage_policy_id(
-                                tablet_meta_info.storage_policy_id);
-                    }
-                    if (tablet_meta_info.__isset.is_in_memory) {
-                        tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
-                                tablet_meta_info.is_in_memory);
-                        // The field is_in_memory should not be in the tablet_schema.
-                        // it should be in the tablet_meta.
-                        for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                            rowset_meta->tablet_schema()->set_is_in_memory(
-                                    tablet_meta_info.is_in_memory);
-                        }
-                        tablet->get_max_version_schema(wrlock)->set_is_in_memory(
-                                tablet_meta_info.is_in_memory);
-                    }
-                    break;
-                }
+            bool need_to_save = false;
+            if (tablet_meta_info.__isset.storage_policy_id) {
+                tablet->tablet_meta()->set_storage_policy_id(tablet_meta_info.storage_policy_id);
+                need_to_save = true;
             }
-            tablet->save_meta();
+            if (tablet_meta_info.__isset.is_in_memory) {
+                tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
+                        tablet_meta_info.is_in_memory);
+                std::shared_lock rlock(tablet->get_header_lock());
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_is_in_memory(tablet_meta_info.is_in_memory);
+                }
+                tablet->tablet_schema_unlocked()->set_is_in_memory(tablet_meta_info.is_in_memory);
+                need_to_save = true;
+            }
+            if (tablet_meta_info.__isset.replica_id) {
+                tablet->tablet_meta()->set_replica_id(tablet_meta_info.replica_id);
+            }
+            if (need_to_save) {
+                std::shared_lock rlock(tablet->get_header_lock());
+                tablet->save_meta();
+            }
         }
 
         LOG(INFO) << "finish update tablet meta task. signature=" << agent_task_req.signature;
-
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_task_status(status.to_thrift());
-        finish_task_request.__set_backend(_backend);
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
-
-        _finish_task(finish_task_request);
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+        if (agent_task_req.signature != -1) {
+            TFinishTaskRequest finish_task_request;
+            finish_task_request.__set_task_status(status.to_thrift());
+            finish_task_request.__set_backend(_backend);
+            finish_task_request.__set_task_type(agent_task_req.task_type);
+            finish_task_request.__set_signature(agent_task_req.signature);
+            _finish_task(finish_task_request);
+            _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+        }
     }
 }
 
@@ -1402,10 +1412,14 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
         std::map<int64_t, std::vector<std::string>> tablet_files;
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                 _env, upload_request.job_id, agent_task_req.signature, upload_request.broker_addr,
-                upload_request.broker_prop,
+                upload_request.broker_prop);
+        Status status = loader->init(
                 upload_request.__isset.storage_backend ? upload_request.storage_backend
-                                                       : TStorageBackendType::type::BROKER);
-        Status status = loader->upload(upload_request.src_dest_map, &tablet_files);
+                                                       : TStorageBackendType::type::BROKER,
+                upload_request.__isset.location ? upload_request.location : "");
+        if (status.ok()) {
+            status = loader->upload(upload_request.src_dest_map, &tablet_files);
+        }
 
         if (!status.ok()) {
             LOG_WARNING("failed to upload")
@@ -1454,10 +1468,14 @@ void TaskWorkerPool::_download_worker_thread_callback() {
 
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                 _env, download_request.job_id, agent_task_req.signature,
-                download_request.broker_addr, download_request.broker_prop,
+                download_request.broker_addr, download_request.broker_prop);
+        Status status = loader->init(
                 download_request.__isset.storage_backend ? download_request.storage_backend
-                                                         : TStorageBackendType::type::BROKER);
-        Status status = loader->download(download_request.src_dest_map, &downloaded_tablet_ids);
+                                                         : TStorageBackendType::type::BROKER,
+                download_request.__isset.location ? download_request.location : "");
+        if (status.ok()) {
+            status = loader->download(download_request.src_dest_map, &downloaded_tablet_ids);
+        }
 
         if (!status.ok()) {
             LOG_WARNING("failed to download")
@@ -1509,10 +1527,16 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
             // list and save all snapshot files
             // snapshot_path like: data/snapshot/20180417205230.1.86400
             // we need to add subdir: tablet_id/schema_hash/
-            std::stringstream ss;
-            ss << snapshot_path << "/" << snapshot_request.tablet_id << "/"
-               << snapshot_request.schema_hash << "/";
-            status = FileUtils::list_files(Env::Default(), ss.str(), &snapshot_files);
+            std::vector<io::FileInfo> files;
+            bool exists = true;
+            io::Path path = fmt::format("{}/{}/{}/", snapshot_path, snapshot_request.tablet_id,
+                                        snapshot_request.schema_hash);
+            status = io::global_local_filesystem()->list(path, true, &files, &exists);
+            if (status.ok()) {
+                for (auto& file : files) {
+                    snapshot_files.push_back(file.file_name);
+                }
+            }
         }
         if (!status.ok()) {
             LOG_WARNING("failed to make snapshot")
@@ -1767,6 +1791,7 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                 continue;
             }
             if (resource.__isset.s3_storage_param) {
+                Status st;
                 S3Conf s3_conf;
                 s3_conf.ak = std::move(resource.s3_storage_param.ak);
                 s3_conf.sk = std::move(resource.s3_storage_param.sk);
@@ -1777,14 +1802,13 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                 s3_conf.connect_timeout_ms = resource.s3_storage_param.conn_timeout_ms;
                 s3_conf.max_connections = resource.s3_storage_param.max_conn;
                 s3_conf.request_timeout_ms = resource.s3_storage_param.request_timeout_ms;
-                std::shared_ptr<io::S3FileSystem> s3_fs;
+                std::shared_ptr<io::S3FileSystem> fs;
                 if (existed_resource.fs == nullptr) {
-                    s3_fs = io::S3FileSystem::create(s3_conf, std::to_string(resource.id));
+                    st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), &fs);
                 } else {
-                    s3_fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
-                    s3_fs->set_conf(s3_conf);
+                    fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
+                    fs->set_conf(s3_conf);
                 }
-                auto st = s3_fs->connect();
                 if (!st.ok()) {
                     LOG(WARNING) << "update s3 resource failed: " << st;
                 } else {
@@ -1792,7 +1816,7 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                             .tag("resource_id", resource.id)
                             .tag("resource_name", resource.name)
                             .tag("s3_conf", s3_conf.to_string());
-                    put_storage_resource(resource.id, {std::move(s3_fs), resource.version});
+                    put_storage_resource(resource.id, {std::move(fs), resource.version});
                 }
             } else {
                 LOG(WARNING) << "unknown resource=" << resource;

@@ -27,10 +27,15 @@ suite("test_uniq_delete_sign_schema_change", "schema_change") {
                 value3 INT
             )
             UNIQUE KEY (k1)
-            DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "light_schema_change" = "true");
+            DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "light_schema_change" = "false");
         """
     sql "insert into ${tbName1} values(1,1,1,1);"
     sql "insert into ${tbName1} values(1,1,1,2);"
+    qt_sql "select * from ${tbName1} order by k1;"
+
+    // alter and test light schema change
+    sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+
     sql "insert into ${tbName1} values(2,2,2,2);"
     sql "insert into ${tbName1} values(3,3,3,3);"
     sql "insert into ${tbName1} values(4,4,4,4);"

@@ -17,27 +17,31 @@
 
 #pragma once
 
-#include <rapidjson/prettywriter.h>
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <future>
-#include <sstream>
+#include <map>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
-#include "gen_cpp/BackendService_types.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "io/fs/stream_load_pipe.h"
 #include "runtime/exec_env.h"
-#include "runtime/message_body_sink.h"
-#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "service/backend_options.h"
-#include "util/string_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
+namespace io {
+class StreamLoadPipe;
+} // namespace io
 
 // kafka related info
 class KafkaLoadInfo {
@@ -83,6 +87,8 @@ public:
 class MessageBodySink;
 
 class StreamLoadContext {
+    ENABLE_FACTORY_CREATOR(StreamLoadContext);
+
 public:
     StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();

@@ -360,6 +360,10 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 break;
             } catch (InsufficientLogException insufficientLogEx) {
                 reSetupBdbEnvironment(insufficientLogEx);
+            } catch (RollbackException rollbackEx) {
+                LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
+                bdbEnvironment.closeReplicatedEnvironment();
+                bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));
             }
         }
     }
@@ -371,10 +375,25 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         // ATTN: here we use `getServingEnv()`, because only serving catalog has
         // helper nodes.
         HostInfo helperNode = Env.getServingEnv().getHelperNode();
-        NetworkRestore restore = new NetworkRestore();
-        NetworkRestoreConfig config = new NetworkRestoreConfig();
-        config.setRetainLogFiles(false);
-        restore.execute(insufficientLogEx, config);
+
+        for (int i = 0; i < RETRY_TIME; i++) {
+            try {
+                NetworkRestore restore = new NetworkRestore();
+                NetworkRestoreConfig config = new NetworkRestoreConfig();
+                config.setRetainLogFiles(false);
+                restore.execute(insufficientLogEx, config);
+                break;
+            } catch (Exception e) {
+                LOG.warn("retry={}, reSetupBdbEnvironment exception:", i, e);
+                try {
+                    Thread.sleep(5 * 1000);
+                    LOG.warn("after sleep insufficientLogEx:", insufficientLogEx);
+                } catch (InterruptedException e1) {
+                    LOG.warn("InterruptedException", e1);
+                }
+            }
+        }
+
         bdbEnvironment.close();
         bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
                 helperNode.getIp() + ":" + helperNode.getPort(), Env.getServingEnv().isElectable());

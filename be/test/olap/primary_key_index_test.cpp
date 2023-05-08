@@ -17,11 +17,23 @@
 
 #include "olap/primary_key_index.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/stringprintf.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
-#include "util/file_utils.h"
+#include "olap/types.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
@@ -30,15 +42,10 @@ using namespace ErrorCode;
 class PrimaryKeyIndexTest : public testing::Test {
 public:
     void SetUp() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
     }
     void TearDown() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
 private:
@@ -67,10 +74,10 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 
-    FilePathDesc path_desc(filename);
+    io::FilePathDesc path_desc(filename);
     PrimaryKeyIndexReader index_reader;
     io::FileReaderSPtr file_reader;
-    EXPECT_TRUE(fs->open_file(filename, &file_reader, nullptr).ok());
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
     EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta).ok());
     EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta).ok());
     EXPECT_EQ(num_rows, index_reader.num_rows());
@@ -131,21 +138,20 @@ TEST_F(PrimaryKeyIndexTest, builder) {
         std::string last_key;
         int num_batch = 0;
         int batch_size = 1024;
-        MemPool pool;
         while (remaining > 0) {
             std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
-            DCHECK(index_reader.new_iterator(&iter).ok());
+            EXPECT_TRUE(index_reader.new_iterator(&iter).ok());
 
             size_t num_to_read = std::min(batch_size, remaining);
             auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
                     index_reader.type_info()->type(), 1, 0);
             auto index_column = index_type->create_column();
             Slice last_key_slice(last_key);
-            DCHECK(iter->seek_at_or_after(&last_key_slice, &exact_match).ok());
+            EXPECT_TRUE(iter->seek_at_or_after(&last_key_slice, &exact_match).ok());
 
             size_t num_read = num_to_read;
-            DCHECK(iter->next_batch(&num_read, index_column).ok());
-            DCHECK(num_to_read == num_read);
+            EXPECT_TRUE(iter->next_batch(&num_read, index_column).ok());
+            EXPECT_EQ(num_to_read, num_read);
             last_key = index_column->get_data_at(num_read - 1).to_string();
             // exclude last_key, last_key will be read in next batch.
             if (num_read == batch_size && num_read != remaining) {

@@ -367,6 +367,10 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof IntegralType && !(this instanceof LargeIntType);
     }
 
+    public boolean isFloatLikeType() {
+        return this.isFloatType() || isDoubleType() || isDecimalLikeType();
+    }
+
     public boolean isTinyIntType() {
         return this instanceof TinyIntType;
     }
@@ -491,12 +495,24 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof HllType;
     }
 
+    public boolean isComplexType() {
+        return !isPrimitive();
+    }
+
     public boolean isArrayType() {
         return this instanceof ArrayType;
     }
 
+    public boolean isMapType() {
+        return this instanceof MapType;
+    }
+
+    public boolean isStructType() {
+        return this instanceof StructType;
+    }
+
     public boolean isOnlyMetricType() {
-        return isObjectType() || isArrayType();
+        return isObjectType() || isComplexType() || isJsonType();
     }
 
     public boolean isObjectType() {
@@ -586,5 +602,9 @@ public abstract class DataType implements AbstractDataType {
         public Map<Class<? extends DataType>, Promotion<DataType>> build() {
             return (Map) ImmutableMap.copyOf(promotionMap);
         }
+    }
+
+    public double rangeLength(double high, double low) {
+        return high - low;
     }
 }

@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 /** CheckLegalityBeforeTypeCoercion */

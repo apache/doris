@@ -15,11 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <atomic>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <memory>
+#include <string>
+#include <thread>
+
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/lru_cache.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
-#include "util/file_utils.h"
 #include "util/time.h"
 
 namespace doris {
@@ -36,15 +47,10 @@ public:
     const std::string kTestDir = "./ut_dir/invertedInvertedIndexSearcherCache::instance()_test";
 
     void SetUp() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
     }
     void TearDown() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 };
 
@@ -291,6 +297,74 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
         InvertedIndexCacheHandle cache_handle;
         // lookup key_4
         EXPECT_TRUE(index_searcher_cache->_lookup(key_4, &cache_handle));
+    }
+
+    delete index_searcher_cache;
+}
+
+TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
+    InvertedIndexSearcherCache* index_searcher_cache =
+            new InvertedIndexSearcherCache(kCacheSize, 1);
+    // no need evict
+    std::string file_name_1 = "test_1.idx";
+    InvertedIndexSearcherCache::CacheKey key_1(file_name_1);
+    IndexCacheValuePtr cache_value_1 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
+    cache_value_1->size = 200;
+    cache_value_1->index_searcher = nullptr;
+    cache_value_1->last_visit_time = 10;
+    index_searcher_cache->_cache->release(
+            index_searcher_cache->_insert(key_1, cache_value_1.release()));
+
+    std::string file_name_2 = "test_2.idx";
+    InvertedIndexSearcherCache::CacheKey key_2(file_name_2);
+    IndexCacheValuePtr cache_value_2 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
+
+    // lookup key_1, insert key_2, release key_2, release key_1
+    {
+        InvertedIndexCacheHandle cache_handle;
+        // lookup key_1
+        EXPECT_TRUE(index_searcher_cache->_lookup(key_1, &cache_handle));
+
+        // insert key_2, and then evict {key_1, cache_value_1}
+        cache_value_2->size = 800;
+        cache_value_2->index_searcher = nullptr;
+        cache_value_2->last_visit_time = 20;
+        index_searcher_cache->_cache->release(
+                index_searcher_cache->_insert(key_2, cache_value_2.release()));
+
+        // lookup key_2, key_2 has removed from table due to cache is full
+        {
+            InvertedIndexCacheHandle cache_handle;
+            EXPECT_FALSE(index_searcher_cache->_lookup(key_2, &cache_handle));
+        }
+    }
+
+    // lookup key_1 exist
+    {
+        InvertedIndexCacheHandle cache_handle;
+        EXPECT_TRUE(index_searcher_cache->_lookup(key_1, &cache_handle));
+    }
+
+    // lookup key_2 not exist, then insert into cache, and evict key_1
+    OlapReaderStatistics stats;
+    {
+        InvertedIndexCacheHandle inverted_index_cache_handle;
+        auto status = index_searcher_cache->get_index_searcher(
+                fs, kTestDir, file_name_2, &inverted_index_cache_handle, &stats);
+        EXPECT_EQ(Status::OK(), status);
+        EXPECT_FALSE(inverted_index_cache_handle.owned);
+    }
+    // lookup key_2 again
+    {
+        InvertedIndexCacheHandle inverted_index_cache_handle;
+        auto status = index_searcher_cache->get_index_searcher(
+                fs, kTestDir, file_name_2, &inverted_index_cache_handle, &stats);
+        EXPECT_EQ(Status::OK(), status);
+        EXPECT_FALSE(inverted_index_cache_handle.owned);
+        auto cache_value_use_cache =
+                (InvertedIndexSearcherCache::CacheValue*)(inverted_index_cache_handle._cache)
+                        ->value(inverted_index_cache_handle._handle);
+        EXPECT_LT(UnixMillis(), cache_value_use_cache->last_visit_time);
     }
 
     delete index_searcher_cache;

@@ -17,21 +17,47 @@
 
 #include "olap/rowid_conversion.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-param-test.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
 
-#include "olap/data_dir.h"
+#include <memory>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/strings/numbers.h"
+#include "io/fs/local_file_system.h"
+#include "io/io_common.h"
 #include "olap/delete_handler.h"
 #include "olap/merger.h"
+#include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "util/file_utils.h"
+#include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -45,21 +71,17 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
-
-        if (FileUtils::check_exist(absolute_dir)) {
-            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(absolute_dir).ok());
-        EXPECT_TRUE(FileUtils::create_dir(absolute_dir + "/tablet_path").ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->create_directory(absolute_dir + "/tablet_path")
+                            .ok());
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
         StorageEngine::_s_instance = k_engine;
     }
 
     void TearDown() override {
-        if (FileUtils::check_exist(absolute_dir)) {
-            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
         if (k_engine != nullptr) {
             k_engine->stop();
             delete k_engine;

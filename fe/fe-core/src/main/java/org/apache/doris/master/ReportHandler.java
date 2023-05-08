@@ -18,6 +18,7 @@
 package org.apache.doris.master;
 
 
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -80,16 +81,17 @@ import org.apache.doris.thrift.TStorageResource;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
+import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang.StringUtils;
-import org.apache.commons.lang3.tuple.Triple;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -418,7 +420,7 @@ public class ReportHandler extends Daemon {
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
 
-        List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
+        List<TTabletMetaInfo> tabletToUpdate = Lists.newArrayList();
 
         List<CooldownConf> cooldownConfToPush = new LinkedList<>();
         List<CooldownConf> cooldownConfToUpdate = new LinkedList<>();
@@ -432,7 +434,7 @@ public class ReportHandler extends Daemon {
                 transactionsToPublish,
                 transactionsToClear,
                 tabletRecoveryMap,
-                tabletToInMemory,
+                tabletToUpdate,
                 cooldownConfToPush,
                 cooldownConfToUpdate);
 
@@ -472,9 +474,9 @@ public class ReportHandler extends Daemon {
             handleRecoverTablet(tabletRecoveryMap, backendTablets, backendId);
         }
 
-        // 9. send set tablet in memory to be
-        if (!tabletToInMemory.isEmpty()) {
-            handleSetTabletInMemory(backendId, tabletToInMemory);
+        // 9. send tablet meta to be for updating
+        if (!tabletToUpdate.isEmpty()) {
+            handleUpdateTabletMeta(backendId, tabletToUpdate);
         }
 
         // handle cooldown conf
@@ -1030,10 +1032,14 @@ public class ReportHandler extends Daemon {
         }
     }
 
-    private static void handleSetTabletInMemory(long backendId, List<Triple<Long, Integer, Boolean>> tabletToInMemory) {
+    private static void handleUpdateTabletMeta(long backendId, List<TTabletMetaInfo> tabletToUpdate) {
+        final int updateBatchSize = 4096;
         AgentBatchTask batchTask = new AgentBatchTask();
-        UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId, tabletToInMemory);
-        batchTask.addTask(task);
+        for (int start = 0; start < tabletToUpdate.size(); start += updateBatchSize) {
+            UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId,
+                    tabletToUpdate.subList(start, Math.min(start + updateBatchSize, tabletToUpdate.size())));
+            batchTask.addTask(task);
+        }
         AgentTaskExecutor.submit(batchTask);
     }
 
@@ -1115,8 +1121,18 @@ public class ReportHandler extends Daemon {
 
             // colocate table will delete Replica in meta when balance
             // but we need to rely on MetaNotFoundException to decide whether delete the tablet in backend
-            if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-                return true;
+            // if the tablet is healthy, delete it.
+            ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+            if (colocateTableIndex.isColocateTable(olapTable.getId())) {
+                ColocateTableIndex.GroupId groupId = colocateTableIndex.getGroup(tableId);
+                Preconditions.checkState(groupId != null,
+                        "can not get colocate group for %s", tableId);
+                int tabletOrderIdx = materializedIndex.getTabletOrderIdx(tabletId);
+                Preconditions.checkState(tabletOrderIdx != -1, "get tablet materializedIndex for %s fail", tabletId);
+                Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
+                TabletStatus status =
+                        tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
+                return status != TabletStatus.HEALTHY;
             }
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();

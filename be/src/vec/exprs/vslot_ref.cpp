@@ -17,9 +17,22 @@
 
 #include "vec/exprs/vslot_ref.h"
 
-#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <glog/logging.h>
 
+#include <ostream>
+#include <vector>
+
+#include "common/status.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "vec/core/block.h"
+
+namespace doris {
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -41,7 +54,9 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     }
     const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
     if (slot_desc == nullptr) {
-        return Status::InternalError("couldn't resolve slot descriptor {}", _slot_id);
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "couldn't resolve slot descriptor {}, desc: {}", _slot_id,
+                state->desc_tbl().debug_string());
     }
     _column_name = &slot_desc->col_name();
     if (!slot_desc->need_materialize()) {
@@ -51,8 +66,8 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     }
     _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
-        return Status::InternalError(
-                "VSlotRef have invalid slot id: {}, desc: {}, slot_desc: {}, desc_tbl: {}",
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "VSlotRef {} have invalid slot id: {}, desc: {}, slot_desc: {}, desc_tbl: {}",
                 *_column_name, _slot_id, desc.debug_string(), slot_desc->debug_string(),
                 state->desc_tbl().debug_string());
     }
@@ -60,6 +75,11 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
+    if (_column_id >= 0 && _column_id >= block->columns()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "input block not contain slot column {}, column_id={}, block={}", *_column_name,
+                _column_id, block->dump_structure());
+    }
     *result_column_id = _column_id;
     return Status::OK();
 }

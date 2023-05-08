@@ -17,25 +17,63 @@
 
 #include "olap/rowset/segment_v2/segment_iterator.h"
 
+#include <assert.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
 #include <memory>
+#include <numeric>
 #include <set>
 #include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
+#include "common/object_pool.h"
 #include "common/status.h"
+#include "io/io_common.h"
 #include "olap/column_predicate.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/primary_key_index.h"
+#include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/short_key_index.h"
+#include "olap/tablet_schema.h"
+#include "olap/types.h"
+#include "olap/utils.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_predicate.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 
@@ -157,7 +195,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema&
           _lazy_materialization_read(false),
           _inited(false),
           _estimate_row_size(true),
-          _wait_times_estimate_row_size(10) {}
+          _wait_times_estimate_row_size(10),
+          _pool(new ObjectPool) {}
 
 SegmentIterator::~SegmentIterator() {
     for (auto iter : _column_iterators) {
@@ -173,9 +212,19 @@ SegmentIterator::~SegmentIterator() {
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     _opts = opts;
-    if (!opts.column_predicates.empty()) {
-        _col_predicates = opts.column_predicates;
+
+    _col_predicates.clear();
+    for (auto& predicate : opts.column_predicates) {
+        if (predicate->need_to_clone()) {
+            ColumnPredicate* cloned;
+            predicate->clone(&cloned);
+            _pool->add(cloned);
+            _col_predicates.emplace_back(cloned);
+        } else {
+            _col_predicates.emplace_back(predicate);
+        }
     }
+
     // Read options will not change, so that just resize here
     _block_rowids.resize(_opts.block_row_max);
     if (!opts.column_predicates_except_leafnode_of_andnode.empty()) {
@@ -214,7 +263,7 @@ Status SegmentIterator::_init() {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
-    _vec_init_lazy_materialization();
+    RETURN_IF_ERROR(_vec_init_lazy_materialization());
     _vec_init_char_column_id();
     // Remove rows that have been marked deleted
     if (_opts.delete_bitmap.count(segment_id()) > 0 &&
@@ -337,7 +386,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_fragments_ctx();
+        auto query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
     }
 
@@ -397,7 +446,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_fragments_ctx();
+        auto query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
         if (runtime_predicate) {
             int32_t cid = _opts.tablet_schema->column(runtime_predicate->column_id()).unique_id();
@@ -710,8 +759,7 @@ bool SegmentIterator::_column_has_fulltext_index(int32_t unique_id) {
 }
 
 inline bool SegmentIterator::_inverted_index_not_support_pred_type(const PredicateType& type) {
-    return type == PredicateType::IS_NULL || type == PredicateType::IS_NOT_NULL ||
-           type == PredicateType::BF || type == PredicateType::BITMAP_FILTER;
+    return type == PredicateType::BF || type == PredicateType::BITMAP_FILTER;
 }
 
 #define all_predicates_are_range_predicate(predicate_set)   \
@@ -841,13 +889,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
-    int32_t unique_id = _schema.unique_id(cid);
-    if (_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id] &&
-        _output_columns.count(unique_id) < 1) {
-        VLOG_DEBUG << "SegmentIterator no need read data for column: "
-                   << _opts.tablet_schema->column_by_uid(unique_id).name();
-        return false;
-    }
+    // TODO(xk) impl right logic
     return true;
 }
 
@@ -1140,7 +1182,7 @@ Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, r
  */
 
 // todo(wb) need a UT here
-void SegmentIterator::_vec_init_lazy_materialization() {
+Status SegmentIterator::_vec_init_lazy_materialization() {
     _is_pred_column.resize(_schema.columns().size(), false);
 
     // including short/vec/delete pred
@@ -1168,8 +1210,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     //  all rows should be read, so runtime predicate will reduce rows for topn node
     if (_opts.use_topn_opt &&
         !(_opts.read_orderby_key_columns != nullptr && !_opts.read_orderby_key_columns->empty())) {
-        auto& runtime_predicate =
-                _opts.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+        auto& runtime_predicate = _opts.runtime_state->get_query_ctx()->get_runtime_predicate();
         _runtime_predicate = runtime_predicate.get_predictate();
         if (_runtime_predicate) {
             _col_predicates.push_back(_runtime_predicate.get());
@@ -1228,7 +1269,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     // Step2: extract columns that can execute expr context
     _is_common_expr_column.resize(_schema.columns().size(), false);
     if (_enable_common_expr_pushdown && _remaining_vconjunct_root != nullptr) {
-        _extract_common_expr_columns(_remaining_vconjunct_root);
+        RETURN_IF_ERROR(_extract_common_expr_columns(_remaining_vconjunct_root));
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
             for (auto cid : _schema.column_ids()) {
@@ -1304,6 +1345,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             }
         }
     }
+    return Status::OK();
 }
 
 bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
@@ -1316,11 +1358,13 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     case PredicateType::LT:
     case PredicateType::GE:
     case PredicateType::GT: {
-        if (field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
-            field_type == OLAP_FIELD_TYPE_STRING) {
+        if (field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+            field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+            field_type == FieldType::OLAP_FIELD_TYPE_STRING) {
             return config::enable_low_cardinality_optimize &&
+                   _opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
                    _column_iterators[_schema.unique_id(cid)]->is_all_dict_encoding();
-        } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
+        } else if (field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
             return false;
         }
         return true;
@@ -1336,13 +1380,13 @@ void SegmentIterator::_vec_init_char_column_id() {
         auto column_desc = _schema.column(cid);
 
         do {
-            if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
+            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
                 _char_type_idx.emplace_back(i);
                 if (i != 0) {
                     _char_type_idx_no_0.emplace_back(i);
                 }
                 break;
-            } else if (column_desc->type() != OLAP_FIELD_TYPE_ARRAY) {
+            } else if (column_desc->type() != FieldType::OLAP_FIELD_TYPE_ARRAY) {
                 break;
             }
             // for Array<Char> or Array<Array<Char>>
@@ -1379,7 +1423,10 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
             continue;
         }
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->next_batch(&rows_read, column));
-        DCHECK_EQ(nrows, rows_read);
+        if (nrows != rows_read) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})", nrows,
+                                                            rows_read);
+        }
     }
     return Status::OK();
 }
@@ -1399,11 +1446,11 @@ void SegmentIterator::_init_current_block(
         } else { // non-predicate column
             current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
 
-            if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
+            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
+            } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                 current_columns[cid]->set_datetime_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DECIMAL) {
+            } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
                 current_columns[cid]->set_decimalv2_type();
             }
             current_columns[cid]->reserve(_opts.block_row_max);
@@ -1540,6 +1587,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
         }
     }
 
+    _opts.stats->vec_cond_input_rows += original_size;
     _opts.stats->rows_vec_cond_filtered += original_size - new_size;
     return new_size;
 }
@@ -1557,7 +1605,8 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
         auto& short_cir_column = _current_return_columns[column_id];
         selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
     }
-    _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
+    _opts.stats->short_circuit_cond_input_rows += original_size;
+    _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
 
     // evaluate delete condition
     original_size = selected_size;
@@ -1589,6 +1638,11 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
+    RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); });
+    return Status::OK();
+}
+
+Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
 
@@ -1604,7 +1658,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] = Schema::get_predicate_column_ptr(*column_desc);
+                _current_return_columns[cid] =
+                        Schema::get_predicate_column_ptr(*column_desc, _opts.io_ctx.reader_type);
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
@@ -1636,8 +1691,9 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     }
     _split_row_ranges.clear();
     _split_row_ranges.reserve(nrows_read_limit / 2);
-    _read_columns_by_index(nrows_read_limit, _current_batch_rows_read,
-                           _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval);
+    RETURN_IF_ERROR(_read_columns_by_index(
+            nrows_read_limit, _current_batch_rows_read,
+            _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
     if (std::find(_first_read_column_ids.begin(), _first_read_column_ids.end(),
                   _schema.version_col_idx()) != _first_read_column_ids.end()) {
         _replace_version_col(_current_batch_rows_read);
@@ -1751,12 +1807,12 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                 auto col_const =
                         vectorized::ColumnConst::create(std::move(res_column), selected_size);
                 block->replace_by_position(0, std::move(col_const));
-                _output_index_result_column(nullptr, 0, block);
+                _output_index_result_column(sel_rowid_idx, selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                 RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
                 block->replace_by_position(0, std::move(col0));
             } else {
-                _output_index_result_column(nullptr, 0, block);
+                _output_index_result_column(sel_rowid_idx, selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx);
                 RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
             }
@@ -1858,7 +1914,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
         }
 
         selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
-        vectorized::Block::filter_block_internal(block, _columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(
+                vectorized::Block::filter_block_internal(block, _columns_to_filter, filter));
     } else if (auto* const_column =
                        vectorized::check_and_get_column<vectorized::ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
@@ -1874,7 +1931,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
                         *filter_column)
                         .get_data();
         selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
-        vectorized::Block::filter_block_internal(block, _columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(
+                vectorized::Block::filter_block_internal(block, _columns_to_filter, filter));
     }
     return Status::OK();
 }
@@ -1929,6 +1987,7 @@ void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint1
     }
 
     for (auto& iter : _rowid_result_for_index) {
+        _columns_to_filter.push_back(block->columns());
         block->insert({vectorized::ColumnUInt8::create(),
                        std::make_shared<vectorized::DataTypeUInt8>(), iter.first});
         if (!iter.second.first) {
@@ -1989,7 +2048,7 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary() {
     }
 
     for (auto column_id : _delete_bloom_filter_column_ids) {
-        _current_return_columns[column_id].get()->generate_hash_values_for_runtime_filter();
+        _current_return_columns[column_id].get()->initialize_hash_values_for_runtime_filter();
     }
 }
 
@@ -2001,7 +2060,7 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
     if (PredicateTypeTraits::is_range(predicate->type())) {
         col_ptr->convert_dict_codes_if_necessary();
     } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
-        col_ptr->generate_hash_values_for_runtime_filter();
+        col_ptr->initialize_hash_values_for_runtime_filter();
     }
 }
 

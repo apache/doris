@@ -17,14 +17,31 @@
 
 #pragma once
 
-#include "runtime/runtime_state.h"
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
+#include "common/factory_creator.h"
+#include "common/global_types.h"
+#include "common/status.h"
 #include "util/runtime_profile.h"
-#include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/exec/vjdbc_connector.h"
+
 namespace doris {
+class RuntimeState;
+class TupleDescriptor;
+
 namespace vectorized {
+class Block;
+class NewJdbcScanNode;
+class VExprContext;
+
 class NewJdbcScanner : public VScanner {
+    ENABLE_FACTORY_CREATOR(NewJdbcScanner);
+
 public:
     friend class JdbcConnector;
 
@@ -35,7 +52,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+    Status prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;

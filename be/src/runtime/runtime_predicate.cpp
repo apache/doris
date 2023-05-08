@@ -17,20 +17,30 @@
 
 #include "runtime/runtime_predicate.h"
 
+#include <stdint.h>
+
+#include <memory>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "olap/accept_null_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/predicate_creator.h"
 
 namespace doris {
 
 namespace vectorized {
 
-Status RuntimePredicate::init(const PrimitiveType type) {
+Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
     if (_inited) {
         return Status::OK();
     }
 
-    _predicate_mem_pool.reset(new MemPool());
+    _nulls_first = nulls_first;
+
+    _predicate_arena.reset(new Arena());
 
     // set get value function
     switch (type) {
@@ -111,6 +121,15 @@ Status RuntimePredicate::init(const PrimitiveType type) {
 }
 
 Status RuntimePredicate::update(const Field& value, const String& col_name, bool is_reverse) {
+    // skip null value
+    if (value.is_null()) {
+        return Status::OK();
+    }
+
+    if (!_inited) {
+        return Status::OK();
+    }
+
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
     // TODO why null
@@ -139,19 +158,31 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
         return Status::OK();
     }
 
-    TCondition condition;
-    condition.__set_column_name(col_name);
-    condition.__set_column_unique_id(_tablet_schema->column(col_name).unique_id());
-    condition.__set_condition_op(is_reverse ? ">=" : "<=");
-
-    // get value string from _orderby_extrem and push back to condition_values
-    condition.condition_values.push_back(_get_value_fn(_orderby_extrem));
-
-    VLOG_DEBUG << "update runtime predicate condition " << condition;
-
     // update _predictate
-    _predictate.reset(
-            parse_to_predicate(_tablet_schema, condition, _predicate_mem_pool.get(), false));
+    int32_t col_unique_id = _tablet_schema->column(col_name).unique_id();
+    const TabletColumn& column = _tablet_schema->column_by_uid(col_unique_id);
+    uint32_t index = _tablet_schema->field_index(col_unique_id);
+    auto val = _get_value_fn(_orderby_extrem);
+    std::unique_ptr<ColumnPredicate> pred {nullptr};
+    if (is_reverse) {
+        // For DESC sort, create runtime predicate col_name >= min_top_value
+        // since values that < min_top_value are less than any value in current topn values
+        pred.reset(create_comparison_predicate<PredicateType::GE>(column, index, val, false,
+                                                                  _predicate_arena.get()));
+    } else {
+        // For ASC  sort, create runtime predicate col_name <= max_top_value
+        // since values that > min_top_value are large than any value in current topn values
+        pred.reset(create_comparison_predicate<PredicateType::LE>(column, index, val, false,
+                                                                  _predicate_arena.get()));
+    }
+
+    // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
+    // since ORDER BY ASC/DESC should get NULL first but pred returns NULL
+    // and NULL in where predicate will be treated as FALSE
+    if (_nulls_first) {
+        pred = AcceptNullPredicate::create_unique(pred.release());
+    }
+    _predictate.reset(pred.release());
 
     return Status::OK();
 }

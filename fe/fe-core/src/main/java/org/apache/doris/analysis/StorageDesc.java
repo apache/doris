@@ -17,77 +17,52 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.S3Resource;
-import org.apache.doris.common.Config;
-
-import org.apache.commons.collections.map.CaseInsensitiveMap;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.http.client.utils.URIBuilder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.Map;
 
-public abstract class StorageDesc {
-    private static final Logger LOG = LoggerFactory.getLogger(StorageBackend.class);
-    // for bos
-    public static final String BOS_ENDPOINT = "bos_endpoint";
-    public static final String BOS_ACCESS_KEY = "bos_accesskey";
-    public static final String BOS_SECRET_ACCESS_KEY = "bos_secret_accesskey";
 
+/**
+ * Describe storage properties
+ * The structure diagram is divided into three levels:
+ *            StorageDesc
+ *          /            \
+ *    BrokerDesc        The other StorageBackend.StorageType desc
+ *        |
+ *  The broker's StorageBackend.StorageType desc
+ */
+public class StorageDesc {
+    protected String name;
     protected StorageBackend.StorageType storageType;
     protected Map<String, String> properties;
-    protected String name;
-    protected boolean convertedToS3 = false;
 
-    protected void tryConvertToS3() {
-        if (!Config.enable_access_file_without_broker || storageType != StorageBackend.StorageType.BROKER) {
-            return;
-        }
-        CaseInsensitiveMap ciProperties = new CaseInsensitiveMap();
-        ciProperties.putAll(properties);
-        if (StringUtils.isNotEmpty(ciProperties.get(BOS_ENDPOINT).toString())
-                && StringUtils.isNotEmpty(ciProperties.get(BOS_ACCESS_KEY).toString())
-                && StringUtils.isNotEmpty(ciProperties.get(BOS_SECRET_ACCESS_KEY).toString())) {
-            // bos endpoint like http[s]://gz.bcebos.com, we want to extract region gz,
-            // and convert to s3 endpoint http[s]://s3.gz.bcebos.com
-            String bosEndpiont = ciProperties.get(BOS_ENDPOINT).toString();
-            try {
-                URI uri = new URI(bosEndpiont);
-                String host = uri.getHost();
-                String[] hostSplit = host.split("\\.");
-                if (hostSplit.length < 3) {
-                    return;
-                }
-                String region = hostSplit[0];
-                String s3Endpoint = new URIBuilder(uri).setHost("s3." + host).build().toString();
-                properties.clear();
-                properties.put(S3Resource.S3_ENDPOINT, s3Endpoint);
-                properties.put(S3Resource.S3_REGION, region);
-                properties.put(S3Resource.S3_ACCESS_KEY, ciProperties.get(BOS_ACCESS_KEY).toString());
-                properties.put(S3Resource.S3_SECRET_KEY, ciProperties.get(BOS_SECRET_ACCESS_KEY).toString());
-                storageType = StorageBackend.StorageType.S3;
-                convertedToS3 = true;
-                LOG.info("skip BROKER and access S3 directly.");
-            } catch (URISyntaxException e) {
-                LOG.warn(BOS_ENDPOINT + ": " + bosEndpiont + " is invalid.");
-            }
-        }
+    public StorageDesc() {}
+
+    public StorageDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
+        this.name = name;
+        this.storageType = storageType;
+        this.properties = properties;
     }
 
-    protected String convertPathToS3(String path) {
-        if (!convertedToS3) {
-            return path;
-        }
-        try {
-            URI orig = new URI(path);
-            URI s3url = new URI("s3", orig.getRawAuthority(),
-                    orig.getRawPath(), orig.getRawQuery(), orig.getRawFragment());
-            return s3url.toString();
-        } catch (URISyntaxException e) {
-            return path;
-        }
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public void setStorageType(StorageBackend.StorageType storageType) {
+        this.storageType = storageType;
+    }
+
+    public void setProperties(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public StorageBackend.StorageType getStorageType() {
+        return storageType;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
     }
 }

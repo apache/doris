@@ -17,9 +17,15 @@
 
 #include "exec/schema_scanner.h"
 
-#include <cstddef>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <string.h>
 
-#include "exec/schema_scanner/schema_backends_scanner.h"
+#include <new>
+#include <ostream>
+#include <utility>
+
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
@@ -34,13 +40,23 @@
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "olap/hll.h"
 #include "runtime/define_primitive_type.h"
-#include "util/encryption_util.h"
+#include "util/types.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+class ObjectPool;
 
 DorisServer* SchemaScanner::_s_doris_server;
 
@@ -84,8 +100,6 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
         return Status::InternalError("invalid parameter");
     }
 
-    RETURN_IF_ERROR(create_tuple_desc(pool));
-
     _param = param;
     _is_init = true;
 
@@ -99,41 +113,39 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
     return Status::OK();
 }
 
-SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
+std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type) {
     switch (type) {
     case TSchemaTableType::SCH_TABLES:
-        return new (std::nothrow) SchemaTablesScanner();
+        return SchemaTablesScanner::create_unique();
     case TSchemaTableType::SCH_SCHEMATA:
-        return new (std::nothrow) SchemaSchemataScanner();
+        return SchemaSchemataScanner::create_unique();
     case TSchemaTableType::SCH_COLUMNS:
-        return new (std::nothrow) SchemaColumnsScanner();
+        return SchemaColumnsScanner::create_unique();
     case TSchemaTableType::SCH_CHARSETS:
-        return new (std::nothrow) SchemaCharsetsScanner();
+        return SchemaCharsetsScanner::create_unique();
     case TSchemaTableType::SCH_COLLATIONS:
-        return new (std::nothrow) SchemaCollationsScanner();
+        return SchemaCollationsScanner::create_unique();
     case TSchemaTableType::SCH_GLOBAL_VARIABLES:
-        return new (std::nothrow) SchemaVariablesScanner(TVarType::GLOBAL);
+        return SchemaVariablesScanner::create_unique(TVarType::GLOBAL);
     case TSchemaTableType::SCH_SESSION_VARIABLES:
     case TSchemaTableType::SCH_VARIABLES:
-        return new (std::nothrow) SchemaVariablesScanner(TVarType::SESSION);
+        return SchemaVariablesScanner::create_unique(TVarType::SESSION);
     case TSchemaTableType::SCH_VIEWS:
-        return new (std::nothrow) SchemaViewsScanner();
+        return SchemaViewsScanner::create_unique();
     case TSchemaTableType::SCH_TABLE_PRIVILEGES:
-        return new (std::nothrow) SchemaTablePrivilegesScanner();
+        return SchemaTablePrivilegesScanner::create_unique();
     case TSchemaTableType::SCH_SCHEMA_PRIVILEGES:
-        return new (std::nothrow) SchemaSchemaPrivilegesScanner();
+        return SchemaSchemaPrivilegesScanner::create_unique();
     case TSchemaTableType::SCH_USER_PRIVILEGES:
-        return new (std::nothrow) SchemaUserPrivilegesScanner();
+        return SchemaUserPrivilegesScanner::create_unique();
     case TSchemaTableType::SCH_FILES:
-        return new (std::nothrow) SchemaFilesScanner();
+        return SchemaFilesScanner::create_unique();
     case TSchemaTableType::SCH_PARTITIONS:
-        return new (std::nothrow) SchemaPartitionsScanner();
+        return SchemaPartitionsScanner::create_unique();
     case TSchemaTableType::SCH_ROWSETS:
-        return new (std::nothrow) SchemaRowsetsScanner();
-    case TSchemaTableType::SCH_BACKENDS:
-        return new (std::nothrow) SchemaBackendsScanner();
+        return SchemaRowsetsScanner::create_unique();
     default:
-        return new (std::nothrow) SchemaDummyScanner();
+        return SchemaDummyScanner::create_unique();
         break;
     }
 }
@@ -232,11 +244,8 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_DATE: {
-            vectorized::VecDateTimeValue value;
-            DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(data);
-            value.convert_dt_to_vec_dt(ts_slot);
             reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                    reinterpret_cast<char*>(&value), 0);
+                    reinterpret_cast<char*>(data), 0);
             break;
         }
 
@@ -248,11 +257,8 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_DATETIME: {
-            vectorized::VecDateTimeValue value;
-            DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(data);
-            value.convert_dt_to_vec_dt(ts_slot);
             reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                    reinterpret_cast<char*>(&value), 0);
+                    reinterpret_cast<char*>(data), 0);
             break;
         }
 
@@ -299,78 +305,6 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
         }
     }
-    return Status::OK();
-}
-
-Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
-    int null_column = 0;
-    for (int i = 0; i < _columns.size(); ++i) {
-        if (_columns[i].is_null) {
-            null_column++;
-        }
-    }
-
-    int offset = (null_column + 7) / 8;
-    std::vector<SlotDescriptor*> slots;
-    int null_byte = 0;
-    int null_bit = 0;
-
-    for (int i = 0; i < _columns.size(); ++i) {
-        TSlotDescriptor t_slot_desc;
-        if (_columns[i].type == TYPE_DECIMALV2) {
-            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
-        } else {
-            TypeDescriptor descriptor(_columns[i].type);
-            if (_columns[i].precision >= 0 && _columns[i].scale >= 0) {
-                descriptor.precision = _columns[i].precision;
-                descriptor.scale = _columns[i].scale;
-            }
-            t_slot_desc.__set_slotType(descriptor.to_thrift());
-        }
-        t_slot_desc.__set_colName(_columns[i].name);
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-
-        if (_columns[i].is_null) {
-            t_slot_desc.__set_nullIndicatorByte(null_byte);
-            t_slot_desc.__set_nullIndicatorBit(null_bit);
-            null_bit = (null_bit + 1) % 8;
-
-            if (0 == null_bit) {
-                null_byte++;
-            }
-        } else {
-            t_slot_desc.__set_nullIndicatorByte(0);
-            t_slot_desc.__set_nullIndicatorBit(-1);
-        }
-
-        t_slot_desc.id = i;
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-
-        SlotDescriptor* slot = pool->add(new (std::nothrow) SlotDescriptor(t_slot_desc));
-
-        if (nullptr == slot) {
-            return Status::InternalError("no memory for _tuple_desc.");
-        }
-
-        slots.push_back(slot);
-        offset += _columns[i].size;
-    }
-
-    TTupleDescriptor t_tuple_desc;
-    t_tuple_desc.__set_byteSize(offset);
-    t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
-    _tuple_desc = pool->add(new (std::nothrow) TupleDescriptor(t_tuple_desc));
-
-    if (nullptr == _tuple_desc) {
-        return Status::InternalError("no memory for _tuple_desc.");
-    }
-
-    for (int i = 0; i < slots.size(); ++i) {
-        _tuple_desc->add_slot(slots[i]);
-    }
-
     return Status::OK();
 }
 

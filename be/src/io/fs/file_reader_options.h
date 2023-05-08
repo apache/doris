@@ -17,7 +17,9 @@
 
 #pragma once
 
-#include "io/cache/block/block_file_cache.h"
+#include <stdint.h>
+
+#include <string>
 
 namespace doris {
 namespace io {
@@ -72,6 +74,19 @@ public:
 
     FileCachePolicy cache_type;
     const CachePathPolicy& path_policy;
+    // length of the file in bytes.
+    // -1 means unset.
+    // If the file length is not set, the file length will be fetched from the file system.
+    int64_t file_size = -1;
+    bool has_cache_base_path = false;
+    std::string cache_base_path;
+
+    void specify_cache_path(const std::string& base_path) {
+        has_cache_base_path = true;
+        cache_base_path = base_path;
+    }
+
+    static FileReaderOptions DEFAULT;
 };
 
 } // namespace io

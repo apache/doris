@@ -17,7 +17,23 @@
 
 #include "data_type_map.h"
 
+#include <ctype.h>
+#include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
+#include <string.h>
+
 #include <string>
+#include <typeinfo>
+
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -25,6 +41,16 @@ DataTypeMap::DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_
     key_type = key_type_;
     value_type = value_type_;
 }
+
+Field DataTypeMap::get_default() const {
+    Map m;
+    Array key, val;
+    key.push_back(key_type->get_default());
+    val.push_back(value_type->get_default());
+    m.push_back(key);
+    m.push_back(val);
+    return m;
+};
 
 std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const {
     const ColumnMap& map_column = assert_cast<const ColumnMap&>(column);

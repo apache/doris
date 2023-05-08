@@ -17,25 +17,14 @@
 
 #pragma once
 
-#include <cstdint>
+#include <stddef.h>
 
-#include "common/status.h"
-#include "gen_cpp/parquet_types.h"
-#include "gutil/endian.h"
-#include "schema_desc.h"
-#include "util/bit_stream_utils.inline.h"
-#include "util/coding.h"
-#include "util/rle_encoding.h"
-#include "util/simd/bits.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_dictionary.h"
+#include <cstdint>
+#include <ostream>
+#include <string>
+#include <vector>
+
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/int_exp.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/exec/format/format_common.h"
 
 namespace doris::vectorized {
 
@@ -117,7 +106,37 @@ public:
         }
     }
 
-    size_t get_next_run(DataReadType* data_read_type);
+    template <bool has_filter>
+    size_t get_next_run(DataReadType* data_read_type) {
+        DCHECK_EQ(_has_filter, has_filter);
+        if constexpr (has_filter) {
+            if (_read_index == _num_values) {
+                return 0;
+            }
+            const DataReadType& type = _data_map[_read_index++];
+            size_t run_length = 1;
+            while (_read_index < _num_values) {
+                if (_data_map[_read_index] == type) {
+                    run_length++;
+                    _read_index++;
+                } else {
+                    break;
+                }
+            }
+            *data_read_type = type;
+            return run_length;
+        } else {
+            size_t run_length = 0;
+            while (run_length == 0) {
+                if (_read_index == (*_run_length_null_map).size()) {
+                    return 0;
+                }
+                *data_read_type = _read_index % 2 == 0 ? CONTENT : NULL_DATA;
+                run_length = (*_run_length_null_map)[_read_index++];
+            }
+            return run_length;
+        }
+    }
 
     void set_run_length_null_map(const std::vector<uint16_t>& run_length_null_map,
                                  size_t num_values, NullMap* null_map = nullptr);

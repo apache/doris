@@ -97,12 +97,18 @@ public interface LoadTaskInfo {
 
     List<String> getHiddenColumns();
 
+    boolean isPartialUpdate();
+
     default boolean getTrimDoubleQuotes() {
         return false;
     }
 
     default int getSkipLines() {
         return 0;
+    }
+
+    default boolean getEnableProfile() {
+        return false;
     }
 
     class ImportColumnDescs {

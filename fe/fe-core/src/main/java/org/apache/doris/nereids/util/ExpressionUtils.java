@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -108,12 +109,6 @@ public class ExpressionUtils {
         } else {
             result.add(expr);
         }
-    }
-
-    public static Set<Expression> extractToSet(Expression predicate) {
-        Set<Expression> result = Sets.newHashSet();
-        extract(predicate.getClass(), predicate, result);
-        return result;
     }
 
     public static Optional<Expression> optionalAnd(List<Expression> expressions) {
@@ -203,14 +198,17 @@ public class ExpressionUtils {
     /**
      * Choose the minimum slot from input parameter.
      */
-    public static Slot selectMinimumColumn(List<Slot> slots) {
+    public static <S extends NamedExpression> S selectMinimumColumn(Collection<S> slots) {
         Preconditions.checkArgument(!slots.isEmpty());
-        Slot minSlot = null;
-        for (Slot slot : slots) {
+        S minSlot = null;
+        for (S slot : slots) {
             if (minSlot == null) {
                 minSlot = slot;
             } else {
                 int slotDataTypeWidth = slot.getDataType().width();
+                if (slotDataTypeWidth < 0) {
+                    continue;
+                }
                 minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
             }
         }
@@ -355,7 +353,7 @@ public class ExpressionUtils {
                 Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
                         ExpressionUtils.replace(predicate, replaceMap),
                         new ExpressionRewriteContext(cascadesContext));
-                if (nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr)) {
+                if (evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr)) {
                     notNullSlots.add(slot);
                 }
             }

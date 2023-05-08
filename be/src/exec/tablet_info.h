@@ -17,22 +17,36 @@
 
 #pragma once
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/descriptors.pb.h>
+
 #include <cstdint>
+#include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/descriptors.pb.h"
-#include "olap/tablet_schema.h"
-#include "runtime/descriptors.h"
-#include "runtime/raw_value.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris {
+class MemTracker;
+class SlotDescriptor;
+class TExprNode;
+class TabletColumn;
+class TabletIndex;
+class TupleDescriptor;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
 
 struct OlapTableIndexSchema {
     int64_t index_id;
@@ -40,6 +54,7 @@ struct OlapTableIndexSchema {
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;
     std::vector<TabletIndex*> indexes;
+    vectorized::VExprContext* where_clause = nullptr;
 
     void to_protobuf(POlapTableIndexSchema* pindex) const;
 };
@@ -72,6 +87,11 @@ public:
 
     bool is_dynamic_schema() const { return _is_dynamic_schema; }
 
+    bool is_partial_update() const { return _is_partial_update; }
+    std::set<std::string> partial_update_input_columns() const {
+        return _partial_update_input_columns;
+    }
+
     std::string debug_string() const;
 
 private:
@@ -84,6 +104,8 @@ private:
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
     bool _is_dynamic_schema = false;
+    bool _is_partial_update = false;
+    std::set<std::string> _partial_update_input_columns;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;
@@ -171,7 +193,6 @@ private:
         return part->start_key.second == -1 || !comparator(key, &part->start_key);
     }
 
-private:
     // this partition only valid in this schema
     std::shared_ptr<OlapTableSchemaParam> _schema;
     TOlapTablePartitionParam _t_param;

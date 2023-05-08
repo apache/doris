@@ -17,14 +17,13 @@
 
 #include "http/action/version_action.h"
 
-#include <sstream>
+#include <gen_cpp/version.h>
+
 #include <string>
 
-#include "gen_cpp/version.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 #include "util/easy_json.h"
 
@@ -32,7 +31,9 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-VersionAction::VersionAction() {}
+VersionAction::VersionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                             TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 
 void VersionAction::handle(HttpRequest* req) {
     EasyJson be_version_info;

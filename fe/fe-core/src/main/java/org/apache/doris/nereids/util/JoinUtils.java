@@ -44,7 +44,6 @@ import com.google.common.collect.Lists;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -171,47 +170,6 @@ public class JoinUtils {
         return result;
     }
 
-    /**
-     * Get all used slots from onClause of join.
-     * Return pair of left used slots and right used slots.
-     */
-    public static Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
-            AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
-
-        List<ExprId> exprIds1 = Lists.newArrayListWithCapacity(join.getHashJoinConjuncts().size());
-        List<ExprId> exprIds2 = Lists.newArrayListWithCapacity(join.getHashJoinConjuncts().size());
-
-        JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(
-                join.left().getOutputExprIdSet(),
-                join.right().getOutputExprIdSet());
-
-        for (Expression expr : join.getHashJoinConjuncts()) {
-            EqualTo equalTo = (EqualTo) expr;
-            // TODO: we could meet a = cast(b as xxx) here, need fix normalize join hash equals future
-            Optional<Slot> leftSlot = ExpressionUtils.extractSlotOrCastOnSlot(equalTo.left());
-            Optional<Slot> rightSlot = ExpressionUtils.extractSlotOrCastOnSlot(equalTo.right());
-            if (!leftSlot.isPresent() || !rightSlot.isPresent()) {
-                continue;
-            }
-
-            ExprId leftExprId = leftSlot.get().getExprId();
-            ExprId rightExprId = rightSlot.get().getExprId();
-
-            if (checker.isCoveredByLeftSlots(leftExprId)
-                    && checker.isCoveredByRightSlots(rightExprId)) {
-                exprIds1.add(leftExprId);
-                exprIds2.add(rightExprId);
-            } else if (checker.isCoveredByLeftSlots(rightExprId)
-                    && checker.isCoveredByRightSlots(leftExprId)) {
-                exprIds1.add(rightExprId);
-                exprIds2.add(leftExprId);
-            } else {
-                throw new RuntimeException("Could not generate valid equal on clause slot pairs for join: " + join);
-            }
-        }
-        return Pair.of(exprIds1, exprIds2);
-    }
-
     public static boolean shouldNestedLoopJoin(Join join) {
         return join.getHashJoinConjuncts().isEmpty();
     }
@@ -221,7 +179,7 @@ public class JoinUtils {
     }
 
     /**
-     * The left and right child of origin predicates need to be swap sometimes.
+     * The left and right child of origin predicates need to swap sometimes.
      * Case A:
      * select * from t1 join t2 on t2.id=t1.id
      * The left plan node is t1 and the right plan node is t2.
@@ -317,8 +275,13 @@ public class JoinUtils {
         final long rightTableId = rightHashSpec.getTableId();
         final Set<Long> leftTablePartitions = leftHashSpec.getPartitionIds();
         final Set<Long> rightTablePartitions = rightHashSpec.getPartitionIds();
-        boolean noNeedCheckColocateGroup = (leftTableId == rightTableId)
-                && (leftTablePartitions.equals(rightTablePartitions)) && (leftTablePartitions.size() <= 1);
+
+        // For UT or no partition is selected, getSelectedIndexId() == -1, see selectMaterializedView()
+        boolean hitSameIndex = (leftTableId == rightTableId)
+                && (leftHashSpec.getSelectedIndexId() != -1 && rightHashSpec.getSelectedIndexId() != -1)
+                && (leftHashSpec.getSelectedIndexId() == rightHashSpec.getSelectedIndexId());
+        boolean noNeedCheckColocateGroup = hitSameIndex && (leftTablePartitions.equals(rightTablePartitions))
+                && (leftTablePartitions.size() <= 1);
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
         if (noNeedCheckColocateGroup
                 || (colocateIndex.isSameGroup(leftTableId, rightTableId)

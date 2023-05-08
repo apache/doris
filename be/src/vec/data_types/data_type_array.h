@@ -20,7 +20,30 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_array_serde.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+class PColumnMeta;
+
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -35,6 +58,11 @@ public:
     DataTypeArray(const DataTypePtr& nested_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Array; }
+
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_ARRAY; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::ARRAY;
+    }
 
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 
@@ -82,6 +110,10 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeArraySerDe>(nested->get_serde());
+    };
 };
 
 } // namespace doris::vectorized

@@ -18,16 +18,26 @@
 #pragma once
 
 #include <gen_cpp/internal_service.pb.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <condition_variable>
 #include <deque>
+#include <memory>
+#include <mutex>
+#include <string>
 
+#include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 #include "runtime/message_body_sink.h"
+#include "util/byte_buffer.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 const size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
 
@@ -46,9 +56,6 @@ public:
     Status append(const char* data, size_t size) override;
 
     Status append(const ByteBufferPtr& buf) override;
-
-    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                   size_t* bytes_read) override;
 
     const Path& path() const override { return _path; }
 
@@ -71,6 +78,10 @@ public:
     Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length);
 
     FileSystemSPtr fs() const override { return nullptr; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
 
 private:
     // read the next buffer from _buf_queue

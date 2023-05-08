@@ -17,9 +17,26 @@
 
 #include "vec/exec/scan/new_es_scan_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+
+#include <ostream>
+
+#include "common/logging.h"
+#include "common/object_pool.h"
+#include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_query.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "service/backend_options.h"
 #include "vec/exec/scan/new_es_scanner.h"
-#include "vec/utils/util.hpp"
+
+namespace doris {
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+} // namespace doris
 
 static const std::string NEW_SCAN_NODE_TYPE = "NewEsScanNode";
 
@@ -120,7 +137,7 @@ Status NewEsScanNode::_process_conjuncts() {
     return Status::OK();
 }
 
-Status NewEsScanNode::_init_scanners(std::list<VScanner*>* scanners) {
+Status NewEsScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         return Status::OK();
@@ -146,13 +163,12 @@ Status NewEsScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         properties[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(
                 properties, _column_names, _docvalue_context, &doc_value_mode);
 
-        NewEsScanner* scanner =
-                new NewEsScanner(_state, this, _limit_per_scanner, _tuple_id, properties,
-                                 _docvalue_context, doc_value_mode, _state->runtime_profile());
+        std::shared_ptr<NewEsScanner> scanner = NewEsScanner::create_shared(
+                _state, this, _limit_per_scanner, _tuple_id, properties, _docvalue_context,
+                doc_value_mode, _state->runtime_profile());
 
-        _scanner_pool.add(scanner);
-        RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
-        scanners->push_back(static_cast<VScanner*>(scanner));
+        RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr));
+        scanners->push_back(scanner);
     }
     return Status::OK();
 }

@@ -146,11 +146,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         // get all groups
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
-            Database db = env.getInternalCatalog().getDbNullable(groupId.dbId);
-            if (db == null) {
-                continue;
-            }
-
             Table<String, Tag, ClusterLoadStatistic> statisticMap = env.getTabletScheduler().getStatisticMap();
             if (statisticMap == null) {
                 continue;
@@ -159,7 +154,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             try {
-                Env.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
+                Env.getCurrentSystemInfo().checkReplicaAllocation(SystemInfoService.DEFAULT_CLUSTER, replicaAlloc);
             } catch (DdlException e) {
                 colocateIndex.setErrMsgForGroup(groupId, e.getMessage());
                 continue;
@@ -168,7 +163,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
             for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
                 Tag tag = entry.getKey();
-                ClusterLoadStatistic statistic = statisticMap.get(db.getClusterName(), tag);
+                ClusterLoadStatistic statistic = statisticMap.get(SystemInfoService.DEFAULT_CLUSTER, tag);
                 if (statistic == null) {
                     continue;
                 }
@@ -182,7 +177,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                         infoService, colocateIndex, groupId, tag);
                 // get all available backends for this group
                 Set<Long> beIdsInOtherTag = colocateIndex.getBackendIdsExceptForTag(groupId, tag);
-                List<Long> availableBeIds = getAvailableBeIds(db.getClusterName(), tag, beIdsInOtherTag, infoService);
+                List<Long> availableBeIds = getAvailableBeIds(SystemInfoService.DEFAULT_CLUSTER, tag, beIdsInOtherTag,
+                        infoService);
                 // try relocate or balance this group for specified tag
                 List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
                 if (relocateAndBalance(groupId, tag, unavailableBeIdsInGroup, availableBeIds, colocateIndex,
@@ -214,11 +210,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
-            Database db = env.getInternalCatalog().getDbNullable(groupId.dbId);
-            if (db == null) {
-                continue;
-            }
-
             List<Set<Long>> backendBucketsSeq = colocateIndex.getBackendsPerBucketSeqSet(groupId);
             if (backendBucketsSeq.isEmpty()) {
                 continue;
@@ -227,6 +218,14 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             String unstableReason = null;
             OUT:
             for (Long tableId : tableIds) {
+                long dbId = groupId.dbId;
+                if (dbId == 0) {
+                    dbId = groupId.getDbIdByTblId(tableId);
+                }
+                Database db = env.getInternalCatalog().getDbNullable(dbId);
+                if (db == null) {
+                    continue;
+                }
                 OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
                     continue;
@@ -425,6 +424,17 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
                 // if we found src_id == dst_id we skip to next
                 if (srcBeId == destBeId) {
+                    continue;
+                }
+
+                // Unavailable be has been removed from backendWithReplicaNum,
+                // but the conditions for judging unavailable be by
+                // getUnavailableBeIdsInGroup may be too loose. Under the
+                // default configuration (colocate_group_relocate_delay_second =
+                // 1800), a be that has been out of contact for 20 minutes can
+                // still be selected as the dest be.
+                if (!destBe.isAlive()) {
+                    LOG.info("{} is not alive, not suitable as a dest be", destBe);
                     continue;
                 }
 

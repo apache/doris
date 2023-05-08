@@ -21,7 +21,7 @@ suite("alter_column_stats") {
         CREATE TABLE statistics_test (
             `id` BIGINT,
             `col1` VARCHAR,
-            `col2` DATE
+            `col2` DATEV2
         ) DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 3
         PROPERTIES (
@@ -34,7 +34,7 @@ suite("alter_column_stats") {
     sql """INSERT INTO statistics_test VALUES(3, 'c', '2013-01-01')"""
 
     sql """ANALYZE TABLE statistics_test"""
-    sql """ANALYZE TABLE statistics_test UPDATE HISTOGRAM ON col1,col2"""
+    sql """ANALYZE TABLE statistics_test(col1, col2) UPDATE HISTOGRAM"""
 
     sleep(9000)
 

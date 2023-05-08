@@ -24,6 +24,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class TableValuedFunctionRef extends TableRef {
 
@@ -62,6 +63,29 @@ public class TableValuedFunctionRef extends TableRef {
         TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();
         result.setTable(table);
         return result;
+    }
+
+    @Override
+    protected String tableNameToSql() {
+        String aliasSql = null;
+        String alias = getExplicitAlias();
+        if (alias != null) {
+            aliasSql = ToSqlUtils.getIdentSql(alias);
+        }
+
+        // set tableName
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(funcName);
+        stringBuilder.append('(');
+        String paramsString  = params.entrySet().stream().map(kv -> "\"" + kv.getKey() + "\""
+                        + " = " + "\"" + kv.getValue() + "\"")
+                        .collect(Collectors.joining(","));
+        stringBuilder.append(paramsString);
+        stringBuilder.append(')');
+
+        // set alias
+        stringBuilder.append((aliasSql != null) ? " " + aliasSql : "");
+        return stringBuilder.toString();
     }
 
     /**

@@ -17,12 +17,21 @@
 
 #include "http/action/tablets_info_action.h"
 
-#include <string>
+#include <ctype.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <cstdlib>
+#include <limits>
+#include <string>
+#include <vector>
+
+#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
+#include "olap/olap_common.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "service/backend_options.h"
@@ -31,9 +40,9 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-TabletsInfoAction::TabletsInfoAction() {
-    _host = BackendOptions::get_localhost();
-}
+TabletsInfoAction::TabletsInfoAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                     TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 
 void TabletsInfoAction::handle(HttpRequest* req) {
     const std::string& tablet_num_to_return = req->param("limit");
@@ -65,7 +74,7 @@ EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
     tablets_info_ej["msg"] = msg;
     tablets_info_ej["code"] = 0;
     EasyJson data = tablets_info_ej.Set("data", EasyJson::kObject);
-    data["host"] = _host;
+    data["host"] = BackendOptions::get_localhost();
     EasyJson tablets = data.Set("tablets", EasyJson::kArray);
     for (TabletInfo tablet_info : tablets_info) {
         EasyJson tablet = tablets.PushBack(EasyJson::kObject);
@@ -75,4 +84,5 @@ EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
     tablets_info_ej["count"] = tablets_info.size();
     return tablets_info_ej;
 }
+
 } // namespace doris

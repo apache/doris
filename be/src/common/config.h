@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "configbase.h"
+#include "configbase.h" // IWYU pragma: export
 
 namespace doris {
 namespace config {
@@ -38,11 +38,6 @@ CONF_Int32(brpc_port, "8060");
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 CONF_Int32(brpc_num_threads, "-1");
-
-// port to brpc server for single replica load
-CONF_Int32(single_replica_load_brpc_port, "8070");
-// the number of bthreads to brpc server for single replica load
-CONF_Int32(single_replica_load_brpc_num_threads, "64");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -67,6 +62,29 @@ CONF_String(mem_limit, "auto");
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
 
+// Many modern allocators (for example, tcmalloc) do not do a mremap for
+// realloc, even in case of large enough chunks of memory. Although this allows
+// you to increase performance and reduce memory consumption during realloc.
+// To fix this, we do mremap manually if the chunk of memory is large enough.
+//
+// The threshold (128 MB, 128 * (1ULL << 20)) is chosen quite large, since changing the address
+// space is very slow, especially in the case of a large number of threads. We
+// expect that the set of operations mmap/something to do/mremap can only be
+// performed about 1000 times per second.
+//
+// P.S. This is also required, because tcmalloc can not allocate a chunk of
+// memory greater than 16 GB.
+CONF_mInt64(mmap_threshold, "134217728"); // bytes
+
+// When hash table capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
+// Increase can reduce the number of hash table resize, but may waste more memory.
+CONF_mInt32(hash_table_double_grow_degree, "31");
+
+// Expand the hash table before inserting data, the maximum expansion size.
+// There are fewer duplicate keys, reducing the number of resize hash tables
+// There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
+CONF_mInt64(hash_table_pre_expanse_max_rows, "65535");
+
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
 // with large memory larger than 16G.
@@ -77,10 +95,6 @@ CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 CONF_mString(process_minor_gc_size, "10%");
 CONF_mString(process_full_gc_size, "20%");
-// Some caches have their own gc threads, such as segment cache.
-// For caches that do not have a separate gc thread, perform regular gc in the memory maintenance thread.
-// Currently only storage page cache, chunk allocator, more in the future.
-CONF_mInt32(cache_gc_interval_s, "60");
 
 // If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
@@ -164,9 +178,6 @@ CONF_String(log_buffer_level, "");
 
 // number of threads available to serve backend execution requests
 CONF_Int32(be_service_threads, "64");
-
-// cgroups allocated for doris
-CONF_String(doris_cgroups, "");
 
 // Controls the number of threads to run work per core.  It's common to pick 2x
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
@@ -268,6 +279,7 @@ CONF_Bool(disable_storage_page_cache, "false");
 CONF_Bool(disable_storage_row_cache, "true");
 
 CONF_Bool(enable_low_cardinality_optimize, "true");
+CONF_Bool(enable_low_cardinality_cache_code, "true");
 
 // be policy
 // whether check compaction checksum
@@ -367,15 +379,20 @@ CONF_mInt32(migration_task_timeout_secs, "20480");
 
 // Port to start debug webserver on
 CONF_Int32(webserver_port, "8040");
+// Https enable flag
+CONF_Bool(enable_https, "false");
+// Path of certificate
+CONF_String(ssl_certificate_path, "");
+// Path of private key
+CONF_String(ssl_private_key_path, "");
+// Whether to check authorization
+CONF_Bool(enable_http_auth, "false");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
 CONF_mInt32(periodic_counter_update_period_ms, "500");
 
 CONF_Bool(enable_single_replica_load, "false");
-
-// Port to download server for single replica load
-CONF_Int32(single_replica_load_download_port, "8050");
 // Number of download workers for single replica load
 CONF_Int32(single_replica_load_download_num_workers, "64");
 
@@ -611,7 +628,7 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
-CONF_Int32(tablet_map_shard_size, "1");
+CONF_Int32(tablet_map_shard_size, "4");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
@@ -660,9 +677,6 @@ CONF_Int32(aws_log_level, "3");
 
 // the buffer size when read data from remote storage like s3
 CONF_mInt32(remote_storage_read_buffer_mb, "16");
-
-// Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
-CONF_Bool(enable_tcmalloc_hook, "true");
 
 // Print more detailed logs, more detailed records, etc.
 CONF_mBool(memory_debug, "false");
@@ -867,15 +881,13 @@ CONF_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
 
-CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized storage
+CONF_Bool(enable_segcompaction, "true");
 
 // Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
 CONF_Int32(segcompaction_threshold_segment_num, "10");
 
 // The segment whose row number above the threshold will be compacted during segcompaction
 CONF_Int32(segcompaction_small_threshold, "1048576");
-
-CONF_String(jvm_max_heap_size, "1024M");
 
 // enable java udf and jdbc scannode
 CONF_Bool(enable_java_support, "true");
@@ -884,6 +896,7 @@ CONF_Bool(enable_java_support, "true");
 CONF_Bool(enable_fuzzy_mode, "false");
 
 CONF_Int32(pipeline_executor_size, "0");
+CONF_mInt16(pipeline_short_query_timeout_s, "20");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -891,9 +904,9 @@ CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 // block file cache
 CONF_Bool(enable_file_cache, "false");
-// format: [{"path":"/path/to/file_cache","normal":21474836480,"persistent":10737418240,"query_limit":10737418240}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 CONF_String(file_cache_path, "");
-CONF_String(disposable_file_cache_path, "");
 CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 CONF_Validator(file_cache_max_file_segment_size,
                [](const int64_t config) -> bool { return config >= 4096; }); // 4KB
@@ -921,6 +934,8 @@ CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 CONF_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 CONF_Int32(max_depth_in_bkd_tree, "32");
+// index compaction
+CONF_Bool(inverted_index_compaction_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 CONF_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
@@ -931,6 +946,15 @@ CONF_Int32(max_depth_of_expr_tree, "600");
 
 // Report a tablet as bad when io errors occurs more than this value.
 CONF_mInt64(max_tablet_io_errors, "-1");
+
+// Page size of row column, default 4KB
+CONF_mInt64(row_column_page_size, "4096");
+// it must be larger than or equal to 5MB
+CONF_mInt32(s3_write_buffer_size, "5242880");
+// the size of the whole s3 buffer pool, which indicates the s3 file writer
+// can at most buffer 50MB data. And the num of multi part upload task is
+// s3_write_buffer_whole_size / s3_write_buffer_size
+CONF_mInt32(s3_write_buffer_whole_size, "524288000");
 
 #ifdef BE_TEST
 // test s3

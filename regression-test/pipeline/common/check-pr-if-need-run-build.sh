@@ -88,6 +88,8 @@ need_run_fe_ut() {
         if [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
             [[ "${af}" == 'bin/start_fe.sh' ]] ||
+            [[ "${af}" == 'docs/zh-CN/docs/sql-manual/'* ]] ||
+            [[ "${af}" == 'docs/en/docs/sql-manual/'* ]] ||
             [[ "${af}" == 'bin/stop_fe.sh' ]] ||
             [[ "${af}" == 'run-fe-ut.sh' ]]; then echo "fe-ut related file changed, return need" && return 0; fi
     done
@@ -142,6 +144,7 @@ need_run_arm_regression_p0() {
 }
 
 need_run_ckb() {
+    if [[ $(($1 % 2)) -eq 0 ]]; then echo "the pull request id is even, return no need" && return 1; fi
     if ! _get_pr_changed_files "$1"; then echo "get pr changed files failed, return need" && return 0; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||

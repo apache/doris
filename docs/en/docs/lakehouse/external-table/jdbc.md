@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-Please use [JDBC Catalog](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc/) to access JDBC data sources.
+Please use [JDBC Catalog](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc/) to access JDBC data sources, this function will no longer be maintained after version 1.2.2.
 
 </version>
 
@@ -177,11 +177,12 @@ Test information on more versions will be provided in the future.
 
 | ClickHouse Version | ClickHouse JDBC Driver Version        |
 | ------------------ | ------------------------------------- |
-| 22                 | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| 22           | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| 22           | clickhouse-jdbc-0.4.1-all.jar         |
 
-#### 6.Sap_HanaTest
+#### 6.Sap Hana Test
 
-| Sap_Hana Version | Sap_Hana JDBC Driver Version |
+| Sap Hana Version | Sap Hana JDBC Driver Version |
 |------------------|------------------------------|
 | 2.0              | ngdbc.jar                    |
 
@@ -205,6 +206,68 @@ PROPERTIES (
     "table_type"="sap_hana"
 );
 ```
+
+#### 7.Trino Test
+
+| Trino Version | Trino JDBC Driver Version |
+|---------------|---------------------------|
+| 389           | trino-jdbc-389.jar        |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_trino
+properties (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:trino://localhost:8080/hive",
+    "driver_url" = "file:///path/to/trino-jdbc-389.jar",
+    "driver_class" = "io.trino.jdbc.TrinoDriver"
+);
+
+CREATE EXTERNAL TABLE `ext_trino` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_trino",
+    "table" = "hive.test",
+    "table_type"="trino"
+);
+```
+
+**Note:**
+<version since="dev" type="inline"> Connections using the Presto JDBC Driver are also supported </version>
+
+#### 8.OceanBase Test
+
+| OceanBase Version | OceanBase JDBC Driver Version |
+|-------------------|-------------------------------|
+| 3.2.3             | oceanbase-client-2.4.2.jar    |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_oceanbase
+properties (
+    "type"="jdbc",
+    "user"="root",
+    "password"="",
+    "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
+    "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
+    "oceanbase_mode" = "mysql" or "oracle"
+);
+
+CREATE EXTERNAL TABLE `ext_oceanbase` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_oceanbase",
+    "table" = "test.test",
+    "table_type"="oceanbase"
+);
+```
+
+> **Note:**
+>
+> When creating an OceanBase external table, you only need to specify the `oceanbase mode` parameter when creating a resource, and the table type of the table to be created is oceanbase
 
 ## Type Mapping
 
@@ -275,29 +338,32 @@ The followings list how data types in different databases are mapped in Doris.
 
 ### ClickHouse
 
-| ClickHouse |  Doris   |
-| :--------: | :------: |
-|  BOOLEAN   | BOOLEAN  |
-|    CHAR    |   CHAR   |
-|  VARCHAR   | VARCHAR  |
-|   STRING   |  STRING  |
-|    DATE    |   DATE   |
-|  Float32   |  FLOAT   |
-|  Float64   |  DOUBLE  |
-|    Int8    | TINYINT  |
-|   Int16    | SMALLINT |
-|   Int32    |   INT    |
-|   Int64    |  BIGINT  |
-|   Int128   | LARGEINT |
-|  DATETIME  | DATETIME |
-|  DECIMAL   | DECIMAL  |
+|                       ClickHouse                        |          Doris           |
+|:-------------------------------------------------------:|:------------------------:|
+|                         Boolean                         |         BOOLEAN          |
+|                         String                          |          STRING          |
+|                       Date/Date32                       |       DATE/DATEV2        |
+|                   DateTime/DateTime64                   |   DATETIME/DATETIMEV2    |
+|                         Float32                         |          FLOAT           |
+|                         Float64                         |          DOUBLE          |
+|                          Int8                           |         TINYINT          |
+|                       Int16/UInt8                       |         SMALLINT         |
+|                      Int32/UInt16                       |           INT            |
+|                      Int64/Uint32                       |          BIGINT          |
+|                      Int128/UInt64                      |         LARGEINT         |
+|                 Int256/UInt128/UInt256                  |          STRING          |
+|                         Decimal                         | DECIMAL/DECIMALV3/STRING |
+|                   Enum/IPv4/IPv6/UUID                   |          STRING          |
+| <version since="dev" type="inline"> Array(T) </version> |        ARRAY\<T\>        |
 
-Note:
 
+**Note:**
+
+- <version since="dev" type="inline"> For Array types in ClickHouse, use Doris's Array type to match them. For basic types in an Array, see Basic type matching rules. Nested arrays are not supported. </version>
 - Some data types in ClickHouse, such as UUID, IPv4, IPv6, and Enum8, will be mapped to Varchar/String in Doris. IPv4 and IPv6 will be displayed with an `/` as a prefix. You can use the `split_part` function to remove the `/` .
 - The Point Geo type in ClickHouse cannot be mapped in Doris by far. 
 
-### SAP_HANA
+### SAP HANA
 
 |   SAP_HANA   |        Doris        |
 |:------------:|:-------------------:|
@@ -320,6 +386,30 @@ Note:
 |  SHORTTEXT   |        TEXT         |
 |     CHAR     |        CHAR         |
 |    NCHAR     |        CHAR         |
+
+### Trino
+
+|   Trino   |        Doris        |
+|:---------:|:-------------------:|
+|  boolean  |       BOOLEAN       |
+|  tinyint  |       TINYINT       |
+| smallint  |      SMALLINT       |
+|  integer  |         INT         |
+|  bigint   |       BIGINT        |
+|  decimal  |  DECIMAL/DECIMALV3  |
+|   real    |        FLOAT        |
+|  double   |       DOUBLE        |
+|   date    |     DATE/DATEV2     |
+| timestamp | DATETIME/DATETIMEV2 |
+|  varchar  |        TEXT         |
+|   char    |        CHAR         |
+|   array   |        ARRAY        |
+|  others   |     UNSUPPORTED     |
+
+### OceanBase
+
+For MySQL mode, please refer to [MySQL type mapping](#MySQL)
+For Oracle mode, please refer to [Oracle type mapping](#Oracle)
 
 ## Q&A
 

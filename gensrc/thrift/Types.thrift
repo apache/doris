@@ -91,9 +91,10 @@ enum TPrimitiveType {
   DECIMAL64,
   DECIMAL128I,
   JSONB,
-  VARIANT,
   UNSUPPORTED,
-  LAMBDA_FUNCTION
+  VARIANT,
+  LAMBDA_FUNCTION,
+  AGG_STATE
 }
 
 enum TTypeNodeType {
@@ -141,8 +142,11 @@ struct TTypeNode {
     // only used for structs; has struct_fields.size() corresponding child types
     3: optional list<TStructField> struct_fields
 
-    // only used for complex types, such as array, map and etc.
-    4: optional list<bool> contains_nulls
+    // old version used for array
+    4: optional bool contains_null
+
+    // update for map/struct type
+    5: optional list<bool> contains_nulls
 }
 
 // A flattened representation of a tree of column types obtained by depth-first
@@ -157,6 +161,7 @@ struct TTypeDesc {
     1: list<TTypeNode> types
     2: optional bool is_nullable
     3: optional i64  byte_size
+    4: optional list<TTypeDesc> sub_types;
 }
 
 enum TAggregationType {
@@ -299,6 +304,8 @@ enum TFunctionBinaryType {
   RPC,
 
   JAVA_UDF,
+
+  AGG_STATE
 }
 
 // Represents a fully qualified function name.
@@ -372,6 +379,21 @@ enum TJdbcOperation {
     WRITE
 }
 
+enum TOdbcTableType {
+    MYSQL,
+    ORACLE,
+    POSTGRESQL,
+    SQLSERVER,
+    REDIS,
+    MONGODB,
+    CLICKHOUSE,
+    SAP_HANA,
+    TRINO,
+    PRESTO,
+    OCEANBASE,
+    OCEANBASE_ORACLE
+}
+
 struct TJdbcExecutorCtorParams {
   1: optional string statement
 
@@ -393,6 +415,8 @@ struct TJdbcExecutorCtorParams {
 
   // "/home/user/mysql-connector-java-5.1.47.jar"
   8: optional string driver_path
+
+  9: optional TOdbcTableType table_type
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -573,17 +597,6 @@ enum TTableType {
     TEST_EXTERNAL_TABLE,
 }
 
-enum TOdbcTableType {
-    MYSQL,
-    ORACLE,
-    POSTGRESQL,
-    SQLSERVER,
-    REDIS,
-    MONGODB,
-    CLICKHOUSE,
-    SAP_HANA
-}
-
 enum TKeysType {
     PRIMARY_KEYS,
     DUP_KEYS,
@@ -655,6 +668,16 @@ enum TMergeType {
 enum TSortType {
     LEXICAL,
     ZORDER, 
+}
+
+enum TMetadataType {
+  ICEBERG,
+  BACKENDS,
+  RESOURCE_GROUPS
+}
+
+enum TIcebergQueryType {
+  SNAPSHOTS
 }
 
 // represent a user identity

@@ -258,7 +258,7 @@ public class DynamicPartitionTableTest {
 
     @Test
     public void testMissBuckets() throws Exception {
-        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_buckets` (\n"
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_miss_buckets` (\n"
                 + "  `k1` date NULL COMMENT \"\",\n"
                 + "  `k2` int NULL COMMENT \"\",\n"
                 + "  `k3` smallint NULL COMMENT \"\",\n"
@@ -282,14 +282,12 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.time_unit\" = \"day\",\n"
                 + "\"dynamic_partition.prefix\" = \"p\"\n"
                 + ");";
-        expectedException.expect(DdlException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = Must assign dynamic_partition.buckets properties");
         createTable(createOlapTblStmt);
     }
 
     @Test
     public void testNotAllowed() throws Exception {
-        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_buckets` (\n"
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_not_allowed` (\n"
                 + "  `k1` date NULL COMMENT \"\",\n"
                 + "  `k2` int NULL COMMENT \"\",\n"
                 + "  `k3` smallint NULL COMMENT \"\",\n"
@@ -1571,5 +1569,58 @@ public class DynamicPartitionTableTest {
         OlapTable copiedTable = table.selectiveCopy(Collections.emptyList(), IndexExtState.VISIBLE, true);
         partitions = copiedTable.getPartitions();
         Assert.assertTrue(partitions.isEmpty());
+    }
+
+    @Test
+    public void testHourUnitWithDateType() throws AnalysisException {
+        String createOlapTblStmt = "CREATE TABLE if not exists test.hour_with_date (\n"
+                + "  `days` DATEV2 NOT NULL,\n"
+                + "  `hours` char(2) NOT NULL,\n"
+                + "  `positionID` char(20)\n"
+                + "  )\n"
+                + "UNIQUE KEY(`days`,`hours`,`positionID`)\n"
+                + "PARTITION BY RANGE(`days`) ()\n"
+                + "DISTRIBUTED BY HASH(`positionID`) BUCKETS AUTO\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"compression\" = \"zstd\",\n"
+                + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
+                + "\"light_schema_change\" = \"true\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_zone\" = \"+00:00\",\n"
+                + "\"dynamic_partition.time_unit\" = \"HOUR\",\n"
+                + "\"dynamic_partition.start\" = \"-24\",\n"
+                + "\"dynamic_partition.end\" = \"24\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"2\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
+                + ");";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "could not be HOUR when type of partition column days is DATE or DATEV2",
+                () -> createTable(createOlapTblStmt));
+
+        String createOlapTblStmt2 = "CREATE TABLE if not exists test.hour_with_date (\n"
+                + "  `days` DATETIMEV2 NOT NULL,\n"
+                + "  `hours` char(2) NOT NULL,\n"
+                + "  `positionID` char(20)\n"
+                + "  )\n"
+                + "UNIQUE KEY(`days`,`hours`,`positionID`)\n"
+                + "PARTITION BY RANGE(`days`) ()\n"
+                + "DISTRIBUTED BY HASH(`positionID`) BUCKETS AUTO\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"compression\" = \"zstd\",\n"
+                + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
+                + "\"light_schema_change\" = \"true\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_zone\" = \"+00:00\",\n"
+                + "\"dynamic_partition.time_unit\" = \"HOUR\",\n"
+                + "\"dynamic_partition.start\" = \"-24\",\n"
+                + "\"dynamic_partition.end\" = \"24\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"2\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
+                + ");";
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt2));
     }
 }

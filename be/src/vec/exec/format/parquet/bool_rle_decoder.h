@@ -17,9 +17,22 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <vector>
+
+#include "common/status.h"
 #include "util/rle_encoding.h"
-#include "vec/exec/format/parquet/bool_plain_decoder.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/decoder.h"
+
+namespace doris {
+namespace vectorized {
+class ColumnSelectVector;
+} // namespace vectorized
+struct Slice;
+} // namespace doris
 
 namespace doris::vectorized {
 class BoolRLEDecoder final : public Decoder {
@@ -31,6 +44,10 @@ public:
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter) override;
+
+    template <bool has_filter>
+    Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                          ColumnSelectVector& select_vector, bool is_dict_filter);
 
     Status skip_values(size_t num_values) override;
 

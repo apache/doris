@@ -20,6 +20,9 @@
 namespace doris {
 namespace io {
 
+FileReaderOptions FileReaderOptions::DEFAULT =
+        FileReaderOptions(FileCachePolicy::NO_CACHE, NoCachePathPolicy());
+
 FileCachePolicy cache_type_from_string(const std::string& type) {
     if (type == "sub_file_cache") {
         return FileCachePolicy::SUB_FILE_CACHE;

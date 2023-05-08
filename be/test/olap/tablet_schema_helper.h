@@ -17,12 +17,18 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
+#include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
+namespace vectorized {
+class Arena;
+} // namespace vectorized
 
 TabletColumn create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false,
                             bool has_bitmap_index = false);
@@ -50,10 +56,10 @@ TabletColumn create_with_default_value(std::string default_value) {
     return column;
 }
 
-void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPool* pool,
+void set_column_value_by_type(FieldType fieldType, int src, char* target, vectorized::Arena* pool,
                               size_t _length = 8);
 
 void set_column_value_by_type(FieldType fieldType, const std::string& src, char* target,
-                              MemPool* pool, size_t _length = 8);
+                              vectorized::Arena* pool, size_t _length = 8);
 
 } // namespace doris

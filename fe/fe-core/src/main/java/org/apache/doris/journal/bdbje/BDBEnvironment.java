@@ -46,7 +46,7 @@ import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.StateChangeListener;
 import com.sleepycat.je.rep.util.DbResetRepGroup;
 import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -391,6 +391,7 @@ public class BDBEnvironment {
     public void closeReplicatedEnvironment() {
         if (replicatedEnvironment != null) {
             try {
+                openedDatabases.clear();
                 // Finally, close the store and environment.
                 replicatedEnvironment.close();
             } catch (DatabaseException exception) {
@@ -405,7 +406,15 @@ public class BDBEnvironment {
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
                 // open the environment
-                replicatedEnvironment = new ReplicatedEnvironment(envHome, replicationConfig, environmentConfig);
+                replicatedEnvironment =
+                        new ReplicatedEnvironment(envHome, replicationConfig, environmentConfig);
+
+                // start state change listener
+                StateChangeListener listener = new BDBStateChangeListener();
+                replicatedEnvironment.setStateChangeListener(listener);
+
+                // open epochDB. the first parameter null means auto-commit
+                epochDB = replicatedEnvironment.openDatabase(null, "epochDB", dbConfig);
                 break;
             } catch (DatabaseException e) {
                 if (i < RETRY_TIME - 1) {

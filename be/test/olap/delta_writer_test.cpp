@@ -17,29 +17,48 @@
 
 #include "olap/delta_writer.h"
 
-#include <gtest/gtest.h>
-#include <sys/file.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdlib.h>
+#include <unistd.h>
 
+#include <iostream>
+#include <map>
 #include <string>
+#include <utility>
 
+#include "common/config.h"
+#include "common/object_pool.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "olap/field.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
+#include "olap/iterators.h"
+#include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/utils.h"
+#include "olap/tablet_manager.h"
+#include "olap/txn_manager.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
-#include "util/file_utils.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+class OlapMeta;
 
 // This is DeltaWriter unit test which used by streaming load.
 // And also it should take schema change into account after streaming load.
@@ -52,8 +71,7 @@ static void set_up() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = std::string(buffer) + "/data_test";
-    FileUtils::remove_all(config::storage_root_path);
-    FileUtils::create_dir(config::storage_root_path);
+    io::global_local_filesystem()->delete_and_create_directory(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
@@ -74,7 +92,8 @@ static void tear_down() {
         k_engine = nullptr;
     }
     EXPECT_EQ(system("rm -rf ./data_test"), 0);
-    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
+    io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
+                                                    UNUSED_PREFIX);
 }
 
 static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
@@ -428,8 +447,6 @@ TEST_F(TestDeltaWriter, vec_write) {
     DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
-    MemPool pool;
-
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
@@ -454,12 +471,12 @@ TEST_F(TestDeltaWriter, vec_write) {
         int128_t k5 = -90000;
         columns[4]->insert_data((const char*)&k5, sizeof(k5));
 
-        DateTimeValue k6;
+        vectorized::VecDateTimeValue k6;
         k6.from_date_str("2048-11-10", 10);
         auto k6_int = k6.to_int64();
         columns[5]->insert_data((const char*)&k6_int, sizeof(k6_int));
 
-        DateTimeValue k7;
+        vectorized::VecDateTimeValue k7;
         k7.from_date_str("2636-08-16 19:39:43", 19);
         auto k7_int = k7.to_int64();
         columns[6]->insert_data((const char*)&k7_int, sizeof(k7_int));
@@ -491,12 +508,12 @@ TEST_F(TestDeltaWriter, vec_write) {
         int128_t v5 = -90000;
         columns[15]->insert_data((const char*)&v5, sizeof(v5));
 
-        DateTimeValue v6;
+        vectorized::VecDateTimeValue v6;
         v6.from_date_str("2048-11-10", 10);
         auto v6_int = v6.to_int64();
         columns[16]->insert_data((const char*)&v6_int, sizeof(v6_int));
 
-        DateTimeValue v7;
+        vectorized::VecDateTimeValue v7;
         v7.from_date_str("2636-08-16 19:39:43", 19);
         auto v7_int = v7.to_int64();
         columns[17]->insert_data((const char*)&v7_int, sizeof(v7_int));
@@ -575,8 +592,6 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
-    MemPool pool;
-
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
@@ -592,7 +607,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
         int16_t c2 = 456;
         columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
-        DateTimeValue c3;
+        vectorized::VecDateTimeValue c3;
         c3.from_date_str("2020-07-16 19:39:43", 19);
         int64_t c3_int = c3.to_int64();
         columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
@@ -614,7 +629,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
         int16_t c2 = 456;
         columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
-        DateTimeValue c3;
+        vectorized::VecDateTimeValue c3;
         c3.from_date_str("2020-07-31 19:39:43", 19);
         int64_t c3_int = c3.to_int64();
         columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
@@ -674,7 +689,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     std::unique_ptr<RowwiseIterator> iter;
     Schema schema(rowset->tablet_schema());
-    segments[0]->new_iterator(schema, opts, &iter);
+    auto s = segments[0]->new_iterator(schema, opts, &iter);
+    ASSERT_TRUE(s.ok());
     auto read_block = rowset->tablet_schema()->create_block();
     res = iter->next_batch(&read_block);
     ASSERT_TRUE(res.ok());

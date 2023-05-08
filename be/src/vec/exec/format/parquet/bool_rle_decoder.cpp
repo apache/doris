@@ -17,13 +17,24 @@
 
 #include "vec/exec/format/parquet/bool_rle_decoder.h"
 
-#include "util/bit_util.h"
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <ostream>
+#include <string>
+
+#include "util/coding.h"
+#include "util/slice.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
 void BoolRLEDecoder::set_data(Slice* slice) {
     _data = slice;
     _num_bytes = slice->size;
     _offset = 0;
+    _current_value_idx = 0;
     if (_num_bytes < 4) {
         LOG(FATAL) << "Received invalid length : " + std::to_string(_num_bytes) +
                               " (corrupt data page?)";
@@ -47,21 +58,32 @@ Status BoolRLEDecoder::skip_values(size_t num_values) {
 
 Status BoolRLEDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                      ColumnSelectVector& select_vector, bool is_dict_filter) {
+    if (select_vector.has_filter()) {
+        return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
+    } else {
+        return _decode_values<false>(doris_column, data_type, select_vector, is_dict_filter);
+    }
+}
+
+template <bool has_filter>
+Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                      ColumnSelectVector& select_vector, bool is_dict_filter) {
     auto& column_data = static_cast<ColumnVector<UInt8>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
-    size_t max_values = column_data.size();
+    size_t max_values = select_vector.num_values() - select_vector.num_nulls();
     _values.resize(max_values);
     if (!_decoder.get_values(_values.data(), max_values)) {
         return Status::IOError("Can't read enough booleans in rle decoder");
     }
-    // _num_bytes -= max_values;
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             bool value; // Can't use uint8_t directly, we should correct it.
             for (size_t i = 0; i < run_length; ++i) {
+                DCHECK(_current_value_idx < max_values)
+                        << _current_value_idx << " vs. " << max_values;
                 value = _values[_current_value_idx++];
                 column_data[data_index++] = (UInt8)value;
             }
@@ -80,6 +102,7 @@ Status BoolRLEDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr
         }
         }
     }
+    _current_value_idx = 0;
     return Status::OK();
 }
 } // namespace doris::vectorized

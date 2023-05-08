@@ -60,7 +60,7 @@ public class ScalarFunction extends Function {
     }
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs,
-             boolean userVisible) {
+            boolean userVisible) {
         this(fnName, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, userVisible, false);
     }
 
@@ -70,12 +70,14 @@ public class ScalarFunction extends Function {
     }
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs,
-                          TFunctionBinaryType binaryType, boolean userVisible, boolean isVec) {
+            TFunctionBinaryType binaryType, boolean userVisible, boolean isVec) {
         super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, isVec,
                 NullableMode.DEPEND_ON_ARGUMENT);
     }
 
-    /** nerieds custom scalar function */
+    /**
+     * nerieds custom scalar function
+     */
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs, String symbolName,
             TFunctionBinaryType binaryType, boolean userVisible, boolean isVec, NullableMode nullableMode) {
         super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, isVec, nullableMode);
@@ -83,8 +85,8 @@ public class ScalarFunction extends Function {
     }
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes,
-                          Type retType, URI location, String symbolName, String initFnSymbol,
-                          String closeFnSymbol) {
+            Type retType, URI location, String symbolName, String initFnSymbol,
+            String closeFnSymbol) {
         super(fnName, argTypes, retType, false);
         setLocation(location);
         setSymbolName(symbolName);
@@ -97,9 +99,9 @@ public class ScalarFunction extends Function {
      * into one call.
      */
     public static ScalarFunction createBuiltin(String name, Type retType,
-                                               ArrayList<Type> argTypes, boolean hasVarArgs,
-                                               String symbol, String prepareFnSymbol, String closeFnSymbol,
-                                               boolean userVisible) {
+            ArrayList<Type> argTypes, boolean hasVarArgs,
+            String symbol, String prepareFnSymbol, String closeFnSymbol,
+            boolean userVisible) {
         return createBuiltin(name, retType, NullableMode.DEPEND_ON_ARGUMENT, argTypes, hasVarArgs,
                 symbol, prepareFnSymbol, closeFnSymbol, userVisible);
     }
@@ -309,7 +311,7 @@ public class ScalarFunction extends Function {
         return createVecBuiltin(name, null, symbol, null, argTypes, false, retType, false, nullableMode);
     }
 
-    //TODO: This method should not be here, move to other place in the future
+    // TODO: This method should not be here, move to other place in the future
     public static ScalarFunction createVecBuiltin(String name, String prepareFnSymbolBName, String symbol,
             String closeFnSymbolName, ArrayList<Type> argTypes, boolean hasVarArgs, Type retType, boolean userVisible,
             NullableMode nullableMode) {
@@ -379,7 +381,12 @@ public class ScalarFunction extends Function {
 
     @Override
     public String toSql(boolean ifNotExists) {
-        StringBuilder sb = new StringBuilder("CREATE FUNCTION ");
+        StringBuilder sb = new StringBuilder("CREATE ");
+        if (this.isGlobal) {
+            sb.append("GLOBAL ");
+        }
+        sb.append("FUNCTION ");
+
         if (ifNotExists) {
             sb.append("IF NOT EXISTS ");
         }
@@ -412,7 +419,7 @@ public class ScalarFunction extends Function {
     public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
         TFunction fn = super.toThrift(realReturnType, realArgTypes);
         fn.setScalarFn(new TScalarFunction());
-        if (getBinaryType() != TFunctionBinaryType.BUILTIN || !VectorizedUtil.optRpcForPipeline()) {
+        if (getBinaryType() != TFunctionBinaryType.BUILTIN || !VectorizedUtil.isPipeline()) {
             fn.getScalarFn().setSymbol(symbolName);
             if (prepareFnSymbol != null) {
                 fn.getScalarFn().setPrepareFnSymbol(prepareFnSymbol);

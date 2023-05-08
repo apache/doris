@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TAlterTabletType;
@@ -51,6 +52,7 @@ public class AlterReplicaTask extends AgentTask {
     private AlterJobV2.JobType jobType;
 
     private Map<String, Expr> defineExprs;
+    private Expr whereClause;
     private DescriptorTable descTable;
     private List<Column> baseSchemaColumns;
 
@@ -61,7 +63,7 @@ public class AlterReplicaTask extends AgentTask {
     public AlterReplicaTask(long backendId, long dbId, long tableId, long partitionId, long rollupIndexId,
             long baseIndexId, long rollupTabletId, long baseTabletId, long newReplicaId, int newSchemaHash,
             int baseSchemaHash, long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs,
-            DescriptorTable descTable, List<Column> baseSchemaColumns) {
+            DescriptorTable descTable, List<Column> baseSchemaColumns, Expr whereClause) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
@@ -75,6 +77,7 @@ public class AlterReplicaTask extends AgentTask {
 
         this.jobType = jobType;
         this.defineExprs = defineExprs;
+        this.whereClause = whereClause;
         this.descTable = descTable;
         this.baseSchemaColumns = baseSchemaColumns;
     }
@@ -110,6 +113,7 @@ public class AlterReplicaTask extends AgentTask {
     public TAlterTabletReqV2 toThrift() {
         TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, newSchemaHash);
         req.setAlterVersion(version);
+        req.setBeExecVersion(Config.be_exec_version);
         switch (jobType) {
             case ROLLUP:
                 req.setAlterTabletType(TAlterTabletType.ROLLUP);
@@ -129,6 +133,11 @@ public class AlterReplicaTask extends AgentTask {
                 mvParam.setMvExpr(entry.getValue().treeToThrift());
                 req.addToMaterializedViewParams(mvParam);
             }
+        }
+        if (whereClause != null) {
+            TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(Column.WHERE_SIGN);
+            mvParam.setMvExpr(whereClause.treeToThrift());
+            req.addToMaterializedViewParams(mvParam);
         }
         req.setDescTbl(descTable.toThrift());
 

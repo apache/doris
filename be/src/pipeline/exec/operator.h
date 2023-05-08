@@ -17,24 +17,40 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <functional>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "exec/exec_node.h"
-#include "runtime/runtime_state.h"
+#include "runtime/memory/mem_tracker.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/exec/vdata_gen_scan_node.h"
-#include "vec/exec/vselect_node.h"
-#include "vec/exec/vunion_node.h"
 
-#define OPERATOR_CODE_GENERATOR(NAME, SUBCLASS)                                                 \
-    NAME##Builder::NAME##Builder(int32_t id, ExecNode* exec_node)                               \
-            : OperatorBuilder(id, #NAME, exec_node) {}                                          \
-                                                                                                \
-    OperatorPtr NAME##Builder::build_operator() { return std::make_shared<NAME>(this, _node); } \
-                                                                                                \
-    NAME::NAME(OperatorBuilderBase* operator_builder, ExecNode* node)                           \
+namespace doris {
+class DataSink;
+class RowDescriptor;
+class RuntimeState;
+class TDataSink;
+} // namespace doris
+
+#define OPERATOR_CODE_GENERATOR(NAME, SUBCLASS)                       \
+    NAME##Builder::NAME##Builder(int32_t id, ExecNode* exec_node)     \
+            : OperatorBuilder(id, #NAME, exec_node) {}                \
+                                                                      \
+    OperatorPtr NAME##Builder::build_operator() {                     \
+        return std::make_shared<NAME>(this, _node);                   \
+    }                                                                 \
+                                                                      \
+    NAME::NAME(OperatorBuilderBase* operator_builder, ExecNode* node) \
             : SUBCLASS(operator_builder, node) {};
 
 namespace doris::pipeline {
@@ -140,7 +156,7 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    virtual std::string get_name() const { return _operator_builder->get_name(); }
+    std::string get_name() const { return _operator_builder->get_name(); }
 
     bool is_sink() const;
 
@@ -229,12 +245,11 @@ public:
     int32_t id() const { return _operator_builder->id(); }
 
 protected:
-    std::unique_ptr<MemTracker> _mem_tracker;
-
     OperatorBuilderBase* _operator_builder;
     OperatorPtr _child;
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
+    std::unique_ptr<MemTracker> _mem_tracker;
     // TODO pipeline Account for peak memory used by this operator
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
 
@@ -259,12 +274,7 @@ public:
 
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(_sink->prepare(state));
-        _runtime_profile.reset(new RuntimeProfile(
-                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker =
-                std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
-                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         return Status::OK();
     }
 
@@ -317,12 +327,7 @@ public:
     ~StreamingOperator() override = default;
 
     Status prepare(RuntimeState* state) override {
-        _runtime_profile.reset(new RuntimeProfile(
-                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker =
-                std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
-                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         _node->increase_ref();
         _use_projection = _node->has_output_row_descriptor();
         return Status::OK();
@@ -422,7 +427,7 @@ public:
 
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<OperatorBuilderType>(builder, node),
-              _child_block(new vectorized::Block),
+              _child_block(vectorized::Block::create_unique()),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
     virtual ~StatefulOperator() = default;

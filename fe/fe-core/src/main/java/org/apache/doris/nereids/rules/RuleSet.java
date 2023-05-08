@@ -17,13 +17,27 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.rules.exploration.AggSemiJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.AggSemiJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
+import org.apache.doris.nereids.rules.exploration.PushdownFilterThroughProjectCBO;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinLeftAssociate;
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinLeftAssociateProject;
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinRightAssociate;
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinRightAssociateProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
+import org.apache.doris.nereids.rules.exploration.join.JoinExchange;
+import org.apache.doris.nereids.rules.exploration.join.JoinExchangeBothProject;
+import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssoc;
+import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssocProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
-import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTranspose;
-import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughInnerJoin;
+import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughSemiJoin;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
@@ -67,7 +81,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimi
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -75,26 +88,21 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(new PushdownFilterThroughProject())
-            .add(new MergeProjects())
+            .add(new PushdownFilterThroughProjectCBO())
+            .add(new MergeProjectsCBO())
             .build();
 
     public static final List<Rule> OTHER_REORDER_RULES = planRuleFactories()
             .add(OuterJoinLAsscom.INSTANCE)
             .add(OuterJoinLAsscomProject.INSTANCE)
-            .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
-            .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
-            .build();
-
-    /**
-     * This rule need to be shadow in DPHyp
-     */
-    public static final List<Rule> JOINORDER_RULE = planRuleFactories()
-            .add(JoinCommute.ZIG_ZAG)
-            .add(InnerJoinLAsscom.INSTANCE)
-            .add(InnerJoinLAsscomProject.INSTANCE)
+            .add(LogicalJoinSemiJoinTranspose.INSTANCE)
+            .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
+            .add(PushdownProjectThroughInnerJoin.INSTANCE)
+            .add(PushdownProjectThroughSemiJoin.INSTANCE)
+            .add(AggSemiJoinTranspose.INSTANCE)
+            .add(AggSemiJoinTransposeProject.INSTANCE)
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
@@ -139,56 +147,53 @@ public class RuleSet {
             .add(new LogicalGenerateToPhysicalGenerate())
             .build();
 
-    public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()
-            // .add(JoinCommute.LEFT_DEEP)
-            // .add(JoinLAsscom.INNER)
-            // .add(JoinLAsscomProject.INNER)
-            // .add(JoinLAsscom.OUTER)
-            // .add(JoinLAsscomProject.OUTER)
-            // semi join Transpose ....
-            .build();
-
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
-            // .add(JoinCommute.ZIG_ZAG)
-            // .add(JoinLAsscom.INNER)
-            // .add(JoinLAsscomProject.INNER)
-            // .add(JoinLAsscom.OUTER)
-            // .add(JoinLAsscomProject.OUTER)
-            // semi join Transpose ....
+            .add(JoinCommute.ZIG_ZAG)
+            .add(InnerJoinLAsscom.INSTANCE)
+            .add(InnerJoinLAsscomProject.INSTANCE)
             .build();
 
     public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.BUSHY)
-            // TODO: add more rule
-            // .add(JoinLeftAssociate.INNER)
-            // .add(JoinLeftAssociateProject.INNER)
-            // .add(JoinRightAssociate.INNER)
-            // .add(JoinRightAssociateProject.INNER)
-            // .add(JoinExchange.INNER)
-            // .add(JoinExchangeBothProject.INNER)
-            // .add(JoinExchangeLeftProject.INNER)
-            // .add(JoinExchangeRightProject.INNER)
-            // .add(JoinRightAssociate.OUTER)
-            // .add(JoinLAsscom.OUTER)
-            // semi join Transpose ....
+            .add(InnerJoinLAsscom.INSTANCE)
+            .add(InnerJoinLAsscomProject.INSTANCE)
+            .add(InnerJoinLeftAssociate.INSTANCE)
+            .add(InnerJoinLeftAssociateProject.INSTANCE)
+            .add(InnerJoinRightAssociate.INSTANCE)
+            .add(InnerJoinRightAssociateProject.INSTANCE)
+            .add(JoinExchange.INSTANCE)
+            .add(JoinExchangeBothProject.INSTANCE)
+            .add(OuterJoinAssoc.INSTANCE)
+            .add(OuterJoinAssocProject.INSTANCE)
             .build();
 
-    public List<Rule> getExplorationRules() {
-        List<Rule> rules = new ArrayList<>();
-        rules.addAll(JOINORDER_RULE);
-        rules.addAll(OTHER_REORDER_RULES);
-        rules.addAll(EXPLORATION_RULES);
-        return rules;
+    public static final List<Rule> otherReorderRules = ImmutableList.<Rule>builder()
+            .addAll(OTHER_REORDER_RULES)
+            .addAll(EXPLORATION_RULES)
+            .build();
+
+    public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER_RULES = ImmutableList.<Rule>builder()
+            .addAll(ZIG_ZAG_TREE_JOIN_REORDER)
+            .addAll(OTHER_REORDER_RULES)
+            .addAll(EXPLORATION_RULES)
+            .build();
+
+    public static final List<Rule> BUSHY_TREE_JOIN_REORDER_RULES = ImmutableList.<Rule>builder()
+            .addAll(BUSHY_TREE_JOIN_REORDER)
+            .addAll(OTHER_REORDER_RULES)
+            .addAll(EXPLORATION_RULES)
+            .build();
+
+    public List<Rule> getOtherReorderRules() {
+        return otherReorderRules;
     }
 
-    public List<Rule> getExplorationRulesWithoutReorder() {
-        List<Rule> rules = new ArrayList<>();
-        rules.addAll(EXPLORATION_RULES);
-        return rules;
+    public List<Rule> getZigZagTreeJoinReorder() {
+        return ZIG_ZAG_TREE_JOIN_REORDER_RULES;
     }
 
-    public List<Rule> getJoinOrderRule() {
-        return JOINORDER_RULE;
+    public List<Rule> getBushyTreeJoinReorder() {
+        return BUSHY_TREE_JOIN_REORDER_RULES;
     }
 
     public List<Rule> getImplementationRules() {

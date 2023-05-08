@@ -30,7 +30,6 @@ import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
-import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -44,7 +43,6 @@ import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
@@ -55,7 +53,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
@@ -64,8 +61,6 @@ import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.InstallPluginStmt;
-import org.apache.doris.analysis.LinkDbStmt;
-import org.apache.doris.analysis.MigrateDbStmt;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
@@ -75,6 +70,7 @@ import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
@@ -94,8 +90,6 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
-import org.apache.doris.cluster.BaseParam;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
@@ -148,7 +142,6 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -157,6 +150,7 @@ import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.loadv2.ProgressManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
@@ -172,12 +166,8 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterMultiMaterializedView;
-import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
-import org.apache.doris.persist.ClusterInfo;
-import org.apache.doris.persist.DatabaseInfo;
-import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
@@ -210,10 +200,13 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.resourcegroup.ResourceGroupMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.StatisticsAutoAnalyzer;
 import org.apache.doris.statistics.StatisticsCache;
+import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.FQDNManager;
 import org.apache.doris.system.Frontend;
@@ -245,7 +238,6 @@ import com.google.common.collect.Queues;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
-import lombok.Setter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -306,8 +298,10 @@ public class Env {
     private QueryableReentrantLock lock;
 
     private CatalogMgr catalogMgr;
+    private GlobalFunctionMgr globalFunctionMgr;
     private Load load;
     private LoadManager loadManager;
+    private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private RoutineLoadManager routineLoadManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
@@ -339,10 +333,6 @@ public class Env {
     // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
     private AtomicBoolean canRead = new AtomicBoolean(false);
     private BlockingQueue<FrontendNodeType> typeTransferQueue;
-
-    // false if default_cluster is not created.
-    @Setter
-    private boolean isDefaultClusterCreated = false;
 
     // node name is used for bdbje NodeName.
     private String nodeName;
@@ -444,6 +434,12 @@ public class Env {
     private FQDNManager fqdnManager;
 
     private AtomicLong stmtIdCounter;
+
+    private ResourceGroupMgr resourceGroupMgr;
+
+    private StatisticsCleaner statisticsCleaner;
+
+    private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -586,8 +582,6 @@ public class Env {
 
         this.metaReplayState = new MetaReplayState();
 
-        this.isDefaultClusterCreated = false;
-
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
 
@@ -619,6 +613,7 @@ public class Env {
 
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
+        this.progressManager = new ProgressManager();
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
         this.loadEtlChecker = new LoadEtlChecker(loadManager);
@@ -643,9 +638,13 @@ public class Env {
         this.mtmvJobManager = new MTMVJobManager();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.fqdnManager = new FQDNManager(systemInfo);
-        if (!isCheckpointCatalog) {
+        if (Config.enable_stats && !isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
+            this.statisticsCleaner = new StatisticsCleaner();
+            this.statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
         }
+        this.globalFunctionMgr = new GlobalFunctionMgr();
+        this.resourceGroupMgr = new ResourceGroupMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -711,6 +710,10 @@ public class Env {
 
     public AuditEventProcessor getAuditEventProcessor() {
         return auditEventProcessor;
+    }
+
+    public ResourceGroupMgr getResourceGroupMgr() {
+        return resourceGroupMgr;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -862,6 +865,12 @@ public class Env {
         if (!Config.edit_log_type.equalsIgnoreCase("bdb")) {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
+        }
+        if (statisticsCleaner != null) {
+            statisticsCleaner.start();
+        }
+        if (statisticsAutoAnalyzer != null) {
+            statisticsAutoAnalyzer.start();
         }
     }
 
@@ -1297,24 +1306,24 @@ public class Env {
             initLowerCaseTableNames();
         }
 
-        if (!isDefaultClusterCreated) {
-            initDefaultCluster();
-        }
-
         getPolicyMgr().createDefaultStoragePolicy();
 
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
+
         this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getIp(),
                 Env.getCurrentEnv().getSelfNode().getHostName(),
                 Config.http_port,
                 Config.rpc_port);
         editLog.logMasterInfo(masterInfo);
+        LOG.info("logMasterInfo:{}", masterInfo);
+
+        this.resourceGroupMgr.init();
 
         // for master, the 'isReady' is set behind.
         // but we are sure that all metadata is replayed if we get here.
         // so no need to check 'isReady' flag in this method
-        fixBugAfterMetadataReplayed(false);
+        postProcessAfterMetadataReplayed(false);
 
         // start all daemon threads that only running on MASTER FE
         startMasterOnlyDaemonThreads();
@@ -1332,12 +1341,18 @@ public class Env {
         LOG.info(msg);
         // for master, there are some new thread pools need to register metric
         ThreadPoolManager.registerAllThreadPoolMetric();
+        if (analysisManager != null) {
+            analysisManager.getStatisticsCache().preHeat();
+        }
     }
 
     /*
-     * Add anything necessary here if there is meta data need to be fixed.
+     * There are something need to do after metadata is replayed, such as
+     * 1. bug fix for metadata
+     * 2. register some hook.
+     * If there is, add them here.
      */
-    public void fixBugAfterMetadataReplayed(boolean waitCatalogReady) {
+    public void postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
         if (waitCatalogReady) {
             while (!isReady()) {
                 try {
@@ -1349,6 +1364,7 @@ public class Env {
         }
 
         auth.rectifyPrivs();
+        catalogMgr.registerCatalogRefreshListener(this);
     }
 
     // start all daemon threads only running on Master
@@ -1373,9 +1389,8 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // Export checker
-        ExportChecker.init(Config.export_checker_interval_second * 1000L);
-        ExportChecker.startAll();
+        // export task
+        exportMgr.start();
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();
@@ -1400,6 +1415,7 @@ public class Env {
         if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
             LOG.info("deploy manager {} start", deployManager.getName());
             deployManager.start();
+            deployManager.startListener();
         }
         // start routine load scheduler
         routineLoadScheduler.start();
@@ -1426,6 +1442,7 @@ public class Env {
         }
         // start mtmv jobManager
         mtmvJobManager.start();
+        getRefreshManager().start();
     }
 
     // start threads that should running on all FE
@@ -1459,7 +1476,7 @@ public class Env {
         }
 
         // 'isReady' will be set to true in 'setCanRead()' method
-        fixBugAfterMetadataReplayed(true);
+        postProcessAfterMetadataReplayed(true);
 
         checkLowerCaseTableNames();
 
@@ -1679,7 +1696,9 @@ public class Env {
         newChecksum ^= catalogId;
         idGenerator.setId(catalogId);
 
-        isDefaultClusterCreated = dis.readBoolean();
+        // compatible with isDefaultClusterCreated, now is deprecated.
+        // just read and skip it.
+        dis.readBoolean();
 
         LOG.info("finished replay header from image");
         return newChecksum;
@@ -1776,6 +1795,10 @@ public class Env {
         newChecksum ^= size;
         for (int i = 0; i < size; i++) {
             AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
+            if (alterJobV2.isExpire()) {
+                LOG.info("alter job {} is expired, type: {}, ignore it", alterJobV2.getJobId(), alterJobV2.getType());
+                continue;
+            }
             if (type == JobType.ROLLUP || type == JobType.SCHEMA_CHANGE) {
                 if (type == JobType.ROLLUP) {
                     this.getMaterializedViewHandler().addAlterJobV2(alterJobV2);
@@ -1871,6 +1894,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadResourceGroups(DataInputStream in, long checksum) throws IOException {
+        resourceGroupMgr = ResourceGroupMgr.read(in);
+        LOG.info("finished replay resource groups from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -1914,10 +1943,17 @@ public class Env {
      * Load mtmv jobManager.
      **/
     public long loadMTMVJobManager(DataInputStream in, long checksum) throws IOException {
-        if (Config.enable_mtmv_scheduler_framework) {
-            this.mtmvJobManager = MTMVJobManager.read(in, checksum);
-            LOG.info("finished replay mtmv job and tasks from image");
-        }
+        this.mtmvJobManager = MTMVJobManager.read(in, checksum);
+        LOG.info("finished replay mtmv job and tasks from image");
+        return checksum;
+    }
+
+    /**
+     * Load global function.
+     **/
+    public long loadGlobalFunction(DataInputStream in, long checksum) throws IOException {
+        this.globalFunctionMgr = GlobalFunctionMgr.read(in);
+        LOG.info("finished replay global function from image");
         return checksum;
     }
 
@@ -1965,7 +2001,9 @@ public class Env {
         checksum ^= id;
         dos.writeLong(id);
 
-        dos.writeBoolean(isDefaultClusterCreated);
+        // compatible with isDefaultClusterCreated value, now is deprecated,
+        // so just write a true value.
+        dos.writeBoolean(true);
 
         return checksum;
     }
@@ -2127,6 +2165,11 @@ public class Env {
         return checksum;
     }
 
+    public long saveResourceGroups(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getResourceGroupMgr().write(dos);
+        return checksum;
+    }
+
     public long saveSmallFiles(CountingDataOutputStream dos, long checksum) throws IOException {
         smallFileMgr.write(dos);
         return checksum;
@@ -2151,10 +2194,14 @@ public class Env {
     }
 
     public long saveMTMVJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        if (Config.enable_mtmv_scheduler_framework) {
-            Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
-            LOG.info("Save mtmv job and tasks to image");
-        }
+        Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
+        LOG.info("Save mtmv job and tasks to image");
+        return checksum;
+    }
+
+    public long saveGlobalFunction(CountingDataOutputStream out, long checksum) throws IOException {
+        this.globalFunctionMgr.write(out);
+        LOG.info("Save global function to image");
         return checksum;
     }
 
@@ -2596,21 +2643,12 @@ public class Env {
         getInternalCatalog().unprotectCreateDb(db);
     }
 
-    // for test
-    public void addCluster(Cluster cluster) {
-        getInternalCatalog().addCluster(cluster);
-    }
-
     public void replayCreateDb(Database db) {
         getInternalCatalog().replayCreateDb(db, "");
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
         getInternalCatalog().dropDb(stmt);
-    }
-
-    public void replayDropLinkDb(DropLinkDbAndUpdateDbInfo info) {
-        getInternalCatalog().replayDropLinkDb(info);
     }
 
     public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
@@ -2711,7 +2749,7 @@ public class Env {
     public static void getDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
             List<String> createRollupStmt, boolean separatePartition, boolean hidePassword, long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false, specificVersion);
+                hidePassword, false, specificVersion, false);
     }
 
     /**
@@ -2721,7 +2759,7 @@ public class Env {
      */
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
             List<String> addPartitionStmt, List<String> createRollupStmt, boolean separatePartition,
-            boolean hidePassword, boolean getDdlForLike, long specificVersion) {
+            boolean hidePassword, boolean getDdlForLike, long specificVersion, boolean getBriefDdl) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -2769,7 +2807,8 @@ public class Env {
                 // There MUST BE 2 space in front of each column description line
                 // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
                 if (table.getType() == TableType.OLAP) {
-                    sb.append("  ").append(column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS));
+                    sb.append("  ").append(
+                            column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
                 } else {
                     sb.append("  ").append(column.toSql());
                 }
@@ -2793,20 +2832,24 @@ public class Env {
 
         if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
             OlapTable olapTable = (OlapTable) table;
-
             // keys
             String keySql = olapTable.getKeysType().toSql();
-            sb.append("\n").append(table.getType() == TableType.OLAP
+            if (olapTable.isDuplicateWithoutKey()) {
+                // after #18621, use can create a DUP_KEYS olap table without key columns
+                // and get a ddl schema without key type and key columns
+            } else {
+                sb.append("\n").append(table.getType() == TableType.OLAP
                     ? keySql
                     : keySql.substring("DUPLICATE ".length()))
                     .append("(");
-            List<String> keysColumnNames = Lists.newArrayList();
-            for (Column column : olapTable.getBaseSchema()) {
-                if (column.isKey()) {
-                    keysColumnNames.add("`" + column.getName() + "`");
+                List<String> keysColumnNames = Lists.newArrayList();
+                for (Column column : olapTable.getBaseSchema()) {
+                    if (column.isKey()) {
+                        keysColumnNames.add("`" + column.getName() + "`");
+                    }
                 }
+                sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
             }
-            sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
 
             if (specificVersion != -1) {
                 // for copy tablet operation
@@ -2828,7 +2871,8 @@ public class Env {
             if (separatePartition) {
                 partitionId = Lists.newArrayList();
             }
-            if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+            if (!getBriefDdl && (partitionInfo.getType() == PartitionType.RANGE
+                    || partitionInfo.getType() == PartitionType.LIST)) {
                 sb.append("\n").append(partitionInfo.toSql(olapTable, partitionId));
             }
 
@@ -2926,8 +2970,10 @@ public class Env {
             }
 
             // in memory
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
-            sb.append(olapTable.isInMemory()).append("\"");
+            if (olapTable.isInMemory()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
+                sb.append(olapTable.isInMemory()).append("\"");
+            }
 
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
@@ -3491,6 +3537,14 @@ public class Env {
         return loadManager;
     }
 
+    public ProgressManager getProgressManager() {
+        return progressManager;
+    }
+
+    public static ProgressManager getCurrentProgressManager() {
+        return getCurrentEnv().getProgressManager();
+    }
+
     public StreamLoadRecordMgr getStreamLoadRecordMgr() {
         return streamLoadRecordMgr;
     }
@@ -3618,6 +3672,7 @@ public class Env {
 
     public void setMaster(MasterInfo info) {
         this.masterInfo = info;
+        LOG.info("setMaster MasterInfo:{}", info);
     }
 
     public boolean canRead() {
@@ -3648,8 +3703,8 @@ public class Env {
         this.haProtocol = protocol;
     }
 
-    public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties)
-            throws DdlException {
+    public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties,
+                boolean isKeysRequired) throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
         for (Column column : columns) {
             if (column.isKey()) {
@@ -3657,7 +3712,9 @@ public class Env {
             }
         }
         LOG.debug("index column size: {}", indexColumns.size());
-        Preconditions.checkArgument(indexColumns.size() > 0);
+        if (isKeysRequired) {
+            Preconditions.checkArgument(indexColumns.size() > 0);
+        }
 
         // figure out shortKeyColumnCount
         short shortKeyColumnCount = (short) -1;
@@ -3711,7 +3768,7 @@ public class Env {
                 }
                 ++shortKeyColumnCount;
             }
-            if (shortKeyColumnCount == 0) {
+            if (isKeysRequired && shortKeyColumnCount == 0) {
                 throw new DdlException("The first column could not be float or double type, use decimal instead");
             }
 
@@ -3866,23 +3923,23 @@ public class Env {
     }
 
     // the invoker should keep table's write lock
-    public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay,
+    public void modifyTableColocate(Database db, OlapTable table, String assignedGroup, boolean isReplay,
             GroupId assignedGroupId)
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
         GroupId groupId = null;
-        if (!Strings.isNullOrEmpty(colocateGroup)) {
-            String fullGroupName = db.getId() + "_" + colocateGroup;
+        if (!Strings.isNullOrEmpty(assignedGroup)) {
+            String fullAssignedGroupName = GroupId.getFullGroupName(db.getId(), assignedGroup);
             //When the new name is the same as the old name, we return it to prevent npe
             if (!Strings.isNullOrEmpty(oldGroup)) {
-                String oldFullGroupName = db.getId() + "_" + oldGroup;
-                if (oldFullGroupName.equals(fullGroupName)) {
+                String oldFullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
+                if (oldFullGroupName.equals(fullAssignedGroupName)) {
                     LOG.warn("modify table[{}] group name same as old group name,skip.", table.getName());
                     return;
                 }
             }
-            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
+            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullAssignedGroupName);
             if (groupSchema == null) {
                 // user set a new colocate group,
                 // check if all partitions all this table has same buckets num and same replication number
@@ -3919,7 +3976,7 @@ public class Env {
                 backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
             }
             // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
-            groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, colocateGroup, assignedGroupId);
+            groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
 
             if (groupSchema == null) {
                 Preconditions.checkNotNull(backendsPerBucketSeq);
@@ -3929,7 +3986,7 @@ public class Env {
             // set this group as unstable
             colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
                     false /* edit log is along with modify table log */);
-            table.setColocateGroup(colocateGroup);
+            table.setColocateGroup(assignedGroup);
         } else {
             // unset colocation group
             if (Strings.isNullOrEmpty(oldGroup)) {
@@ -3938,17 +3995,16 @@ public class Env {
             }
 
             // when replayModifyTableColocate, we need the groupId info
-            String fullGroupName = db.getId() + "_" + oldGroup;
+            String fullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
             groupId = colocateTableIndex.getGroupSchema(fullGroupName).getGroupId();
-
             colocateTableIndex.removeTable(table.getId());
             table.setColocateGroup(null);
         }
 
         if (!isReplay) {
             Map<String, String> properties = Maps.newHashMapWithExpectedSize(1);
-            properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, colocateGroup);
-            TablePropertyInfo info = new TablePropertyInfo(table.getId(), groupId, properties);
+            properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, assignedGroup);
+            TablePropertyInfo info = new TablePropertyInfo(db.getId(), table.getId(), groupId, properties);
             editLog.logModifyTableColocate(info);
         }
         LOG.info("finished modify table's colocation property. table: {}, is replay: {}", table.getName(), isReplay);
@@ -3956,6 +4012,10 @@ public class Env {
 
     public void replayModifyTableColocate(TablePropertyInfo info) throws MetaNotFoundException {
         long dbId = info.getGroupId().dbId;
+        if (dbId == 0) {
+            dbId = info.getDbId();
+        }
+        Preconditions.checkState(dbId != 0, "replay modify table colocate failed, table id: " + info.getTableId());
         long tableId = info.getTableId();
         Map<String, String> properties = info.getPropertyMap();
 
@@ -4578,121 +4638,14 @@ public class Env {
         return functionSet.isNullResultWithOneNullParamFunctions(funcName);
     }
 
-    /**
-     * create cluster
-     *
-     * @param stmt
-     * @throws DdlException
-     */
-    public void createCluster(CreateClusterStmt stmt) throws DdlException {
-        getInternalCatalog().createCluster(stmt);
-    }
-
-    /**
-     * replay create cluster
-     *
-     * @param cluster
-     */
-    public void replayCreateCluster(Cluster cluster) {
-        getInternalCatalog().replayCreateCluster(cluster);
-    }
-
-    /**
-     * drop cluster and cluster's db must be have deleted
-     *
-     * @param stmt
-     * @throws DdlException
-     */
-    public void dropCluster(DropClusterStmt stmt) throws DdlException {
-        getInternalCatalog().dropCluster(stmt);
-    }
-
-    public void replayDropCluster(ClusterInfo info) throws DdlException {
-        getInternalCatalog().replayDropCluster(info);
-    }
-
-    public void replayExpandCluster(ClusterInfo info) {
-        getInternalCatalog().replayExpandCluster(info);
-    }
-
-    /**
-     * modify cluster: Expansion or shrink
-     *
-     * @param stmt
-     * @throws DdlException
-     */
-    public void processModifyCluster(AlterClusterStmt stmt) throws UserException {
-        getInternalCatalog().processModifyCluster(stmt);
-    }
-
-    /**
-     * @param ctx
-     * @param clusterName
-     * @throws DdlException
-     */
-    public void changeCluster(ConnectContext ctx, String clusterName) throws DdlException {
-        getInternalCatalog().changeCluster(ctx, clusterName);
-    }
-
-    /**
-     * migrate db to link dest cluster
-     *
-     * @param stmt
-     * @throws DdlException
-     */
-    public void migrateDb(MigrateDbStmt stmt) throws DdlException {
-        getInternalCatalog().migrateDb(stmt);
-    }
-
-    public void replayMigrateDb(BaseParam param) {
-        getInternalCatalog().replayMigrateDb(param);
-    }
-
-    public void replayLinkDb(BaseParam param) {
-        getInternalCatalog().replayLinkDb(param);
-    }
-
-    /**
-     * link src db to dest db. we use java's quotation Mechanism to realize db hard links
-     *
-     * @param stmt
-     * @throws DdlException
-     */
-    public void linkDb(LinkDbStmt stmt) throws DdlException {
-        getInternalCatalog().linkDb(stmt);
-    }
-
-    public Cluster getCluster(String clusterName) {
-        return getInternalCatalog().getCluster(clusterName);
-    }
-
-    public List<String> getClusterNames() {
-        return getInternalCatalog().getClusterNames();
-    }
-
-    /**
-     * get migrate progress , when finish migration, next cloneCheck will reset dbState
-     *
-     * @return
-     */
-    public Set<BaseParam> getMigrations() {
-        return getInternalCatalog().getMigrations();
-    }
-
+    @Deprecated
     public long loadCluster(DataInputStream dis, long checksum) throws IOException, DdlException {
         return getInternalCatalog().loadCluster(dis, checksum);
     }
 
-    public void initDefaultCluster() {
-        getInternalCatalog().initDefaultCluster();
-    }
-
-    public void replayUpdateDb(DatabaseInfo info) {
-        getInternalCatalog().replayUpdateDb(info);
-    }
-
     public long saveCluster(CountingDataOutputStream dos, long checksum) throws IOException {
-        return getInternalCatalog().saveCluster(dos, checksum);
+        // do nothing
+        return checksum;
     }
 
     public long saveBrokers(CountingDataOutputStream dos, long checksum) throws IOException {
@@ -4733,9 +4686,6 @@ public class Env {
         return checksum;
     }
 
-    public void replayUpdateClusterAndBackends(BackendIdsUpdateInfo info) {
-        getInternalCatalog().replayUpdateClusterAndBackends(info);
-    }
 
     public String dumpImage() {
         LOG.info("begin to dump meta data");
@@ -4807,9 +4757,12 @@ public class Env {
     }
 
     public void createFunction(CreateFunctionStmt stmt) throws UserException {
-        FunctionName name = stmt.getFunctionName();
-        Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-        db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
+        if (SetType.GLOBAL.equals(stmt.getType())) {
+            globalFunctionMgr.addFunction(stmt.getFunction(), stmt.isIfNotExists());
+        } else {
+            Database db = getInternalCatalog().getDbOrDdlException(stmt.getFunctionName().getDb());
+            db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
+        }
     }
 
     public void replayCreateFunction(Function function) throws MetaNotFoundException {
@@ -4818,16 +4771,28 @@ public class Env {
         db.replayAddFunction(function);
     }
 
+    public void replayCreateGlobalFunction(Function function) {
+        globalFunctionMgr.replayAddFunction(function);
+    }
+
     public void dropFunction(DropFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
-        Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-        db.dropFunction(stmt.getFunction(), stmt.isIfExists());
+        if (SetType.GLOBAL.equals(stmt.getType())) {
+            globalFunctionMgr.dropFunction(stmt.getFunction(), stmt.isIfExists());
+        } else {
+            Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
+            db.dropFunction(stmt.getFunction(), stmt.isIfExists());
+        }
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
         String dbName = functionSearchDesc.getName().getDb();
         Database db = getInternalCatalog().getDbOrMetaException(dbName);
         db.replayDropFunction(functionSearchDesc);
+    }
+
+    public void replayDropGlobalFunction(FunctionSearchDesc functionSearchDesc) {
+        globalFunctionMgr.replayDropFunction(functionSearchDesc);
     }
 
     public void setConfig(AdminSetConfigStmt stmt) throws DdlException {
@@ -5279,7 +5244,7 @@ public class Env {
     //  1. handle partition level analysis statement properly
     //  2. support sample job
     //  3. support period job
-    public void createAnalysisJob(AnalyzeStmt analyzeStmt) {
+    public void createAnalysisJob(AnalyzeStmt analyzeStmt) throws DdlException {
         analysisManager.createAnalysisJob(analyzeStmt);
     }
 
@@ -5287,4 +5252,16 @@ public class Env {
         return analysisManager;
     }
 
+
+    public GlobalFunctionMgr getGlobalFunctionMgr() {
+        return globalFunctionMgr;
+    }
+
+    public StatisticsCleaner getStatisticsCleaner() {
+        return statisticsCleaner;
+    }
+
+    public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
+        return statisticsAutoAnalyzer;
+    }
 }

@@ -17,33 +17,41 @@
 
 #pragma once
 
-#include <arrow/api.h>
-#include <arrow/buffer.h>
-#include <arrow/io/api.h>
-#include <arrow/io/file.h>
 #include <arrow/io/interfaces.h>
+#include <arrow/result.h>
+#include <arrow/status.h>
 #include <gen_cpp/DataSinks_types.h>
-#include <parquet/api/reader.h>
-#include <parquet/api/writer.h>
-#include <parquet/arrow/reader.h>
-#include <parquet/arrow/writer.h>
-#include <parquet/exception.h>
+#include <parquet/file_writer.h>
+#include <parquet/properties.h>
+#include <parquet/types.h>
 #include <stdint.h>
 
-#include <map>
-#include <string>
+#include <memory>
+#include <vector>
 
 #include "common/status.h"
 #include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vfile_result_writer.h"
+
+namespace doris {
+namespace io {
+class FileWriter;
+} // namespace io
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+namespace parquet {
+namespace schema {
+class GroupNode;
+} // namespace schema
+} // namespace parquet
 
 namespace doris::vectorized {
 
 class ParquetOutputStream : public arrow::io::OutputStream {
 public:
-    ParquetOutputStream(FileWriter* file_writer);
-    ParquetOutputStream(FileWriter* file_writer, const int64_t& written_len);
+    ParquetOutputStream(doris::io::FileWriter* file_writer);
+    ParquetOutputStream(doris::io::FileWriter* file_writer, const int64_t& written_len);
     ~ParquetOutputStream() override;
 
     arrow::Status Write(const void* data, int64_t nbytes) override;
@@ -58,8 +66,8 @@ public:
     void set_written_len(int64_t written_len);
 
 private:
-    FileWriter* _file_writer; // not owned
-    int64_t _cur_pos = 0;     // current write position
+    doris::io::FileWriter* _file_writer; // not owned
+    int64_t _cur_pos = 0;                // current write position
     bool _is_closed = false;
     int64_t _written_len = 0;
 };
@@ -106,7 +114,7 @@ protected:
 // a wrapper of parquet output stream
 class VParquetWriterWrapper final : public VFileWriterWrapper {
 public:
-    VParquetWriterWrapper(doris::FileWriter* file_writer,
+    VParquetWriterWrapper(doris::io::FileWriter* file_writer,
                           const std::vector<VExprContext*>& output_vexpr_ctxs,
                           const std::vector<TParquetSchema>& parquet_schemas,
                           const TParquetCompressionType::type& compression_type,

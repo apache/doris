@@ -17,8 +17,9 @@
 
 #pragma once
 
-#include "gen_cpp/olap_file.pb.h"
-#include "gen_cpp/types.pb.h"
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/types.pb.h>
+
 #include "gutil/macros.h"
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
@@ -91,6 +92,8 @@ public:
     virtual bool is_doing_segcompaction() const = 0;
 
     virtual Status wait_flying_segcompaction() = 0;
+
+    virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

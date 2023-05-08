@@ -69,9 +69,8 @@ while true; do
     esac
 done
 
-if [[ ${HELP} -eq 1 ]]; then
+if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit
 fi
 
 check_prerequest() {
@@ -92,7 +91,6 @@ echo "FE_HOST: ${FE_HOST}"
 echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
 echo "USER: ${USER}"
 echo "DB: ${DB}"
-echo "Time Unit: ms"
 
 run_sql() {
     echo "$*"
@@ -104,22 +102,46 @@ run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
+echo "Time Unit: ms"
 
-sum=0
+touch result.csv
+cold_run_sum=0
+best_hot_run_sum=0
 for i in $(seq 1 22); do
-    total=0
-    run=3
-    # Each query is executed ${run} times and takes the average time
-    for ((j = 0; j < run; j++)); do
-        start=$(date +%s%3N)
-        mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}/q${i}.sql" >/dev/null
-        end=$(date +%s%3N)
-        total=$((total + end - start))
-    done
-    cost=$((total / run))
-    echo "q${i}: ${cost} ms"
-    sum=$((sum + cost))
-done
-echo "Total cost: ${sum} ms"
+    cold=0
+    hot1=0
+    hot2=0
 
+    echo -ne "q${i}\t" | tee -a result.csv
+
+    start=$(date +%s%3N)
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}/q${i}.sql" >/dev/null
+    end=$(date +%s%3N)
+    cold=$((end - start))
+    echo -ne "${cold}\t" | tee -a result.csv
+
+    start=$(date +%s%3N)
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}/q${i}.sql" >/dev/null
+    end=$(date +%s%3N)
+    hot1=$((end - start))
+    echo -ne "${hot1}\t" | tee -a result.csv
+
+    start=$(date +%s%3N)
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}/q${i}.sql" >/dev/null
+    end=$(date +%s%3N)
+    hot2=$((end - start))
+    echo -ne "${hot2}" | tee -a result.csv
+
+    echo "" | tee -a result.csv
+
+    cold_run_sum=$((cold_run_sum + cold))
+    if [[ ${hot1} -lt ${hot2} ]]; then
+        best_hot_run_sum=$((best_hot_run_sum + hot1))
+    else
+        best_hot_run_sum=$((best_hot_run_sum + hot2))
+    fi
+done
+
+echo "Total cold run time: ${cold_run_sum} ms"
+echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpch queries.'

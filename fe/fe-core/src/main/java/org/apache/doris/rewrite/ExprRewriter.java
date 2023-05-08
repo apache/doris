@@ -22,6 +22,7 @@ package org.apache.doris.rewrite;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
@@ -132,10 +133,11 @@ public class ExprRewriter {
         rules = Lists.newArrayList(rule);
     }
 
-    public void setDisableTuplesMVRewriter(Set<TupleId> disableTuplesMVRewriter) {
+    public void setInfoMVRewriter(Set<TupleId> disableTuplesMVRewriter, ExprSubstitutionMap mvSMap,
+            ExprSubstitutionMap aliasSMap) {
         for (ExprRewriteRule rule : rules) {
             if (rule instanceof ExprToSlotRefRule) {
-                ((ExprToSlotRefRule) rule).setDisableTuplesMVRewriter(disableTuplesMVRewriter);
+                ((ExprToSlotRefRule) rule).setInfoMVRewriter(disableTuplesMVRewriter, mvSMap, aliasSMap);
             }
         }
     }

@@ -1224,6 +1224,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
+
+    /**
+     * Returns true if expr have child bound by tids, otherwise false.
+     */
+    public boolean isRelativedByTupleIds(List<TupleId> tids) {
+        for (Expr child : children) {
+            if (child.isRelativedByTupleIds(tids)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Returns true if expr is fully bound by slotId, otherwise false.
      */
@@ -1418,10 +1431,20 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return this;
         }
 
-        if ((targetType.isStringType() || targetType.isHllType())
-                && (this.type.isStringType() || this.type.isHllType())) {
+        if (this.type.equals(targetType)) {
             return this;
         }
+
+        if (targetType.getPrimitiveType() == PrimitiveType.DECIMALV2
+                && this.type.getPrimitiveType() == PrimitiveType.DECIMALV2) {
+            this.type = targetType;
+            return this;
+        }
+
+        if (this.type.isStringType() && targetType.isStringType()) {
+            return this;
+        }
+
         // Preconditions.checkState(PrimitiveType.isImplicitCast(type, targetType),
         // "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
@@ -2059,6 +2082,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
+    public boolean hasAggregateSlot() {
+        for (Expr expr : children) {
+            if (expr.hasAggregateSlot()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * For excute expr the result is nullable
      * TODO: Now only SlotRef and LiteralExpr overwrite the method, each child of Expr should
@@ -2138,22 +2170,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
             return false;
         }
+        if (fn.functionName().equalsIgnoreCase("array_sortby")) {
+            return children.get(0).isNullable();
+        }
         return true;
-    }
-
-    public final void finalizeForNereids() throws AnalysisException {
-        if (isAnalyzed()) {
-            return;
-        }
-        for (Expr child : children) {
-            child.finalizeForNereids();
-        }
-        finalizeImplForNereids();
-        analysisDone();
-    }
-
-    public void finalizeImplForNereids() throws AnalysisException {
-        throw new AnalysisException("analyze for Nereids do not implementation.");
     }
 
     public void materializeSrcExpr() {
@@ -2180,17 +2200,23 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    public boolean haveMvSlot() {
+    public boolean haveMvSlot(TupleId tid) {
         for (Expr expr : getChildren()) {
-            if (expr.haveMvSlot()) {
+            if (expr.haveMvSlot(tid)) {
                 return true;
             }
         }
         return false;
     }
 
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
+    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple)
             throws AnalysisException {
+        List<SlotRef> slots = new ArrayList<>();
+        collect(SlotRef.class, slots);
+        if (slots.size() == 0) {
+            return true;
+        }
+
         String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
         for (Expr expr : exprs) {
             if (CreateMaterializedViewStmt.isMVColumnNormal(name)
@@ -2209,48 +2235,65 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
 
         for (Expr expr : getChildren()) {
-            if (!expr.matchExprs(exprs, stmt, ignoreAlias, tableName)) {
+            if (!expr.matchExprs(exprs, stmt, ignoreAlias, tuple)) {
                 return false;
             }
         }
         return true;
     }
 
+    public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {
+        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
+            return true;
+        }
+        return false;
+    }
+
+    public Expr replaceSubPredicate(Expr subExpr) throws AnalysisException {
+        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
+            return null;
+        }
+        return this;
+    }
+
+    protected Type getActualType(Type originType) {
+        if (originType == null) {
+            return null;
+        }
+        if (originType.isScalarType()) {
+            return getActualScalarType(originType);
+        } else if (originType.getPrimitiveType() == PrimitiveType.ARRAY) {
+            return getActualArrayType((ArrayType) originType);
+        } else {
+            return originType;
+        }
+    }
+
+    protected  Type getActualScalarType(Type originType) {
+        if (originType.getPrimitiveType() == PrimitiveType.DECIMAL32) {
+            return Type.DECIMAL32;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL64) {
+            return Type.DECIMAL64;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL128) {
+            return Type.DECIMAL128;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+            return Type.DATETIMEV2;
+        } else if (originType.getPrimitiveType() == PrimitiveType.VARCHAR) {
+            return Type.VARCHAR;
+        } else if (originType.getPrimitiveType() == PrimitiveType.CHAR) {
+            return Type.CHAR;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
+            return Type.MAX_DECIMALV2_TYPE;
+        }
+        return originType;
+    }
+
     protected Type[] getActualArgTypes(Type[] originType) {
-        return Arrays.stream(originType).map(
-                (Type type) -> {
-                    if (type == null) {
-                        return null;
-                    }
-                    if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
-                        return Type.DECIMAL32;
-                    } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
-                        return Type.DECIMAL64;
-                    } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL128) {
-                        return Type.DECIMAL128;
-                    } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
-                        return Type.DATETIMEV2;
-                    } else if (type.getPrimitiveType() == PrimitiveType.ARRAY) {
-                        return getActualArrayType((ArrayType) type);
-                    }
-                    return type;
-                }).toArray(Type[]::new);
+        return Arrays.stream(originType).map(this::getActualType).toArray(Type[]::new);
     }
 
     private ArrayType getActualArrayType(ArrayType originArrayType) {
-        // Now we only support single-level array nesting.
-        // Multi-layer array nesting will be supported in the future.
-        Type type = originArrayType.getItemType();
-        if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
-            return new ArrayType(Type.DECIMAL32);
-        } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
-            return new ArrayType(Type.DECIMAL64);
-        } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL128) {
-            return new ArrayType(Type.DECIMAL128);
-        } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
-            return new ArrayType(Type.DATETIMEV2);
-        }
-        return originArrayType;
+        return new ArrayType(getActualType(originArrayType.getItemType()));
     }
 
     public boolean refToCountStar() {
@@ -2272,6 +2315,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         for (Expr expr : children) {
             if (expr.refToCountStar()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean haveFunction(String functionName) {
+        for (Expr expr : children) {
+            if (expr.haveFunction(functionName)) {
                 return true;
             }
         }

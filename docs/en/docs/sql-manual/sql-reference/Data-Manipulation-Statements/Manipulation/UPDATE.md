@@ -34,10 +34,11 @@ UPDATE
 
 This statement is used to update the data. The UPDATE statement currently only supports the UNIQUE KEY model.
 
+The UPDATE operation currently only supports updating the Value column. The update of the Key column can refer to [Using FlinkCDC to update Key column](../../../../ecosystem/flink-doris-connector.md#use-flinkcdc-to-update-key-column).
 #### Syntax
 
 ```sql
-UPDATE target_table
+UPDATE target_table [table_alias]
     SET assignment_list
     WHERE condition
 
@@ -54,7 +55,7 @@ value:
 <version since="dev">
 
 ```sql
-UPDATE target_table
+UPDATE target_table [table_alias]
     SET assignment_list
     [ FROM additional_tables]
     WHERE condition
@@ -72,6 +73,7 @@ UPDATE target_table
 
 <version since="dev">
 
++ table_alias: alias of table
 + FROM additional_tables: Specifies one or more tables to use for selecting rows to update or for setting new values. Note that if you want use target table here, you should give it a alias explicitly.
 
 </version>

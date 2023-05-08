@@ -35,6 +35,7 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -75,6 +76,18 @@ public class ExportStmt extends StatementBase {
 
     private TableRef tableRef;
 
+    private String format;
+
+    private String label;
+
+    private String maxFileSize;
+    private String deleteExistingFiles;
+    private SessionVariable sessionVariables;
+
+    private String qualifiedUser;
+
+    private UserIdentity userIdentity;
+
     public ExportStmt(TableRef tableRef, Expr whereExpr, String path,
                       Map<String, String> properties, BrokerDesc brokerDesc) {
         this.tableRef = tableRef;
@@ -87,6 +100,7 @@ public class ExportStmt extends StatementBase {
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
         this.columns = DEFAULT_COLUMNS;
+        this.sessionVariables = ConnectContext.get().getSessionVariable();
     }
 
     public String getColumns() {
@@ -113,16 +127,36 @@ public class ExportStmt extends StatementBase {
         return brokerDesc;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
     public String getColumnSeparator() {
         return this.columnSeparator;
     }
 
     public String getLineDelimiter() {
         return this.lineDelimiter;
+    }
+
+    public TableRef getTableRef() {
+        return this.tableRef;
+    }
+
+    public String getFormat() {
+        return format;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public SessionVariable getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public String getQualifiedUser() {
+        return qualifiedUser;
+    }
+
+    public UserIdentity getUserIdentity() {
+        return this.userIdentity;
     }
 
     @Override
@@ -162,6 +196,8 @@ public class ExportStmt extends StatementBase {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tblName.getDb() + ": " + tblName.getTbl());
         }
+        qualifiedUser = ConnectContext.get().getQualifiedUser();
+        userIdentity = ConnectContext.get().getCurrentUserIdentity();
 
         // check table && partitions whether exist
         checkTable(analyzer.getEnv());
@@ -170,8 +206,6 @@ public class ExportStmt extends StatementBase {
         if (brokerDesc == null) {
             brokerDesc = new BrokerDesc("local", StorageBackend.StorageType.LOCAL, null);
         }
-
-        // where expr will be checked in export job
 
         // check path is valid
         path = checkPath(path, brokerDesc.getStorageType());
@@ -244,9 +278,10 @@ public class ExportStmt extends StatementBase {
                     && !schema.equalsIgnoreCase("oss")
                     && !schema.equalsIgnoreCase("s3a")
                     && !schema.equalsIgnoreCase("cosn")
+                    && !schema.equalsIgnoreCase("gfs")
                     && !schema.equalsIgnoreCase("jfs"))) {
                 throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'afs://' , 'bos://',"
-                        + " 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://' or 'jfs://' path.");
+                        + " 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://', 'gfs://' or 'jfs://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {
@@ -261,7 +296,6 @@ public class ExportStmt extends StatementBase {
                 throw new AnalysisException(
                         "Invalid export path. please use valid '" + OutFileClause.LOCAL_FILE_PREFIX + "' path.");
             }
-            path = path.substring(OutFileClause.LOCAL_FILE_PREFIX.length() - 1);
         }
         return path;
     }
@@ -271,29 +305,24 @@ public class ExportStmt extends StatementBase {
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
-        this.columns = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
-        // exec_mem_limit
-        if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
-            try {
-                Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT));
-            } catch (NumberFormatException e) {
-                throw new DdlException("Invalid exec_mem_limit value: " + e.getMessage());
-            }
-        } else {
-            // use session variables
-            properties.put(LoadStmt.EXEC_MEM_LIMIT,
-                           String.valueOf(ConnectContext.get().getSessionVariable().getMaxExecMemByte()));
-        }
+        this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, DEFAULT_COLUMNS);
+
         // timeout
         if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
             try {
-                Long.parseLong(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+                Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY));
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid timeout value: " + e.getMessage());
             }
         } else {
-            // use session variables
             properties.put(LoadStmt.TIMEOUT_PROPERTY, String.valueOf(Config.export_task_default_timeout_second));
+        }
+
+        // format
+        if (properties.containsKey(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE)) {
+            this.format = properties.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE).toLowerCase();
+        } else {
+            this.format = "csv";
         }
 
         // tablet num per task
@@ -308,13 +337,18 @@ public class ExportStmt extends StatementBase {
             properties.put(TABLET_NUMBER_PER_TASK_PROP, String.valueOf(Config.export_tablet_num_per_task));
         }
 
+        // max_file_size
+        this.maxFileSize = properties.getOrDefault(OutFileClause.PROP_MAX_FILE_SIZE, "");
+        this.deleteExistingFiles = properties.getOrDefault(OutFileClause.PROP_DELETE_EXISTING_FILES, "");
+
         if (properties.containsKey(LABEL)) {
             FeNameFormat.checkLabel(properties.get(LABEL));
         } else {
             // generate a random label
-            String label = "export_" + UUID.randomUUID().toString();
+            String label = "export_" + UUID.randomUUID();
             properties.put(LABEL, label);
         }
+        label = properties.get(LABEL);
     }
 
     @Override
@@ -360,5 +394,13 @@ public class ExportStmt extends StatementBase {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public String getMaxFileSize() {
+        return maxFileSize;
+    }
+
+    public String getDeleteExistingFiles() {
+        return deleteExistingFiles;
     }
 }

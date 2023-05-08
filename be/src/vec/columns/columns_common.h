@@ -20,7 +20,20 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/exception.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/types.h"
 
 /// Common helper methods for implementation of different columns.
 
@@ -58,6 +71,24 @@ size_t filter_arrays_impl(PaddedPODArray<T>& data, PaddedPODArray<OT>& offsets,
 template <typename T, typename OT>
 size_t filter_arrays_impl_only_data(PaddedPODArray<T>& data, PaddedPODArray<OT>& offsets,
                                     const IColumn::Filter& filter);
+
+inline void column_match_offsets_size(size_t size, size_t offsets_size) {
+    if (size != offsets_size) {
+        throw doris::Exception(
+                ErrorCode::COLUMN_NO_MATCH_OFFSETS_SIZE,
+                "Size of offsets doesn't match size of column: size={}, offsets.size={}", size,
+                offsets_size);
+    }
+}
+
+inline void column_match_filter_size(size_t size, size_t filter_size) {
+    if (size != filter_size) {
+        throw doris::Exception(
+                ErrorCode::COLUMN_NO_MATCH_FILTER_SIZE,
+                "Size of filter doesn't match size of column: size={}, filter.size={}", size,
+                filter_size);
+    }
+}
 
 namespace detail {
 template <typename T>

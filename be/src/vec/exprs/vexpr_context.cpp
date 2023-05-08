@@ -17,9 +17,24 @@
 
 #include "vec/exprs/vexpr_context.h"
 
+#include <algorithm>
+#include <ostream>
+#include <string>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/object_pool.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "udf/udf.h"
 #include "util/stack_util.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
+
+namespace doris {
+class RowDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 VExprContext::VExprContext(VExpr* expr)
@@ -37,8 +52,11 @@ VExprContext::~VExprContext() {
 }
 
 doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
-    Status st = _root->execute(this, block, result_column_id);
-    _last_result_column_id = *result_column_id;
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({
+        st = _root->execute(this, block, result_column_id);
+        _last_result_column_id = *result_column_id;
+    });
     return st;
 }
 
@@ -70,11 +88,11 @@ void VExprContext::close(doris::RuntimeState* state) {
 }
 
 doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
-    DCHECK(_prepared);
+    DCHECK(_prepared) << "expr context not prepared";
     DCHECK(_opened);
     DCHECK(*new_ctx == nullptr);
 
-    *new_ctx = state->obj_pool()->add(new VExprContext(_root));
+    *new_ctx = state->obj_pool()->add(VExprContext::create_unique(_root).release());
     for (auto& _fn_context : _fn_contexts) {
         (*new_ctx)->_fn_contexts.push_back(_fn_context->clone());
     }
@@ -109,33 +127,19 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
     return Block::filter_block(block, result_column_id, column_to_keep);
 }
 
-Status VExprContext::filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr, Block* block,
-                                  int column_to_keep) {
-    if (vexpr_ctx_ptr == nullptr || block->rows() == 0) {
-        return Status::OK();
-    }
-    DCHECK((*vexpr_ctx_ptr) != nullptr);
-    int result_column_id = -1;
-    RETURN_IF_ERROR((*vexpr_ctx_ptr)->execute(block, &result_column_id));
-    return Block::filter_block(block, result_column_id, column_to_keep);
-}
-
-Block VExprContext::get_output_block_after_execute_exprs(
+Status VExprContext::get_output_block_after_execute_exprs(
         const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs, const Block& input_block,
-        Status& status) {
+        Block* output_block) {
     vectorized::Block tmp_block(input_block.get_columns_with_type_and_name());
     vectorized::ColumnsWithTypeAndName result_columns;
     for (auto vexpr_ctx : output_vexpr_ctxs) {
         int result_column_id = -1;
-        status = vexpr_ctx->execute(&tmp_block, &result_column_id);
-        if (UNLIKELY(!status)) {
-            return {};
-        }
+        RETURN_IF_ERROR(vexpr_ctx->execute(&tmp_block, &result_column_id));
         DCHECK(result_column_id != -1);
         result_columns.emplace_back(tmp_block.get_by_position(result_column_id));
     }
-
-    return {result_columns};
+    *output_block = {result_columns};
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

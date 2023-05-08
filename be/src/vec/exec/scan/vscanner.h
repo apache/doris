@@ -17,14 +17,29 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <algorithm>
+#include <vector>
+
 #include "common/status.h"
 #include "olap/tablet.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "vec/exprs/vexpr_context.h"
+#include "util/stopwatch.hpp"
+#include "vec/core/block.h"
+
+namespace doris {
+class RuntimeProfile;
+class TupleDescriptor;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
-class Block;
 class VScanNode;
 
 // Counter for load
@@ -39,13 +54,17 @@ class VScanner {
 public:
     VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile);
 
-    virtual ~VScanner() {}
+    virtual ~VScanner() = default;
+
+    virtual Status init() { return Status::OK(); }
 
     virtual Status open(RuntimeState* state) { return Status::OK(); }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
 
     virtual Status close(RuntimeState* state);
+
+    virtual std::string get_name() { return ""; }
 
 protected:
     // Subclass should implement this to return data.
@@ -58,7 +77,7 @@ protected:
     Status _filter_output_block(Block* block);
 
     // Not virtual, all child will call this method explictly
-    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+    Status prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr);
 
 public:
     VScanNode* get_parent() { return _parent; }
@@ -66,6 +85,8 @@ public:
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
     int64_t get_rows_read() const { return _num_rows_read; }
+
+    bool is_init() const { return _is_init; }
 
     Status try_append_late_arrival_runtime_filter();
 
@@ -179,8 +200,12 @@ protected:
     // set to true after decrease the "_num_unfinished_scanners" in scanner context
     bool _is_counted_down = false;
 
+    bool _is_init = true;
+
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
 };
+
+using VScannerSPtr = std::shared_ptr<VScanner>;
 
 } // namespace doris::vectorized

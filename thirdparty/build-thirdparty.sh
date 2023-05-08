@@ -147,6 +147,7 @@ if [[ "${CC}" == *gcc ]]; then
     warning_class_memaccess='-Wno-class-memaccess'
     warning_array_parameter='-Wno-array-parameter'
     warning_narrowing='-Wno-narrowing'
+    warning_dangling_reference='-Wno-dangling-reference'
     boost_toolset='gcc'
 elif [[ "${CC}" == *clang ]]; then
     warning_uninitialized='-Wno-uninitialized'
@@ -172,6 +173,13 @@ mkdir -p "${TP_DIR}/installed/lib64"
 pushd "${TP_DIR}/installed"/
 ln -sf lib64 lib
 popd
+
+# Configure the search paths for pkg-config and cmake
+export PKG_CONFIG_PATH="${TP_DIR}/installed/lib64/pkgconfig"
+export CMAKE_PREFIX_PATH="${TP_DIR}/installed"
+
+echo "PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}"
+echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}"
 
 check_prerequest() {
     local CMD="$1"
@@ -559,7 +567,7 @@ build_zlib() {
     check_if_source_exist "${ZLIB_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ZLIB_SOURCE}"
 
-    CFLAGS="-fPIC" \
+    CFLAGS="-O3 -fPIC" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --static
@@ -683,8 +691,9 @@ build_hyperscan() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DBOOST_ROOT="${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
+    CXXFLAGS="-D_HAS_AUTO_PTR_ETC=0" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DBOOST_ROOT="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libhs.a
 }
@@ -703,7 +712,9 @@ build_boost() {
     CXXFLAGS="${cxxflags}" \
         ./bootstrap.sh --prefix="${TP_INSTALL_DIR}" --with-toolset="${boost_toolset}"
     # -q: Fail at first error
-    ./b2 -q link=static runtime-link=static -j "${PARALLEL}" --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
+    ./b2 -q link=static runtime-link=static -j "${PARALLEL}" \
+        --without-mpi --without-graph --without-graph_parallel --without-python \
+        cxxflags="-std=c++17 -g -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
 }
 
 # mysql
@@ -818,7 +829,7 @@ build_rocksdb() {
 
     # -Wno-range-loop-construct gcc-11
     CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" \
-        CXXFLAGS="-Wno-deprecated-copy ${warning_stringop_truncation} ${warning_shadow} ${warning_dangling_gsl} \
+        CXXFLAGS="-include cstdint -Wno-deprecated-copy ${warning_stringop_truncation} ${warning_shadow} ${warning_dangling_gsl} \
     ${warning_defaulted_function_deleted} ${warning_unused_but_set_variable} -Wno-pessimizing-move -Wno-range-loop-construct" \
         LDFLAGS="${ldflags}" \
         PORTABLE=1 make USE_RTTI=1 -j "${PARALLEL}" static_lib
@@ -876,13 +887,7 @@ build_libunixodbc() {
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion"
-    else
-        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration"
-    fi
-
-    CFLAGS="${cflags}" \
+    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -1243,7 +1248,8 @@ build_aws_sdk() {
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
-        -DBUILD_ONLY="core;s3;s3-crt;transfer" -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations" -DCPP_STANDARD=17
+        -DBUILD_ONLY="core;s3;s3-crt;transfer" \
+        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
 
@@ -1340,14 +1346,8 @@ build_gsasl() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags=''
-    else
-        cflags='-Wno-implicit-function-declaration'
-    fi
-
     KRB5_CONFIG="${TP_INSTALL_DIR}/bin/krb5-config" \
-        CFLAGS="${cflags} -I${TP_INCLUDE_DIR}" \
+        CFLAGS="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration" \
         ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
 
     make -j "${PARALLEL}"
@@ -1396,6 +1396,7 @@ build_hdfs3() {
         -DKERBEROS_LIBRARIES="${TP_INSTALL_DIR}/lib/libkrb5.a" \
         -DGSASL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DGSASL_LIBRARIES="${TP_INSTALL_DIR}/lib/libgsasl.a" \
+        -DCMAKE_CXX_FLAGS='-include cstdint' \
         ..
 
     make CXXFLAGS="${libhdfs_cxx17}" -j "${PARALLEL}"

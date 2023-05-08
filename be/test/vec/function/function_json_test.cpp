@@ -15,9 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <iomanip>
+#include <string>
 
+#include "common/status.h"
 #include "function_test_util.h"
+#include "gtest/gtest_pred_impl.h"
+#include "testutil/any_type.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -47,6 +53,19 @@ TEST(FunctionJsonTEST, GetJsonIntTest) {
             {{VARCHAR("{\"k1.key\":{\"k2\":[1, 2]}}"), VARCHAR("$.\"k1.key\".k2[0]")}, INT(1)}};
 
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+}
+
+TEST(FunctionJsonTEST, GetJsonBigIntTest) {
+    std::string func_name = "get_json_bigint";
+    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    DataSet data_set = {
+            {{VARCHAR("{\"k1\":1, \"k2\":2}"), VARCHAR("$.k1")}, Int64(1)},
+            {{VARCHAR("{\"k1\":1678708107000, \"k2\":2}"), VARCHAR("$.k1")}, Int64(1678708107000)},
+            {{VARCHAR("{\"k1\":\"v1\", \"my.key\":[1, 2, 3]}"), VARCHAR("$.\"my.key\"[1]")},
+             Int64(2)},
+            {{VARCHAR("{\"k1.key\":{\"k2\":[1, 2]}}"), VARCHAR("$.\"k1.key\".k2[0]")}, Int64(1)}};
+
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonTEST, GetJsonStringTest) {

@@ -17,10 +17,32 @@
 
 #include "olap/task/engine_storage_migration_task.h"
 
-#include <ctime>
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <unistd.h>
 
+#include <algorithm>
+#include <ctime>
+#include <memory>
+#include <new>
+#include <ostream>
+#include <set>
+#include <utility>
+
+#include "common/config.h"
+#include "common/logging.h"
+#include "gutil/strings/numbers.h"
+#include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/snapshot_manager.h"
-#include "olap/tablet_meta_manager.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
+#include "olap/txn_manager.h"
+#include "util/doris_metrics.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -41,6 +63,13 @@ Status EngineStorageMigrationTask::execute() {
 Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t* end_version,
                                                  std::vector<RowsetSharedPtr>* consistent_rowsets) {
     std::shared_lock rdlock(_tablet->get_header_lock());
+    // check if tablet is in cooldown, we don't support migration in this case
+    if (_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
+        LOG(WARNING) << "currently not support migrate tablet with cooldowned remote data. tablet="
+                     << _tablet->tablet_id();
+        return Status::NotSupported(
+                "currently not support migrate tablet with cooldowned remote data");
+    }
     const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
     if (last_version == nullptr) {
         return Status::InternalError("failed to get rowset with max version, tablet={}",
@@ -120,9 +149,6 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     std::string new_meta_file = full_path + "/" + std::to_string(tablet_id) + ".hdr";
     RETURN_IF_ERROR(new_tablet_meta->save(new_meta_file));
 
-    // reset tablet id and rowset id
-    RETURN_IF_ERROR(TabletMeta::reset_tablet_uid(new_meta_file));
-
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
     return SnapshotManager::instance()->convert_rowset_ids(full_path, tablet_id,
@@ -193,12 +219,13 @@ Status EngineStorageMigrationTask::_migrate() {
         full_path = SnapshotManager::get_schema_hash_full_path(_tablet, shard_path);
         // if dir already exist then return err, it should not happen.
         // should not remove the dir directly, for safety reason.
-        if (FileUtils::check_exist(full_path)) {
+        bool exists = true;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(full_path, &exists));
+        if (exists) {
             return Status::AlreadyExist("schema hash path {} already exist, skip this path",
                                         full_path);
         }
-
-        RETURN_IF_ERROR(FileUtils::create_dir(full_path));
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(full_path));
     }
 
     std::vector<RowsetSharedPtr> temp_consistent_rowsets(consistent_rowsets);
@@ -262,7 +289,7 @@ Status EngineStorageMigrationTask::_migrate() {
 
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
-        FileUtils::remove_all(full_path);
+        io::global_local_filesystem()->delete_directory(full_path);
     }
     return res;
 }

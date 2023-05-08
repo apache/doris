@@ -20,13 +20,39 @@
 
 #pragma once
 
-#include <cstddef>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
 
+#include <cstddef>
+#include <functional>
+#include <initializer_list>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -234,4 +260,29 @@ public:
 */
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
                                                                 const size_t row_num) noexcept;
+
+/*
+ * @warning use this function sometimes cause performance problem in GCC.
+*/
+template <typename T, std::enable_if_t<std::is_integral_v<T>, T> = 0>
+T index_check_const(T arg, bool constancy) noexcept {
+    return constancy ? 0 : arg;
+}
+
+/*
+ * @return first : data_column_ptr for ColumnConst, itself otherwise.
+ *         second : whether it's ColumnConst.
+*/
+std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr&) noexcept;
+
+/*
+ * For the functions that some columns of arguments are almost but not completely always const, we use this function to preprocessing its parameter columns
+ * (which are not data columns). When we have two or more columns which only provide parameter, use this to deal with corner case. So you can specialize you
+ * implementations for all const or all parameters const, without considering some of parameters are const.
+ 
+ * Do the transformation only for the columns whose arg_indexes in parameters.
+*/
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::initializer_list<size_t>& parameters,
+                                          Block& block, const ColumnNumbers& arg_indexes) noexcept;
 } // namespace doris::vectorized

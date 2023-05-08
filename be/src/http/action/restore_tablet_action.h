@@ -17,22 +17,25 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <map>
 #include <mutex>
+#include <string>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class ExecEnv;
+class HttpRequest;
 
-class RestoreTabletAction : public HttpHandler {
+class RestoreTabletAction : public HttpHandlerWithAuth {
 public:
-    RestoreTabletAction(ExecEnv* exec_env);
+    RestoreTabletAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
 
-    virtual ~RestoreTabletAction() {}
+    ~RestoreTabletAction() override = default;
 
     void handle(HttpRequest* req) override;
 

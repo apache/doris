@@ -27,12 +27,14 @@ suite("test_add_drop_index", "inverted_index"){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
-                 break
+                sleep(3000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
             }
             useTime = t
             sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout)
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
     def indexTbName1 = "test_add_drop_inverted_index"
@@ -91,14 +93,13 @@ suite("test_add_drop_index", "inverted_index"){
     assertEquals(show_result[1][2], "age_idx_diff")
     
     // case1.4 drop index
-    def drop_result = sql "drop index age_idx on ${indexTbName1}"
-    logger.info("drop index age_idx on " + indexTbName1 + "; result: " + drop_result)
+    def drop_result = sql """
+                          ALTER TABLE ${indexTbName1}
+                              drop index age_idx,
+                              drop index age_idx_diff;
+                      """
+    logger.info("drop index age_idx and age_idx_diff on " + indexTbName1 + "; result: " + drop_result)
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-
-    drop_result = sql "drop index age_idx_diff on ${indexTbName1}"
-    logger.info("drop index age_idx_diff on " + indexTbName1 + "; result: " + drop_result)
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 0)
     
@@ -113,7 +114,6 @@ suite("test_add_drop_index", "inverted_index"){
     assertEquals(drop_index_twice_result, "fail")
 
     // case2: create index for date colume
-    // case2.1 create index for date colume
     sql "create index date_idx on ${indexTbName1}(`registDate`) using inverted"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"

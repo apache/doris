@@ -31,7 +31,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.view.RedirectView;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -45,9 +44,12 @@ public class CancelLoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_cancel", method = RequestMethod.POST)
     public Object execute(@PathVariable(value = DB_KEY) final String dbName,
                           HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
 
-        RedirectView redirectView = redirectToMaster(request, response);
+        executeCheckPassword(request, response);
+        Object redirectView = redirectToMaster(request, response);
         if (redirectView != null) {
             return redirectView;
         }

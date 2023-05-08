@@ -6,33 +6,33 @@
 //
 #pragma once
 
-#include <stdio.h>
-#include <string.h>
-
 #include <iterator>
+// IWYU pragma: no_include <ext/type_traits>
+#include <type_traits> // IWYU pragma: keep
+
 using std::back_insert_iterator;
 using std::iterator_traits;
 #include <map>
+
 using std::map;
 using std::multimap;
 #include <set>
+
 using std::multiset;
 using std::set;
 #include <string>
+
 using std::string;
 #include <utility>
+
 using std::make_pair;
 using std::pair;
 #include <vector>
+
 using std::vector;
 
-#include "gutil/hash/hash.h"
-#include "gutil/integral_types.h"
-#include "gutil/macros.h"
-#include "gutil/strings/numbers.h"
 #include "gutil/strings/strcat.h" // For backward compatibility.
 #include "gutil/strings/stringpiece.h"
-#include "gutil/template_util.h"
 
 // ----------------------------------------------------------------------
 // JoinUsing()

@@ -21,11 +21,17 @@
 #include "util/network_util.h"
 
 #include <arpa/inet.h>
-#include <common/logging.h>
+// IWYU pragma: no_include <bits/local_lim.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
 #include <ifaddrs.h>
-#include <limits.h>
 #include <netdb.h>
+#include <netinet/in.h>
+#include <string.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #include <sstream>
 

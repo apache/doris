@@ -67,7 +67,16 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.ICEBERG);
         List<String> allDatabaseNames = listDatabaseNames();
+        Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
+        Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
         for (String dbName : allDatabaseNames) {
+            // Exclude database map take effect with higher priority over include database map
+            if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
+                continue;
+            }
+            if (!includeDatabaseMap.isEmpty() && includeDatabaseMap.containsKey(dbName)) {
+                continue;
+            }
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
                 dbId = dbNameToId.get(dbName);

@@ -17,14 +17,17 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stdint.h>
+
 #include <cstddef>
 #include <memory>
+#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 #include "olap/itoken_extractor.h"
-#include "runtime/mem_pool.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -36,7 +39,7 @@ class FileWriter;
 
 namespace segment_v2 {
 
-struct BloomFilterOptions;
+class ColumnIndexMetaPB;
 
 class BloomFilterIndexWriter {
 public:
@@ -78,7 +81,7 @@ private:
     BloomFilterOptions _bf_options;
     uint8_t _gram_size;
     uint16_t _bf_size;
-    MemPool _pool;
+    vectorized::Arena _arena;
     uint64_t _bf_buffer_size;
     NgramTokenExtractor _token_extractor;
     std::unique_ptr<BloomFilter> _bf;

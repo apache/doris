@@ -137,6 +137,7 @@ public class ScalarType extends Type {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+                return createDecimalV3Type(precision, scale);
             case DECIMALV2:
                 return createDecimalType(precision, scale);
             default:
@@ -525,14 +526,14 @@ public class ScalarType extends Type {
             return "CHAR(" + len + ")";
         } else  if (type == PrimitiveType.DECIMALV2) {
             if (isWildcardDecimal()) {
-                return "DECIMAL(*,*)";
+                return "DECIMAL(*, *)";
             }
-            return "DECIMAL(" + precision + "," + scale + ")";
+            return "DECIMAL(" + precision + ", " + scale + ")";
         } else  if (type.isDecimalV3Type()) {
             if (isWildcardDecimal()) {
-                return "DECIMALV3(*,*)";
+                return "DECIMALV3(*, *)";
             }
-            return "DECIMALV3(" + precision + "," + scale + ")";
+            return "DECIMALV3(" + precision + ", " + scale + ")";
         } else  if (type == PrimitiveType.DATETIMEV2) {
             return "DATETIMEV2(" + scale + ")";
         } else  if (type == PrimitiveType.TIMEV2) {
@@ -1092,15 +1093,17 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType getAssignmentCompatibleDecimalV2Type(ScalarType t1, ScalarType t2) {
-        int targetPrecision = Math.max(t1.decimalPrecision(), t2.decimalPrecision());
         int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
+        int targetPrecision = Math.max(t1.decimalPrecision() - t1.decimalScale(), t2.decimalPrecision()
+                - t2.decimalScale()) + targetScale;
         return ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
                 targetPrecision, targetScale);
     }
 
     public static ScalarType getAssignmentCompatibleDecimalV3Type(ScalarType t1, ScalarType t2) {
-        int targetPrecision = Math.max(t1.decimalPrecision(), t2.decimalPrecision());
         int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
+        int targetPrecision = Math.max(t1.decimalPrecision() - t1.decimalScale(), t2.decimalPrecision()
+                - t2.decimalScale()) + targetScale;
         return ScalarType.createDecimalV3Type(targetPrecision, targetScale);
     }
 

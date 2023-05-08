@@ -17,12 +17,31 @@
 
 #pragma once
 
-#include <ostream>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
 #include "vec/columns/column_string.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/serde/data_type_serde.h"
+#include "vec/data_types/serde/data_type_string_serde.h"
+
+namespace doris {
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 class DataTypeJsonb final : public IDataType {
@@ -33,6 +52,10 @@ public:
 
     const char* get_family_name() const override { return "JSONB"; }
     TypeIndex get_type_id() const override { return TypeIndex::JSONB; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_JSONB; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::JSONB;
+    }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int data_version) const override;
@@ -62,6 +85,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeStringSerDe>();
+    };
 
 private:
     DataTypeString data_type_string;

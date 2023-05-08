@@ -29,6 +29,7 @@
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_common.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
@@ -146,15 +147,19 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
-    [[noreturn]] void insert(const Field& x) override {
-        LOG(FATAL) << "insert field not implemented";
+    void insert(const Field& x) override {
+        const String& s = doris::vectorized::get<const String&>(x);
+        data.push_back(*reinterpret_cast<const T*>(s.c_str()));
     }
 
-    [[noreturn]] Field operator[](size_t n) const override {
-        LOG(FATAL) << "operator[] not implemented";
+    Field operator[](size_t n) const override {
+        assert(n < size());
+        return Field(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
-    [[noreturn]] void get(size_t n, Field& res) const override {
-        LOG(FATAL) << "get field not implemented";
+
+    void get(size_t n, Field& res) const override {
+        assert(n < size());
+        res.assign_string(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
 
     [[noreturn]] UInt64 get64(size_t n) const override {
@@ -309,9 +314,7 @@ template <typename T>
 ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt,
                                        ssize_t result_size_hint) const {
     size_t size = data.size();
-    if (size != filt.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
-    }
+    column_match_filter_size(size, filt.size());
 
     if (data.size() == 0) return this->create();
     auto res = this->create();
@@ -336,9 +339,7 @@ ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt,
 template <typename T>
 size_t ColumnComplexType<T>::filter(const IColumn::Filter& filter) {
     size_t size = data.size();
-    if (size != filter.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
-    }
+    column_match_filter_size(size, filter.size());
 
     if (data.size() == 0) {
         return 0;
@@ -359,6 +360,8 @@ size_t ColumnComplexType<T>::filter(const IColumn::Filter& filter) {
         ++filter_pos;
         ++data_pos;
     }
+
+    data.resize(res_data - data.data());
 
     return res_data - data.data();
 }
@@ -385,9 +388,7 @@ ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t
 template <typename T>
 ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const {
     size_t size = data.size();
-    if (size != offsets.size()) {
-        LOG(FATAL) << "Size of offsets doesn't match size of column.";
-    }
+    column_match_offsets_size(size, offsets.size());
 
     if (0 == size) return this->create();
 

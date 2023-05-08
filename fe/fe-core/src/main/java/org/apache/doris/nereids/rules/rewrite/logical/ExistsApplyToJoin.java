@@ -92,11 +92,11 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
     private Plan correlatedToJoin(LogicalApply apply) {
         Optional<Expression> correlationFilter = apply.getCorrelationFilter();
         Expression predicate = null;
-        if (correlationFilter.isPresent() && apply.getSubCorrespondingConject().isPresent()) {
+        if (correlationFilter.isPresent() && apply.getSubCorrespondingConjunct().isPresent()) {
             predicate = ExpressionUtils.and(correlationFilter.get(),
-                (Expression) apply.getSubCorrespondingConject().get());
-        } else if (apply.getSubCorrespondingConject().isPresent()) {
-            predicate = (Expression) apply.getSubCorrespondingConject().get();
+                (Expression) apply.getSubCorrespondingConjunct().get());
+        } else if (apply.getSubCorrespondingConjunct().isPresent()) {
+            predicate = (Expression) apply.getSubCorrespondingConjunct().get();
         } else if (correlationFilter.isPresent()) {
             predicate = correlationFilter.get();
         }
@@ -134,8 +134,8 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
         LogicalAggregate newAgg = new LogicalAggregate<>(new ArrayList<>(),
                 ImmutableList.of(alias), newLimit);
         LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
-                unapply.getSubCorrespondingConject().isPresent()
-                    ? ExpressionUtils.extractConjunction((Expression) unapply.getSubCorrespondingConject().get())
+                unapply.getSubCorrespondingConjunct().isPresent()
+                    ? ExpressionUtils.extractConjunction((Expression) unapply.getSubCorrespondingConjunct().get())
                     : ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, unapply.getMarkJoinSlotReference(),
                 (LogicalPlan) unapply.left(), newAgg);
         return new LogicalFilter<>(ImmutableSet.of(new EqualTo(newAgg.getOutput().get(0),
@@ -145,8 +145,8 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
     private Plan unCorrelatedExist(LogicalApply unapply) {
         LogicalLimit newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
         return new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
-            unapply.getSubCorrespondingConject().isPresent()
-                ? ExpressionUtils.extractConjunction((Expression) unapply.getSubCorrespondingConject().get())
+            unapply.getSubCorrespondingConjunct().isPresent()
+                ? ExpressionUtils.extractConjunction((Expression) unapply.getSubCorrespondingConjunct().get())
                 : ExpressionUtils.EMPTY_CONDITION,
             JoinHint.NONE, unapply.getMarkJoinSlotReference(), (LogicalPlan) unapply.left(), newLimit);
     }

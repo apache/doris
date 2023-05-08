@@ -4,17 +4,14 @@
 
 #include "olap/lru_cache.h"
 
-#include <rapidjson/document.h>
-#include <stdio.h>
 #include <stdlib.h>
 
+#include <mutex>
+#include <new>
 #include <sstream>
 #include <string>
 
 #include "gutil/bits.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/utils.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 
@@ -189,6 +186,22 @@ void LRUCache::_lru_remove(LRUHandle* e) {
     e->next->prev = e->prev;
     e->prev->next = e->next;
     e->prev = e->next = nullptr;
+
+    if (_cache_value_check_timestamp) {
+        if (e->priority == CachePriority::NORMAL) {
+            auto pair = std::make_pair(_cache_value_time_extractor(e->value), e);
+            auto found_it = _sorted_normal_entries_with_timestamp.find(pair);
+            if (found_it != _sorted_normal_entries_with_timestamp.end()) {
+                _sorted_normal_entries_with_timestamp.erase(found_it);
+            }
+        } else if (e->priority == CachePriority::DURABLE) {
+            auto pair = std::make_pair(_cache_value_time_extractor(e->value), e);
+            auto found_it = _sorted_durable_entries_with_timestamp.find(pair);
+            if (found_it != _sorted_durable_entries_with_timestamp.end()) {
+                _sorted_durable_entries_with_timestamp.erase(found_it);
+            }
+        }
+    }
 }
 
 void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
@@ -197,6 +210,24 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
     e->prev = list->prev;
     e->prev->next = e;
     e->next->prev = e;
+
+    // _cache_value_check_timestamp is true,
+    // means evict entry will depends on the timestamp asc set,
+    // the timestamp is updated by higher level caller,
+    // and the timestamp of hit entry is different with the insert entry,
+    // that is why need check timestamp to evict entry,
+    // in order to keep the survival time of hit entries
+    // longer than the entries just inserted,
+    // so use asc set to sorted these entries's timestamp and LRUHandle*
+    if (_cache_value_check_timestamp) {
+        if (e->priority == CachePriority::NORMAL) {
+            _sorted_normal_entries_with_timestamp.insert(
+                    std::make_pair(_cache_value_time_extractor(e->value), e));
+        } else if (e->priority == CachePriority::DURABLE) {
+            _sorted_durable_entries_with_timestamp.insert(
+                    std::make_pair(_cache_value_time_extractor(e->value), e));
+        }
+    }
 }
 
 Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
@@ -244,23 +275,6 @@ void LRUCache::release(Cache::Handle* handle) {
                 } else if (e->priority == CachePriority::DURABLE) {
                     _lru_append(&_lru_durable, e);
                 }
-                // _cache_value_check_timestamp is true,
-                // means evict entry will depends on the timestamp sequence,
-                // the timestamp is updated by higher level caller,
-                // and the timestamp of hit entry is different with the insert entry,
-                // that is why need check timestamp to evict entry,
-                // in order to keep the survival time of hit entries
-                // longer than the entries just inserted,
-                // so use priority_queue to sorted these entries's timestamp and LRUHandle*
-                if (_cache_value_check_timestamp) {
-                    if (e->priority == CachePriority::NORMAL) {
-                        _sorted_normal_entries_with_timestamp.push(
-                                std::make_pair(_cache_value_time_extractor(e->value), e));
-                    } else if (e->priority == CachePriority::DURABLE) {
-                        _sorted_durable_entries_with_timestamp.push(
-                                std::make_pair(_cache_value_time_extractor(e->value), e));
-                    }
-                }
             }
         }
     }
@@ -275,41 +289,25 @@ void LRUCache::_evict_from_lru_with_time(size_t total_size, LRUHandle** to_remov
     // 1. evict normal cache entries
     while ((_usage + total_size > _capacity || _check_element_count_limit()) &&
            !_sorted_normal_entries_with_timestamp.empty()) {
-        auto entry_pair = _sorted_normal_entries_with_timestamp.top();
-        LRUHandle* remove_handle = entry_pair.second;
-        if (_cache_value_time_extractor(remove_handle->value) != entry_pair.first) {
-            // Time in cache value maybe updated when higher level call LRUCache::release(),
-            // get time by _cache_value_time_extractor is the latest.
-            // Because remove element can only pop from the priority_queue header,
-            // so old <timestamp, LRUHandle*> keep in the priority_queue until pop it here.
-            _sorted_normal_entries_with_timestamp.pop();
-            continue;
-        }
+        auto entry_pair = _sorted_normal_entries_with_timestamp.begin();
+        LRUHandle* remove_handle = entry_pair->second;
+        DCHECK(remove_handle != nullptr);
         DCHECK(remove_handle->priority == CachePriority::NORMAL);
         _evict_one_entry(remove_handle);
         remove_handle->next = *to_remove_head;
         *to_remove_head = remove_handle;
-        _sorted_normal_entries_with_timestamp.pop();
     }
 
     // 2. evict durable cache entries if need
     while ((_usage + total_size > _capacity || _check_element_count_limit()) &&
            !_sorted_durable_entries_with_timestamp.empty()) {
-        auto entry_pair = _sorted_durable_entries_with_timestamp.top();
-        LRUHandle* remove_handle = entry_pair.second;
-        if (_cache_value_time_extractor(remove_handle->value) != entry_pair.first) {
-            // Time in cache value maybe updated when higher level call LRUCache::release(),
-            // get time by _cache_value_time_extractor is the latest.
-            // Because remove element can only pop from the priority_queue header,
-            // so old <timestamp, LRUHandle*> keep in the priority_queue until pop it here.
-            _sorted_durable_entries_with_timestamp.pop();
-            continue;
-        }
+        auto entry_pair = _sorted_durable_entries_with_timestamp.begin();
+        LRUHandle* remove_handle = entry_pair->second;
+        DCHECK(remove_handle != nullptr);
         DCHECK(remove_handle->priority == CachePriority::DURABLE);
         _evict_one_entry(remove_handle);
         remove_handle->next = *to_remove_head;
         *to_remove_head = remove_handle;
-        _sorted_durable_entries_with_timestamp.pop();
     }
 }
 
@@ -372,6 +370,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     // The memory of the parameter value should be recorded in the tls mem tracker,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
     THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
+    DorisMetrics::instance()->lru_cache_memory_bytes->increment(e->bytes);
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);

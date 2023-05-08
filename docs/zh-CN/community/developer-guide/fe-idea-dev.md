@@ -36,41 +36,57 @@ JDK1.8+, IntelliJ IDEA
 
 3. 如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
 
-        安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
+    安装 `thrift 0.16.0` 版本 (注意：`Doris` 0.15 - 1.2 版本基于 `thrift 0.13.0` 构建, 最新代码使用 `thrift 0.16.0` 构建)
+
+    **以下示例以 0.16.0 为例。如需 0.13.0，请将下面示例中的 0.16.0 改为 0.13.0 即可。**
     
-        Windows: 
-           1. 下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
-           2. 拷贝：将文件拷贝至 `./thirdparty/installed/bin`
-        
-        MacOS: 
-           1. 下载：`brew install thrift@0.13.0`
-           2. 建立软链接： 
-              `mkdir -p ./thirdparty/installed/bin`
-              # ARM架构macOS
-              `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
-              # Intel架构macOS
-              `ln -s /usr/local/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
-        
-        注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
-           1. `brew tap-new $USER/local-tap`
-           2. `brew extract --version='0.13.0' thrift $USER/local-tap`
-           3. `brew install thrift@0.13.0`
+    - Windows: 
+
+        1. 下载：`http://archive.apache.org/dist/thrift/0.16.0/thrift-0.16.0.exe`
+        2. 拷贝：将文件拷贝至 `./thirdparty/installed/bin`
+    
+    - MacOS: 
+
+        1. `brew tap-new $USER/local-tap`
+        2. `brew extract --version='0.16.0' thrift $USER/local-tap`
+        3. `brew install thrift@0.16.0`
+
+        如有下载相关的报错，可修改如下文件：
+
+        `/usr/local/Homebrew/Library/Taps/$USER/homebrew-local-tap/Formula/thrift\@0.16.0.rb`
+
+        将其中的：
+
+        `url "https://www.apache.org/dyn/closer.lua?path=thrift/0.16.0/thrift-0.16.0.tar.gz"`
+
+        修改为：
+
+        `url "https://archive.apache.org/dist/thrift/0.16.0/thrift-0.16.0.tar.gz"`
+
         参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
-        
-        Linux:
-           1.下载源码包：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
-           2.安装依赖：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
-           3.`tar zxvf thrift-0.13.0.tar.gz`
-           4.`cd thrift-0.13.0`
-           5.`./configure --without-tests`
-           6.`make`
-           7.`make install`
+    
+    - Linux:
+
+        1. 下载源码包：`wget https://archive.apache.org/dist/thrift/0.16.0/thrift-0.16.0.tar.gz`
+        2. 安装依赖：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
+        3. `tar zxvf thrift-0.16.0.tar.gz`
+        4. `cd thrift-0.16.0`
+        5. `./configure --without-tests`
+        6. `make`
+        7. `make install`
+
         安装完成后查看版本：thrift --version  
-        注：如果编译过Doris，则不需要安装thrift,可以直接使用 $DORIS_HOME/thirdparty/installed/bin/thrift
-       
+
+        > 注：如果编译过Doris，则不需要安装thrift,可以直接使用 $DORIS_HOME/thirdparty/installed/bin/thrift
 
 4. 如果是Mac 或者 Linux 环境 可以通过 如下命令自动生成代码：
 
+    ```
+    sh generated-source.sh
+    ```
+
+    如使用 1.2 及之前版本，可以使用如下命令：
+    
     ```
     cd fe
     mvn generate-sources
@@ -80,7 +96,6 @@ JDK1.8+, IntelliJ IDEA
 
     ```
     cd fe && mvn clean install -DskipTests
-
     ```
 
 或者通过图形界面运行 maven 命令生成
@@ -90,6 +105,7 @@ JDK1.8+, IntelliJ IDEA
 如果使用windows环境可能会有make命令和sh脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，可以参照编译一节
 
 5. 如果还未生成过help文档，需要跳转到docs目录，执行`sh build_help_zip.sh`，
+
    然后将build中的help-resource.zip拷贝到fe/fe-core/target/classes中
 
 ## 2.调试

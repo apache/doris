@@ -17,14 +17,28 @@
 
 #include "exchange_sink_buffer.h"
 
-#include <google/protobuf/stubs/common.h>
+#include <brpc/controller.h>
+#include <butil/errno.h>
+#include <butil/iobuf_inl.h>
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+#include <google/protobuf/stubs/callback.h>
+#include <stddef.h>
 
 #include <atomic>
+#include <exception>
+#include <functional>
 #include <memory>
+#include <ostream>
+#include <utility>
 
 #include "common/status.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "service/brpc.h"
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "util/proto_util.h"
 #include "vec/sink/vdata_stream_sender.h"
 
@@ -47,6 +61,9 @@ public:
     void Run() noexcept override {
         std::unique_ptr<SelfDeleteClosure> self_guard(this);
         try {
+            if (_data) {
+                _data->unref();
+            }
             if (cntl.Failed()) {
                 std::string err = fmt::format(
                         "failed to send brpc when exchange, error={}, error_text={}, client: {}, "
@@ -56,9 +73,6 @@ public:
                 _fail_fn(_id, err);
             } else {
                 _suc_fn(_id, _eos, result);
-            }
-            if (_data) {
-                _data->unref();
             }
         } catch (const std::exception& exp) {
             LOG(FATAL) << "brpc callback error: " << exp.what();

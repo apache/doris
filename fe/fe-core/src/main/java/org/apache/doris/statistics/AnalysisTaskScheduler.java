@@ -17,15 +17,10 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 
-import com.google.common.base.Preconditions;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Comparator;
 import java.util.HashSet;
@@ -39,7 +34,7 @@ public class AnalysisTaskScheduler {
     private static final Logger LOG = LogManager.getLogger(AnalysisTaskScheduler.class);
 
     private final PriorityQueue<BaseAnalysisTask> systemJobQueue =
-            new PriorityQueue<>(Comparator.comparingInt(BaseAnalysisTask::getLastExecTime));
+            new PriorityQueue<>(Comparator.comparingLong(BaseAnalysisTask::getLastExecTime));
 
     private final Queue<BaseAnalysisTask> manualJobQueue = new LinkedList<>();
 
@@ -47,27 +42,26 @@ public class AnalysisTaskScheduler {
 
     private final Set<BaseAnalysisTask> manualJobSet = new HashSet<>();
 
-    public synchronized void schedule(AnalysisTaskInfo analysisJobInfo) {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(analysisJobInfo.catalogName);
-        Preconditions.checkArgument(catalog != null);
-        DatabaseIf db = catalog.getDbNullable(analysisJobInfo.dbName);
-        Preconditions.checkArgument(db != null);
-        TableIf table = db.getTableNullable(analysisJobInfo.tblName);
-        Preconditions.checkArgument(table != null);
-        BaseAnalysisTask analysisTask = table.createAnalysisTask(this, analysisJobInfo);
-        addToManualJobQueue(analysisTask);
-        if (analysisJobInfo.jobType.equals(JobType.MANUAL)) {
-            return;
+    public synchronized void schedule(BaseAnalysisTask analysisTask) {
+        try {
+
+            switch (analysisTask.info.jobType) {
+                case MANUAL:
+                    addToManualJobQueue(analysisTask);
+                    break;
+                case SYSTEM:
+                    addToSystemQueue(analysisTask);
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unknown job type: " + analysisTask.info.jobType);
+            }
+        } catch (Throwable t) {
+            Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(
+                    analysisTask.info, AnalysisState.FAILED, t.getMessage(), System.currentTimeMillis());
         }
-        addToSystemQueue(analysisTask);
     }
 
-    private void removeFromSystemQueue(BaseAnalysisTask analysisJobInfo) {
-        if (manualJobSet.contains(analysisJobInfo)) {
-            systemJobQueue.remove(analysisJobInfo);
-            manualJobSet.remove(analysisJobInfo);
-        }
-    }
+    // Make sure invoker of this method is synchronized on object.
 
     private void addToSystemQueue(BaseAnalysisTask analysisJobInfo) {
         if (systemJobSet.contains(analysisJobInfo)) {
@@ -78,6 +72,7 @@ public class AnalysisTaskScheduler {
         notify();
     }
 
+    // Make sure invoker of this method is synchronized on object.
     private void addToManualJobQueue(BaseAnalysisTask analysisJobInfo) {
         if (manualJobSet.contains(analysisJobInfo)) {
             return;
@@ -90,10 +85,10 @@ public class AnalysisTaskScheduler {
     public synchronized BaseAnalysisTask getPendingTasks() {
         while (true) {
             if (!manualJobQueue.isEmpty()) {
-                return manualJobQueue.poll();
+                return pollAndRemove(manualJobQueue, manualJobSet);
             }
             if (!systemJobQueue.isEmpty()) {
-                return systemJobQueue.poll();
+                return pollAndRemove(systemJobQueue, systemJobSet);
             }
             try {
                 wait();
@@ -102,5 +97,12 @@ public class AnalysisTaskScheduler {
                 return null;
             }
         }
+    }
+
+    // Poll from queue, remove from set. Make sure invoker of this method is synchronized on object.
+    private BaseAnalysisTask pollAndRemove(Queue<BaseAnalysisTask> q, Set<BaseAnalysisTask> s) {
+        BaseAnalysisTask t = q.poll();
+        s.remove(t);
+        return t;
     }
 }

@@ -21,12 +21,9 @@
 #include "exprs/string_functions.h"
 
 #include <re2/re2.h>
+#include <re2/stringpiece.h>
 
-#include <algorithm>
-
-#include "math_functions.h"
-#include "util/simd/vstring_function.h"
-#include "util/url_parser.h"
+#include <sstream>
 
 // NOTE: be careful not to use string::append.  It is not performant.
 namespace doris {

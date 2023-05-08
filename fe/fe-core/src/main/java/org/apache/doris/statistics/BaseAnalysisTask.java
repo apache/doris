@@ -20,19 +20,29 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
+import java.util.Set;
+
 public abstract class BaseAnalysisTask {
 
     public static final Logger LOG = LogManager.getLogger(BaseAnalysisTask.class);
 
+    /**
+     * Stats stored in the column_statistics table basically has two types, `part_id` is null which means it is
+     * aggregate from partition level stats, `part_id` is not null which means it is partition level stats.
+     * For latter, it's id field contains part id, for previous doesn't.
+     */
     protected static final String INSERT_PART_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + " SELECT "
@@ -77,8 +87,6 @@ public abstract class BaseAnalysisTask {
             + "     ${internalDB}.${columnStatTbl}.part_id IS NOT NULL"
             + "     ) t1, \n";
 
-    protected AnalysisTaskScheduler analysisTaskScheduler;
-
     protected AnalysisTaskInfo info;
 
     protected CatalogIf catalog;
@@ -91,20 +99,31 @@ public abstract class BaseAnalysisTask {
 
     protected StmtExecutor stmtExecutor;
 
-    protected AnalysisState analysisState;
+    protected Set<PrimitiveType> unsupportedType = new HashSet<>();
+
+    protected volatile boolean killed;
 
     @VisibleForTesting
     public BaseAnalysisTask() {
 
     }
 
-    public BaseAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        this.analysisTaskScheduler = analysisTaskScheduler;
+    public BaseAnalysisTask(AnalysisTaskInfo info) {
         this.info = info;
         init(info);
     }
 
+    protected void initUnsupportedType() {
+        unsupportedType.add(PrimitiveType.HLL);
+        unsupportedType.add(PrimitiveType.BITMAP);
+        unsupportedType.add(PrimitiveType.ARRAY);
+        unsupportedType.add(PrimitiveType.MAP);
+        unsupportedType.add(PrimitiveType.JSONB);
+        unsupportedType.add(PrimitiveType.STRUCT);
+    }
+
     private void init(AnalysisTaskInfo info) {
+        initUnsupportedType();
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
         if (catalog == null) {
             Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,
@@ -127,9 +146,11 @@ public abstract class BaseAnalysisTask {
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
-                Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(
-                        info, AnalysisState.FAILED, String.format("Column with name %s not exists", info.tblName),
-                        System.currentTimeMillis());
+                throw new RuntimeException(String.format("Column with name %s not exists", info.tblName));
+            }
+            if (isUnsupportedType(col.getType().getPrimitiveType())) {
+                throw new RuntimeException(String.format("Column with type %s is not supported",
+                        col.getType().toString()));
             }
         }
 
@@ -141,21 +162,20 @@ public abstract class BaseAnalysisTask {
         if (stmtExecutor != null) {
             stmtExecutor.cancel();
         }
+        if (killed) {
+            return;
+        }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
                         String.format("Job has been cancelled: %s", info.toString()), -1);
     }
 
-    public int getLastExecTime() {
+    public long getLastExecTime() {
         return info.lastExecTimeInMs;
     }
 
     public long getJobId() {
         return info.jobId;
-    }
-
-    public AnalysisState getAnalysisState() {
-        return analysisState;
     }
 
     protected String getDataSizeFunction(Column column) {
@@ -165,4 +185,24 @@ public abstract class BaseAnalysisTask {
         return "COUNT(1) * " + column.getType().getSlotSize();
     }
 
+    private boolean isUnsupportedType(PrimitiveType type) {
+        return unsupportedType.contains(type);
+    }
+
+    protected String getSampleExpression() {
+        if (info.analysisMethod == AnalysisMethod.FULL) {
+            return "";
+        }
+        // TODO Add sampling methods for external tables
+        if (info.samplePercent > 0) {
+            return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
+        } else {
+            return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
+        }
+    }
+
+    public void markAsKilled() {
+        this.killed = true;
+        cancel();
+    }
 }

@@ -20,12 +20,24 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
 #include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
 
 #include "common/status.h"
+#include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
@@ -46,6 +58,14 @@ class Field;
 template <typename T>
 auto has_variadic_argument_types(T&& arg) -> decltype(T::get_variadic_argument_types()) {};
 void has_variadic_argument_types(...);
+
+struct NullPresence {
+    bool has_nullable = false;
+    bool has_null_constant = false;
+};
+
+NullPresence get_null_presence(const Block& block, const ColumnNumbers& args);
+[[maybe_unused]] NullPresence get_null_presence(const ColumnsWithTypeAndName& args);
 
 /// The simplest executable object.
 /// Motivation:
@@ -90,7 +110,7 @@ protected:
 
     /** If the function have non-zero number of arguments,
       *  and if all arguments are constant, that we could automatically provide default implementation:
-      *  arguments are converted to ordinary columns with single value, then function is executed as usual,
+      *  arguments are converted to ordinary columns with single value which is not const, then function is executed as usual,
       *  and then the result is converted to constant column.
       */
     virtual bool use_default_implementation_for_constants() const { return false; }
@@ -102,6 +122,7 @@ protected:
     virtual bool use_default_implementation_for_low_cardinality_columns() const { return true; }
 
     /** Some arguments could remain constant during this implementation.
+      * Every argument required const must write here and no checks elsewhere.
       */
     virtual ColumnNumbers get_arguments_that_are_always_constant() const { return {}; }
 
@@ -116,6 +137,9 @@ private:
     Status execute_without_low_cardinality_columns(FunctionContext* context, Block& block,
                                                    const ColumnNumbers& arguments, size_t result,
                                                    size_t input_rows_count, bool dry_run);
+    Status _execute_skipped_constant_deal(FunctionContext* context, Block& block,
+                                          const ColumnNumbers& args, size_t result,
+                                          size_t input_rows_count, bool dry_run);
 };
 
 /// Function with known arguments and return type.
@@ -288,11 +312,14 @@ public:
 
 using FunctionBuilderPtr = std::shared_ptr<IFunctionBuilder>;
 
+/// used in function_factory. when we register a function, save a builder. to get a function, to get a builder.
+/// will use DefaultFunctionBuilder as the default builder in function's registration if we didn't explicitly specify.
 class FunctionBuilderImpl : public IFunctionBuilder {
 public:
     FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
                           const DataTypePtr& return_type) const final {
         const DataTypePtr& func_return_type = get_return_type(arguments);
+        // check return types equal.
         DCHECK(return_type->equals(*func_return_type) ||
                // For null constant argument, `get_return_type` would return
                // Nullable<DataTypeNothing> when `use_default_implementation_for_nulls` is true.
@@ -359,6 +386,7 @@ protected:
     /// If it isn't, will convert all ColumnLowCardinality arguments to full columns.
     virtual bool can_be_executed_on_low_cardinality_dictionary() const { return true; }
 
+    /// return a real function object to execute. called in build(...).
     virtual FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                        const DataTypePtr& return_type) const = 0;
 
@@ -392,6 +420,8 @@ public:
     bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return false; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return true; }
+
+    /// all constancy check should use this function to do automatically
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
     bool can_be_executed_on_low_cardinality_dictionary() const override {
         return is_deterministic_in_scope_of_query();
@@ -435,7 +465,7 @@ protected:
     }
 };
 
-/// Wrappers over IFunction.
+/// Wrappers over IFunction. If we (default)use DefaultFunction as wrapper, all function execution will go through this.
 
 class DefaultExecutable final : public PreparedFunctionImpl {
 public:
@@ -471,6 +501,10 @@ private:
     std::shared_ptr<IFunction> function;
 };
 
+/*
+ * when we register a function which didn't specify its base(i.e. inherited from IFunction), actually we use this as a wrapper.
+ * it saves real implementation as `function`. 
+*/
 class DefaultFunction final : public IFunctionBase {
 public:
     DefaultFunction(std::shared_ptr<IFunction> function_, DataTypes arguments_,
@@ -484,6 +518,7 @@ public:
     const DataTypes& get_argument_types() const override { return arguments; }
     const DataTypePtr& get_return_type() const override { return return_type; }
 
+    // return a default wrapper for IFunction.
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
                                 size_t /*result*/) const override {
@@ -585,7 +620,9 @@ protected:
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                const DataTypePtr& return_type) const override {
         DataTypes data_types(arguments.size());
-        for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            data_types[i] = arguments[i].type;
+        }
         return std::make_shared<DefaultFunction>(function, data_types, return_type);
     }
 

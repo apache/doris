@@ -20,15 +20,41 @@
 
 #pragma once
 
-#ifdef __aarch64__
-#include <sse2neon.h>
-#endif
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
 
+#include <functional>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class ColumnSorter;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -80,6 +106,11 @@ public:
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
         return is_null_at(n) ? false : nested_column->get_bool(n);
+    }
+    // column must be nullable(uint8)
+    bool get_bool_inline(size_t n) const {
+        return is_null_at(n) ? false
+                             : assert_cast<const ColumnUInt8*>(nested_column.get())->get_bool(n);
     }
     UInt64 get64(size_t n) const override { return nested_column->get64(n); }
     StringRef get_data_at(size_t n) const override;
@@ -324,8 +355,8 @@ public:
         get_nested_column().convert_dict_codes_if_necessary();
     }
 
-    void generate_hash_values_for_runtime_filter() override {
-        get_nested_column().generate_hash_values_for_runtime_filter();
+    void initialize_hash_values_for_runtime_filter() override {
+        get_nested_column().initialize_hash_values_for_runtime_filter();
     }
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
@@ -363,5 +394,8 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
-
+// check if argument column is nullable. If so, extract its concrete column and set null_map.
+//TODO: use this to replace inner usages.
+// is_single: whether null_map is null map of a ColumnConst
+void check_set_nullable(ColumnPtr&, ColumnVector<UInt8>::MutablePtr& null_map, bool is_single);
 } // namespace doris::vectorized

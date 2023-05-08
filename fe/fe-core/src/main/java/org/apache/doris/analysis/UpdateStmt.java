@@ -18,11 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -32,7 +32,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -59,21 +58,22 @@ import java.util.TreeSet;
  */
 public class UpdateStmt extends DdlStmt {
 
-    private final TableName tableName;
+    private TableRef targetTableRef;
+    private TableName tableName;
     private final List<BinaryPredicate> setExprs;
     private final Expr whereExpr;
     private final FromClause fromClause;
     private InsertStmt insertStmt;
-    private Table targetTable;
+    private TableIf targetTable;
     List<SelectListItem> selectListItems = Lists.newArrayList();
     List<String> cols = Lists.newArrayList();
 
-    public UpdateStmt(TableName tableName, List<BinaryPredicate> setExprs, FromClause fromClause, Expr whereExpr) {
-        this.tableName = tableName;
+    public UpdateStmt(TableRef targetTableRef, List<BinaryPredicate> setExprs, FromClause fromClause, Expr whereExpr) {
+        this.targetTableRef = targetTableRef;
+        this.tableName = targetTableRef.getName();
         this.setExprs = setExprs;
         this.fromClause = fromClause;
         this.whereExpr = whereExpr;
-
     }
 
     public InsertStmt getInsertStmt() {
@@ -96,12 +96,11 @@ public class UpdateStmt extends DdlStmt {
     private void constructInsertStmt() {
         // not use origin from clause, because we need to mod it, and this action will affect toSql().
         FromClause fromUsedInInsert;
-        TableRef tableRef = new TableRef(tableName, null);
         if (fromClause == null) {
-            fromUsedInInsert = new FromClause(Lists.newArrayList(tableRef));
+            fromUsedInInsert = new FromClause(Lists.newArrayList(targetTableRef));
         } else {
             fromUsedInInsert = fromClause.clone();
-            fromUsedInInsert.getTableRefs().add(0, tableRef);
+            fromUsedInInsert.getTableRefs().add(0, targetTableRef);
         }
         SelectStmt selectStmt = new SelectStmt(
                 // select list
@@ -128,9 +127,11 @@ public class UpdateStmt extends DdlStmt {
                 null);
     }
 
-    private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
+    private void analyzeTargetTable(Analyzer analyzer) throws UserException {
         // step1: analyze table name and origin table alias
-        tableName.analyze(analyzer);
+        targetTableRef = analyzer.resolveTableRef(targetTableRef);
+        targetTableRef.analyze(analyzer);
+        tableName = targetTableRef.getName();
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         // check load privilege, select privilege will check when analyze insert stmt
@@ -140,22 +141,10 @@ public class UpdateStmt extends DdlStmt {
         }
 
         // step2: resolve table name with catalog, only unique olap table could be updated
-        String dbName = tableName.getDb();
-        String targetTableName = tableName.getTbl();
-        Preconditions.checkNotNull(dbName);
-        Preconditions.checkNotNull(targetTableName);
-        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-        targetTable = database.getTableOrAnalysisException(tableName.getTbl());
+        targetTable = targetTableRef.getTable();
         if (targetTable.getType() != Table.TableType.OLAP
                 || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("Only unique table could be updated.");
-        }
-        // register table to ensure we could analyze column name on the left side of set exprs.
-        targetTable.readLock();
-        try {
-            analyzer.registerOlapTable(targetTable, tableName, null);
-        } finally {
-            targetTable.readUnlock();
         }
     }
 
@@ -198,7 +187,7 @@ public class UpdateStmt extends DdlStmt {
 
         // step3: generate select list and insert column name list in insert stmt
         for (Column column : targetTable.getColumns()) {
-            Expr expr = new SlotRef(tableName, column.getName());
+            Expr expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             for (BinaryPredicate setExpr : setExprs) {
                 Expr lhs = setExpr.getChild(0);
                 if (((SlotRef) lhs).getColumn().equals(column)) {
@@ -213,7 +202,7 @@ public class UpdateStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder("UPDATE ");
-        sb.append(tableName.toSql()).append("\n");
+        sb.append(targetTableRef.toSql()).append("\n");
         sb.append("  ").append("SET ");
         for (Expr setExpr : setExprs) {
             sb.append(setExpr.toSql()).append(", ");

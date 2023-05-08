@@ -17,16 +17,26 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <string>
+
 #include "exec/line_reader.h"
-#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
+namespace io {
+class IOContext;
+}
 
 class Decompressor;
 class Status;
 
 class NewPlainTextLineReader : public LineReader {
+    ENABLE_FACTORY_CREATOR(NewPlainTextLineReader);
+
 public:
     NewPlainTextLineReader(RuntimeProfile* profile, io::FileReaderSPtr file_reader,
                            Decompressor* decompressor, size_t length,
@@ -35,7 +45,8 @@ public:
 
     ~NewPlainTextLineReader() override;
 
-    Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
+    Status read_line(const uint8_t** ptr, size_t* size, bool* eof,
+                     const io::IOContext* io_ctx) override;
 
     void close() override;
 

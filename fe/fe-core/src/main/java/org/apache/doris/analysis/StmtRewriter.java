@@ -110,7 +110,7 @@ public class StmtRewriter {
         if (result.hasWhereClause()) {
             // Push negation to leaf operands.
             result.whereClause = Expr.pushNegationToOperands(result.whereClause);
-            if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableVectorizedEngine()) {
+            if (ConnectContext.get() == null) {
                 // Check if we can equal the subqueries in the WHERE clause. OR predicates with
                 // subqueries are not supported.
                 if (hasSubqueryInDisjunction(result.whereClause)) {
@@ -822,11 +822,13 @@ public class StmtRewriter {
             if (expr instanceof ExistsPredicate) {
                 joinOp = ((ExistsPredicate) expr).isNotExists() ? JoinOperator.LEFT_ANTI_JOIN :
                         JoinOperator.LEFT_SEMI_JOIN;
-            } else if (expr instanceof InPredicate && joinConjunct instanceof FunctionCallExpr
-                    && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
-                    .equalsIgnoreCase(BITMAP_CONTAINS))) {
+            } else if (expr instanceof InPredicate && !(joinConjunct instanceof BitmapFilterPredicate)) {
                 joinOp = ((InPredicate) expr).isNotIn() ? JoinOperator.LEFT_ANTI_JOIN : JoinOperator.LEFT_SEMI_JOIN;
-                isInBitmap = true;
+                if ((joinConjunct instanceof FunctionCallExpr
+                        && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
+                        .equalsIgnoreCase(BITMAP_CONTAINS)))) {
+                    isInBitmap = true;
+                }
             } else {
                 joinOp = JoinOperator.CROSS_JOIN;
                 // We can equal the aggregate subquery using a cross join. All conjuncts
@@ -882,7 +884,8 @@ public class StmtRewriter {
                     }
                 }
             } else {
-                joinOp = JoinOperator.LEFT_ANTI_JOIN;
+                joinOp = expr instanceof InPredicate ? JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN
+                        : JoinOperator.LEFT_ANTI_JOIN;
             }
         }
 

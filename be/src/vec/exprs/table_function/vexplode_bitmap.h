@@ -17,25 +17,37 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <memory>
+
+#include "common/status.h"
 #include "util/bitmap_value.h"
-#include "vec/columns/column.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
+
+namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 class VExplodeBitmapTableFunction final : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VExplodeBitmapTableFunction);
+
 public:
     VExplodeBitmapTableFunction();
     ~VExplodeBitmapTableFunction() override = default;
 
     Status reset() override;
-    Status get_value(void** output) override;
-    Status forward(bool* eos) override;
+    void get_value(MutableColumnPtr& column) override;
+    Status forward(int step = 1) override;
 
-    Status process_init(vectorized::Block* block) override;
+    Status process_init(Block* block) override;
     Status process_row(size_t row_idx) override;
     Status process_close() override;
-    Status get_value_length(int64_t* length) override;
 
 private:
     void _reset_iterator();
@@ -43,9 +55,6 @@ private:
     const BitmapValue* _cur_bitmap = nullptr;
     // iterator of _cur_bitmap
     std::unique_ptr<BitmapValueIterator> _cur_iter = nullptr;
-    // current value read from bitmap, it will be referenced by
-    // table function scan node.
-    uint64_t _cur_value = 0;
     ColumnPtr _value_column;
 };
 

@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -41,6 +42,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -57,17 +59,25 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.thrift.TException;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class StatisticsUtil {
+
+    private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
     public static List<ResultRow> executeQuery(String template, Map<String, String> params) {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -91,15 +101,21 @@ public class StatisticsUtil {
 
     public static void execUpdate(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
         }
     }
 
-    // TODO: finish this.
-    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches) throws TException {
-        return new ArrayList<>();
+    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches)
+            throws TException {
+        if (CollectionUtils.isEmpty(resultBatches)) {
+            return Collections.emptyList();
+        }
+        return resultBatches.stream()
+                .map(AnalysisTaskInfo::fromResultRow)
+                .collect(Collectors.toList());
     }
 
     public static List<ColumnStatistic> deserializeToColumnStatistics(List<ResultRow> resultBatches)
@@ -122,6 +138,7 @@ public class StatisticsUtil {
         sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
+        sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
@@ -179,10 +196,6 @@ public class StatisticsUtil {
                 return new DateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
-                if (columnValue.length() > scalarType.getLength()) {
-                    throw new AnalysisException("Min/Max value is longer than length of column type: "
-                        + columnValue);
-                }
                 return new StringLiteral(columnValue);
             case HLL:
             case BITMAP:
@@ -230,6 +243,7 @@ public class StatisticsUtil {
                     return dateTimeLiteral.getDouble();
                 case CHAR:
                 case VARCHAR:
+                case STRING:
                     VarcharLiteral varchar = new VarcharLiteral(columnValue);
                     return varchar.getDouble();
                 case HLL:
@@ -283,5 +297,95 @@ public class StatisticsUtil {
             }
         }
         return tblIf.getColumn(columnName);
+    }
+
+    @SuppressWarnings({"unchecked"})
+    public static Column findColumn(String catalogName, String dbName, String tblName, String columnName)
+            throws Throwable {
+        TableIf tableIf = findTable(catalogName, dbName, tblName);
+        return tableIf.getColumn(columnName);
+    }
+
+    /**
+     * Throw RuntimeException if table not exists.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static TableIf findTable(String catalogName, String dbName, String tblName) throws Throwable {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(catalogName, c -> new RuntimeException("Catalog: " + c + " not exists"));
+        DatabaseIf db = catalog.getDbOrException(dbName,
+                d -> new RuntimeException("DB: " + d + " not exists"));
+        return db.getTableOrException(tblName,
+                t -> new RuntimeException("Table: " + t + " not exists"));
+    }
+
+    public static boolean isNullOrEmpty(String str) {
+        return Optional.ofNullable(str)
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .map(s -> "null".equalsIgnoreCase(s) || s.isEmpty())
+                .orElse(true);
+    }
+
+    public static boolean statsTblAvailable() {
+        String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+        List<OlapTable> statsTbls = new ArrayList<>();
+        try {
+            statsTbls.add(
+                    (OlapTable) StatisticsUtil
+                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    dbName,
+                                    StatisticConstants.STATISTIC_TBL_NAME));
+            statsTbls.add(
+                    (OlapTable) StatisticsUtil
+                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    dbName,
+                                    StatisticConstants.HISTOGRAM_TBL_NAME));
+            statsTbls.add((OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    dbName,
+                    StatisticConstants.ANALYSIS_JOB_TABLE));
+        } catch (Throwable t) {
+            return false;
+        }
+        for (OlapTable table : statsTbls) {
+            for (Partition partition : table.getPartitions()) {
+                if (partition.getBaseIndex().getTablets().stream()
+                        .anyMatch(t -> t.getNormalReplicaBackendIds().isEmpty())) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    public static Map<Long, String> getPartitionIdToName(TableIf table) {
+        return table.getPartitionNames().stream()
+                .map(table::getPartition)
+                .collect(Collectors.toMap(
+                        Partition::getId,
+                        Partition::getName
+                ));
+    }
+
+    public static <T> String joinElementsToString(Collection<T> values, String delimiter) {
+        StringJoiner builder = new StringJoiner(delimiter);
+        values.forEach(v -> builder.add(String.valueOf(v)));
+        return builder.toString();
+    }
+
+    public static int convertStrToInt(String str) {
+        return StringUtils.isNumeric(str) ? Integer.parseInt(str) : 0;
+    }
+
+    public static long convertStrToLong(String str) {
+        return StringUtils.isNumeric(str) ? Long.parseLong(str) : 0;
+    }
+
+    public static String getReadableTime(long timeInMs) {
+        if (timeInMs <= 0) {
+            return "";
+        }
+        SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
+        return format.format(new Date(timeInMs));
     }
 }

@@ -42,7 +42,13 @@ under the License.
 
 ## Query parameters
 
-无
+* `db_id`
+
+    指定数据库id
+
+* `group_id`
+    
+    指定组id
 
 ## Request body
 

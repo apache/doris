@@ -14,32 +14,23 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import org.apache.doris.regression.Config
 
-suite("test_mysql_connection") {
+suite("test_mysql_connection") { suite ->
+    // NOTE: this suite need you install mysql client 5.7 + to support --ssl-mode parameter
 
     def executeMySQLCommand = { String command ->
-        try {
-            String line;
-            StringBuilder errMsg = new StringBuilder();
-            StringBuilder msg = new StringBuilder();
-            Process p = Runtime.getRuntime().exec(new String[]{"/bin/bash", "-c", command});
+        def cmds = ["/bin/bash", "-c", command]
+        logger.info("Execute: ${cmds}".toString())
+        Process p = cmds.execute()
 
-            BufferedReader errInput = new BufferedReader(new InputStreamReader(p.getErrorStream()));
-            while ((line = errInput.readLine()) != null) {
-                errMsg.append(line);
-            }
-            assert errMsg.length() == 0: "error occurred!" + errMsg.toString();
-            errInput.close();
+        def errMsg = new StringBuilder()
+        def msg = new StringBuilder()
+        p.waitForProcessOutput(msg, errMsg)
 
-            BufferedReader input = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            while ((line = input.readLine()) != null) {
-                msg.append(line);
-            }
-            assert msg.toString().contains("version"): "error occurred!" + errMsg.toString();
-            input.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        assert errMsg.length() == 0: "error occurred!" + errMsg
+        assert msg.toString().contains("version"): "error occurred!" + errMsg
+        assert p.exitValue() == 0
     }
 
     String jdbcUrlConfig = context.config.jdbcUrl;
@@ -49,10 +40,20 @@ suite("test_mysql_connection") {
     String cmdDefault = "mysql -uroot -h" + mysqlHost + " -P" + mysqlPort + " -e \"show variables\"";
     String cmdDisabledSsl = "mysql --ssl-mode=DISABLE -uroot -h" + mysqlHost + " -P" + mysqlPort + " -e \"show variables\"";
     String cmdSsl12 = "mysql --ssl-mode=REQUIRED -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
+    // client verifies server certificate
+    String cmdv1 = "mysql --ssl-mode=VERIFY_CA --ssl-ca=" + context.config.sslCertificatePath + "/ca.pem -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
+    
+    // two-way ssl auth (client and server both verify their respective certificates)
+    String cmdv2 = "mysql --ssl-mode=VERIFY_CA --ssl-ca=" + context.config.sslCertificatePath + "/ca.pem \
+                    --ssl-cert=" + context.config.sslCertificatePath + "/client-cert.pem \
+                    --ssl-key=" + context.config.sslCertificatePath + "/client-key.pem -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
+
     // The current mysql-client version of the test environment is 5.7.32, which does not support TLSv1.3, so comment this part.
     // String cmdSsl13 = "mysql --ssl-mode=REQUIRED -uroot -h" + mysqlHost + " -P" + mysqlPort +  " --tls-version=TLSv1.3 -e \"show variables\"";
     executeMySQLCommand(cmdDefault);
     executeMySQLCommand(cmdDisabledSsl);
     executeMySQLCommand(cmdSsl12);
     // executeMySQLCommand(cmdSsl13);
+    executeMySQLCommand(cmdv1);
+    executeMySQLCommand(cmdv2);
 }

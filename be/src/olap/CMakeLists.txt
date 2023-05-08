@@ -35,7 +35,6 @@ add_library(Olap STATIC
     cumulative_compaction_policy.cpp
     delete_handler.cpp
     delta_writer.cpp
-    file_helper.cpp
     hll.cpp
     inverted_index_parser.cpp
     itoken_extractor.cpp
@@ -79,6 +78,7 @@ add_library(Olap STATIC
     rowset/segment_v2/inverted_index_desc.cpp
     rowset/segment_v2/inverted_index_compound_directory.cpp
     rowset/segment_v2/inverted_index_compound_reader.cpp
+    rowset/segment_v2/inverted_index_compaction.cpp
     rowset/segment_v2/bitshuffle_page.cpp
     rowset/segment_v2/bitshuffle_wrapper.cpp
     rowset/segment_v2/column_reader.cpp

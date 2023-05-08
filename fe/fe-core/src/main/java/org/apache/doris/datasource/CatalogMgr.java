@@ -78,6 +78,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public static final String ACCESS_CONTROLLER_CLASS_PROP = "access_controller.class";
     public static final String ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP = "access_controller.properties.";
+    public static final String METADATA_REFRESH_INTERVAL_SEC = "metadata_refresh_interval_sec";
     public static final String CATALOG_TYPE_PROP = "type";
 
     private static final String YES = "yes";
@@ -92,7 +93,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private final Map<String, String> lastDBOfCatalog = Maps.newConcurrentMap();
 
     // Use a separate instance to facilitate access.
-    // internalDataSource still exists in idToDataSource and nameToDataSource
+    // internalDataSource still exists in idToCatalog and nameToCatalog
     private InternalCatalog internalCatalog;
 
     public CatalogMgr() {
@@ -250,10 +251,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             long id = Env.getCurrentEnv().getNextId();
             CatalogLog log = CatalogFactory.constructorCatalogLog(id, stmt);
-            CatalogIf catalog = replayCreateCatalog(log);
-            if (catalog instanceof ExternalCatalog) {
-                ((ExternalCatalog) catalog).checkProperties();
-            }
+            replayCreateCatalog(log, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_CREATE_CATALOG, log);
         } finally {
             writeUnlock();
@@ -370,11 +368,15 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         row.add(String.valueOf(catalog.getId()));
                         row.add(name);
                         row.add(catalog.getType());
-                        if (name.equals(currentCtlg)) {
+                        if (currentCtlg != null && name.equals(currentCtlg)) {
                             row.add(YES);
                         } else {
                             row.add("");
                         }
+                        Map<String, String> props = catalog.getProperties();
+                        String createTime = props.getOrDefault(CreateCatalogStmt.CREATE_TIME_PROP, "UNRECORDED");
+                        row.add(createTime);
+                        row.add(catalog.getComment());
                         rows.add(row);
                     }
 
@@ -397,6 +399,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
                 }
                 for (Map.Entry<String, String> elem : catalog.getProperties().entrySet()) {
+                    if (PrintableMap.HIDDEN_KEY.contains(elem.getKey())) {
+                        continue;
+                    }
                     if (PrintableMap.SENSITIVE_KEY.contains(elem.getKey())) {
                         rows.add(Arrays.asList(elem.getKey(), PrintableMap.PASSWORD_MASK));
                     } else {
@@ -420,11 +425,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new AnalysisException("No catalog found with name " + showStmt.getCatalog());
             }
             StringBuilder sb = new StringBuilder();
-            sb.append("CREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()))
+            sb.append("\nCREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()))
                     .append("`");
+            if (!com.google.common.base.Strings.isNullOrEmpty(catalog.getComment())) {
+                sb.append("\nCOMMENT \"").append(catalog.getComment()).append("\"\n");
+            }
             if (catalog.getProperties().size() > 0) {
                 sb.append(" PROPERTIES (\n");
-                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, true));
+                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, true, true));
                 sb.append("\n);");
             }
 
@@ -461,10 +469,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for create catalog event.
      */
-    public CatalogIf replayCreateCatalog(CatalogLog log) throws DdlException {
+    public CatalogIf replayCreateCatalog(CatalogLog log, boolean isReplay) throws DdlException {
         writeLock();
         try {
             CatalogIf catalog = CatalogFactory.constructorFromLog(log);
+            if (!isReplay && catalog instanceof ExternalCatalog) {
+                ((ExternalCatalog) catalog).checkProperties();
+            }
+            Map<String, String> props = log.getProps();
+            if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                // need refresh
+                long catalogId = log.getCatalogId();
+                Integer metadataRefreshIntervalSec = Integer.valueOf(props.get(METADATA_REFRESH_INTERVAL_SEC));
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
+            }
             addCatalog(catalog);
             return catalog;
         } finally {
@@ -579,6 +598,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (table == null) {
             throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
         }
+        if (table instanceof ExternalTable) {
+            ((ExternalTable) table).unsetObjectCreated();
+        }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
@@ -603,6 +625,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
+        table.unsetObjectCreated();
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }
@@ -951,6 +974,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         log.getPartitionNames());
     }
 
+    public void registerCatalogRefreshListener(Env env) {
+        for (CatalogIf catalog : idToCatalog.values()) {
+            Map<String, String> properties = catalog.getProperties();
+            if (properties.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                Integer metadataRefreshIntervalSec = Integer.valueOf(properties.get(METADATA_REFRESH_INTERVAL_SEC));
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                env.getRefreshManager().addToRefreshMap(catalog.getId(), sec);
+            }
+        }
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
@@ -961,8 +995,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         for (CatalogIf catalog : idToCatalog.values()) {
             nameToCatalog.put(catalog.getName(), catalog);
+            // ATTN: can not call catalog.getProperties() here, because ResourceMgr is not replayed yet.
         }
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
+    }
+
+    public Map<Long, CatalogIf> getIdToCatalog() {
+        return idToCatalog;
     }
 }
 

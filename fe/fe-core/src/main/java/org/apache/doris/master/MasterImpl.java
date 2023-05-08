@@ -51,7 +51,6 @@ import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TBackend;
-import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TPushType;
@@ -480,7 +479,7 @@ public class MasterImpl {
 
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
         publishVersionTask.addErrorTablets(errorTabletIds);
-        publishVersionTask.setIsFinished(true);
+        publishVersionTask.setFinished(true);
 
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             // not remove the task from queue and be will retry
@@ -567,10 +566,6 @@ public class MasterImpl {
         return reportHandler.handleReport(request);
     }
 
-    public TFetchResourceResult fetchResource() {
-        return Env.getCurrentEnv().getAuth().toResourceThrift();
-    }
-
     private void finishAlterTask(AgentTask task) {
         AlterReplicaTask alterTask = (AlterReplicaTask) task;
         try {
@@ -588,7 +583,9 @@ public class MasterImpl {
 
     private void finishAlterInvertedIndexTask(AgentTask task) {
         AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
-        LOG.info("beigin finish AlterInvertedIndexTask, Jobtype: {}", alterInvertedIndexTask.getJobType());
+        LOG.info("beigin finish AlterInvertedIndexTask: {}, JobId: {}, Jobtype: {}",
+                alterInvertedIndexTask.getSignature(), alterInvertedIndexTask.getJobId(),
+                alterInvertedIndexTask.getJobType());
         // TODO: more check
         alterInvertedIndexTask.setFinished(true);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER_INVERTED_INDEX, task.getSignature());

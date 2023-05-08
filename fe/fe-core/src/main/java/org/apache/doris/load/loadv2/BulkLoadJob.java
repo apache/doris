@@ -31,8 +31,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -53,7 +53,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -76,11 +76,9 @@ public abstract class BulkLoadJob extends LoadJob {
 
     // input params
     protected BrokerDesc brokerDesc;
-    // queryId of OriginStatement
-    protected String queryId;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
-    // the expr of columns will be reanalyze when the log is replayed
+    // the expr of columns will be reanalyzed when the log is replayed
     private OriginStatement originStmt;
 
     // include broker desc and data desc
@@ -103,11 +101,9 @@ public abstract class BulkLoadJob extends LoadJob {
         this.userInfo = userInfo;
 
         if (ConnectContext.get() != null) {
-            this.queryId = DebugUtil.printId(ConnectContext.get().queryId());
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
         } else {
-            this.queryId = "N/A";
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
     }
@@ -181,6 +177,7 @@ public abstract class BulkLoadJob extends LoadJob {
                 .collect(Collectors.toSet());
     }
 
+    @LogException
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();

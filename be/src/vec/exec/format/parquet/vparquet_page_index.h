@@ -17,11 +17,26 @@
 
 #pragma once
 #include <common/status.h>
-#include <gen_cpp/parquet_types.h>
+#include <stdint.h>
+
+#include <vector>
 
 #include "exec/olap_common.h"
-#include "parquet_common.h"
-#include "schema_desc.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace vectorized {
+struct FieldSchema;
+struct RowRange;
+} // namespace vectorized
+} // namespace doris
+namespace tparquet {
+class ColumnChunk;
+class ColumnIndex;
+class OffsetIndex;
+} // namespace tparquet
 
 namespace doris::vectorized {
 

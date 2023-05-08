@@ -18,18 +18,23 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnsCommon.cpp
 // and modified by Doris
 
-#if defined(__SSE2__)
-#include <emmintrin.h>
-#endif
-#if defined(__aarch64__)
-#include <sse2neon.h>
-#endif
+#include "vec/columns/columns_common.h"
+
+#include <string.h>
+
+#include <boost/iterator/iterator_facade.hpp>
 
 #include "util/simd/bits.h"
+#include "util/sse_util.hpp"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_common.h"
+#include "vec/columns/column_array.h" // IWYU pragma: keep
+
+namespace doris {
+namespace vectorized {
+template <typename T>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -158,9 +163,7 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
                                 PaddedPODArray<OT>* res_offsets, const IColumn::Filter& filt,
                                 ssize_t result_size_hint) {
     const size_t size = src_offsets.size();
-    if (size != filt.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
-    }
+    column_match_filter_size(size, filt.size());
 
     constexpr int ASSUME_STRING_LENGTH = 5;
     ResultOffsetsBuilder result_offsets_builder(res_offsets);
@@ -238,9 +241,7 @@ size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
                                                     PaddedPODArray<OT>& offsets,
                                                     const IColumn::Filter& filter) {
     const size_t size = offsets.size();
-    if (offsets.size() != filter.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
-    }
+    column_match_filter_size(size, filter.size());
 
     /// If no need to filter the `offsets`, here do not reset the end ptr of `offsets`
     if constexpr (!std::is_same_v<ResultOffsetsBuilder, NoResultOffsetsBuilder<OT>>) {

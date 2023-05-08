@@ -16,12 +16,48 @@
 // under the License.
 #pragma once
 #include <common/status.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <limits>
+#include <memory>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "exec/text_converter.h"
-#include "io/fs/file_reader.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "vec/columns/column.h"
+#include "vec/common/allocator.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_column_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class RuntimeState;
+class SlotDescriptor;
+class TupleDescriptor;
+
+namespace io {
+class IOContext;
+} // namespace io
+namespace vectorized {
+class Block;
+class FieldDescriptor;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+namespace tparquet {
+class ColumnMetaData;
+class OffsetIndex;
+class RowGroup;
+} // namespace tparquet
 
 namespace doris::vectorized {
 
@@ -49,7 +85,10 @@ public:
         std::vector<std::string> all_read_columns;
         // include predicate_partition_columns & predicate_missing_columns
         std::vector<uint32_t> all_predicate_col_ids;
-        std::vector<std::string> predicate_columns;
+        // save slot_id to find dict filter column name, because expr column name may
+        // be different with parquet column name
+        // std::pair<std::vector<col_name>, std::vector<slot_id>>
+        std::pair<std::vector<std::string>, std::vector<int>> predicate_columns;
         std::vector<std::string> lazy_read_columns;
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 predicate_partition_columns;
@@ -104,7 +143,7 @@ public:
 
     RowGroupReader(io::FileReaderSPtr file_reader,
                    const std::vector<ParquetReadColumn>& read_columns, const int32_t row_group_id,
-                   const tparquet::RowGroup& row_group, cctz::time_zone* ctz,
+                   const tparquet::RowGroup& row_group, cctz::time_zone* ctz, io::IOContext* io_ctx,
                    const PositionDeleteContext& position_delete_ctx,
                    const LazyReadContext& lazy_read_ctx, RuntimeState* state);
 
@@ -139,15 +178,14 @@ private:
             const std::unordered_map<std::string, VExprContext*>& missing_columns);
     Status _build_pos_delete_filter(size_t read_rows);
     Status _filter_block(Block* block, int column_to_keep,
-                         const vector<uint32_t>& columns_to_filter);
-    Status _filter_block_internal(Block* block, const vector<uint32_t>& columns_to_filter,
+                         const std::vector<uint32_t>& columns_to_filter);
+    Status _filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                   const IColumn::Filter& filter);
 
-    bool _can_filter_by_dict(const string& predicate_col_name,
-                             const tparquet::ColumnMetaData& column_metadata);
+    bool _can_filter_by_dict(int slot_id, const tparquet::ColumnMetaData& column_metadata);
     bool is_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
     Status _rewrite_dict_predicates();
-    Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id);
+    Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
     void _convert_dict_cols_to_string_cols(Block* block);
     Status _execute_conjuncts(const std::vector<VExprContext*>& ctxs,
                               const std::vector<IColumn::Filter*>& filters, Block* block,
@@ -165,6 +203,7 @@ private:
     const tparquet::RowGroup& _row_group_meta;
     int64_t _remaining_rows;
     cctz::time_zone* _ctz;
+    io::IOContext* _io_ctx;
     PositionDeleteContext _position_delete_ctx;
     // merge the row ranges generated from page index and position delete.
     std::vector<RowRange> _read_ranges;
@@ -182,7 +221,8 @@ private:
     const std::unordered_map<int, std::vector<VExprContext*>>* _slot_id_to_filter_conjuncts;
     std::vector<VExprContext*> _dict_filter_conjuncts;
     std::vector<VExprContext*> _filter_conjuncts;
-    std::vector<std::string> _dict_filter_col_names;
+    // std::pair<col_name, slot_id>
+    std::vector<std::pair<std::string, int>> _dict_filter_cols;
     RuntimeState* _state;
     std::shared_ptr<ObjectPool> _obj_pool;
     bool _is_row_group_filtered = false;

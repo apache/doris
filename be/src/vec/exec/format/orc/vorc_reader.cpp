@@ -17,21 +17,65 @@
 
 #include "vorc_reader.h"
 
+#include <cctz/civil_time_detail.h>
+#include <ctype.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <exception>
+#include <iterator>
+#include <map>
+#include <ostream>
 #include <tuple>
+#include <variant>
 
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
+#include "common/exception.h"
+#include "exec/olap_utils.h"
+#include "gutil/casts.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
-#include "olap/iterators.h"
+#include "orc/Exceptions.hh"
+#include "orc/Int128.hh"
+#include "orc/MemoryPool.hh"
+#include "orc/OrcFile.hh"
+#include "orc/sargs/Literal.hh"
+#include "orc/sargs/SearchArgument.hh"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "util/slice.h"
+#include "util/timezone_utils.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+class RuntimeState;
+
+namespace io {
+class IOContext;
+enum class FileCachePolicy : uint8_t;
+} // namespace io
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -53,11 +97,10 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
     SCOPED_RAW_TIMER(&_statistics->fs_read_time);
     uint64_t has_read = 0;
     char* out = reinterpret_cast<char*>(buf);
-    IOContext io_ctx;
     while (has_read < length) {
         size_t loop_read;
         Slice result(out + has_read, length - has_read);
-        Status st = _file_reader->read_at(offset + has_read, result, io_ctx, &loop_read);
+        Status st = _file_reader->read_at(offset + has_read, result, &loop_read, _io_ctx);
         if (!st.ok()) {
             throw orc::ParseError(
                     strings::Substitute("Failed to read $0: $1", _file_name, st.to_string()));
@@ -73,10 +116,12 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
     }
 }
 
-OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                     const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-                     size_t batch_size, const std::string& ctz, IOContext* io_ctx)
+OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
+                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                     const std::vector<std::string>& column_names, size_t batch_size,
+                     const std::string& ctz, io::IOContext* io_ctx)
         : _profile(profile),
+          _state(state),
           _scan_params(params),
           _scan_range(range),
           _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
@@ -94,7 +139,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params
 
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      const std::vector<std::string>& column_names, const std::string& ctz,
-                     IOContext* io_ctx)
+                     io::IOContext* io_ctx)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
@@ -154,11 +199,12 @@ void OrcReader::_init_profile() {
 Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &inner_reader, _io_ctx));
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
+        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &inner_reader,
+                io::DelegateReader::AccessMode::RANDOM, reader_options, _io_ctx));
         _file_input_stream.reset(
-                new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics));
+                new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics, _io_ctx));
     }
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);
@@ -325,8 +371,8 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
         case orc::TypeKind::DATE: {
             int64_t day_offset;
             static const cctz::time_zone utc0 = cctz::utc_time_zone();
-            if constexpr (std::is_same_v<CppType, DateTimeValue>) {
-                const DateTimeValue date_v1 = *reinterpret_cast<const DateTimeValue*>(value);
+            if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                const VecDateTimeValue date_v1 = *reinterpret_cast<const VecDateTimeValue*>(value);
                 cctz::civil_day civil_date(date_v1.year(), date_v1.month(), date_v1.day());
                 day_offset =
                         cctz::convert(civil_date, utc0).time_since_epoch().count() / (24 * 60 * 60);
@@ -344,13 +390,14 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
             int32_t nanos;
             static const cctz::time_zone utc0 = cctz::utc_time_zone();
             // TODO: ColumnValueRange has lost the precision of microsecond
-            if constexpr (std::is_same_v<CppType, DateTimeValue>) {
-                const DateTimeValue datetime_v1 = *reinterpret_cast<const DateTimeValue*>(value);
+            if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                const VecDateTimeValue datetime_v1 =
+                        *reinterpret_cast<const VecDateTimeValue*>(value);
                 cctz::civil_second civil_seconds(datetime_v1.year(), datetime_v1.month(),
                                                  datetime_v1.day(), datetime_v1.hour(),
                                                  datetime_v1.minute(), datetime_v1.second());
                 seconds = cctz::convert(civil_seconds, utc0).time_since_epoch().count();
-                nanos = datetime_v1.microsecond() * 1000;
+                nanos = 0;
             } else {
                 const DateV2Value<DateTimeV2ValueType> datetime_v2 =
                         *reinterpret_cast<const DateV2Value<DateTimeV2ValueType>*>(value);
@@ -577,8 +624,8 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::TIMESTAMP:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::DECIMAL:
-        // TODO: using decimal v3 instead
-        return TypeDescriptor(PrimitiveType::TYPE_DECIMALV2);
+        return TypeDescriptor::create_decimalv3_type(orc_type->getPrecision(),
+                                                     orc_type->getScale());
     case orc::TypeKind::DATE:
         return TypeDescriptor(PrimitiveType::TYPE_DATEV2);
     case orc::TypeKind::VARCHAR:
@@ -657,23 +704,36 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
     string_values.reserve(num_values);
     if (type_kind == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
-        for (int i = 0; i < num_values; ++i) {
-            if (cvb->notNull[i]) {
+        if (cvb->hasNulls) {
+            for (int i = 0; i < num_values; ++i) {
+                if (cvb->notNull[i]) {
+                    string_values.emplace_back(data->data[i],
+                                               trim_right(data->data[i], data->length[i]));
+                } else {
+                    // Orc doesn't fill null values in new batch, but the former batch has been release.
+                    // Other types like int/long/timestamp... are flat types without pointer in them,
+                    // so other types do not need to be handled separately like string.
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
                 string_values.emplace_back(data->data[i],
                                            trim_right(data->data[i], data->length[i]));
-            } else {
-                // Orc doesn't fill null values in new batch, but the former batch has been release.
-                // Other types like int/long/timestamp... are flat types without pointer in them,
-                // so other types do not need to be handled separately like string.
-                string_values.emplace_back(empty_string.data(), 0);
             }
         }
     } else {
-        for (int i = 0; i < num_values; ++i) {
-            if (cvb->notNull[i]) {
+        if (cvb->hasNulls) {
+            for (int i = 0; i < num_values; ++i) {
+                if (cvb->notNull[i]) {
+                    string_values.emplace_back(data->data[i], data->length[i]);
+                } else {
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
                 string_values.emplace_back(data->data[i], data->length[i]);
-            } else {
-                string_values.emplace_back(empty_string.data(), 0);
             }
         }
     }
@@ -743,17 +803,13 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         FOR_FLAT_ORC_COLUMNS(DISPATCH)
 #undef DISPATCH
     case TypeIndex::Decimal32:
-        return _decode_decimal_column<Int32>(col_name, data_column, data_type,
-                                             _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int32>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Decimal64:
-        return _decode_decimal_column<Int64>(col_name, data_column, data_type,
-                                             _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int64>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Decimal128:
-        return _decode_decimal_column<Int128>(col_name, data_column, data_type,
-                                              _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int128>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Decimal128I:
-        return _decode_decimal_column<Int128>(col_name, data_column, data_type,
-                                              _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int128>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Date:
         return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch>(
                 col_name, data_column, cvb, num_values);
@@ -806,10 +862,8 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                         ->get_value_type());
         const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
         const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
-        const ColumnPtr& doris_key_column =
-                typeid_cast<const ColumnArray*>(doris_map.get_keys_ptr().get())->get_data_ptr();
-        const ColumnPtr& doris_value_column =
-                typeid_cast<const ColumnArray*>(doris_map.get_values_ptr().get())->get_data_ptr();
+        const ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
+        const ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         RETURN_IF_ERROR(_orc_column_to_doris_column(col_name, doris_key_column, doris_key_type,
                                                     orc_key_type, orc_map->keys.get(),
                                                     element_size));
@@ -853,6 +907,8 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     SCOPED_RAW_TIMER(&_statistics.column_read_time);
     {
         SCOPED_RAW_TIMER(&_statistics.get_batch_time);
+        // reset decimal_scale_params_index
+        _decimal_scale_params_index = 0;
         if (!_row_reader->next(*_batch)) {
             *eof = true;
             *read_rows = 0;

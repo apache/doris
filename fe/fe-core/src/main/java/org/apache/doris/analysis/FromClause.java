@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -131,11 +132,27 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             tblRef = analyzer.resolveTableRef(tblRef);
             tablerefs.set(i, Preconditions.checkNotNull(tblRef));
             tblRef.setLeftTblRef(leftTblRef);
+            boolean setExternalCtl = false;
+            String preExternalCtl = null;
             if (tblRef instanceof InlineViewRef) {
                 ((InlineViewRef) tblRef).setNeedToSql(needToSql);
+                String externalCtl = ((InlineViewRef) tblRef).getExternalCtl();
+                if (StringUtils.isNotEmpty(externalCtl)) {
+                    preExternalCtl = analyzer.getExternalCtl();
+                    analyzer.setExternalCtl(externalCtl);
+                    setExternalCtl = true;
+                }
             }
             tblRef.analyze(analyzer);
+            if (setExternalCtl) {
+                analyzer.setExternalCtl(preExternalCtl);
+            }
             leftTblRef = tblRef;
+            Expr clause = tblRef.getOnClause();
+            if (clause != null && clause.contains(Subquery.class)) {
+                throw new AnalysisException("Not support OnClause contain Subquery, expr:"
+                        + clause.toSql());
+            }
         }
         // Fix the problem of column nullable attribute error caused by inline view + outer join
         changeTblRefToNullable(analyzer);

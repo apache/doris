@@ -47,7 +47,7 @@ DECIMALV3 has a very complex set of type inference rules. For different expressi
 
 #### Arithmetic Expressions
 
-* Plus / Minus: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(max(a - b, x - y) + max(b, y), max(b, y)). That is, the integer part and the decimal part use the larger value of the two operands respectively.
+* Plus / Minus: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(max(a - b, x - y) + max(b, y) + 1, max(b, y)).
 * Multiply: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + x, b + y).
 * Divide: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + y, b).
 
@@ -76,9 +76,9 @@ DECIMALV3 in Doris is a real high-precision fixed-point number. Compared with th
 +----------------------+------------------------------+
 |     precision        | Space occupied (memory/disk) |
 +----------------------+------------------------------+
-| 0 < precision <= 8   |            4 bytes           |
+| 0 < precision <= 9   |            4 bytes           |
 +----------------------+------------------------------+
-| 8 < precision <= 18  |            8 bytes           |
+| 9 < precision <= 18  |            8 bytes           |
 +----------------------+------------------------------+
 | 18 < precision <= 38 |           16 bytes           |
 +----------------------+------------------------------+

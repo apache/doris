@@ -17,12 +17,30 @@
 
 #include "beta_rowset_reader.h"
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <ostream>
+#include <roaring/roaring.hh>
+#include <set>
+#include <string>
+#include <unordered_map>
 #include <utility>
 
+#include "common/logging.h"
+#include "io/io_common.h"
+#include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
+#include "olap/olap_define.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
 
@@ -196,11 +214,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
         if (iter->empty()) {
             continue;
-        }
-        auto st = iter->init(_read_options);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to init iterator: " << st.to_string();
-            return Status::Error<ROWSET_READER_INIT>();
         }
         out_iters->push_back(std::move(iter));
     }

@@ -15,20 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 #include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
-#include <re2/re2.h>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/tokenizer.hpp>
 #include <string>
 
-#include "common/object_pool.h"
 #include "exprs/json_functions.h"
-#include "runtime/runtime_state.h"
-#include "util/stopwatch.hpp"
+#include "gtest/gtest_pred_impl.h"
+
 namespace doris {
 
 // mock

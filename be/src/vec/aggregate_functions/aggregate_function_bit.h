@@ -20,12 +20,26 @@
 
 #pragma once
 
-#include <vector>
+#include <stddef.h>
+
+#include <memory>
 
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column_vector.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+class IColumn;
+template <typename T>
+class DataTypeNumber;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

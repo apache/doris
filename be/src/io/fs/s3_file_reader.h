@@ -17,13 +17,22 @@
 
 #pragma once
 
-#include "gutil/macros.h"
+#include <stddef.h>
+
+#include <atomic>
+#include <memory>
+#include <string>
+
+#include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 class S3FileReader final : public FileReader {
 public:
@@ -34,11 +43,6 @@ public:
 
     Status close() override;
 
-    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                   size_t* bytes_read) override;
-
-    Status read_at_impl(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read);
-
     const Path& path() const override { return _path; }
 
     size_t size() const override { return _file_size; }
@@ -46,6 +50,10 @@ public:
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
     FileSystemSPtr fs() const override { return _fs; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
 
 private:
     Path _path;

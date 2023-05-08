@@ -26,13 +26,16 @@ under the License.
 
 ## array_map
 
-<version since="1.2.2">
+<version since="dev">
 
 array_map(lambda,array1,array2....)
 
 </version>
 
 ### description
+
+#### Syntax
+`ARRAY<T> array_map(lambda, ARRAY<T> array1, ARRAY<T> array2)`
 
 使用一个lambda表达式作为输入参数，对其他的输入ARRAY参数的内部数据做对应表达式计算。
 在lambda表达式中输入的参数为1个或多个，必须和后面的输入array列数量一致。

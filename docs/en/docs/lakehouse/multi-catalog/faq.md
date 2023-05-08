@@ -60,7 +60,7 @@ under the License.
 
     Upgrade the JDK version to a version >= Java 8 u162. Or download and install the JCE Unlimited Strength Jurisdiction Policy Files corresponding to the JDK.
 
-5. When querying a table in ORC format, FE reports an error `Could not obtain block`
+5. When querying a table in ORC format, FE reports an error `Could not obtain block` or `Caused by: java.lang.NoSuchFieldError: types`
 
     For ORC files, by default, FE will access HDFS to obtain file information and split files. In some cases, FE may not be able to access HDFS. It can be solved by adding the following parameters:
 
@@ -81,3 +81,31 @@ under the License.
 8. An error is reported when connecting to the MySQL database through the JDBC Catalog: `Establishing SSL connection without server's identity verification is not recommended`
 
     Please add `useSSL=true` in `jdbc_url`
+
+9. An error is reported when connecting Hive Catalog: `Caused by: java.lang.NullPointerException`
+
+    If there is stack trace in fe.log:
+
+    ```
+    Caused by: java.lang.NullPointerException
+        at org.apache.hadoop.hive.ql.security.authorization.plugin.AuthorizationMetaStoreFilterHook.getFilteredObjects(AuthorizationMetaStoreFilterHook.java:78) ~[hive-exec-3.1.3-core.jar:3.1.3]
+        at org.apache.hadoop.hive.ql.security.authorization.plugin.AuthorizationMetaStoreFilterHook.filterDatabases(AuthorizationMetaStoreFilterHook.java:55) ~[hive-exec-3.1.3-core.jar:3.1.3]
+        at org.apache.hadoop.hive.metastore.HiveMetaStoreClient.getAllDatabases(HiveMetaStoreClient.java:1548) ~[doris-fe.jar:3.1.3]
+        at org.apache.hadoop.hive.metastore.HiveMetaStoreClient.getAllDatabases(HiveMetaStoreClient.java:1542) ~[doris-fe.jar:3.1.3]
+        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[?:1.8.0_181]
+    ```
+
+    Try adding `"metastore.filter.hook" = "org.apache.hadoop.hive.metastore.DefaultMetaStoreFilterHookImpl"` in `create catalog` statement.
+
+10. An error is reported when connecting to the Hive database through the Hive Catalog: `RemoteException: SIMPLE authentication is not enabled. Available: [TOKEN, KERBEROS]`
+
+    If both `show databases` and `show tables` are OK, and the above error occurs when querying, we need to perform the following two operations:
+    - Core-site.xml and hdfs-site.xml need to be placed in the fe/conf and be/conf directories
+    - The BE node executes the kinit of Kerberos, restarts the BE, and then executes the query.
+
+11. If the `show tables` is normal after creating the Hive Catalog, but the query report `java.net.UnknownHostException: xxxxx`
+
+    Add a property in CATALOG:
+    ```
+    'fs.defaultFS' = 'hdfs://<your_nameservice_or_actually_HDFS_IP_and_port>'
+    ```

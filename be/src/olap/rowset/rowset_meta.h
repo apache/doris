@@ -18,12 +18,13 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/logging.h"
-#include "gen_cpp/olap_file.pb.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -352,6 +353,11 @@ public:
             KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
             *new_key_bounds = key_bounds;
         }
+    }
+
+    void add_segment_key_bounds(const KeyBoundsPB& segments_key_bounds) {
+        *_rowset_meta_pb.add_segments_key_bounds() = segments_key_bounds;
+        set_segments_overlap(OVERLAPPING);
     }
 
     void set_newest_write_timestamp(int64_t timestamp) {

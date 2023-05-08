@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-推荐使用 [JDBC Catalog](../multi-catalog/jdbc.md) 访问 JDBC 外表。
+推荐使用 [JDBC Catalog](../multi-catalog/jdbc.md) 访问 JDBC 外表，1.2.2版本后将不再维护该功能。
 
 </version>
 
@@ -169,13 +169,14 @@ PROPERTIES (
 目前只测试了这一个版本其他版本测试后补充
 
 #### 5.ClickHouse测试
-| ClickHouse版本 | ClickHouse JDBC驱动版本 |
-|----------| ------------------- |
-| 22       | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| ClickHouse版本 | ClickHouse JDBC驱动版本                   |
+|--------------|---------------------------------------|
+| 22           | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| 22           | clickhouse-jdbc-0.4.1-all.jar         |
 
-#### 6.Sap_Hana测试
+#### 6.Sap Hana测试
 
-| Sap_Hana版本 | Sap_Hana JDBC驱动版本 |
+| Sap Hana版本 | Sap Hana JDBC驱动版本 |
 |------------|-------------------|
 | 2.0        | ngdbc.jar         |
 
@@ -199,6 +200,67 @@ PROPERTIES (
     "table_type"="sap_hana"
 );
 ```
+
+#### 7.Trino测试
+
+| Trino版本 | Trino JDBC驱动版本     |
+|----------|--------------------|
+| 389      | trino-jdbc-389.jar |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_trino
+properties (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:trino://localhost:8080/hive",
+    "driver_url" = "file:///path/to/trino-jdbc-389.jar",
+    "driver_class" = "io.trino.jdbc.TrinoDriver"
+);
+
+CREATE EXTERNAL TABLE `ext_trino` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_trino",
+    "table" = "hive.test",
+    "table_type"="trino"
+);
+```
+
+**注意：**
+<version since="dev" type="inline"> 同样支持使用 Presto JDBC Driver 进行连接 </version>
+
+#### 8.OceanBase测试
+
+| OceanBase 版本 | OceanBase JDBC驱动版本 |
+|--------------|--------------------|
+| 3.2.3        | oceanbase-client-2.4.2.jar |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_oceanbase
+properties (
+    "type"="jdbc",
+    "user"="root",
+    "password"="",
+    "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
+    "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
+    "oceanbase_mode" = "mysql" or "oracle"
+);
+
+CREATE EXTERNAL TABLE `ext_oceanbase` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_oceanbase",
+    "table" = "test.test",
+    "table_type"="oceanbase"
+);
+```
+> **注意：**
+>
+> 在创建OceanBase外表时，只需在创建Resource时指定`oceanbase_mode`参数，创建外表的table_type为oceanbase。
 
 ## 类型匹配
 
@@ -269,28 +331,31 @@ PROPERTIES (
 
 ### ClickHouse
 
-| ClickHouse |  Doris   |
-|:----------:|:--------:|
-|  BOOLEAN   | BOOLEAN  |
-|    CHAR    |   CHAR   |
-|  VARCHAR   | VARCHAR  |
-|   STRING   |  STRING  |
-|    DATE    |   DATE   |
-|  Float32   |  FLOAT   |
-|  Float64   |  DOUBLE  |
-|    Int8    | TINYINT  |
-|   Int16    | SMALLINT |
-|   Int32    |   INT    |
-|   Int64    |  BIGINT  |
-|   Int128   | LARGEINT |
-|  DATETIME  | DATETIME |
-|  DECIMAL   | DECIMAL  |
+|                        ClickHouse                        |          Doris           |
+|:--------------------------------------------------------:|:------------------------:|
+|                         Boolean                          |         BOOLEAN          |
+|                          String                          |          STRING          |
+|                       Date/Date32                        |       DATE/DATEV2        |
+|                   DateTime/DateTime64                    |   DATETIME/DATETIMEV2    |
+|                         Float32                          |          FLOAT           |
+|                         Float64                          |          DOUBLE          |
+|                           Int8                           |         TINYINT          |
+|                       Int16/UInt8                        |         SMALLINT         |
+|                       Int32/UInt16                       |           INT            |
+|                       Int64/Uint32                       |          BIGINT          |
+|                      Int128/UInt64                       |         LARGEINT         |
+|                  Int256/UInt128/UInt256                  |          STRING          |
+|                         Decimal                          | DECIMAL/DECIMALV3/STRING |
+|                   Enum/IPv4/IPv6/UUID                    |          STRING          |
+| <version since="dev" type="inline"> Array(T)  </version> |        ARRAY\<T\>        |
 
 **注意：**
+
+- <version since="dev" type="inline"> 对于ClickHouse里的Array类型,可用Doris的Array类型来匹配，Array内的基础类型匹配参考基础类型匹配规则即可，不支持嵌套Array </version>
 - 对于ClickHouse里的一些特殊类型，如UUID,IPv4,IPv6,Enum8可以用Doris的Varchar/String类型来匹配,但是在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理
 - 对于ClickHouse的Geo类型Point,无法进行匹配
 
-### SAP_HANA
+### SAP HANA
 
 |   SAP_HANA   |        Doris        |
 |:------------:|:-------------------:|
@@ -313,6 +378,30 @@ PROPERTIES (
 |  SHORTTEXT   |        TEXT         |
 |     CHAR     |        CHAR         |
 |    NCHAR     |        CHAR         |
+
+### Trino
+
+|   Trino   |        Doris        |
+|:---------:|:-------------------:|
+|  boolean  |       BOOLEAN       |
+|  tinyint  |       TINYINT       |
+| smallint  |      SMALLINT       |
+|  integer  |         INT         |
+|  bigint   |       BIGINT        |
+|  decimal  |  DECIMAL/DECIMALV3  |
+|   real    |        FLOAT        |
+|  double   |       DOUBLE        |
+|   date    |     DATE/DATEV2     |
+| timestamp | DATETIME/DATETIMEV2 |
+|  varchar  |        TEXT         |
+|   char    |        CHAR         |
+|   array   |        ARRAY        |
+|  others   |     UNSUPPORTED     |
+
+### OceanBase
+
+MySQL 模式请参考 [MySQL类型映射](#MySQL)
+Oracle 模式请参考 [Oracle类型映射](#Oracle)
 
 ## Q&A
 

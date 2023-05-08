@@ -75,12 +75,13 @@ public class PullUpCorrelatedFilterUnderApplyAggregateProject extends OneRewrite
                         }
                     });
 
-                    LogicalProject newProject = new LogicalProject<>(newProjects, filter.child());
+                    LogicalProject newProject = project.withProjectsAndChild(newProjects, filter.child());
                     LogicalFilter newFilter = new LogicalFilter<>(filter.getConjuncts(), newProject);
                     LogicalAggregate newAgg = agg.withChildren(ImmutableList.of(newFilter));
                     return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
                             apply.getCorrelationFilter(), apply.getMarkJoinSlotReference(),
-                            apply.getSubCorrespondingConject(), apply.left(), newAgg);
+                            apply.getSubCorrespondingConjunct(), apply.isNeedAddSubOutputToProjects(),
+                            apply.left(), newAgg);
                 }).toRule(RuleType.PULL_UP_CORRELATED_FILTER_UNDER_APPLY_AGGREGATE_PROJECT);
     }
 }

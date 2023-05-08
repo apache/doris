@@ -18,12 +18,12 @@
 #include <memory>
 #include <vector>
 
-#include "udf/udf.h"
+#include "runtime/types.h"
 
 namespace doris {
 
-class MemPool;
 class RuntimeState;
+class FunctionContext;
 
 class FunctionUtils {
 public:

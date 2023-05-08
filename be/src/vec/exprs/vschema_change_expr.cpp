@@ -17,9 +17,28 @@
 
 #include "vec/exprs/vschema_change_expr.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <memory>
+#include <vector>
+
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
+#include "vec/json/path_in_data.h"
+
+namespace doris {
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -65,8 +84,8 @@ Status VSchemaChangeExpr::execute(VExprContext* context, doris::vectorized::Bloc
     ColumnObject& object_column = *assert_cast<ColumnObject*>(
             block->get_by_position(_column_id).column->assume_mutable().get());
     CHECK(object_column.is_finalized());
-    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> full_base_schema_view;
-    full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
+    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> full_base_schema_view =
+            vectorized::schema_util::FullBaseSchemaView::create_unique();
     full_base_schema_view->table_id = _table_id;
     vectorized::ColumnsWithTypeAndName cols_with_type_name;
     cols_with_type_name.reserve(object_column.get_subcolumns().size());
@@ -80,33 +99,6 @@ Status VSchemaChangeExpr::execute(VExprContext* context, doris::vectorized::Bloc
         RETURN_IF_ERROR(vectorized::schema_util::send_add_columns_rpc(cols_with_type_name,
                                                                       full_base_schema_view.get()));
     }
-
-    // TODO: make sure the dynamic generated columns's types matched with schema in full_base_schema_view
-    // handle dynamic generated columns
-    // if (_full_base_schema_view && !_full_base_schema_view->empty()) {
-    //     CHECK(_is_dynamic_schema);
-    //     for (size_t i = block->columns(); i < _src_block.columns(); ++i) {
-    //         auto& column_type_name = _src_block.get_by_position(i);
-    //         // Column from schema change response
-    //         const TColumn& tcolumn =
-    //                 _full_base_schema_view->column_name_to_column[column_type_name.name];
-    //         auto original_type = vectorized::DataTypeFactory::instance().create_data_type(tcolumn);
-    //         // Detect type conflict, there may exist another load procedure, whitch has already added some columns
-    //         // but, this load detects different type, we go type conflict free path, always cast to original type
-    //         // TODO need to add type conflict abort feature
-    //         if (!column_type_name.type->equals(*original_type)) {
-    //             vectorized::ColumnPtr column_ptr;
-    //             RETURN_IF_ERROR(vectorized::schema_util::cast_column(column_type_name,
-    //                                                                  original_type, &column_ptr));
-    //             column_type_name.column = column_ptr;
-    //             column_type_name.type = original_type;
-    //         }
-    //         DCHECK(column_type_name.column != nullptr);
-    //         block->insert(vectorized::ColumnWithTypeAndName(std::move(column_type_name.column),
-    //                                                         std::move(column_type_name.type),
-    //                                                         column_type_name.name));
-    //     }
-    // }
 
     *result_column_id = _column_id;
     return Status::OK();

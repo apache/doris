@@ -17,34 +17,66 @@
 
 #include "olap/schema_change.h"
 
-#include "common/config.h"
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/olap_file.pb.h>
+
+#include <algorithm>
+#include <exception>
+#include <map>
+#include <mutex>
+#include <roaring/roaring.hh>
+#include <tuple>
+
+#include "common/logging.h"
 #include "common/status.h"
+#include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
+#include "gutil/strings/numbers.h"
+#include "io/fs/file_system.h"
+#include "io/io_common.h"
+#include "olap/data_dir.h"
+#include "olap/delete_handler.h"
+#include "olap/field.h"
+#include "olap/iterators.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/row_cursor.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset_id_generator.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/schema.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
+#include "olap/utils.h"
 #include "olap/wrapper_field.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
+class CollectionValue;
+
 using namespace ErrorCode;
 
 constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
@@ -86,15 +118,31 @@ public:
             std::vector<vectorized::AggregateDataPtr> agg_places;
 
             for (int i = key_number; i < columns; i++) {
-                vectorized::AggregateFunctionPtr function =
-                        tablet_schema->column(i).get_aggregate_function(
-                                {finalized_block.get_data_type(i)}, vectorized::AGG_LOAD_SUFFIX);
-                agg_functions.push_back(function);
-                // create aggregate data
-                vectorized::AggregateDataPtr place = new char[function->size_of_data()];
-                function->create(place);
-                agg_places.push_back(place);
+                try {
+                    vectorized::AggregateFunctionPtr function =
+                            tablet_schema->column(i).get_aggregate_function(
+                                    {finalized_block.get_data_type(i)},
+                                    vectorized::AGG_LOAD_SUFFIX);
+                    agg_functions.push_back(function);
+                    // create aggregate data
+                    vectorized::AggregateDataPtr place = new char[function->size_of_data()];
+                    function->create(place);
+                    agg_places.push_back(place);
+                } catch (...) {
+                    for (int j = 0; j < i - key_number; ++j) {
+                        agg_functions[j]->destroy(agg_places[j]);
+                        delete[] agg_places[j];
+                    }
+                    throw;
+                }
             }
+
+            DEFER({
+                for (int i = 0; i < columns - key_number; i++) {
+                    agg_functions[i]->destroy(agg_places[i]);
+                    delete[] agg_places[i];
+                }
+            });
 
             for (int i = 0; i < rows; i++) {
                 auto row_ref = row_refs[i];
@@ -117,7 +165,7 @@ public:
                         agg_functions[j - key_number]->insert_result_into(
                                 agg_places[j - key_number],
                                 finalized_block.get_by_position(j).column->assume_mutable_ref());
-                        agg_functions[j - key_number]->create(agg_places[j - key_number]);
+                        agg_functions[j - key_number]->reset(agg_places[j - key_number]);
                     }
 
                     if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
@@ -126,11 +174,6 @@ public:
                         finalized_block.clear_column_data();
                     }
                 }
-            }
-
-            for (int i = 0; i < columns - key_number; i++) {
-                agg_functions[i]->destroy(agg_places[i]);
-                delete[] agg_places[i];
             }
         } else {
             std::vector<RowRef> pushed_row_refs;
@@ -197,19 +240,19 @@ private:
     RowRefComparator _cmp;
 };
 
-RowBlockChanger::RowBlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
+BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
         : _desc_tbl(desc_tbl) {
     _schema_mapping.resize(tablet_schema->num_columns());
 }
 
-RowBlockChanger::~RowBlockChanger() {
+BlockChanger::~BlockChanger() {
     for (auto it = _schema_mapping.begin(); it != _schema_mapping.end(); ++it) {
         SAFE_DELETE(it->default_value);
     }
     _schema_mapping.clear();
 }
 
-ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) {
+ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
     if (column_index >= _schema_mapping.size()) {
         return nullptr;
     }
@@ -217,13 +260,25 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
     return &(_schema_mapping[column_index]);
 }
 
-Status RowBlockChanger::change_block(vectorized::Block* ref_block,
-                                     vectorized::Block* new_block) const {
+Status BlockChanger::change_block(vectorized::Block* ref_block,
+                                  vectorized::Block* new_block) const {
     ObjectPool pool;
-    RuntimeState* state = pool.add(new RuntimeState());
+    RuntimeState* state = pool.add(RuntimeState::create_unique().release());
     state->set_desc_tbl(&_desc_tbl);
+    state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =
             RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]), false);
+
+    if (_where_expr != nullptr) {
+        vectorized::VExprContext* ctx = nullptr;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&pool, *_where_expr, &ctx));
+        Defer defer {[&]() { ctx->close(state); }};
+        RETURN_IF_ERROR(ctx->prepare(state, row_desc));
+        RETURN_IF_ERROR(ctx->open(state));
+
+        RETURN_IF_ERROR(
+                vectorized::VExprContext::filter_block(ctx, ref_block, ref_block->columns()));
+    }
 
     const int row_size = ref_block->rows();
     const int column_size = new_block->columns();
@@ -234,7 +289,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
     for (int idx = 0; idx < column_size; idx++) {
         int ref_idx = _schema_mapping[idx].ref_column;
 
-        if (ref_idx < 0) {
+        if (ref_idx < 0 && _type != ROLLUP) {
             // new column, write default value
             auto value = _schema_mapping[idx].default_value;
             auto column = new_block->get_by_position(idx).column->assume_mutable();
@@ -247,7 +302,6 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                                                                 value->ptr(), column, row_size);
             }
         } else if (_schema_mapping[idx].expr != nullptr) {
-            // calculate special materialized function, to_bitmap/hll_hash/count_field or cast expr
             vectorized::VExprContext* ctx = nullptr;
             RETURN_IF_ERROR(
                     vectorized::VExpr::create_expr_tree(&pool, *_schema_mapping[idx].expr, &ctx));
@@ -257,13 +311,13 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
-            CHECK(ref_block->get_by_position(result_column_id).column->size() == row_size)
-                    << new_block->get_by_position(idx).name << " size invalid"
-                    << ", expect=" << row_size
-                    << ", real=" << ref_block->get_by_position(result_column_id).column->size();
+            if (ref_block->get_by_position(result_column_id).column->size() != row_size) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "{} size invalid, expect={}, real={}", new_block->get_by_position(idx).name,
+                        row_size, ref_block->get_by_position(result_column_id).column->size());
+            }
 
-            if (ctx->root()->node_type() == TExprNodeType::CAST_EXPR ||
-                ctx->root()->node_type() == TExprNodeType::SLOT_REF) {
+            if (_type != ROLLUP) {
                 RETURN_IF_ERROR(
                         _check_cast_valid(ref_block->get_by_position(ref_idx).column,
                                           ref_block->get_by_position(result_column_id).column));
@@ -310,8 +364,8 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
 }
 
 // This check is to prevent schema-change from causing data loss
-Status RowBlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
-                                          vectorized::ColumnPtr new_column) const {
+Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
+                                       vectorized::ColumnPtr new_column) const {
     if (ref_column->is_nullable() != new_column->is_nullable()) {
         if (ref_column->is_nullable()) {
             auto* ref_null_map =
@@ -377,7 +431,7 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         LOG(INFO) << "the type of rowset " << rowset_reader->rowset()->rowset_id()
                   << " in base tablet is not same as type " << rowset_writer->type()
                   << ", use direct schema change.";
-        return SchemaChangeHandler::get_sc_procedure(_row_block_changer, false, true)
+        return SchemaChangeHandler::get_sc_procedure(_changer, false, true)
                 ->process(rowset_reader, rowset_writer, new_tablet, base_tablet,
                           base_tablet_schema);
     } else {
@@ -416,8 +470,8 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSchemaSPtr base_tablet_schema) {
     do {
         auto new_block =
-                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
         rowset_reader->next_block(ref_block.get());
         if (ref_block->rows() == 0) {
@@ -435,13 +489,13 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     return Status::OK();
 }
 
-VSchemaChangeWithSorting::VSchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
+VSchemaChangeWithSorting::VSchemaChangeWithSorting(const BlockChanger& changer,
                                                    size_t memory_limitation)
-        : _changer(row_block_changer),
+        : _changer(changer),
           _memory_limitation(memory_limitation),
           _temp_delta_versions(Version::mock()) {
-    _mem_tracker = std::make_unique<MemTracker>(fmt::format(
-            "VSchemaChangeWithSorting:changer={}", std::to_string(int64(&row_block_changer))));
+    _mem_tracker = std::make_unique<MemTracker>(
+            fmt::format("VSchemaChangeWithSorting:changer={}", std::to_string(int64(&changer))));
 }
 
 Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
@@ -488,11 +542,10 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         return Status::OK();
     };
 
-    auto new_block =
-            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+    auto new_block = vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
 
     do {
-        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         rowset_reader->next_block(ref_block.get());
         if (ref_block->rows() == 0) {
             break;
@@ -514,7 +567,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
         // move unique ptr
         blocks.push_back(
-                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block()));
+                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block()));
         swap(blocks.back(), new_block);
     } while (true);
 
@@ -1074,6 +1127,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         sc_params.ref_rowset_readers = rs_readers;
         sc_params.delete_handler = &delete_handler;
         sc_params.base_tablet_schema = base_tablet_schema;
+        sc_params.be_exec_version = request.be_exec_version;
         DCHECK(request.__isset.alter_tablet_type);
         switch (request.alter_tablet_type) {
         case TAlterTabletType::SCHEMA_CHANGE:
@@ -1515,13 +1569,13 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
 
     // Add filter information in change, and filter column information will be set in _parse_request
     // And filter some data every time the row block changes
-    RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(), *sc_params.desc_tbl);
+    BlockChanger changer(sc_params.new_tablet->tablet_schema(), *sc_params.desc_tbl);
 
     bool sc_sorting = false;
     bool sc_directly = false;
 
     // a.Parse the Alter request and convert it into an internal representation
-    Status res = _parse_request(sc_params, &rb_changer, &sc_sorting, &sc_directly);
+    Status res = _parse_request(sc_params, &changer, &sc_sorting, &sc_directly);
     LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
               << ", sc_directly: " << sc_directly
               << ", base_tablet=" << sc_params.base_tablet->full_name()
@@ -1556,7 +1610,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
     }
 
     // b. Generate historical data converter
-    auto sc_procedure = get_sc_procedure(rb_changer, sc_sorting, sc_directly);
+    auto sc_procedure = get_sc_procedure(changer, sc_sorting, sc_directly);
 
     // c.Convert historical data
     for (auto& rs_reader : sc_params.ref_rowset_readers) {
@@ -1635,8 +1689,11 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
 // @static
 // Analyze the mapping of the column and the mapping of the filter key
 Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
-                                           RowBlockChanger* rb_changer, bool* sc_sorting,
+                                           BlockChanger* changer, bool* sc_sorting,
                                            bool* sc_directly) {
+    changer->set_type(sc_params.alter_tablet_type);
+    changer->set_compatible_version(sc_params.be_exec_version);
+
     TabletSharedPtr base_tablet = sc_params.base_tablet;
     TabletSharedPtr new_tablet = sc_params.new_tablet;
     TabletSchemaSPtr base_tablet_schema = sc_params.base_tablet_schema;
@@ -1647,8 +1704,8 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     for (int i = 0, new_schema_size = new_tablet->tablet_schema()->num_columns();
          i < new_schema_size; ++i) {
         const TabletColumn& new_column = new_tablet->tablet_schema()->column(i);
-        const string& column_name = new_column.name();
-        ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
+        const std::string& column_name = new_column.name();
+        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
 
         if (materialized_function_map.find(column_name) != materialized_function_map.end()) {
@@ -1658,10 +1715,10 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             if (column_index >= 0) {
                 column_mapping->ref_column = column_index;
                 continue;
-            } else {
-                LOG(WARNING) << "referenced column was missing. "
-                             << "[column=" << column_name << " referenced_column=" << column_index
-                             << "]";
+            } else if (sc_params.alter_tablet_type != ROLLUP) {
+                LOG(WARNING) << fmt::format(
+                        "referenced column was missing. [column={} ,origin_column={}]", column_name,
+                        mvParam.origin_column_name);
                 return Status::Error<CE_CMD_PARAMS_ERROR>();
             }
         }
@@ -1672,6 +1729,11 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             continue;
         }
 
+        if (column_name.find("__doris_shadow_") == 0) {
+            // Should delete in the future, just a protection for bug.
+            LOG(INFO) << "a shadow column is encountered " << column_name;
+            return Status::InternalError("failed due to operate on shadow column");
+        }
         // Newly added column go here
         column_mapping->ref_column = -1;
 
@@ -1681,8 +1743,13 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         RETURN_IF_ERROR(
                 _init_column_mapping(column_mapping, new_column, new_column.default_value()));
 
-        VLOG_TRACE << "A column with default value will be added after schema changing. "
-                   << "column=" << column_name << ", default_value=" << new_column.default_value();
+        LOG(INFO) << "A column with default value will be added after schema changing. "
+                  << "column=" << column_name << ", default_value=" << new_column.default_value()
+                  << " to table " << new_tablet->get_table_id();
+    }
+
+    if (materialized_function_map.count(WHERE_SIGN)) {
+        changer->set_where_expr(materialized_function_map.find(WHERE_SIGN)->second.expr);
     }
 
     // Check if re-aggregation is needed.
@@ -1691,7 +1758,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     int num_default_value = 0;
 
     for (int i = 0, new_schema_size = new_tablet->num_key_columns(); i < new_schema_size; ++i) {
-        ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
+        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
 
         if (column_mapping->ref_column < 0) {
             num_default_value++;
@@ -1735,7 +1802,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     }
 
     for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
-        ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
+        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         if (column_mapping->ref_column < 0) {
             continue;
         } else {
@@ -1746,7 +1813,9 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
                 column_new.frac() != column_old.frac() ||
                 column_new.length() != column_old.length() ||
                 column_new.is_bf_column() != column_old.is_bf_column() ||
-                column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
+                new_tablet_schema->has_inverted_index(column_new.unique_id()) !=
+                        base_tablet_schema->has_inverted_index(column_old.unique_id())) {
                 *sc_directly = true;
                 return Status::OK();
             }

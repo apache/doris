@@ -56,6 +56,7 @@ import java.util.Set;
 public class Column implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+    public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     public static final String ROWID_COL = "__DORIS_ROWID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
@@ -140,7 +141,15 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public Column(String name, PrimitiveType dataType, boolean isAllowNull) {
-        this(name, ScalarType.createType(dataType), false, null, isAllowNull, null, "");
+        this(name, ScalarType.createType(dataType), isAllowNull);
+    }
+
+    public Column(String name, PrimitiveType dataType, int len, int precision, int scale, boolean isAllowNull) {
+        this(name, ScalarType.createType(dataType, len, precision, scale), isAllowNull);
+    }
+
+    public Column(String name, Type type, boolean isAllowNull) {
+        this(name, type, false, null, isAllowNull, null, "");
     }
 
     public Column(String name, Type type) {
@@ -208,6 +217,8 @@ public class Column implements Writable, GsonPostProcessable {
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
+        this.defineExpr = column.getDefineExpr();
+        this.defineName = column.getDefineName();
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -259,8 +270,16 @@ public class Column implements Writable, GsonPostProcessable {
         return this.name;
     }
 
+    public String getNonShadowName() {
+        return removeNamePrefix(name);
+    }
+
     public String getNameWithoutMvPrefix() {
         return CreateMaterializedViewStmt.mvColumnBreaker(name);
+    }
+
+    public static String getNameWithoutMvPrefix(String originalName) {
+        return CreateMaterializedViewStmt.mvColumnBreaker(originalName);
     }
 
     public String getDisplayName() {
@@ -624,14 +643,30 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public String toSql() {
-        return toSql(false);
+        return toSql(false, false);
     }
 
     public String toSql(boolean isUniqueTable) {
+        return toSql(isUniqueTable, false);
+    }
+
+    public String toSql(boolean isUniqueTable, boolean isCompatible) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
-        sb.append(typeStr);
+
+        // show change datetimeV2/dateV2 to datetime/date
+        if (isCompatible) {
+            if (type.isDatetimeV2()) {
+                sb.append("datetime");
+            } else if (type.isDateV2()) {
+                sb.append("date");
+            } else {
+                sb.append(typeStr);
+            }
+        } else {
+            sb.append(typeStr);
+        }
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {
             sb.append(" ").append(aggregationType.name());

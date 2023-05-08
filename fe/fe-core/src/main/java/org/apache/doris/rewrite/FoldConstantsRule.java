@@ -36,6 +36,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.proto.InternalService;
@@ -420,9 +421,11 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 }
 
             } else {
+                LOG.warn("failed_fold_context.queryId(): " + DebugUtil.printId(context.queryId()));
                 LOG.warn("failed to get const expr value from be: {}", result.getStatus().getErrorMsgsList());
             }
         } catch (Exception e) {
+            LOG.warn("failed_fold_context.queryId(): " + DebugUtil.printId(context.queryId()));
             LOG.warn("failed to get const expr value from be: {}", e.getMessage());
         }
         return resultMap;

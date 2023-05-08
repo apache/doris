@@ -71,12 +71,12 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
 
-                    LogicalJoin newBottomJoin = (LogicalJoin) topJoin.withChildren(a, c);
+                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(a, c);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-                    LogicalJoin newTopJoin = (LogicalJoin) bottomJoin.withChildren(newBottomJoin, b);
+                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
@@ -92,7 +92,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
      * <p>
      * Same with OtherJoinConjunct.
      */
-    private boolean checkCondition(LogicalJoin<? extends Plan, GroupPlan> topJoin, Set<ExprId> bOutputExprIdSet) {
+    public static boolean checkCondition(LogicalJoin<? extends Plan, GroupPlan> topJoin, Set<ExprId> bOutputExprIdSet) {
         return Stream.concat(
                         topJoin.getHashJoinConjuncts().stream(),
                         topJoin.getOtherJoinConjuncts().stream())

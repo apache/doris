@@ -97,14 +97,30 @@ public class OdbcTable extends Table {
         return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
     }
 
+    private static String clickhouseProperName(String name) {
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
+    }
+
     private static String saphanaProperName(String name) {
         List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
+    }
+
+    private static String trinoProperName(String name) {
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
+    }
+
+    private static String oceanbaseOracleProperName(String name) {
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
     }
 
     public static String databaseProperName(TOdbcTableType tableType, String name) {
         switch (tableType) {
             case MYSQL:
+            case OCEANBASE:
                 return mysqlProperName(name);
             case SQLSERVER:
                 return mssqlProperName(name);
@@ -112,8 +128,14 @@ public class OdbcTable extends Table {
                 return psqlProperName(name);
             case ORACLE:
                 return oracleProperName(name);
+            case CLICKHOUSE:
+                return clickhouseProperName(name);
             case SAP_HANA:
                 return saphanaProperName(name);
+            case TRINO:
+                return trinoProperName(name);
+            case OCEANBASE_ORACLE:
+                return oceanbaseOracleProperName(name);
             default:
                 return name;
         }

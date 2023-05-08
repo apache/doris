@@ -15,36 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <aws/core/auth/AWSCredentials.h>
-#include <aws/s3/S3Client.h>
-#include <aws/s3/model/GetObjectRequest.h>
+#include <fmt/format.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/status.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "gtest/gtest.h"
-#include "io/fs/s3_common.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_reader_options.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
+#include "olap/olap_common.h"
 #include "olap/options.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_reader_context.h"
-#include "olap/rowset/rowset_writer.h"
-#include "olap/rowset/rowset_writer_context.h"
+#include "olap/row_cursor_cell.h"
+#include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
-#include "olap/utils.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
-#include "runtime/memory/mem_tracker.h"
-#include "util/file_utils.h"
+#include "util/s3_util.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -67,10 +72,7 @@ static std::string resource_id = "10000";
 class RemoteFileCacheTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        if (FileUtils::check_exist(kSegmentDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kSegmentDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kSegmentDir).ok());
 
         doris::ExecEnv::GetInstance()->init_download_cache_required_components();
 
@@ -80,9 +82,7 @@ protected:
     }
 
     static void TearDownTestSuite() {
-        if (FileUtils::check_exist(kSegmentDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kSegmentDir).ok());
         if (k_engine != nullptr) {
             k_engine->stop();
             delete k_engine;
@@ -116,7 +116,8 @@ protected:
         EXPECT_TRUE(st.ok());
         DataDir data_dir(kSegmentDir);
         data_dir.init();
-        SegmentWriter writer(file_writer.get(), 0, build_schema, &data_dir, INT32_MAX, opts);
+        SegmentWriter writer(file_writer.get(), 0, build_schema, nullptr, &data_dir, INT32_MAX,
+                             opts, nullptr);
         st = writer.init();
         EXPECT_TRUE(st.ok());
 
@@ -164,7 +165,11 @@ protected:
 
         // just use to create s3 filesystem, otherwise won't use cache
         S3Conf s3_conf;
-        auto fs = io::S3FileSystem::create(std::move(s3_conf), resource_id);
+        std::shared_ptr<io::S3FileSystem> fs;
+        Status st = io::S3FileSystem::create(std::move(s3_conf), resource_id, &fs);
+        // io::S3FileSystem::create will call connect, which will fail because s3_conf is empty.
+        // but it does affect the following unit test
+        ASSERT_FALSE(st.ok()) << st;
         rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);
@@ -172,7 +177,7 @@ protected:
         rowset.rowset_meta()->set_rowset_id(rowset_id);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(&segments);
+        st = rowset.load_segments(&segments);
         ASSERT_TRUE(st.ok()) << st;
     }
 };

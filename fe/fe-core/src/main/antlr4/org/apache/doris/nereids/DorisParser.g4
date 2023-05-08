@@ -34,13 +34,25 @@ singleStatement
     ;
 
 statement
-    : explain? query                           #statementDefault
+    : explain? query                                                   #statementDefault
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
-        TO user=identifier
+        TO user=userIdentify
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
     ;
+
+// -----------------Command accessories-----------------
+
+identifierOrText
+    : errorCapturingIdentifier
+    | STRING
+    ;
+
+userIdentify
+    : user=identifierOrText (AT (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
+    ;
+
 
 explain
     : (EXPLAIN planType? | DESC | DESCRIBE)
@@ -52,13 +64,16 @@ planType
     | ANALYZED
     | REWRITTEN | LOGICAL  // same type
     | OPTIMIZED | PHYSICAL   // same type
+    | SHAPE
     | ALL // default type
     ;
 
 //  -----------------Query-----------------
+// add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
+// identifier.
 query
     : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
-    | {doris_legacy_SQL_syntax}? queryTerm
+    | {doris_legacy_SQL_syntax}? queryTerm queryOrganization
     ;
 
 queryTerm
@@ -174,7 +189,7 @@ queryOrganization
     ;
 
 sortClause
-    : (ORDER BY sortItem (COMMA sortItem)*)
+    : ORDER BY sortItem (COMMA sortItem)*
     ;
 
 sortItem
@@ -241,7 +256,7 @@ multipartIdentifier
 
 // -----------------Expression-----------------
 namedExpression
-    : expression (AS? (errorCapturingIdentifier | STRING))?
+    : expression (AS? (identifierOrText))?
     ;
 
 namedExpressionSeq
@@ -266,8 +281,8 @@ booleanExpression
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
+    | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
     ;
 
@@ -610,6 +625,7 @@ nonReserved
     | PARTITIONS
     | PERCENTILE_CONT
     | PERCENTLIT
+    | PERMISSIVE
     | PHYSICAL
     | PIVOT
     | PLACING
@@ -636,6 +652,7 @@ nonReserved
     | RESET
     | RESPECT
     | RESTRICT
+    | RESTRICTIVE
     | REVOKE
     | REWRITTEN
     | RLIKE
@@ -643,7 +660,6 @@ nonReserved
     | ROLES
     | ROLLBACK
     | ROLLUP
-    | ROW
     | ROWS
     | SCHEMA
     | SCHEMAS
@@ -662,6 +678,7 @@ nonReserved
     | SORTED
     | START
     | STATISTICS
+    | STORAGE
     | STORED
     | STRATIFY
     | STRUCT

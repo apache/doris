@@ -38,6 +38,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.AuthorizationException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -58,7 +59,6 @@ import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
 import com.google.common.base.Joiner;
@@ -171,8 +171,9 @@ public class Auth implements Writable {
      */
     public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
             List<UserIdentity> currentUser) throws AuthenticationException {
-        if ((remoteUser.equals(ROOT_USER) || remoteUser.equals(ADMIN_USER)) && remoteHost.equals("127.0.0.1")) {
-            // root and admin user is allowed to login from 127.0.0.1, in case user forget password.
+        if ((ROOT_USER.equals(remoteUser) || ADMIN_USER.equals(remoteUser)) && Config.skip_localhost_auth_check
+                && "127.0.0.1".equals(remoteHost)) {
+            // in case user forget password.
             if (remoteUser.equals(ROOT_USER)) {
                 currentUser.add(UserIdentity.ROOT);
             } else {
@@ -183,8 +184,6 @@ public class Auth implements Writable {
         readLock();
         try {
             userManager.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
-            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
-            currentUser.get(0).setRoles(roles);
         } finally {
             readUnlock();
         }
@@ -198,6 +197,15 @@ public class Auth implements Writable {
             return true;
         } catch (AuthenticationException e) {
             return false;
+        }
+    }
+
+    public Set<String> getRolesByUser(UserIdentity user, boolean showUserDefaultRole) {
+        readLock();
+        try {
+            return userRoleManager.getRolesByUser(user, showUserDefaultRole);
+        } finally {
+            readUnlock();
         }
     }
 
@@ -216,10 +224,6 @@ public class Auth implements Writable {
             } finally {
                 readUnlock();
             }
-        }
-        if (currentUser != null) {
-            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
-            currentUser.get(0).setRoles(roles);
         }
     }
 
@@ -317,6 +321,12 @@ public class Auth implements Writable {
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
         // TODO: Support column priv
+        // we check if have tbl priv,until internal support col auth.
+        if (!checkTblPriv(currentUser, ctl, db, tbl, wanted)) {
+            throw new AuthorizationException(String.format(
+                    "Permission denied: user [%s] does not have privilege for [%s] command on [%s].[%s].[%s]",
+                    currentUser, wanted, ctl, db, tbl));
+        }
     }
 
 
@@ -448,7 +458,7 @@ public class Auth implements Writable {
                 userRoleManager.addUserRole(userIdent, roleName);
             }
             // other user properties
-            propertyMgr.addUserResource(userIdent.getQualifiedUser(), false);
+            propertyMgr.addUserResource(userIdent.getQualifiedUser());
 
             // 5. update password policy
             passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
@@ -889,10 +899,19 @@ public class Auth implements Writable {
         }
     }
 
-    public long getQueryTimeout(String qualifiedUser) {
+    public int getQueryTimeout(String qualifiedUser) {
         readLock();
         try {
             return propertyMgr.getQueryTimeout(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public int getInsertTimeout(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getInsertTimeout(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1225,15 +1244,6 @@ public class Auth implements Writable {
                     false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
-        }
-    }
-
-    public TFetchResourceResult toResourceThrift() {
-        readLock();
-        try {
-            return propertyMgr.toResourceThrift();
-        } finally {
-            readUnlock();
         }
     }
 

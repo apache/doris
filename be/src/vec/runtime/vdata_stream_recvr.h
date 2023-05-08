@@ -17,34 +17,46 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <google/protobuf/stubs/callback.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <list>
+#include <memory>
+#include <mutex>
+#include <ostream>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
+#include "common/config.h"
 #include "common/global_types.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
-
-namespace google {
-namespace protobuf {
-class Closure;
-}
-} // namespace google
 
 namespace doris {
 class MemTracker;
-class RuntimeProfile;
 class PBlock;
+class MemTrackerLimiter;
+class PQueryStatistics;
+class RuntimeState;
 
 namespace vectorized {
-class Block;
 class VDataStreamMgr;
 class VSortedRunMerger;
 class VExprContext;
@@ -67,6 +79,8 @@ public:
                    ::google::protobuf::Closure** done);
 
     void add_block(Block* block, int sender_id, bool use_move);
+
+    bool sender_queue_empty(int sender_id);
 
     bool ready_to_read();
 
@@ -98,6 +112,7 @@ public:
 private:
     class SenderQueue;
     class PipSenderQueue;
+
     friend struct BlockSupplierSortCursorImpl;
 
     // DataStreamMgr instance used to create this recvr. (Not owned)
@@ -174,6 +189,8 @@ public:
 
     void close();
 
+    bool queue_empty() { return _block_queue_empty; }
+
 protected:
     virtual void _update_block_queue_empty() {}
     Status _inner_get_batch(Block* block, bool* eos);
@@ -217,14 +234,10 @@ public:
     }
 
     void add_block(Block* block, bool use_move) override {
-        // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
-        // limit memory via DataStreamRecvr::exceeds_limit.
-        STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
-
         if (_is_cancelled || !block->rows()) {
             return;
         }
-        BlockUPtr nblock = std::make_unique<Block>(block->get_columns_with_type_and_name());
+        BlockUPtr nblock = Block::create_unique(block->get_columns_with_type_and_name());
 
         // local exchange should copy the block contented if use move == false
         if (use_move) {

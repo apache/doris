@@ -17,19 +17,22 @@
 
 #pragma once
 
-#include <condition_variable>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <thread>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/runtime_filter.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 
 namespace butil {
@@ -37,12 +40,15 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-class TUniqueId;
-class RuntimeFilter;
-class FragmentExecState;
-class PlanFragmentExecutor;
 class PPublishFilterRequest;
+class PPublishFilterRequestV2;
 class PMergeFilterRequest;
+class IRuntimeFilter;
+class MemTracker;
+class RuntimeState;
+enum class RuntimeFilterRole;
+class RuntimePredicateWrapper;
+class QueryContext;
 
 /// producer:
 /// Filter filter;
@@ -60,6 +66,8 @@ class RuntimeFilterMgr {
 public:
     RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state);
 
+    RuntimeFilterMgr(const UniqueId& query_id, QueryContext* query_ctx);
+
     ~RuntimeFilterMgr();
 
     Status init();
@@ -70,7 +78,8 @@ public:
     Status get_producer_filter(const int filter_id, IRuntimeFilter** producer_filter);
     // regist filter
     Status register_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
-                           const TQueryOptions& options, int node_id = -1);
+                           const TQueryOptions& options, int node_id = -1,
+                           bool build_bf_exactly = false);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,
@@ -96,12 +105,14 @@ private:
     std::map<int32_t, RuntimeFilterMgrVal> _producer_map;
 
     RuntimeState* _state;
+    QueryContext* _query_ctx;
     std::unique_ptr<MemTracker> _tracker;
     ObjectPool _pool;
 
     TNetworkAddress _merge_addr;
 
     bool _has_merge_addr;
+    std::mutex _lock;
 };
 
 // controller -> <query-id, entity>
@@ -119,8 +130,8 @@ public:
                 const TQueryOptions& query_options);
 
     // handle merge rpc
-    Status merge(const PMergeFilterRequest* request,
-                 butil::IOBufAsZeroCopyInputStream* attach_data);
+    Status merge(const PMergeFilterRequest* request, butil::IOBufAsZeroCopyInputStream* attach_data,
+                 bool opt_remote_rf);
 
     UniqueId query_id() const { return _query_id; }
 
@@ -131,6 +142,7 @@ public:
         int producer_size;
         TRuntimeFilterDesc runtime_filter_desc;
         std::vector<doris::TRuntimeFilterTargetParams> target_info;
+        std::vector<doris::TRuntimeFilterTargetParamsV2> targetv2_info;
         IRuntimeFilter* filter;
         std::unordered_set<std::string> arrive_id; // fragment_instance_id ?
         std::shared_ptr<ObjectPool> pool;
@@ -145,6 +157,11 @@ private:
                            const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
                            const int producer_size);
 
+    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
+                           const TQueryOptions* query_options,
+                           const std::vector<doris::TRuntimeFilterTargetParamsV2>* target_info,
+                           const int producer_size);
+
     UniqueId _query_id;
     UniqueId _fragment_instance_id;
     // protect _filter_map
@@ -154,6 +171,8 @@ private:
     // filter-id -> val
     std::map<std::string, std::shared_ptr<RuntimeFilterCntlVal>> _filter_map;
     RuntimeState* _state;
+    bool _opt_remote_rf = true;
+    int64_t _merge_timer = 0;
 };
 
 // RuntimeFilterMergeController has a map query-id -> entity

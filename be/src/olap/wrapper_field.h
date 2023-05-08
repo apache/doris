@@ -17,13 +17,20 @@
 
 #pragma once
 
+#include <stdint.h>
+#include <stdlib.h>
+
+#include <memory>
+#include <string>
+
+#include "common/status.h"
 #include "olap/field.h"
-#include "olap/olap_define.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/tablet_schema.h"
-#include "util/hash_util.hpp"
+#include "util/slice.h"
 
 namespace doris {
+enum class FieldType;
 
 class WrapperField {
 public:
@@ -32,10 +39,6 @@ public:
     static WrapperField* create_by_type(const FieldType& type, int32_t var_length);
 
     WrapperField(Field* rep, size_t variable_len, bool is_string_type);
-
-    // Only used to wrapped content of row cursor cell to find element in wrapped field set
-    // do not delete rep, should call release_field before deconstructed.
-    WrapperField(Field* rep, const RowCursorCell& row_cursor_cell);
 
     virtual ~WrapperField() {
         delete _rep;

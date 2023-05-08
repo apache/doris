@@ -18,17 +18,23 @@
 #include "util/threadpool.h"
 
 #include <gflags/gflags_declare.h>
-#include <gtest/gtest.h>
+#include <gtest/gtest-death-test.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-param-test.h>
+#include <gtest/gtest-test-part.h>
+#include <sched.h>
+#include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <memory>
 #include <mutex>
-#include <ostream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -36,13 +42,10 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/atomicops.h"
-#include "gutil/port.h"
-#include "gutil/ref_counted.h"
+#include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/substitute.h"
 #include "util/barrier.h"
 #include "util/countdown_latch.h"
-#include "util/metrics.h"
 #include "util/random.h"
 #include "util/scoped_cleanup.h"
 #include "util/spinlock.h"
@@ -327,7 +330,9 @@ TEST_F(ThreadPoolTest, TestZeroQueueSize) {
 #ifndef THREAD_SANITIZER
 TEST_F(ThreadPoolTest, TestDeadlocks) {
     ::testing::FLAGS_gtest_death_test_style = "threadsafe";
-#ifdef __APPLE__
+#ifdef NDEBUG
+    const char* death_msg = "doris::ThreadPool::check_not_pool_thread_unlocked()";
+#elif defined(__APPLE__)
     const char* death_msg =
             "_ZNSt3__1L8__invokeIRNS_6__bindIMN5doris10ThreadPoolEFvvEJPS3_EEEJEEEDTclscT_fp_"
             "spscT0_fp0_EEOS9_DpOSA_|_ZNSt3__18__invokeB6v15007IRNS_6__"

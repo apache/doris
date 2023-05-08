@@ -16,11 +16,32 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+#include <typeinfo>
+
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_bitmap_serde.h"
 #include "util/bitmap_value.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class BufferReadable;
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 class DataTypeBitMap : public IDataType {
@@ -35,6 +56,11 @@ public:
     const char* get_family_name() const override { return "BitMap"; }
 
     TypeIndex get_type_id() const override { return TypeIndex::BitMap; }
+
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_OBJECT; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::OBJECT;
+    }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
@@ -80,6 +106,10 @@ public:
     static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);
 
     static void deserialize_as_stream(BitmapValue& value, BufferReadable& buf);
+
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeBitMapSerDe>();
+    };
 };
 
 } // namespace doris::vectorized

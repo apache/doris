@@ -20,6 +20,21 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <algorithm>
+#include <functional>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
@@ -59,9 +74,8 @@ class SipHash;
 namespace doris::vectorized {
 
 class Arena;
-class Field;
-
 class ColumnSorter;
+
 using EqualFlags = std::vector<uint8_t>;
 using EqualRange = std::pair<int, int>;
 
@@ -111,7 +125,7 @@ public:
     virtual void convert_dict_codes_if_necessary() {}
 
     /// If column is ColumnDictionary, and is a bloom filter predicate, generate_hash_values
-    virtual void generate_hash_values_for_runtime_filter() {}
+    virtual void initialize_hash_values_for_runtime_filter() {}
 
     /// Creates empty column with the same type.
     virtual MutablePtr clone_empty() const { return clone_resized(0); }
@@ -134,6 +148,7 @@ public:
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
     virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
+    // todo(Amory) from column to get data type is not correct ,column is memory data,can not to assume memory data belong to which data type
     virtual TypeIndex get_data_type() const {
         LOG(FATAL) << "Cannot get_data_type() column " << get_name();
         __builtin_unreachable();
@@ -215,6 +230,7 @@ public:
 
     /// Appends range of elements from other column with the same type.
     /// Could be used to concatenate columns.
+    /// TODO: we need `insert_range_from_const` for every column type.
     virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
 
     /// Appends one element from other column with the same type multiple times.

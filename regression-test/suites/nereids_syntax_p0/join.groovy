@@ -204,33 +204,6 @@ suite("join") {
         insert into outerjoin_D values( 1 );
     """
 
-    def explainStr =
-        sql(""" explain SELECT count(1)
-                FROM 
-                    (SELECT sub1.wtid,
-                        count(*)
-                    FROM 
-                        (SELECT a.wtid ,
-                        a.wfid
-                        FROM test_table_b a ) sub1
-                        INNER JOIN [shuffle] 
-                            (SELECT a.wtid,
-                        a.wfid
-                            FROM test_table_a a ) sub2
-                                ON sub1.wtid = sub2.wtid
-                                    AND sub1.wfid = sub2.wfid
-                            GROUP BY  sub1.wtid ) qqqq;""").toString()
-    logger.info(explainStr)
-    assertTrue(
-        //if analyze finished
-            explainStr.contains("VAGGREGATE (update serialize)") && explainStr.contains("VAGGREGATE (merge finalize)")
-                    && explainStr.contains("wtid[#8] = wtid[#3]") && explainStr.contains("projections: wtid[#5], wfid[#6]")
-                    ||
-        //analyze not finished
-                    explainStr.contains("VAGGREGATE (update finalize)") && explainStr.contains("VAGGREGATE (update finalize)")
-                    && explainStr.contains("VEXCHANGE") && explainStr.contains("VHASH JOIN")
-    )
-
     test {
         sql"""select * from test_table_a a cross join test_table_b b on a.wtid > b.wtid"""
         check{result, exception, startTime, endTime ->

@@ -56,7 +56,6 @@ import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -69,6 +68,7 @@ public class PlanReceiver implements AbstractReceiver {
     HashMap<Long, Group> planTable = new HashMap<>();
     HashMap<Long, BitSet> usdEdges = new HashMap<>();
     HashMap<Long, List<NamedExpression>> projectsOnSubgraph = new HashMap<>();
+    HashMap<Long, List<NamedExpression>> complexProjectMap = new HashMap<>();
     int limit;
     int emitCount = 0;
 
@@ -76,14 +76,6 @@ public class PlanReceiver implements AbstractReceiver {
 
     HyperGraph hyperGraph;
     final Set<Slot> finalOutputs;
-
-    public PlanReceiver() {
-        throw new RuntimeException("");
-    }
-
-    public PlanReceiver(int limit) {
-        throw new RuntimeException("");
-    }
 
     public PlanReceiver(JobContext jobContext, int limit, HyperGraph hyperGraph, Set<Slot> outputs) {
         this.jobContext = jobContext;
@@ -179,7 +171,7 @@ public class PlanReceiver implements AbstractReceiver {
         BitSet usedEdgesBitmap = new BitSet();
         usedEdgesBitmap.or(usdEdges.get(left));
         usedEdgesBitmap.or(usdEdges.get(right));
-        edges.stream().forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
+        edges.forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
         long allReferenceNodes = getAllReferenceNodes(usedEdgesBitmap);
 
         // check all edges
@@ -293,10 +285,13 @@ public class PlanReceiver implements AbstractReceiver {
 
     @Override
     public void reset() {
+        Preconditions.checkArgument(complexProjectMap.isEmpty(),
+                "complexProjectMap should be empty when call reset()");
         planTable.clear();
         projectsOnSubgraph.clear();
         usdEdges.clear();
         emitCount = 0;
+        complexProjectMap.putAll(hyperGraph.getComplexProject());
     }
 
     @Override
@@ -344,9 +339,6 @@ public class PlanReceiver implements AbstractReceiver {
             }
             // shadow all join order rule
             CopyInResult copyInResult = jobContext.getCascadesContext().getMemo().copyIn(logicalPlan, root, false);
-            for (Rule rule : jobContext.getCascadesContext().getRuleSet().getJoinOrderRule()) {
-                copyInResult.correspondingExpression.setApplied(rule);
-            }
             for (Rule rule : jobContext.getCascadesContext().getRuleSet().getImplementationRules()) {
                 copyInResult.correspondingExpression.setApplied(rule);
             }
@@ -360,13 +352,12 @@ public class PlanReceiver implements AbstractReceiver {
         if (!projectsOnSubgraph.containsKey(fullKey)) {
             List<NamedExpression> projects = new ArrayList<>();
             // Calculate complex expression
-            Map<Long, List<NamedExpression>> complexExpressionMap = hyperGraph.getComplexProject();
-            List<Long> bitmaps = complexExpressionMap.keySet().stream()
+            List<Long> bitmaps = complexProjectMap.keySet().stream()
                     .filter(bitmap -> LongBitmap.isSubset(bitmap, fullKey)).collect(Collectors.toList());
 
             for (long bitmap : bitmaps) {
-                projects.addAll(complexExpressionMap.get(bitmap));
-                complexExpressionMap.remove(bitmap);
+                projects.addAll(complexProjectMap.get(bitmap));
+                complexProjectMap.remove(bitmap);
             }
 
             // calculate required columns

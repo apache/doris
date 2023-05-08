@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -41,7 +43,7 @@ import java.util.Optional;
  * Logical project plan.
  */
 public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements Project, OutputSavePoint {
+        implements Project, OutputPrunable {
 
     private final List<NamedExpression> projects;
     private final List<NamedExpression> excepts;
@@ -78,16 +80,18 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this(projects, excepts, canEliminate, Optional.empty(), Optional.empty(), child, isDistinct);
     }
 
-    /**
-     * Constructor for LogicalProject.
-     *
-     * @param projects project list
-     */
-    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
+    private LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child, boolean isDistinct) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        Preconditions.checkArgument(projects != null, "projects can not be null");
+        // only ColumnPrune rule may produce empty projects, this happens in rewrite phase
+        // so if projects is empty, all plans have been bound already.
+        Preconditions.checkArgument(!projects.isEmpty() || !(child instanceof Unbound),
+                "projects can not be empty when child plan is unbound");
+        this.projects = projects.isEmpty()
+                ? ImmutableList.of(ExpressionUtils.selectMinimumColumn(child.getOutput()))
+                : projects;
         this.excepts = ImmutableList.copyOf(excepts);
         this.canEliminate = canEliminate;
         this.isDistinct = isDistinct;
@@ -105,6 +109,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     public List<NamedExpression> getExcepts() {
         return excepts;
+    }
+
+    public boolean isAllSlots() {
+        return projects.stream().allMatch(NamedExpression::isSlot);
     }
 
     @Override
@@ -160,15 +168,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return Objects.hash(projects, canEliminate);
     }
 
-    public LogicalProject<Plan> withEliminate(boolean isEliminate) {
-        return new LogicalProject<>(projects, excepts, isEliminate, child(), isDistinct);
-    }
-
-    public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
-        return new LogicalProject<>(projects, excepts, canEliminate,
-                Optional.empty(), Optional.of(getLogicalProperties()), child(), isDistinct);
-    }
-
     @Override
     public LogicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
@@ -187,11 +186,33 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 isDistinct);
     }
 
+    public LogicalProject<Plan> withEliminate(boolean isEliminate) {
+        return new LogicalProject<>(projects, excepts, isEliminate, child(), isDistinct);
+    }
+
+    public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
+        return new LogicalProject<>(projects, excepts, canEliminate, child(), isDistinct);
+    }
+
+    public LogicalProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
+        return new LogicalProject<>(projects, excepts, canEliminate, child, isDistinct);
+    }
+
     public boolean canEliminate() {
         return canEliminate;
     }
 
     public boolean isDistinct() {
         return isDistinct;
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return projects;
+    }
+
+    @Override
+    public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
+        return withProjects(prunedOutputs);
     }
 }

@@ -17,21 +17,33 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
+#include <stdint.h>
+
+#include <memory>
+#include <unordered_map>
+#include <vector>
+
+#include "common/global_types.h"
 #include "common/status.h"
+#include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
+#include "util/slice.h"
+#include "vec/columns/column.h"
 #include "vec/common/schema_util.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
-class TupleDescriptor;
-class RowDescriptor;
 class RuntimeState;
+class TBrokerRangeDesc;
+class TBrokerScanRangeParams;
+class TNetworkAddress;
 
 namespace vectorized {
 class VExprContext;
-class IColumn;
+
 using MutableColumnPtr = IColumn::MutablePtr;
 } // namespace vectorized
 
@@ -119,7 +131,7 @@ protected:
 
     // for vectorized load
     std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
-    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
+    vectorized::VExprContext* _vpre_filter_ctx_ptr = nullptr;
     vectorized::Block _src_block;
     bool _src_block_mem_reuse = false;
     int _num_of_columns_from_file;

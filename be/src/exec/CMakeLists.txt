@@ -51,7 +51,6 @@ set(EXEC_FILES
     schema_scanner/schema_files_scanner.cpp
     schema_scanner/schema_partitions_scanner.cpp
     schema_scanner/schema_rowsets_scanner.cpp
-    schema_scanner/schema_backends_scanner.cpp
     scan_node.cpp
     odbc_connector.cpp
     table_connector.cpp

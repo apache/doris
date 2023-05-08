@@ -20,17 +20,40 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
+
 #include <cassert>
 #include <cstring>
+#include <typeinfo>
+#include <vector>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
+#include "common/status.h"
+#include "gutil/integral_types.h"
+#include "runtime/define_primitive_type.h"
+#include "util/hash_util.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/memcpy_small.h"
-#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
 #include "vec/common/sip_hash.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class ColumnSorter;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -63,14 +86,15 @@ private:
 
     void ALWAYS_INLINE check_chars_length(size_t total_length, size_t element_number) const {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            LOG(FATAL) << "string column length is too large: total_length=" << total_length
-                       << " ,element_number=" << element_number;
+            throw doris::Exception(
+                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                    "string column length is too large: total_length={}, element_number={}",
+                    total_length, element_number);
         }
     }
 
     template <bool positive>
     struct less;
-
     template <bool positive>
     struct lessWithCollation;
 

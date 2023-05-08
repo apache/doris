@@ -17,14 +17,18 @@
 
 #include "olap/olap_meta.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
 #include <filesystem>
+#include <memory>
 #include <sstream>
 #include <string>
 
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
-#include "util/file_utils.h"
 
 using std::string;
 
@@ -35,8 +39,7 @@ class OlapMetaTest : public testing::Test {
 public:
     virtual void SetUp() {
         _root_path = "./ut_dir/olap_meta_test";
-        FileUtils::remove_all(_root_path);
-        FileUtils::create_dir(_root_path);
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(_root_path).ok());
 
         _meta = new OlapMeta(_root_path);
         Status s = _meta->init();
@@ -46,7 +49,7 @@ public:
 
     virtual void TearDown() {
         delete _meta;
-        FileUtils::remove_all(_root_path);
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_root_path).ok());
     }
 
 private:
