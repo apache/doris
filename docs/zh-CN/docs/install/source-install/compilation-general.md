@@ -103,7 +103,7 @@ under the License.
 
 3. 下载源码
 
-   启动镜像后，你应该已经处于容器内。可以通过以下命令下载 Doris 源码（已挂载本地源码目录则不用）：
+   启动镜像后，你应该已经处于容器内。可以通过以下命令下载 Doris 源码（如果上一步已挂载本地源码目录，此步则不用）：
 
     ```
     $ git clone https://github.com/apache/doris.git
