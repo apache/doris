@@ -149,6 +149,9 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
         std::shared_ptr<segment_v2::Segment> segment;
         io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
                                              io::SegmentCachePathPolicy());
+        if (!_rowset_meta->is_local()) {
+            reader_options.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+        }
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(),
                                            _context.tablet_schema, reader_options, &segment);
         if (!s.ok()) {
