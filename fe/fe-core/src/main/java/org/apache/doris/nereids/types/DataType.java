@@ -563,6 +563,13 @@ public abstract class DataType implements AbstractDataType {
         }
     }
 
+    public static List<DataType> trivialTypes() {
+        return Type.getTrivialTypes()
+                .stream()
+                .map(DataType::fromCatalogType)
+                .collect(ImmutableList.toImmutableList());
+    }
+
     public static List<DataType> supportedTypes() {
         return Type.getSupportedTypes()
                 .stream()

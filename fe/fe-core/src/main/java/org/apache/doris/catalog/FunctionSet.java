@@ -248,69 +248,6 @@ public class FunctionSet<T> {
                     "3maxIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PS6_")
                .build();
 
-    private static final Map<Type, String> ANY_INIT_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                    .put(Type.BOOLEAN,
-                            "8any_initIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.TINYINT,
-                            "8any_initIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.SMALLINT,
-                            "8any_initIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.INT,
-                            "8any_initIN9doris_udf6IntValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.BIGINT,
-                            "8any_initIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.FLOAT,
-                            "8any_initIN9doris_udf8FloatValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.DOUBLE,
-                            "8any_initIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPT_")
-                    // .put(Type.CHAR,
-                    //     "3anyIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.VARCHAR,
-                            "8any_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.STRING,
-                            "8any_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.DATE,
-                            "8any_initIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.DATETIME,
-                            "8any_initIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.MAX_DECIMALV2_TYPE,
-                            "8any_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextEPT_")
-                    .put(Type.LARGEINT,
-                            "8any_initIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextEPT_")
-                    .build();
-
-    private static final Map<Type, String> ANY_UPDATE_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                    .put(Type.BOOLEAN,
-                            "3anyIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.TINYINT,
-                            "3anyIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.SMALLINT,
-                            "3anyIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.INT,
-                            "3anyIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.BIGINT,
-                            "3anyIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.FLOAT,
-                            "3anyIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.DOUBLE,
-                            "3anyIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    // .put(Type.CHAR,
-                    //    "3anyIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.VARCHAR,
-                            "3anyIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.STRING,
-                            "3anyIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.DATE,
-                            "3anyIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.DATETIME,
-                            "3anyIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.MAX_DECIMALV2_TYPE,
-                            "3anyIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .put(Type.LARGEINT,
-                            "3anyIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PS6_")
-                    .build();
 
     private static final Map<Type, Type> MULTI_DISTINCT_SUM_RETURN_TYPE =
              ImmutableMap.<Type, Type>builder()
@@ -480,24 +417,6 @@ public class FunctionSet<T> {
                         "16knuth_var_updateEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValEPNS1_9StringValE")
                 .build();
 
-
-    private static final Map<Type, String> STDDEV_REMOVE_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "16knuth_var_removeIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.SMALLINT,
-                        "16knuth_var_removeIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.INT,
-                        "16knuth_var_removeIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.BIGINT,
-                        "16knuth_var_removeIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.FLOAT,
-                        "16knuth_var_removeIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.DOUBLE,
-                        "16knuth_var_removeIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "16knuth_var_removeEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValEPNS1_9StringValE")
-                .build();
     private static final Map<Type, String> STDDEV_MERGE_SYMBOL =
             ImmutableMap.<Type, String>builder()
                 .put(Type.TINYINT,
@@ -534,24 +453,6 @@ public class FunctionSet<T> {
                         "31decimalv2_knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .build();
 
-    private static final Map<Type, String> STDDEV_GET_VALUE_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "32decimalv2_knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
-
     private static final Map<Type, String> STDDEV_POP_FINALIZE_SYMBOL =
             ImmutableMap.<Type, String>builder()
                     .put(Type.TINYINT,
@@ -570,23 +471,6 @@ public class FunctionSet<T> {
                             "35decimalv2_knuth_stddev_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                     .build();
 
-    private static final Map<Type, String> STDDEV_POP_GET_VALUE_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                "36decimalv2_knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
 
     private static final Map<Type, String> VAR_FINALIZE_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -606,23 +490,6 @@ public class FunctionSet<T> {
                         "28decimalv2_knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .build();
 
-    private static final Map<Type, String> VAR_GET_VALUE_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "29decimalv2_knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
 
     private static final Map<Type, String> VAR_POP_FINALIZE_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -642,23 +509,6 @@ public class FunctionSet<T> {
                         "32decimalv2_knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .build();
 
-    private static final Map<Type, String> VAR_POP_GET_VALUE_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "33decimalv2_knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
 
     public static final String HLL_HASH = "hll_hash";
     public static final String HLL_UNION = "hll_union";
@@ -934,92 +784,6 @@ public class FunctionSet<T> {
     public static final String COLLECT_SET = "collect_set";
     public static final String HISTOGRAM = "histogram";
     public static final String HIST = "hist";
-
-    private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_INIT_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                    .put(Type.TINYINT,
-                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIaN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.SMALLINT,
-                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIsN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.INT,
-                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIiN9doris_udf6IntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.BIGINT,
-                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIlN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.FLOAT,
-                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIfN9doris_udf8FloatValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.DOUBLE,
-                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIdN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.CHAR,
-                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
-                    .put(Type.VARCHAR,
-                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
-                    .put(Type.STRING,
-                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
-                    .build();
-
-    private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_SERIALIZE_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                    .put(Type.TINYINT,
-                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIaEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.SMALLINT,
-                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIsEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.INT,
-                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIiEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.BIGINT,
-                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIlEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.FLOAT,
-                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIfEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.DOUBLE,
-                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIdEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.CHAR,
-                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
-                    .put(Type.VARCHAR,
-                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
-                    .put(Type.STRING,
-                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
-                    .build();
-    private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_COUNT_INIT_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                    .put(Type.TINYINT,
-                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIaN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.SMALLINT,
-                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIsN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.INT,
-                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIiN9doris_udf6IntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.BIGINT,
-                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIlN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.FLOAT,
-                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIfN9doris_udf8FloatValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.DOUBLE,
-                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIdN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
-                    .put(Type.CHAR,
-                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
-                    .put(Type.VARCHAR,
-                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
-                    .put(Type.STRING,
-                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
-                    .build();
-    private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_COUNT_SERIALIZE_SYMBOL =
-            ImmutableMap.<Type, String>builder()
-                    .put(Type.TINYINT,
-                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIaEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.SMALLINT,
-                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIsEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.INT,
-                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIiEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.BIGINT,
-                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIlEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.FLOAT,
-                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIfEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.DOUBLE,
-                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIdEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
-                    .put(Type.CHAR,
-                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
-                    .put(Type.VARCHAR,
-                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
-                    .put(Type.STRING,
-                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
-                    .build();
 
     private static final Map<Type, String> BITMAP_UNION_INT_SYMBOL =
             ImmutableMap.<Type, String>builder()
