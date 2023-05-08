@@ -90,7 +90,7 @@ public:
     Field get_field(const TExprNode& node) const override {
         VecDateTimeValue value;
         if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
-            value.cast_to_date();
+            value.to_datetime_int64();
             return Int64(*reinterpret_cast<__int64_t*>(&value));
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
