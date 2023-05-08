@@ -71,6 +71,7 @@ set(VEC_FILES
   common/sort/sorter.cpp
   common/sort/topn_sorter.cpp
   common/sort/vsort_exec_exprs.cpp
+  common/sort/partition_sorter.cpp
   common/string_utils/string_utils.cpp
   common/hex.cpp
   common/allocator.cpp
@@ -136,6 +137,8 @@ set(VEC_FILES
   exec/vrepeat_node.cpp
   exec/vtable_function_node.cpp
   exec/vjdbc_connector.cpp
+  exec/vparquet_scanner.cpp
+  exec/vpartition_sort_node.cpp
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
   exec/join/vnested_loop_join_node.cpp
