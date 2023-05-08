@@ -76,6 +76,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     private RuntimeProfile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
     private boolean enableProfile = false;
+    private String cluster;
 
     // for log replay and unit test
     public BrokerLoadJob() {
@@ -83,10 +84,11 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc,
-                         OriginStatement originStmt, UserIdentity userInfo)
+                         String cluster, OriginStatement originStmt, UserIdentity userInfo)
             throws MetaNotFoundException {
         super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
+        this.cluster = cluster;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
             enableProfile = true;
         }
@@ -387,5 +389,10 @@ public class BrokerLoadJob extends BulkLoadJob {
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
         super.afterVisible(txnState, txnOperated);
         writeProfile();
+    }
+
+    @Override
+    protected String getResourceName() {
+        return cluster != null ? cluster : "N/A";
     }
 }
