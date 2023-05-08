@@ -25,6 +25,8 @@ add_executable(meta_tool
     meta_tool.cpp
 )
 
+pch_reuse(meta_tool)
+
 # This permits libraries loaded by dlopen to link to the symbols in the program.
 set_target_properties(meta_tool PROPERTIES ENABLE_EXPORTS 1)
 

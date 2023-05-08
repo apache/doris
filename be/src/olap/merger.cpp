@@ -89,14 +89,14 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.return_columns.resize(cur_tablet_schema->num_columns());
     std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
     reader_params.origin_return_columns = &reader_params.return_columns;
-    RETURN_NOT_OK(reader.init(reader_params));
+    RETURN_IF_ERROR(reader.init(reader_params));
 
     if (reader_params.record_rowids) {
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_num_rows;
         for (auto& rs_reader : reader_params.rs_readers) {
-            RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
+            RETURN_IF_ERROR(rs_reader->get_segment_num_rows(&segment_num_rows));
             stats_output->rowid_conversion->init_segment_map(rs_reader->rowset()->rowset_id(),
                                                              segment_num_rows);
         }
@@ -107,10 +107,10 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     bool eof = false;
     while (!eof && !StorageEngine::instance()->stopped()) {
         // Read one block from block reader
-        RETURN_NOT_OK_LOG(
+        RETURN_NOT_OK_STATUS_WITH_WARN(
                 reader.next_block_with_aggregation(&block, &eof),
                 "failed to read next block when merging rowsets of tablet " + tablet->full_name());
-        RETURN_NOT_OK_LOG(
+        RETURN_NOT_OK_STATUS_WITH_WARN(
                 dst_rowset_writer->add_block(&block),
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());
 
@@ -135,7 +135,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         stats_output->filtered_rows = reader.filtered_rows();
     }
 
-    RETURN_NOT_OK_LOG(
+    RETURN_NOT_OK_STATUS_WITH_WARN(
             dst_rowset_writer->flush(),
             "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
 
@@ -219,14 +219,14 @@ Status Merger::vertical_compact_one_group(
 
     reader_params.return_columns = column_group;
     reader_params.origin_return_columns = &reader_params.return_columns;
-    RETURN_NOT_OK(reader.init(reader_params));
+    RETURN_IF_ERROR(reader.init(reader_params));
 
     if (reader_params.record_rowids) {
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_num_rows;
         for (auto& rs_reader : reader_params.rs_readers) {
-            RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
+            RETURN_IF_ERROR(rs_reader->get_segment_num_rows(&segment_num_rows));
             stats_output->rowid_conversion->init_segment_map(rs_reader->rowset()->rowset_id(),
                                                              segment_num_rows);
         }
@@ -237,10 +237,10 @@ Status Merger::vertical_compact_one_group(
     bool eof = false;
     while (!eof && !StorageEngine::instance()->stopped()) {
         // Read one block from block reader
-        RETURN_NOT_OK_LOG(
+        RETURN_NOT_OK_STATUS_WITH_WARN(
                 reader.next_block_with_aggregation(&block, &eof),
                 "failed to read next block when merging rowsets of tablet " + tablet->full_name());
-        RETURN_NOT_OK_LOG(
+        RETURN_NOT_OK_STATUS_WITH_WARN(
                 dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment),
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());
 
@@ -285,13 +285,13 @@ Status Merger::vertical_compact_one_group(TabletSharedPtr tablet, ReaderType rea
     bool eof = false;
     while (!eof && !StorageEngine::instance()->stopped()) {
         // Read one block from block reader
-        RETURN_NOT_OK_LOG(
+        RETURN_NOT_OK_STATUS_WITH_WARN(
                 src_block_reader.next_block_with_aggregation(&block, &eof),
                 "failed to read next block when merging rowsets of tablet " + tablet->full_name());
         if (!block.rows()) {
             break;
         }
-        RETURN_NOT_OK_LOG(
+        RETURN_NOT_OK_STATUS_WITH_WARN(
                 dst_segment_writer.append_block(&block, 0, block.rows()),
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());
 
