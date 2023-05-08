@@ -69,6 +69,8 @@ struct ResultFileOptions {
     bool is_refactor_before_flag = false;
     std::string orc_schema;
 
+    bool delete_existing_files = false;
+
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
         file_format = t_opt.file_format;
@@ -76,6 +78,8 @@ struct ResultFileOptions {
         line_delimiter = t_opt.__isset.line_delimiter ? t_opt.line_delimiter : "\n";
         max_file_size_bytes =
                 t_opt.__isset.max_file_size_bytes ? t_opt.max_file_size_bytes : max_file_size_bytes;
+        delete_existing_files =
+                t_opt.__isset.delete_existing_files ? t_opt.delete_existing_files : false;
 
         is_local_file = true;
         if (t_opt.__isset.broker_addresses) {
