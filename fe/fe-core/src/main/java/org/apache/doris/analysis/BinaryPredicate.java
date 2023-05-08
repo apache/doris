@@ -423,7 +423,7 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.LARGEINT;
         }
         // MySQL will try to parse string as bigint, if failed, will take string as 0.
-        if (t1 == PrimitiveType.BIGINT && (t2 == PrimitiveType.VARCHAR || t2 == PrimitiveType.STRING)) {
+        if (t1 == PrimitiveType.BIGINT && t2.isCharFamily()) {
             return Type.BIGINT;
         }
 
