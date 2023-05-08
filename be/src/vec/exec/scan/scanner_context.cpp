@@ -124,7 +124,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
         *has_free_block = _free_blocks_capacity > 0;
         // Always reduce _free_blocks_capacity by one since we always return a block
         if (_free_blocks_capacity > 0) {
-            -- _free_blocks_capacity;
+            --_free_blocks_capacity;
         }
 
         if (!_free_blocks.empty()) {
@@ -147,7 +147,7 @@ void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block)
     _free_blocks_memory_usage->add(block->allocated_bytes());
     std::lock_guard l(_free_blocks_lock);
     _free_blocks.emplace_back(std::move(block));
-    ++ _free_blocks_capacity;
+    ++_free_blocks_capacity;
 }
 
 void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) {
