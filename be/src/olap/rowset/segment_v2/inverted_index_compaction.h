@@ -14,35 +14,22 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/string-parser.cc
-// and modified by Doris
+#pragma once
 
-#include "string_parser.hpp"
+#include <cstdint>
+#include <string>
+#include <vector>
 
-#include "runtime/large_int_value.h"
-#include "vec/common/int_exp.h"
+#include "io/fs/file_system.h"
 
 namespace doris {
 
-template <>
-__int128 StringParser::numeric_limits<__int128>(bool negative) {
-    return negative ? MIN_INT128 : MAX_INT128;
-}
-
-template <>
-int32_t StringParser::get_scale_multiplier(int scale) {
-    return common::exp10_i32(scale);
-}
-
-template <>
-int64_t StringParser::get_scale_multiplier(int scale) {
-    return common::exp10_i64(scale);
-}
-
-template <>
-__int128 StringParser::get_scale_multiplier(int scale) {
-    return common::exp10_i128(scale);
-}
-
+namespace segment_v2 {
+void compact_column(int32_t index_id, int src_segment_num, int dest_segment_num,
+                    std::vector<std::string> src_index_files,
+                    std::vector<std::string> dest_index_files, const io::FileSystemSPtr& fs,
+                    std::string index_writer_path, std::string tablet_path,
+                    std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec,
+                    std::vector<uint32_t> dest_segment_num_rows);
+} // namespace segment_v2
 } // namespace doris

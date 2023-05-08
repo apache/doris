@@ -448,21 +448,21 @@ There are two ways to configure BE configuration items:
 
 #### `vertical_compaction_num_columns_per_group`
 
-* Type: bool
+* Type: int32
 * Description: In vertical compaction, column number for every group
-* Default value: true
+* Default value: 5
 
 #### `vertical_compaction_max_row_source_memory_mb`
 
-* Type: bool
-* Description: In vertical compaction, max memory usage for row_source_buffer
-* Default value: true
+* Type: int32
+* Description: In vertical compaction, max memory usage for row_source_buffer,The unit is MB.
+* Default value: 200
 
 #### `vertical_compaction_max_segment_size`
 
-* Type: bool
-* Description: In vertical compaction, max dest segment file size
-* Default value: true
+* Type: int32
+* Description: In vertical compaction, max dest segment file size, The unit is m bytes.
+* Default value: 268435456
 
 #### `enable_ordered_data_compaction`
 
@@ -472,9 +472,9 @@ There are two ways to configure BE configuration items:
 
 #### `ordered_data_compaction_min_segment_size`
 
-* Type: bool
-* Description: In ordered data compaction, min segment size for input rowset
-* Default value: true
+* Type: int32
+* Description: In ordered data compaction, min segment size for input rowset, The unit is m bytes.
+* Default value: 10485760
 
 #### `max_base_compaction_threads`
 

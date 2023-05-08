@@ -495,7 +495,10 @@ if (COMPILER_GCC)
         message(FATAL_ERROR "Need GCC version at least 11.1")
     endif()
 
-    add_compile_options(-fdiagnostics-color=always)
+    add_compile_options(-fdiagnostics-color=always
+                        -Wno-nonnull
+                        -Wno-stringop-overread
+                        -Wno-stringop-overflow)
 endif ()
 
 if (COMPILER_CLANG)
@@ -649,11 +652,11 @@ include_directories(
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
-include_directories($ENV{JAVA_HOME}/include)
+include_directories(${DORIS_JAVA_HOME}/include)
 if (NOT OS_MACOSX)
-    include_directories($ENV{JAVA_HOME}/include/linux)
+    include_directories(${DORIS_JAVA_HOME}/include/linux)
 else()
-    include_directories($ENV{JAVA_HOME}/include/darwin)
+    include_directories(${DORIS_JAVA_HOME}/include/darwin)
 endif()
 
 if (NOT OS_MACOSX)
@@ -972,6 +975,26 @@ if (NOT MAKE_TEST)
 else()
     message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
 endif()
+
+if (ENABLE_PCH) 
+add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
+    target_precompile_headers(
+        pch
+        PUBLIC
+            ${SRC_DIR}pch/pch.h
+    )
+    if (COMPILER_CLANG)
+        add_compile_options(-Xclang -fno-pch-timestamp)
+    else()
+        add_compile_options(-fpch-preprocess)
+    endif()
+endif()
+
+function(pch_reuse target)
+    if (ENABLE_PCH)
+        target_precompile_headers(${target} REUSE_FROM pch)
+    endif()
+endfunction(pch_reuse target)
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)

@@ -57,3 +57,5 @@ add_library(Webserver STATIC
   action/version_action.cpp
   action/jeprofile_actions.cpp
   action/file_cache_action.cpp)
+
+pch_reuse(Webserver)
