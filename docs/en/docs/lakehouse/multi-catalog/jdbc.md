@@ -177,7 +177,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 | Database | Schema   |
 | Table    | Table    |
 
-8. Trino
+8. Trino/Presto
 
 <version since="1.2.4"></version>
 
@@ -191,6 +191,9 @@ CREATE CATALOG trino_catalog PROPERTIES (
     "driver_class" = "io.trino.jdbc.TrinoDriver"
 );
 ```
+
+**Note:**
+<version since="dev" type="inline"> Connections using the Presto JDBC Driver are also supported </version>
 
 When Trino is mapped, Doris's Database corresponds to a Schema in Trino that specifies Catalog (such as "hive" in the 'jdbc_url' parameter in the example). The Table in Doris's Database corresponds to the Tables in Trino's Schema. That is, the mapping relationship is as follows:
 
@@ -455,7 +458,7 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | NCHAR         | CHAR                     |                                                                                                                    |
 | Other         | UNSUPPORTED              |                                                                                                                    |
 
-### Trino
+### Trino/presto
 
 | Trino Type                                           | Doris Type               | Comment                                                                                                            |
 |------------------------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
