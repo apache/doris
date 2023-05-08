@@ -154,7 +154,6 @@ if [[ "$#" == 1 ]]; then
     BUILD_META_TOOL='OFF'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
-    BUILD_BE_JAVA_EXTENSIONS=1
     CLEAN=0
 else
     while true; do
@@ -163,12 +162,10 @@ else
             BUILD_FE=1
             BUILD_SPARK_DPP=1
             BUILD_HIVE_UDF=1
-            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --be)
             BUILD_BE=1
-            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --broker)
@@ -192,7 +189,6 @@ else
             shift
             ;;
         --be-java-extensions)
-            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --clean)
@@ -239,7 +235,6 @@ else
         BUILD_META_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
-        BUILD_BE_JAVA_EXTENSIONS=1
         CLEAN=0
     fi
 fi
