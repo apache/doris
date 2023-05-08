@@ -123,7 +123,7 @@ public:
     taskgroup::TaskGroup* get_task_group() const { return _query_ctx->get_task_group(); }
 
 private:
-    Status _create_sink(const TDataSink& t_data_sink);
+    Status _create_sink(int sender_id, const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
     template <bool is_intersect>
@@ -169,6 +169,7 @@ private:
 
     ExecNode* _root_plan = nullptr; // lives in _runtime_state->obj_pool()
     std::unique_ptr<DataSink> _sink;
+    std::vector<std::unique_ptr<DataSink>> _multi_cast_stream_sink_senders;
 
     std::shared_ptr<QueryContext> _query_ctx;
 
