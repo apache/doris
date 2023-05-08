@@ -495,7 +495,10 @@ if (COMPILER_GCC)
         message(FATAL_ERROR "Need GCC version at least 11.1")
     endif()
 
-    add_compile_options(-fdiagnostics-color=always)
+    add_compile_options(-fdiagnostics-color=always
+                        -Wno-nonnull
+                        -Wno-stringop-overread
+                        -Wno-stringop-overflow)
 endif ()
 
 if (COMPILER_CLANG)
