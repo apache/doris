@@ -108,8 +108,4 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
         rep->set_long_text_buf(&_long_text_buf);
     }
 }
-
-WrapperField::WrapperField(Field* rep, const RowCursorCell& row_cursor_cell)
-        : _rep(rep), _field_buf((char*)row_cursor_cell.cell_ptr() - 1) {}
-
 } // namespace doris

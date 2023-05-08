@@ -563,8 +563,13 @@ Status VFileScanner::_get_next_reader() {
         _src_block_init = false;
         if (_next_range >= _ranges.size()) {
             _scanner_eof = true;
+            _state->update_num_finished_scan_range(1);
             return Status::OK();
         }
+        if (_next_range != 0) {
+            _state->update_num_finished_scan_range(1);
+        }
+
         const TFileRangeDesc& range = _ranges[_next_range++];
 
         // create reader for specific format

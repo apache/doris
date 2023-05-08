@@ -69,6 +69,7 @@ public class JdbcResource extends Resource {
     public static final String JDBC_CLICKHOUSE = "jdbc:clickhouse";
     public static final String JDBC_SAP_HANA = "jdbc:sap";
     public static final String JDBC_TRINO = "jdbc:trino";
+    public static final String JDBC_PRESTO = "jdbc:presto";
     public static final String JDBC_OCEANBASE = "jdbc:oceanbase";
 
     public static final String MYSQL = "MYSQL";
@@ -78,6 +79,7 @@ public class JdbcResource extends Resource {
     public static final String CLICKHOUSE = "CLICKHOUSE";
     public static final String SAP_HANA = "SAP_HANA";
     public static final String TRINO = "TRINO";
+    public static final String PRESTO = "PRESTO";
     public static final String OCEANBASE = "OCEANBASE";
     public static final String OCEANBASE_ORACLE = "OCEANBASE_ORACLE";
 
@@ -280,6 +282,8 @@ public class JdbcResource extends Resource {
             return SAP_HANA;
         } else if (url.startsWith(JDBC_TRINO)) {
             return TRINO;
+        } else if (url.startsWith(JDBC_PRESTO)) {
+            return PRESTO;
         } else if (url.startsWith(JDBC_OCEANBASE)) {
             if (oceanbaseMode == null || oceanbaseMode.isEmpty()) {
                 throw new DdlException("OceanBase mode must be specified for OceanBase databases"

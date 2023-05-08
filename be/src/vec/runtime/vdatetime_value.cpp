@@ -1627,22 +1627,16 @@ bool VecDateTimeValue::from_unixtime(int64_t timestamp, const cctz::time_zone& c
                     std::chrono::system_clock::from_time_t(0));
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
 
-    const auto res = ctz.lookup(t);
+    const auto tp = cctz::convert(t, ctz);
 
     _neg = 0;
     _type = TIME_DATETIME;
-    _year = res.cs.year();
-    _month = res.cs.month();
-    _day = res.cs.day();
-    _hour = res.cs.hour();
-    _minute = res.cs.minute();
-    _second = res.cs.second();
-
-    if (res.is_dst) {
-        TimeInterval interval;
-        interval.second = -3600;
-        date_add_interval<SECOND>(interval);
-    }
+    _year = tp.year();
+    _month = tp.month();
+    _day = tp.day();
+    _hour = tp.hour();
+    _minute = tp.minute();
+    _second = tp.second();
 
     return true;
 }
@@ -2849,17 +2843,9 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz
                     std::chrono::system_clock::from_time_t(0));
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
 
-    const auto res = ctz.lookup(t);
+    const auto tp = cctz::convert(t, ctz);
 
-    set_time(res.cs.year(), res.cs.month(), res.cs.day(), res.cs.hour(), res.cs.minute(),
-             res.cs.second(), 0);
-
-    if (res.is_dst) {
-        TimeInterval interval;
-        interval.second = -3600;
-        date_add_interval<SECOND>(interval);
-    }
-
+    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), 0);
     return true;
 }
 
@@ -2881,16 +2867,10 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
                     std::chrono::system_clock::from_time_t(0));
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
 
-    const auto res = ctz.lookup(t);
+    const auto tp = cctz::convert(t, ctz);
 
-    set_time(res.cs.year(), res.cs.month(), res.cs.day(), res.cs.hour(), res.cs.minute(),
-             res.cs.second(), nano_seconds / std::pow(10, 9 - scale) * std::pow(10, 6 - scale));
-
-    if (res.is_dst) {
-        TimeInterval interval;
-        interval.second = -3600;
-        date_add_interval<SECOND>(interval);
-    }
+    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
+             nano_seconds / std::pow(10, 9 - scale) * std::pow(10, 6 - scale));
     return true;
 }
 

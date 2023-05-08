@@ -38,7 +38,7 @@ This topic is about how to compile Doris from source with macOS (both x86_64 and
 1. Use [Homebrew](https://brew.sh/) to install dependencies.
     ```shell
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@15 openjdk@11 npm
+        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
     ```
 
 2. Compile from source.
@@ -110,4 +110,4 @@ Fail to start BE up. The log shows: `fail to open StorageEngine, res=file descri
 To fix this, please refer to the "Start-up" section above and reset  `file descriptors`.
 
 ### Java Version
-Java 11 is recommended.
+Java 8 is recommended.

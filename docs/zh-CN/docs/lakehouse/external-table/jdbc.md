@@ -228,6 +228,9 @@ PROPERTIES (
 );
 ```
 
+**注意：**
+<version since="dev" type="inline"> 同样支持使用 Presto JDBC Driver 进行连接 </version>
+
 #### 8.OceanBase测试
 
 | OceanBase 版本 | OceanBase JDBC驱动版本 |

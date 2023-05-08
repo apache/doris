@@ -40,6 +40,10 @@ public class PersistMetaModules {
             "paloAuth", "transactionState", "colocateTableIndex", "routineLoadJobs", "loadJobV2", "smallFiles",
             "plugins", "deleteHandler", "sqlBlockRule", "policy", "mtmvJobManager", "globalFunction", "resourceGroups");
 
+    // Modules in this list is deprecated and will not be saved in meta file. (also should not be in MODULE_NAMES)
+    public static final ImmutableList<String> DEPRECATED_MODULE_NAMES = ImmutableList.of(
+            "loadJob", "cooldownJob");
+
     static {
         MODULES_MAP = Maps.newHashMap();
         MODULES_IN_ORDER = Lists.newArrayList();

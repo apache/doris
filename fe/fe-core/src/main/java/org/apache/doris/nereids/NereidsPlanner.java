@@ -181,7 +181,7 @@ public class NereidsPlanner extends Planner {
             }
 
             if (statementContext.getConnectContext().getExecutor() != null) {
-                statementContext.getConnectContext().getExecutor().getPlannerProfile().setQueryAnalysisFinishTime();
+                statementContext.getConnectContext().getExecutor().getSummaryProfile().setQueryAnalysisFinishTime();
             }
 
             if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -278,7 +278,6 @@ public class NereidsPlanner extends Planner {
             CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
             root = copyInResult.correspondingExpression.getOwnerGroup();
         }
-        cascadesContext.getStatementContext().setDpHyp(true);
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
@@ -289,10 +288,11 @@ public class NereidsPlanner extends Planner {
      * try to find best plan under the guidance of statistic information and cost model.
      */
     private void optimize() {
-        if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
-                && statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()
-                && statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
-                .getSessionVariable().getMaxTableCountUseCascadesJoinReorder()) {
+        boolean isDpHyp = statementContext.getConnectContext().getSessionVariable().enableDPHypOptimizer
+                || statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
+                .getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
+        cascadesContext.getStatementContext().setDpHyp(isDpHyp);
+        if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder() && isDpHyp) {
             dpHypOptimize();
         }
         new CascadesOptimizer(cascadesContext).execute();

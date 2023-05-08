@@ -125,7 +125,7 @@ if [[ "${_USE_AVX2}" == "0" && "${ARCH}" == "x86_64" ]]; then
     OUTPUT_BE="${OUTPUT_BE}-noavx2"
 fi
 
-echo "Pakage Name:"
+echo "Package Name:"
 echo "FE:   ${OUTPUT_FE}"
 echo "BE:   ${OUTPUT_BE}"
 echo "JAR:  ${OUTPUT_DEPS}"

@@ -51,14 +51,20 @@ public class ShowCreateTableStmt extends ShowStmt {
 
     private TableName tbl;
     private boolean isView;
+    private boolean needBriefDdl;
 
     public ShowCreateTableStmt(TableName tbl) {
-        this(tbl, false);
+        this(tbl, false, false);
     }
 
-    public ShowCreateTableStmt(TableName tbl, boolean isView) {
+    public ShowCreateTableStmt(TableName tbl, boolean needBriefDdl) {
+        this(tbl, false, needBriefDdl);
+    }
+
+    public ShowCreateTableStmt(TableName tbl, boolean isView, boolean needBriefDdl) {
         this.tbl = tbl;
         this.isView = isView;
+        this.needBriefDdl = needBriefDdl;
     }
 
 
@@ -76,6 +82,10 @@ public class ShowCreateTableStmt extends ShowStmt {
 
     public boolean isView() {
         return isView;
+    }
+
+    public boolean isNeedBriefDdl() {
+        return needBriefDdl;
     }
 
     public static ShowResultSetMetaData getViewMetaData() {
