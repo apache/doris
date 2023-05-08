@@ -175,6 +175,16 @@ public:
         PARTIAL_ACCEPTABLE
     };
 
+    // note(wb) This setting may not be the best, but keeping consistency with the non-shared-scan logic
+    void set_scan_producer_group_num(int scan_range_num, int query_instance_parallel) {
+        if (_shared_scan_opt) {
+            _scan_producer_group_num = scan_range_num < query_instance_parallel
+                                               ? scan_range_num
+                                               : query_instance_parallel;
+            _scan_producer_group_num = _scan_producer_group_num <= 0 ? 1 : _scan_producer_group_num;
+        }
+    }
+
 protected:
     // Different data sources register different profiles by implementing this method
     virtual Status _init_profile();
@@ -244,6 +254,15 @@ protected:
     RuntimeState* _state;
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
+
+    // note(wb) What is _scan_producer_group_num ?
+    // scan is a producer-consumer model, scan_operator is consumer, scanner is producer
+    // There are some shared variables in this model, such as freeblocks, max_thread_num, scanners
+    // When exec shared scan, we need also group this shared variables into different groups to reduce competition
+    // currently _scan_producer_group_num is mainly used for spliting free blocks
+    // see PipScannerContext._free_block_queue_len
+    int _scan_producer_group_num = 0;
+
     // For load scan node, there should be both input and output tuple descriptor.
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;

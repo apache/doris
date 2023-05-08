@@ -66,6 +66,8 @@ public:
 
     virtual std::string get_name() { return ""; }
 
+    virtual int scanner_id() { return 0; }
+
 protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;

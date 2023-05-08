@@ -128,12 +128,21 @@ public:
         return _blocks_queues[id].empty();
     }
 
-    void set_max_queue_size(const int max_queue_size) override {
+    void set_max_queue_size(const int max_queue_size, const int free_block_queue_size) override {
         _max_queue_size = max_queue_size;
+        _free_block_queue_len = free_block_queue_size;
+
         for (int i = 0; i < max_queue_size; ++i) {
             _queue_mutexs.emplace_back(new std::mutex);
             _blocks_queues.emplace_back(std::list<vectorized::BlockUPtr>());
         }
+        for (int i = 0; i < _free_block_queue_len; i++) {
+            _free_block_queue_mutexs.emplace_back(new std::mutex);
+            _free_blocks_queues.emplace_back(std::list<vectorized::BlockUPtr>());
+        }
+    }
+
+    void _init_colocate_block() override {
         if (_need_colocate_distribute) {
             int real_block_size =
                     limit == -1 ? _batch_size : std::min(static_cast<int64_t>(_batch_size), limit);
@@ -169,18 +178,84 @@ public:
         }
     }
 
+    vectorized::BlockUPtr get_free_block(bool* has_free_block, bool get_not_empty_block = false,
+                                         int id = -1) override {
+        id = id % _free_block_queue_len;
+        {
+            std::unique_lock<std::mutex> l(*_free_block_queue_mutexs[id]);
+            if (auto& free_blocks = _free_blocks_queues[id]; !free_blocks.empty()) {
+                if (!get_not_empty_block || free_blocks.back()->mem_reuse()) {
+                    auto block = std::move(free_blocks.back());
+                    free_blocks.pop_back();
+                    _total_free_block_num--;
+                    _free_blocks_memory_usage->add(-block->allocated_bytes());
+                    return block;
+                }
+            }
+        }
+        *has_free_block = false;
+
+        COUNTER_UPDATE(_newly_create_free_blocks_num, 1);
+        return vectorized::Block::create_unique(_real_tuple_desc->slots(), _batch_size,
+                                                true /*ignore invalid slots*/);
+    }
+
+    void return_free_block(std::unique_ptr<vectorized::Block> block, int id) override {
+        id = id % _free_block_queue_len;
+        block->clear_column_data();
+        _free_blocks_memory_usage->add(block->allocated_bytes());
+        std::unique_lock<std::mutex> l(*_free_block_queue_mutexs[id]);
+        _free_blocks_queues[id].emplace_back(std::move(block));
+        _total_free_block_num++;
+    }
+
+    void _init_free_block(int pre_alloc_block_count, int real_block_size) override {
+        // The free blocks is used for final output block of scanners.
+        // So use _output_tuple_desc;
+        int64_t free_blocks_memory_usage = 0;
+        for (int i = 0, j = 0; i < pre_alloc_block_count; ++i, j++) {
+            auto block = vectorized::Block::create_unique(
+                    _output_tuple_desc->slots(), real_block_size, true /*ignore invalid slots*/);
+            free_blocks_memory_usage += block->allocated_bytes();
+            _free_blocks_queues[j].emplace_back(std::move(block));
+            if (j == _free_block_queue_len - 1) {
+                j = -1;
+            }
+        }
+        _total_free_block_num = pre_alloc_block_count;
+        _free_blocks_memory_usage->add(free_blocks_memory_usage);
+    }
+
+    int cal_thread_slot_num_by_free_block_num() override {
+        // using _free_blocks_lock to make ```cal_thread_slot_num_by_free_block_num``` execute sequentially
+        int thread_slot_num = 0;
+        std::lock_guard f(_free_blocks_lock);
+        int local_val = _total_free_block_num;
+        thread_slot_num = local_val / _block_per_scanner;
+        thread_slot_num += (local_val % _block_per_scanner != 0);
+        thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
+        if (thread_slot_num <= 0) {
+            thread_slot_num = 1;
+        }
+        return thread_slot_num;
+    }
+
 private:
     int _max_queue_size = 1;
     int _next_queue_to_feed = 0;
     std::vector<std::unique_ptr<std::mutex>> _queue_mutexs;
     std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;
     std::atomic_int64_t _current_used_bytes = 0;
+    int _free_block_queue_len = 0;
 
     const std::vector<int>& _col_distribute_ids;
     const bool _need_colocate_distribute;
     std::vector<vectorized::BlockUPtr> _colocate_blocks;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _colocate_mutable_blocks;
     std::vector<std::unique_ptr<std::mutex>> _colocate_block_mutexs;
+
+    std::vector<std::unique_ptr<std::mutex>> _free_block_queue_mutexs;
+    std::vector<std::list<vectorized::BlockUPtr>> _free_blocks_queues;
 
     void _add_rows_colocate_blocks(vectorized::Block* block, int loc,
                                    const std::vector<int>& rows) {
@@ -209,7 +284,8 @@ private:
                     _blocks_queues[loc].emplace_back(std::move(_colocate_blocks[loc]));
                 }
                 bool get_block_not_empty = true;
-                _colocate_blocks[loc] = get_free_block(&get_block_not_empty, get_block_not_empty);
+                _colocate_blocks[loc] =
+                        get_free_block(&get_block_not_empty, get_block_not_empty, loc);
                 _colocate_mutable_blocks[loc]->set_muatable_columns(
                         _colocate_blocks[loc]->mutate_columns());
             }

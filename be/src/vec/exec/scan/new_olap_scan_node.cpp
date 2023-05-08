@@ -502,6 +502,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         }
     }
 
+    int id = 0;
     auto build_new_scanner = [&](const TPaloScanRange& scan_range,
                                  const std::vector<OlapScanRange*>& key_ranges,
                                  const std::vector<RowsetReaderSharedPtr>& rs_readers,
@@ -509,7 +510,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         std::shared_ptr<NewOlapScanner> scanner = NewOlapScanner::create_shared(
                 _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation, scan_range,
                 key_ranges, rs_readers, rs_reader_seg_offsets, _need_agg_finalize,
-                _scanner_profile.get());
+                _scanner_profile.get(), id++);
 
         scanner->set_compound_filters(_compound_filters);
         scanners->push_back(scanner);

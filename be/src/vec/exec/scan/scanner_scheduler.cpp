@@ -312,6 +312,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     // If eos is true, we still need to return blocks,
     // but is should_stop is true, no need to return blocks
     bool should_stop = false;
+    int scanner_id = scanner->scanner_id();
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
     while (!eos && raw_bytes_read < raw_bytes_threshold &&
@@ -324,7 +325,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             break;
         }
 
-        BlockUPtr block = ctx->get_free_block(&has_free_block);
+        BlockUPtr block = ctx->get_free_block(&has_free_block, false, scanner_id);
         status = scanner->get_block(state, block.get(), &eos);
         VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
         // The VFileScanner for external table may try to open not exist files,
@@ -347,14 +348,14 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         raw_bytes_read += block->bytes();
         num_rows_in_block += block->rows();
         if (UNLIKELY(block->rows() == 0)) {
-            ctx->return_free_block(std::move(block));
+            ctx->return_free_block(std::move(block), scanner_id);
         } else {
             if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
                 status = vectorized::MutableBlock(blocks.back().get()).merge(*block);
                 if (!status.ok()) {
                     break;
                 }
-                ctx->return_free_block(std::move(block));
+                ctx->return_free_block(std::move(block), scanner_id);
             } else {
                 blocks.push_back(std::move(block));
             }

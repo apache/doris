@@ -177,8 +177,12 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
             auto status = !_eos ? _prepare_scanners() : Status::OK();
             if (_scanner_ctx) {
                 DCHECK(!_eos && _num_scanners->value() > 0);
-                _scanner_ctx->set_max_queue_size(
-                        _shared_scan_opt ? std::max(state->query_parallel_instance_num(), 1) : 1);
+                int max_queue_size =
+                        _shared_scan_opt ? std::max(state->query_parallel_instance_num(), 1) : 1;
+                int free_block_queue_size = _shared_scan_opt ? _scan_producer_group_num : 1;
+
+                _scanner_ctx->set_max_queue_size(max_queue_size, free_block_queue_size);
+                RETURN_IF_ERROR(_scanner_ctx->init());
                 RETURN_IF_ERROR(
                         _state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
             }
@@ -198,6 +202,7 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     } else {
         RETURN_IF_ERROR(!_eos ? _prepare_scanners() : Status::OK());
         if (_scanner_ctx) {
+            RETURN_IF_ERROR(_scanner_ctx->init());
             RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
         }
     }
@@ -248,7 +253,10 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
     // get scanner's block memory
     block->swap(*scan_block);
-    _scanner_ctx->return_free_block(std::move(scan_block));
+    // todo(wb) it should be use scanner_id instead of _context_queue_id to return block
+    // but in clickbench, it make no difference.
+    // For the sake of simple implementation, use _context_queue_id here
+    _scanner_ctx->return_free_block(std::move(scan_block), _context_queue_id);
 
     reached_limit(block, eos);
     if (*eos) {
@@ -308,7 +316,6 @@ Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners) {
                 ScannerContext::create_shared(_state, this, _input_tuple_desc, _output_tuple_desc,
                                               scanners, limit(), _state->scan_queue_mem_limit());
     }
-    RETURN_IF_ERROR(_scanner_ctx->init());
     return Status::OK();
 }
 

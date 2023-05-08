@@ -60,7 +60,7 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
                                const std::vector<OlapScanRange*>& key_ranges,
                                const std::vector<RowsetReaderSharedPtr>& rs_readers,
                                const std::vector<std::pair<int, int>>& rs_reader_seg_offsets,
-                               bool need_agg_finalize, RuntimeProfile* profile)
+                               bool need_agg_finalize, RuntimeProfile* profile, int scanner_id)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
@@ -71,6 +71,7 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
     _tablet_reader_params.rs_readers_segment_offsets = rs_reader_seg_offsets;
     _tablet_schema = std::make_shared<TabletSchema>();
     _is_init = false;
+    _scanner_id = scanner_id;
 }
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
