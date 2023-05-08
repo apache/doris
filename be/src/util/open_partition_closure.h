@@ -31,11 +31,11 @@ namespace doris {
 using namespace stream_load;
 
 template <typename T>
-class PartitionOpenClosure : public google::protobuf::Closure {
+class OpenPartitionClosure : public google::protobuf::Closure {
 public:
-    PartitionOpenClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel)
+    OpenPartitionClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel)
             : vnode_channel(vnode_channel), index_channel(index_channel) {}
-    ~PartitionOpenClosure() = default;
+    ~OpenPartitionClosure() = default;
 
     void Run() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());

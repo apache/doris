@@ -57,7 +57,7 @@
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
-#include "util/partition_open_closure.h"
+#include "util/open_partition_closure.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
 #include "util/telemetry/telemetry.h"
@@ -493,15 +493,15 @@ void VNodeChannel::open_partition(int64_t partition_id) {
         }
     }
 
-    PartitionOpenClosure<PartitionOpenResult>* open_partition_closure =
-            new PartitionOpenClosure<PartitionOpenResult>(this,_index_channel);
+    OpenPartitionClosure<PartitionOpenResult>* open_partition_closure =
+            new OpenPartitionClosure<PartitionOpenResult>(this,_index_channel);
 
-    int remain_ms = config::partition_open_rpc_timeout_sec * 1000 - _timeout_watch.elapsed_time();
+    int remain_ms = config::open_partition_rpc_timeout_sec * 1000 - _timeout_watch.elapsed_time();
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         remain_ms = config::min_load_rpc_timeout_ms;
     }
     open_partition_closure->cntl.set_timeout_ms(remain_ms);
-    if (config::partition_open_ignore_eovercrowded) {
+    if (config::open_partition_ignore_eovercrowded) {
         open_partition_closure->cntl.ignore_eovercrowded();
     }
     _stub->open_partition(&open_partition_closure->cntl, &request, &open_partition_closure->result,
@@ -1101,8 +1101,16 @@ Status VOlapTableSink::open(RuntimeState* state) {
 
 void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
     const auto& id = partition->id;
-    auto it = _partition_opened.find(id);
-    if (it == _partition_opened.end()) {
+    auto it = opened_partitions.find(id);
+    {
+        std::unique_lock<std::mutex> l(open_partition_mutex);
+        auto it = opened_partitions.find(id);
+        if (it != opened_partitions.end()) {
+            return;
+        }
+        opened_partitions.insert(std::pair(id, false));
+    }
+    if (it == opened_partitions.end()) {
         for (int j = 0; j < partition->indexes.size(); ++j) {
             for (const auto& tid : partition->indexes[j].tablets) {
                 auto it = _channels[j]->_channels_by_tablet.find(tid);
@@ -1111,7 +1119,10 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
                 }
             }
         }
-        _partition_opened.insert(id);
+        {
+            std::unique_lock<std::mutex> l(open_partition_mutex);
+            opened_partitions.insert(std::pair(id, true));
+        }
     }
 }
 

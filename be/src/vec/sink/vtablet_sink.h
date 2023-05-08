@@ -80,7 +80,7 @@ template <typename T>
 class RefCountClosure;
 
 template <typename T>
-class PartitionOpenClosure;
+class OpenPartitionClosure;
 
 namespace vectorized {
 class VExprContext;
@@ -608,7 +608,8 @@ private:
 
     RuntimeState* _state = nullptr;
 
-    std::unordered_set<int64_t> _partition_opened;
+    std::unordered_map<int64_t,bool> opened_partitions;
+    std::mutex open_partition_mutex;
 };
 
 } // namespace stream_load

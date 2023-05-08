@@ -1243,7 +1243,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
   - 导入过程中，发送一个 Batch（1024行）的 RPC 超时时间。默认 60 秒。因为该 RPC 可能涉及多个 分片内存块的写盘操作，所以可能会因为写盘导致 RPC 超时，可以适当调整这个超时时间来减少超时错误（如 send batch fail 错误）。同时，如果调大 write_buffer_size 配置，也需要适当调大这个参数
 * 默认值：60
 
-#### `partition_open_rpc_timeout_sec`
+#### `open_partition_rpc_timeout_sec`
 
 * 描述：在远程BE 中打开partition的 rpc 超时。 操作时间短，可设置短超时时间
   - 导入过程中，发送一个 Batch（1024行）的 RPC 超时时间。默认 60 秒。因为该 RPC 可能涉及多个 分片内存块的写盘操作，所以可能会因为写盘导致 RPC 超时，可以适当调整这个超时时间来减少超时错误（如 send batch fail 错误）。同时，如果调大 write_buffer_size 配置，也需要适当调大这个参数
@@ -1262,7 +1262,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述：导入时大部分partition可能都不需要写入，可以使用懒打开的方式只打开需要写入的partition。升级版本出现混合部署的时候，需要设置为false。
 * 默认值：true
 
-#### `partition_open_ignore_eovercrowded`
+#### `open_partition_ignore_eovercrowded`
 
 * 类型：bool
 * 描述：写入时可忽略brpc的'[E1011]The server is overcrowded'错误。

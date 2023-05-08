@@ -1227,7 +1227,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
     - The RPC timeout for sending a Batch (1024 lines) during import. The default is 60 seconds. Since this RPC may involve writing multiple batches of memory, the RPC timeout may be caused by writing batches, so this timeout can be adjusted to reduce timeout errors (such as send batch fail errors). Also, if you increase the write_buffer_size configuration, you need to increase this parameter as well.
 * Default value: 60
 
-#### `partition_open_rpc_timeout_sec`
+#### `open_partition_rpc_timeout_sec`
 
 * Description: Update interval of partition state cache
     - The RPC timeout for sending a Batch (1024 lines) during import. The default is 60 seconds. Since this RPC may involve writing multiple batches of memory, the RPC timeout may be caused by writing batches, so this timeout can be adjusted to reduce timeout errors (such as send batch fail errors). Also, if you increase the write_buffer_size configuration, you need to increase this parameter as well.
@@ -1245,7 +1245,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: When importing, most partitions may not need to be written, and lazy opening can be used to only open the partitions that need to be written.When there is mixed deployment in the upgraded version, it needs to be set to false.
 * Default value: true
 
-#### `partition_open_ignore_eovercrowded`
+#### `open_partition_ignore_eovercrowded`
 
 * Type: bool
 * Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data.
