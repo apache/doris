@@ -522,3 +522,4 @@ suite("test_window_function") {
            FROM baseall ) AS A JOIN ( SELECT k2, k1, row_number () over  
            (PARTITION BY k2 ORDER BY k3) AS wj FROM baseall ) AS B WHERE A.k2=B.k2"""
 }
+

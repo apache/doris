@@ -347,3 +347,4 @@ suite("test_string_basic") {
     order by s1, s2, counts;
     """
 }
+
