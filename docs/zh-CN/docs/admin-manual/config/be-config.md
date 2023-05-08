@@ -129,18 +129,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：是否支持https. 如果是，需要在be.conf中配置`ssl_certificate_path`和`ssl_private_key_path`
 * 默认值：false
 
-#### `single_replica_load_brpc_port`
-
-* 类型: int32
-* 描述: 单副本数据导入功能中，Master副本和Slave副本之间通信的RPC端口。Master副本flush完成之后通过RPC通知Slave副本同步数据，以及Slave副本同步数据完成后通过RPC通知Master副本。系统为单副本数据导入过程中Master副本和Slave副本之间通信开辟了独立的BRPC线程池，以避免导入并发较大时副本之间的数据同步抢占导入数据分发和查询任务的线程资源。
-* 默认值: 9070
-
-#### `single_replica_load_download_port`
-
-* 类型: int32
-* 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的端口。系统为单副本数据导入过程中Slave副本从Master副本下载数据文件开辟了独立的HTTP线程池，以避免导入并发较大时Slave副本下载数据文件抢占其他http任务的线程资源。
-* 默认值: 8050
-
 #### `priority_networks`
 
 * 描述: 为那些有很多 ip 的服务器声明一个选择策略。 请注意，最多应该有一个 ip 与此列表匹配。 这是一个以分号分隔格式的列表，用 CIDR 表示法，例如 10.10.10.0/24 ， 如果没有匹配这条规则的ip，会随机选择一个。
@@ -709,18 +697,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述: routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurrent_task_num_per_be'
 * 默认值: 10
 
-#### `single_replica_load_brpc_num_threads`
-
-* 类型: int32
-* 描述: 单副本数据导入功能中，Master副本和Slave副本之间通信的线程数量。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。
-* 默认值: 64
-
-#### `single_replica_load_download_num_workers`
-
-* 类型: int32
-* 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的线程数。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。
-* 默认值: 64
-
 #### `slave_replica_writer_rpc_timeout_sec`
 
 * 类型: int32
@@ -744,6 +720,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 类型：int32
 * 描述：routine load 所使用的 data consumer 的缓存数量。
 * 默认值：10
+
+#### `single_replica_load_download_num_workers`
+* 类型: int32
+* 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的工作线程数。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。必要时也应相应地调大`webserver_num_workers`来提高IO效率。
+* 默认值: 64
 
 #### `load_task_high_priority_threshold_second`
 

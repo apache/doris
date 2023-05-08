@@ -19,7 +19,6 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -146,17 +145,7 @@ public class MetadataGenerator {
         }
         TBackendsMetadataParams backendsParam = params.getBackendsMetadataParams();
         final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
-        List<Long> backendIds = null;
-        if (!Strings.isNullOrEmpty(backendsParam.cluster_name)) {
-            final Cluster cluster = Env.getCurrentEnv().getCluster(backendsParam.cluster_name);
-            // root not in any cluster
-            if (null == cluster) {
-                return errorResult("Cluster is not existed.");
-            }
-            backendIds = cluster.getBackendIdList();
-        } else {
-            backendIds = clusterInfoService.getBackendIds(false);
-        }
+        List<Long> backendIds = clusterInfoService.getBackendIds(false);
 
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         long start = System.currentTimeMillis();

@@ -882,6 +882,8 @@ public class JdbcClient {
             fieldSchema.setDataTypeName(trinoArrType);
             Type type = trinoTypeToDoris(fieldSchema);
             return ArrayType.create(type, true);
+        } else if (trinoType.startsWith("varchar")) {
+            return ScalarType.createStringType();
         }
         switch (trinoType) {
             case "integer":
@@ -898,8 +900,6 @@ public class JdbcClient {
                 return Type.FLOAT;
             case "boolean":
                 return Type.BOOLEAN;
-            case "varchar":
-                return ScalarType.createStringType();
             case "date":
                 return ScalarType.createDateV2Type();
             default:

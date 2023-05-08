@@ -205,23 +205,23 @@ TEST(ArrowColumnToDorisColumnTest, test_date64_to_datetime) {
     test_datetime<arrow::Date64Type, ColumnVector<Int64>, true>(type, test_cases, 64);
 }
 
-//TEST(ArrowColumnToDorisColumnTest, test_timestamp_to_datetime) {
-//    auto type = std::make_shared<arrow::Date64Type>();
-//    std::vector<std::string> test_cases = {
-//            {"1970-01-01 12:12:12"}, {"2021-05-30 22:22:22"}, {"2022-05-08 00:00:01"}};
-//    std::vector<std::string> zones = {"UTC",    "GMT",           "CST",          "+01:00",
-//                                      "-09:00", "Asia/Shanghai", "Europe/Zurich"};
-//    std::vector<arrow::TimeUnit::type> time_units = {arrow::TimeUnit::SECOND,
-//                                                     arrow::TimeUnit::MICRO, arrow::TimeUnit::MILLI,
-//                                                     arrow::TimeUnit::NANO};
-//    for (auto& unit : time_units) {
-//        for (auto& zone : zones) {
-//            auto type = std::make_shared<arrow::TimestampType>(unit, zone);
-//            test_datetime<arrow::TimestampType, ColumnVector<Int64>, false>(type, test_cases, 64);
-//            test_datetime<arrow::TimestampType, ColumnVector<Int64>, true>(type, test_cases, 64);
-//        }
-//    }
-//}
+TEST(ArrowColumnToDorisColumnTest, test_timestamp_to_datetime) {
+    auto type = std::make_shared<arrow::Date64Type>();
+    std::vector<std::string> test_cases = {
+            {"1970-01-01 12:12:12"}, {"2021-05-30 22:22:22"}, {"2022-05-08 00:00:01"}};
+    std::vector<std::string> zones = {"UTC",    "GMT",           "CST",          "+01:00",
+                                      "-09:00", "Asia/Shanghai", "Europe/Zurich"};
+    std::vector<arrow::TimeUnit::type> time_units = {arrow::TimeUnit::SECOND,
+                                                     arrow::TimeUnit::MICRO, arrow::TimeUnit::MILLI,
+                                                     arrow::TimeUnit::NANO};
+    for (auto& unit : time_units) {
+        for (auto& zone : zones) {
+            auto type = std::make_shared<arrow::TimestampType>(unit, zone);
+            test_datetime<arrow::TimestampType, ColumnVector<Int64>, false>(type, test_cases, 64);
+            test_datetime<arrow::TimestampType, ColumnVector<Int64>, true>(type, test_cases, 64);
+        }
+    }
+}
 
 template <typename ArrowType, typename CppType, bool is_nullable,
           typename ColumnType = ColumnVector<CppType>,
