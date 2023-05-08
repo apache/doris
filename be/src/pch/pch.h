@@ -394,14 +394,11 @@
 #include <curl/system.h>
 #include <cxxabi.h>
 #include <dlfcn.h>
-#include <endian.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <features.h>
 #include <fenv.h>
 #include <float.h>
 #include <iconv.h>
-#include <immintrin.h>
 #include <inttypes.h>
 #include <jni.h>
 #include <jni_md.h>
@@ -409,10 +406,7 @@
 #include <libgen.h>
 #include <librdkafka/rdkafkacpp.h>
 #include <limits.h>
-#include <linux/perf_event.h>
-#include <malloc.h>
 #include <math.h>
-#include <mmintrin.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pdqsort.h>
@@ -431,21 +425,17 @@
 #include <strings.h>
 #include <sys/mman.h>
 #include <sys/param.h>
-#include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/sysctl.h>
-#include <sys/sysinfo.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/ucontext.h>
 #include <sys/uio.h>
 #include <sys/un.h>
 #include <time.h>
-#include <ucontext.h>
-#include <unistd.h>
 #include <wchar.h>
 #include <zconf.h>
 #include <zlib.h>
@@ -477,7 +467,6 @@
 #include <ctime>
 #include <deque>
 #include <exception>
-#include <ext/pb_ds/priority_queue.hpp>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -492,7 +481,6 @@
 #include <list>
 #include <map>
 #include <memory>
-#include <memory_resource>
 #include <mutex>
 #include <new>
 #include <numeric>
@@ -520,3 +508,20 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+#ifndef __APPLE__
+#include <byteswap.h>
+#include <endian.h>
+#include <features.h>
+#include <immintrin.h>
+#include <linux/perf_event.h>
+#include <malloc.h>
+#include <mmintrin.h>
+#include <sys/prctl.h>
+#include <sys/sysinfo.h>
+#include <ucontext.h>
+#include <unistd.h>
+
+#include <ext/pb_ds/priority_queue.hpp>
+#include <memory_resource>
+#endif
