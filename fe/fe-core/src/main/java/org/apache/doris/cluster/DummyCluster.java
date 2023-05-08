@@ -15,32 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.cluster;
 
-#include <memory>
-
-#include "common/object_pool.h"
-#include "common/status.h"
-
-namespace doris {
-
-class ExecEnv;
-class EvHttpServer;
-
-// HTTP service for Doris BE
-class SingleReplicaLoadDownloadService {
-public:
-    SingleReplicaLoadDownloadService(ExecEnv* env, int port, int num_threads);
-    ~SingleReplicaLoadDownloadService();
-
-    Status start();
-    void stop();
-
-private:
-    ExecEnv* _env;
-    ObjectPool _pool;
-
-    std::unique_ptr<EvHttpServer> _ev_http_server;
-};
-
-} // namespace doris
+/**
+ * This class is only use to replace the default_cluster.
+ * It should be removed after the default_cluster is removed.
+ */
+public class DummyCluster {
+}

@@ -930,8 +930,7 @@ Status AggregationNode::_reset_hash_table() {
                         ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
                          _align_aggregate_states) *
                                 _align_aggregate_states));
-                HashTableType new_hash_table;
-                hash_table = std::move(new_hash_table);
+                hash_table = HashTableType();
                 _agg_arena_pool.reset(new Arena);
                 return Status::OK();
             },

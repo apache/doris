@@ -190,6 +190,8 @@ public class BrokerLoadJob extends BulkLoadJob {
         // divide job into broker loading task by table
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true);
+        ProgressManager progressManager = Env.getCurrentProgressManager();
+        progressManager.registerProgressSimple(String.valueOf(id));
         MetaLockUtils.readLockTables(tableList);
         try {
             for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry
@@ -215,7 +217,6 @@ public class BrokerLoadJob extends BulkLoadJob {
                 // use newLoadingTasks to save new created loading tasks and submit them later.
                 newLoadingTasks.add(task);
                 // load id will be added to loadStatistic when executing this task
-
                 // save all related tables and rollups in transaction state
                 TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                         .getTransactionState(dbId, transactionId);

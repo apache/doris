@@ -49,7 +49,6 @@ set(UTIL_FILES
   path_builder.cpp
 # TODO: not supported on RHEL 5
   perf_counters.cpp
-  progress_updater.cpp
   runtime_profile.cpp
   static_asserts.cpp
   thrift_util.cpp
