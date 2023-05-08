@@ -244,6 +244,8 @@ public class Coordinator {
 
     private boolean enablePipelineEngine = false;
 
+    private boolean enablePpFuzzy = false;
+
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -330,6 +332,7 @@ public class Coordinator {
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
+        this.enablePpFuzzy = context.getSessionVariable().enablePpFuzzy;
         initQueryOptions(context);
 
         setFromUserProperty(context);
@@ -563,6 +566,9 @@ public class Coordinator {
     // be for a query like 'SELECT 1').
     // A call to Exec() must precede all other member function calls.
     public void exec() throws Exception {
+        if (enablePpFuzzy) {
+            return;
+        }
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
                     DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
