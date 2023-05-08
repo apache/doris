@@ -417,7 +417,7 @@ CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // the timeout of a rpc to open the partition in remote BE.
 // short operation time, can set a short timeout
 CONF_Int32(partition_open_rpc_timeout_sec, "60");
-// The configuration is used to enable lazy open feature, and the default value is false.
+// The configuration is used to enable lazy open feature, and the default value is true.
 CONF_Bool(enable_lazy_open_partition, "true");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 CONF_mBool(tablet_writer_ignore_eovercrowded, "false");

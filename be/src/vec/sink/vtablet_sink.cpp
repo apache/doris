@@ -478,7 +478,7 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-PartitionOpenClosure<PartitionOpenResult>* VNodeChannel::open_partition(int64_t partition_id) {
+void VNodeChannel::open_partition(int64_t partition_id) {
     _timeout_watch.reset();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     PartitionOpenRequest request;
@@ -494,13 +494,9 @@ PartitionOpenClosure<PartitionOpenResult>* VNodeChannel::open_partition(int64_t 
     }
 
     PartitionOpenClosure<PartitionOpenResult>* open_partition_closure =
-            new PartitionOpenClosure<PartitionOpenResult>(this);
-    open_partition_closure->ref();
+            new PartitionOpenClosure<PartitionOpenResult>(this,_index_channel);
 
-    // This ref is for RPC's reference
-    open_partition_closure->ref();
-
-    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
+    int remain_ms = config::partition_open_rpc_timeout_sec * 1000 - _timeout_watch.elapsed_time();
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         remain_ms = config::min_load_rpc_timeout_ms;
     }
@@ -511,42 +507,6 @@ PartitionOpenClosure<PartitionOpenResult>* VNodeChannel::open_partition(int64_t 
     _stub->open_partition(&open_partition_closure->cntl, &request, &open_partition_closure->result,
                           open_partition_closure);
     request.release_id();
-    return open_partition_closure;
-}
-
-Status VNodeChannel::open_partition_wait(
-        PartitionOpenClosure<PartitionOpenResult>* open_partition_closure) {
-    open_partition_closure->join();
-    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    if (open_partition_closure->cntl.Failed()) {
-        if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
-                    _stub, _node_info.host, _node_info.brpc_port)) {
-            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                    open_partition_closure->cntl.remote_side());
-        }
-        std::stringstream ss;
-        ss << "failed to open partition, error=" << berror(open_partition_closure->cntl.ErrorCode())
-           << ", error_text=" << open_partition_closure->cntl.ErrorText();
-        _cancelled = true;
-        LOG(WARNING) << ss.str() << " " << channel_info();
-        auto error_code = open_partition_closure->cntl.ErrorCode();
-        auto error_text = open_partition_closure->cntl.ErrorText();
-        if (open_partition_closure->unref()) {
-            delete open_partition_closure;
-        }
-        open_partition_closure = nullptr;
-        return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
-                                     berror(error_code), error_text);
-    }
-    Status status(open_partition_closure->result.status());
-    if (open_partition_closure->unref()) {
-        delete open_partition_closure;
-    }
-    open_partition_closure = nullptr;
-    if (!status.ok()) {
-        _cancelled = true;
-    }
-    return status;
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
@@ -1141,30 +1101,14 @@ Status VOlapTableSink::open(RuntimeState* state) {
 
 void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
     const auto& id = partition->id;
-    std::unordered_map<PartitionOpenClosure<PartitionOpenResult>*, IndexChannel*>
-            open_partition_closures;
     auto it = _partition_opened.find(id);
     if (it == _partition_opened.end()) {
         for (int j = 0; j < partition->indexes.size(); ++j) {
             for (const auto& tid : partition->indexes[j].tablets) {
                 auto it = _channels[j]->_channels_by_tablet.find(tid);
                 for (const auto& channel : it->second) {
-                    auto open_partition_closure = channel->open_partition(partition->id);
-                    open_partition_closures.insert(
-                            std::pair(open_partition_closure, _channels[j].get()));
+                    channel->open_partition(partition->id);
                 }
-            }
-        }
-        for (const auto& it : open_partition_closures) {
-            auto vnode_channel = it.first->channel;
-            auto index_channel = it.second;
-            auto st = vnode_channel->open_partition_wait(it.first);
-            if (!st.ok()) {
-                index_channel->mark_as_failed(
-                        vnode_channel->node_id(), vnode_channel->host(),
-                        fmt::format("{}, open failed, err: {}", vnode_channel->channel_info(),
-                                    st.to_string()),
-                        -1);
             }
         }
         _partition_opened.insert(id);

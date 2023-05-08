@@ -37,7 +37,6 @@
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 #include "util/uid_util.h"
-//#include <gen_cpp/internal_service.pb.h>
 
 namespace google {
 namespace protobuf {

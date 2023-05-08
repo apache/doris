@@ -33,31 +33,30 @@ using namespace stream_load;
 template <typename T>
 class PartitionOpenClosure : public google::protobuf::Closure {
 public:
-    PartitionOpenClosure(VNodeChannel* channel) : channel(channel), _refs(0) {}
+    PartitionOpenClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel)
+            : vnode_channel(vnode_channel), index_channel(index_channel) {}
     ~PartitionOpenClosure() = default;
-
-    void ref() { _refs.fetch_add(1); }
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1) == 1; }
 
     void Run() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         if (cntl.Failed()) {
-            channel->cancel("Open partition error");
+            std::stringstream ss;
+            ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
+               << ", error_text=" << this->cntl.ErrorText();
+            LOG(WARNING) << ss.str() << " " << vnode_channel->channel_info();
+            vnode_channel->cancel("Open partition error");
+            index_channel->mark_as_failed(vnode_channel->node_id(), vnode_channel->host(),
+                                          fmt::format("{}, open failed, err: {}",
+                                                      vnode_channel->channel_info(), ss.str()),
+                                          -1);
         }
-        if (unref()) {
-            delete this;
-        }
+        delete this;
     }
-
-    void join() { brpc::Join(cntl.call_id()); }
 
     brpc::Controller cntl;
     T result;
-    VNodeChannel* channel;
-
-private:
-    std::atomic<int> _refs;
+    VNodeChannel* vnode_channel;
+    IndexChannel* index_channel;
 };
 
 } // namespace doris

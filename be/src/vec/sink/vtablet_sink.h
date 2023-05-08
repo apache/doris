@@ -214,9 +214,7 @@ public:
 
     void open();
 
-    PartitionOpenClosure<PartitionOpenResult>* open_partition(int64_t partition_id);
-
-    Status open_partition_wait(PartitionOpenClosure<PartitionOpenResult>* open_partition_closure);
+    void open_partition(int64_t partition_id);
 
     Status init(RuntimeState* state);
 

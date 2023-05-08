@@ -280,6 +280,57 @@ int64_t TabletsChannel::mem_consumption() {
     return write_mem_usage + flush_mem_usage;
 }
 
+// Old logic,used for opening all writers of all partitions.
+Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
+    std::vector<SlotDescriptor*>* index_slots = nullptr;
+    int32_t schema_hash = 0;
+    for (auto& index : _schema->indexes()) {
+        if (index->index_id == _index_id) {
+            index_slots = &index->slots;
+            schema_hash = index->schema_hash;
+            break;
+        }
+    }
+    if (index_slots == nullptr) {
+        return Status::InternalError("unknown index id, key=" + _key.to_string());
+    }
+    for (auto& tablet : request.tablets()) {
+        WriteRequest wrequest;
+        wrequest.index_id = request.index_id();
+        wrequest.tablet_id = tablet.tablet_id();
+        wrequest.schema_hash = schema_hash;
+        wrequest.write_type = WriteType::LOAD;
+        wrequest.txn_id = _txn_id;
+        wrequest.partition_id = tablet.partition_id();
+        wrequest.load_id = request.id();
+        wrequest.tuple_desc = _tuple_desc;
+        wrequest.slots = index_slots;
+        wrequest.is_high_priority = _is_high_priority;
+        wrequest.table_schema_param = _schema;
+
+        DeltaWriter* writer = nullptr;
+        auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
+        if (!st.ok()) {
+            auto err_msg = fmt::format(
+                    "open delta writer failed, tablet_id={}"
+                    ", txn_id={}, partition_id={}, err={}",
+                    tablet.tablet_id(), _txn_id, tablet.partition_id(), st.to_string());
+            LOG(WARNING) << err_msg;
+            return Status::InternalError(err_msg);
+        }
+        {
+            std::lock_guard<SpinLock> l(_tablet_writers_lock);
+            _tablet_writers.emplace(tablet.tablet_id(), writer);
+        }
+    }
+    _s_tablet_writer_count += _tablet_writers.size();
+    DCHECK_EQ(_tablet_writers.size(), request.tablets_size());
+    return Status::OK();
+}
+
+// Due to the use of non blocking operations, 
+// the open partition rpc has not yet arrived when the actual write request arrives, 
+// it is a logic to avoid delta writer not open.
 template <typename TabletWriterAddRequest>
 Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
                                                        const TabletWriterAddRequest& request) {
@@ -338,53 +389,7 @@ Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
     return Status::OK();
 }
 
-Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
-    std::vector<SlotDescriptor*>* index_slots = nullptr;
-    int32_t schema_hash = 0;
-    for (auto& index : _schema->indexes()) {
-        if (index->index_id == _index_id) {
-            index_slots = &index->slots;
-            schema_hash = index->schema_hash;
-            break;
-        }
-    }
-    if (index_slots == nullptr) {
-        return Status::InternalError("unknown index id, key=" + _key.to_string());
-    }
-    for (auto& tablet : request.tablets()) {
-        WriteRequest wrequest;
-        wrequest.index_id = request.index_id();
-        wrequest.tablet_id = tablet.tablet_id();
-        wrequest.schema_hash = schema_hash;
-        wrequest.write_type = WriteType::LOAD;
-        wrequest.txn_id = _txn_id;
-        wrequest.partition_id = tablet.partition_id();
-        wrequest.load_id = request.id();
-        wrequest.tuple_desc = _tuple_desc;
-        wrequest.slots = index_slots;
-        wrequest.is_high_priority = _is_high_priority;
-        wrequest.table_schema_param = _schema;
-
-        DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
-        if (!st.ok()) {
-            auto err_msg = fmt::format(
-                    "open delta writer failed, tablet_id={}"
-                    ", txn_id={}, partition_id={}, err={}",
-                    tablet.tablet_id(), _txn_id, tablet.partition_id(), st.to_string());
-            LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
-        }
-        {
-            std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            _tablet_writers.emplace(tablet.tablet_id(), writer);
-        }
-    }
-    _s_tablet_writer_count += _tablet_writers.size();
-    DCHECK_EQ(_tablet_writers.size(), request.tablets_size());
-    return Status::OK();
-}
-
+// The method will called by open partition rpc.
 Status TabletsChannel::open_all_writers_for_partition(const PartitionOpenRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
