@@ -54,9 +54,7 @@ class VExprContext;
 
 void VLiteral::init(const TExprNode& node) {
     Field field;
-    if (node.node_type != TExprNodeType::NULL_LITERAL) {
-        field = _data_type->get_field(node);
-    }
+    field = _data_type->get_field(node);
     _column_ptr = _data_type->create_column_const(1, field);
 }
 
