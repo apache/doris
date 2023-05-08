@@ -345,7 +345,8 @@ public class MaterializedViewHandler extends AlterHandler {
         // get rollup schema hash
         int mvSchemaHash = Util.generateSchemaHash();
         // get short key column count
-        short mvShortKeyColumnCount = Env.calcShortKeyColumnCount(mvColumns, properties, true/*isKeysRequired*/);
+        boolean isKeysRequired = !(mvKeysType == KeysType.DUP_KEYS);
+        short mvShortKeyColumnCount = Env.calcShortKeyColumnCount(mvColumns, properties, isKeysRequired);
         // get timeout
         long timeoutMs = PropertyAnalyzer.analyzeTimeout(properties, Config.alter_table_timeout_second) * 1000;
 
@@ -551,7 +552,7 @@ public class MaterializedViewHandler extends AlterHandler {
                         break;
                     }
                 }
-                if (allKeysMatch) {
+                if (allKeysMatch && !olapTable.isDuplicateWithoutKey()) {
                     throw new DdlException("MV contain the columns of the base table in prefix order for "
                             + "duplicate table is useless.");
                 }
