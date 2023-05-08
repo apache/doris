@@ -32,6 +32,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileQueryScanNode;
+import org.apache.doris.planner.external.FileSplit;
 import org.apache.doris.planner.external.TableFormatType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
@@ -250,7 +251,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType() throws UserException {
+    public TFileFormatType getFileFormatType(FileSplit inputSplit) throws UserException {
         TFileFormatType type;
         String icebergFormat = source.getFileFormat();
         if (icebergFormat.equalsIgnoreCase("parquet")) {

@@ -32,6 +32,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
@@ -211,9 +212,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         FileSplit inputSplit = (FileSplit) inputSplits.get(0);
         TFileType locationType = getLocationType();
         params.setFileType(locationType);
-        TFileFormatType fileFormatType = getFileFormatType();
-        params.setFormatType(getFileFormatType());
-        if (fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN || fileFormatType == TFileFormatType.FORMAT_JSON) {
+        TFileFormatType fileFormatType = getFileFormatType(inputSplit);
+        params.setFormatType(fileFormatType);
+        if (Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON) {
             params.setFileAttributes(getFileAttributes());
         }
 
@@ -313,7 +314,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         throw new NotImplementedException("");
     }
 
-    protected TFileFormatType getFileFormatType() throws UserException {
+    protected TFileFormatType getFileFormatType(FileSplit inputSplit) throws UserException {
         throw new NotImplementedException("");
     }
 

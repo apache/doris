@@ -79,7 +79,7 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
+    public TFileFormatType getFileFormatType(FileSplit inputSplit) throws DdlException, MetaNotFoundException {
         return tableValuedFunction.getTFileFormatType();
     }
 

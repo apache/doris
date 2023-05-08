@@ -526,6 +526,8 @@ public class Util {
             return TFileFormatType.FORMAT_CSV_LZ4FRAME;
         } else if (lowerCasePath.endsWith(".lzo")) {
             return TFileFormatType.FORMAT_CSV_LZOP;
+        } else if (lowerCasePath.endsWith(".lzo_deflate")) {
+            return TFileFormatType.FORMAT_CSV_LZO;
         } else if (lowerCasePath.endsWith(".deflate")) {
             return TFileFormatType.FORMAT_CSV_DEFLATE;
         } else {
@@ -534,10 +536,12 @@ public class Util {
     }
 
     public static boolean isCsvFormat(TFileFormatType fileFormatType) {
-        return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
+        return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2
+                || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
                 || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZO || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
                 || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
     }
 

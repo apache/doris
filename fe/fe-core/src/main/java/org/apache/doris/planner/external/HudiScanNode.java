@@ -37,7 +37,7 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType() {
+    public TFileFormatType getFileFormatType(FileSplit inputSplit) {
         return TFileFormatType.FORMAT_PARQUET;
     }
 
