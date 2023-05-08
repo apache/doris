@@ -884,10 +884,11 @@ public class SessionVariable implements Serializable, Writable {
         }
         // pull_request_id default value is 0
         if (Config.pull_request_id % 2 == 1) {
-            this.enablePipelineEngine = true;
+            this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
-            this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+            // this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+            this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
         } else {
             // this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
@@ -902,6 +903,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.batchSize = 50;
             }
         }
+        this.batchSize = 50;
 
         // set random 1, 10, 100, 1000, 10000
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
