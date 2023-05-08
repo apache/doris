@@ -73,7 +73,7 @@ protected:
     virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer(bool is_vertical = false);
+    Status construct_output_rowset_writer(RowsetWriterContext& ctx, bool is_vertical = false);
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
