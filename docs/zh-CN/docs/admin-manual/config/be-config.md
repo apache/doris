@@ -462,9 +462,9 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 #### `vertical_compaction_num_columns_per_group`
 
-* 类型: bool
+* 类型: int32
 * 描述: 在列式compaction中, 组成一个合并组的列个数
-* 默认值: true
+* 默认值: 5
 
 #### `vertical_compaction_max_row_source_memory_mb`
 
