@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -45,18 +46,22 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalCTE().thenApply(ctx -> {
+        return logicalCTE().whenNot(LogicalCTE::isRegistered).thenApply(ctx -> {
             LogicalCTE<Plan> logicalCTE = ctx.root;
-            register(logicalCTE.getAliasQueries(), ctx.cascadesContext);
-            return logicalCTE.child();
+            List<LogicalSubQueryAlias<Plan>> analyzedCTE = register(logicalCTE, ctx.cascadesContext);
+            return new LogicalCTE<>(analyzedCTE, logicalCTE.child(), true,
+                    logicalCTE.getSubQueryAliasToUniqueId());
         }).toRule(RuleType.REGISTER_CTE);
     }
 
     /**
      * register and store CTEs in CTEContext
      */
-    private void register(List<LogicalSubQueryAlias<Plan>> aliasQueryList, CascadesContext cascadesContext) {
+    private List<LogicalSubQueryAlias<Plan>> register(LogicalCTE<Plan> logicalCTE,
+            CascadesContext cascadesContext) {
         CTEContext cteCtx = cascadesContext.getCteContext();
+        List<LogicalSubQueryAlias<Plan>> aliasQueryList = logicalCTE.getAliasQueries();
+        List<LogicalSubQueryAlias<Plan>> analyzedCTE = new ArrayList<>();
         for (LogicalSubQueryAlias<Plan> aliasQuery : aliasQueryList) {
             String cteName = aliasQuery.getAlias();
             if (cteCtx.containsCTE(cteName)) {
@@ -78,13 +83,17 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
                 checkColumnAlias(aliasQuery, analyzedCteBody.getOutput());
             }
 
-            cteCtx = new CTEContext(aliasQuery, localCteContext);
+            cteCtx = new CTEContext(aliasQuery, localCteContext, logicalCTE.findUniqueId(aliasQuery.getAlias()));
 
-            // now we can simply wrap aliasQuery for the first usage of this cte
-            cteCtx.setAnalyzedPlanCacheOnce(aliasQuery.withChildren(ImmutableList.of(analyzedCteBody)));
+            LogicalSubQueryAlias<Plan> logicalSubQueryAlias =
+                    aliasQuery.withChildren(ImmutableList.of(analyzedCteBody));
+            cteCtx.setAnalyzedPlan(logicalSubQueryAlias);
             cteCtx.setAnalyzePlanBuilder(analyzeCte);
+            cascadesContext.putCteIDToCTE(aliasQuery);
+            analyzedCTE.add(logicalSubQueryAlias);
         }
         cascadesContext.setCteContext(cteCtx);
+        return analyzedCTE;
     }
 
     /**

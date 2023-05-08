@@ -34,9 +34,10 @@ import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
+import org.apache.doris.nereids.rules.rewrite.logical.BuildCTEAnchorAndCTEProducer;
+import org.apache.doris.nereids.rules.rewrite.logical.CTEProducerRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckDataTypes;
-import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateAggregate;
@@ -74,6 +75,8 @@ import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspo
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
+import org.apache.doris.nereids.trees.plans.logical.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.trees.plans.logical.CollectProjectAboveConsumer;
 
 import com.google.common.collect.ImmutableList;
 
@@ -84,6 +87,7 @@ import java.util.List;
  */
 public class NereidsRewriter extends BatchRewriteJob {
     private static final List<RewriteJob> REWRITE_JOBS = jobs(
+
             topic("Plan Normalization",
                 topDown(
                     new EliminateOrderByConstant(),
@@ -195,7 +199,8 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             topic("Column pruning and infer predicate",
-                custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                // TODO: jichang to fix this
+                //custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
 
                 custom(RuleType.INFER_PREDICATES, InferPredicates::new),
 
@@ -264,7 +269,14 @@ public class NereidsRewriter extends BatchRewriteJob {
                 new AdjustNullable(),
                 new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                 new CheckAfterRewrite()
-            ))
+            )),
+
+            topic("CTE", topDown(
+                    // TODO: jichang to fix this
+                    new CollectFilterAboveConsumer(),
+                    new CollectProjectAboveConsumer(),
+                    new BuildCTEAnchorAndCTEProducer()),
+                    topDown(new CTEProducerRewrite()))
     );
 
     public NereidsRewriter(CascadesContext cascadesContext) {

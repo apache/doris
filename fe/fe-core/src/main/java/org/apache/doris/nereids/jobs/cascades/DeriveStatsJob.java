@@ -66,6 +66,8 @@ public class DeriveStatsJob extends Job {
             pushJob(new DeriveStatsJob(groupExpression, true, context));
 
             List<Group> children = groupExpression.children();
+            // Derive stats for left child first, so push it to stack at last, CTE related logic requires this order
+            // DO NOT CHANGE IT UNLESS YOU KNOW WHAT YOU ARE DOING.
             // rule maybe return new logical plans to wrap some new physical plans,
             // so we should check derive stats for it if no stats
             for (int i = children.size() - 1; i >= 0; i--) {

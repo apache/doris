@@ -29,7 +29,9 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -40,14 +42,35 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     private final List<LogicalSubQueryAlias<Plan>> aliasQueries;
 
+    private final Map<String, Integer> subQueryAliasToUniqueId;
+
+    private final boolean registered;
+
     public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child) {
-        this(aliasQueries, Optional.empty(), Optional.empty(), child);
+        this(aliasQueries, Optional.empty(), Optional.empty(), child, false, null);
+    }
+
+    public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child, boolean registered,
+            Map<String, Integer> subQueryAliasToUniqueId) {
+        this(aliasQueries, Optional.empty(), Optional.empty(), child, registered,
+                subQueryAliasToUniqueId);
     }
 
     public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, boolean registered,
+            Map<String, Integer> subQueryAliasToUniqueId) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
         this.aliasQueries = ImmutableList.copyOf(Objects.requireNonNull(aliasQueries, "aliasQueries can not be null"));
+        this.registered = registered;
+        this.subQueryAliasToUniqueId = subQueryAliasToUniqueId == null ? initUniqueId() : subQueryAliasToUniqueId;
+    }
+
+    private Map<String, Integer> initUniqueId() {
+        Map<String, Integer> subQueryAliasToUniqueId = new HashMap<>();
+        for (LogicalSubQueryAlias<Plan> subQueryAlias : aliasQueries) {
+            subQueryAliasToUniqueId.put(subQueryAlias.getAlias(), subQueryAlias.getUniqueId());
+        }
+        return subQueryAliasToUniqueId;
     }
 
     public List<LogicalSubQueryAlias<Plan>> getAliasQueries() {
@@ -72,7 +95,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalCTE",
-            "aliasQueries", aliasQueries
+                "aliasQueries", aliasQueries
         );
     }
 
@@ -101,7 +124,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(aliasQueries.size() > 0);
-        return new LogicalCTE<>(aliasQueries, children.get(0));
+        return new LogicalCTE<>(aliasQueries, children.get(0), registered, subQueryAliasToUniqueId);
     }
 
     @Override
@@ -116,11 +139,28 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     @Override
     public LogicalCTE<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTE<>(aliasQueries, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalCTE<>(aliasQueries, groupExpression, Optional.of(getLogicalProperties()), child(),
+                registered, subQueryAliasToUniqueId);
     }
 
     @Override
     public LogicalCTE<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTE<>(aliasQueries, Optional.empty(), logicalProperties, child());
+        return new LogicalCTE<>(aliasQueries, Optional.empty(), logicalProperties, child(), registered,
+                subQueryAliasToUniqueId);
+    }
+
+    public boolean isRegistered() {
+        return registered;
+    }
+
+    public int findUniqueId(String subQueryAlias) {
+        Integer id = subQueryAliasToUniqueId.get(subQueryAlias);
+        Preconditions.checkArgument(id != null, "Cannot find id for sub-query : %s",
+                subQueryAlias);
+        return id;
+    }
+
+    public Map<String, Integer> getSubQueryAliasToUniqueId() {
+        return subQueryAliasToUniqueId;
     }
 }

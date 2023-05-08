@@ -38,16 +38,19 @@ public class CTEContext {
     private String name;
     private LogicalSubQueryAlias<Plan> parsedPlan;
     // this cache only use once
-    private LogicalPlan analyzedPlanCacheOnce;
+    private LogicalPlan analyzedPlan;
     private Function<Plan, LogicalPlan> analyzePlanBuilder;
+
+    private int uniqueId;
 
     /* build head CTEContext */
     public CTEContext() {
-        this(null, null);
+        this(null, null, Integer.MIN_VALUE);
     }
 
     /** CTEContext */
-    public CTEContext(@Nullable LogicalSubQueryAlias<Plan> parsedPlan, @Nullable CTEContext previousCteContext) {
+    public CTEContext(@Nullable LogicalSubQueryAlias<Plan> parsedPlan, @Nullable CTEContext previousCteContext,
+            int uniqueId) {
         if ((parsedPlan == null && previousCteContext != null) || (parsedPlan != null && previousCteContext == null)) {
             throw new AnalysisException("Only first CteContext can contains null cte plan or previousCteContext");
         }
@@ -59,10 +62,11 @@ public class CTEContext {
                         .putAll(previousCteContext.cteContextMap)
                         .put(name, this)
                         .build();
+        this.uniqueId = uniqueId;
     }
 
-    public void setAnalyzedPlanCacheOnce(LogicalPlan analyzedPlan) {
-        this.analyzedPlanCacheOnce = analyzedPlan;
+    public void setAnalyzedPlan(LogicalPlan analyzedPlan) {
+        this.analyzedPlan = analyzedPlan;
     }
 
     public void setAnalyzePlanBuilder(Function<Plan, LogicalPlan> analyzePlanBuilder) {
@@ -82,6 +86,13 @@ public class CTEContext {
 
     /** getAnalyzedCTE */
     public Optional<LogicalPlan> getAnalyzedCTE(String cteName) {
+        if (!findCTEContext(cteName).isPresent()) {
+            return Optional.empty();
+        }
+        return Optional.of(findCTEContext(cteName).get().analyzedPlan);
+    }
+
+    public Optional<LogicalPlan> getForInline(String cteName) {
         return findCTEContext(cteName).map(CTEContext::doAnalyzeCTE);
     }
 
@@ -92,14 +103,10 @@ public class CTEContext {
     }
 
     private LogicalPlan doAnalyzeCTE() {
-        // we always analyze a cte as least once, if the cte only use once, we can return analyzedPlanCacheOnce.
-        // but if the cte use more then once, we should return difference analyzed plan to generate difference
-        // relation id, so the relation will not conflict in the memo.
-        if (analyzedPlanCacheOnce != null) {
-            LogicalPlan analyzedPlan = analyzedPlanCacheOnce;
-            analyzedPlanCacheOnce = null;
-            return analyzedPlan;
-        }
         return analyzePlanBuilder.apply(parsedPlan);
+    }
+
+    public int getUniqueId() {
+        return uniqueId;
     }
 }

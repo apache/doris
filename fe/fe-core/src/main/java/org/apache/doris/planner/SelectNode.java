@@ -50,7 +50,7 @@ public class SelectNode extends PlanNode {
         this.nullableTupleIds = child.nullableTupleIds;
     }
 
-    protected SelectNode(PlanNodeId id, PlanNode child, List<Expr> conjuncts) {
+    public SelectNode(PlanNodeId id, PlanNode child, List<Expr> conjuncts) {
         super(id, new ArrayList<>(child.getOutputTupleIds()), "SELECT", StatisticalType.SELECT_NODE);
         addChild(child);
         this.tblRefIds = child.tblRefIds;

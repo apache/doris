@@ -15,20 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.visitor;
+package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProduceOperator;
 
 /**
- * Use the visitor to iterate over all plans for plan.
+ * Implementation rule that convert logical CTE producer to physical CTE producer.
  */
-public class DefaultPlanVisitor<R, C> extends PlanVisitor<R, C> {
+public class LogicalCTEProduceToPhysicalCTEProduce extends OneImplementationRuleFactory {
     @Override
-    public R visit(Plan plan, C context) {
-        R ret = null;
-        for (Plan child : plan.children()) {
-            ret = child.accept(this, context);
-        }
-        return ret;
+    public Rule build() {
+        return logicalCTEProducer().then(cte -> new PhysicalCTEProduceOperator(
+            cte.getCteId(),
+            //cte.getGroupExpression(),
+            cte.getLogicalProperties(),
+            cte.child())
+        ).toRule(RuleType.LOGICAL_CTE_PRODUCE_TO_PHYSICAL_CTE_PRODUCE_RULE);
     }
 }

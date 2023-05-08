@@ -45,6 +45,9 @@ import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -165,7 +168,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private void estimate() {
-        Statistics stats = groupExpression.getPlan().accept(this, null);
+        // TODO: jichang to fix it
+        //Statistics stats = plan.accept(this, null);
+        Plan plan = groupExpression.getPlan();
+        Set<SlotReference> slotSet = plan.getOutput().stream().filter(SlotReference.class::isInstance)
+                .map(s -> (SlotReference) s).collect(Collectors.toSet());
+        double rowCount = 100000.0;
+        Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
+        for (SlotReference slotReference : slotSet) {
+            columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+        }
+        Statistics stats = new Statistics(rowCount, columnStatisticMap);
+
         Statistics originStats = groupExpression.getOwnerGroup().getStatistics();
         /*
         in an ideal cost model, every group expression in a group are equivalent, but in fact the cost are different.
@@ -792,4 +806,41 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return groupExprs.get(0).getPlan();
     }
 
+    @Override
+    public Statistics visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, Void context) {
+        // TODO: jichang to fix it
+        Set<SlotReference> slotSet = cteProducer.getOutput().stream().filter(SlotReference.class::isInstance)
+                .map(s -> (SlotReference) s).collect(Collectors.toSet());
+        double rowCount = 100000.0;
+        Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
+        for (SlotReference slotReference : slotSet) {
+            columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+        }
+        return new Statistics(rowCount, columnStatisticMap);
+    }
+
+    @Override
+    public Statistics visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, Void context) {
+        Set<SlotReference> slotSet = cteConsumer.getOutput().stream().filter(SlotReference.class::isInstance)
+                .map(s -> (SlotReference) s).collect(Collectors.toSet());
+        double rowCount = 100000.0;
+        Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
+        for (SlotReference slotReference : slotSet) {
+            columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+        }
+        return new Statistics(rowCount, columnStatisticMap);
+    }
+
+    @Override
+    public Statistics visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, Void context) {
+        // TODO: jichang to fix it
+        Set<SlotReference> slotSet = cteAnchor.getOutput().stream().filter(SlotReference.class::isInstance)
+                .map(s -> (SlotReference) s).collect(Collectors.toSet());
+        double rowCount = 100000.0;
+        Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
+        for (SlotReference slotReference : slotSet) {
+            columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+        }
+        return new Statistics(rowCount, columnStatisticMap);
+    }
 }

@@ -102,7 +102,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private ArrayList<Expr> outputExprs;
 
     // created in finalize() or set in setSink()
-    private DataSink sink;
+    protected DataSink sink;
 
     // data source(or sender) of specific partition in the fragment;
     // an UNPARTITIONED fragment is executed on only a single node

@@ -81,6 +81,8 @@ public class PlanTranslatorContext {
     private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
     private TupleDescriptor bufferedTupleForWindow = null;
 
+    private final Map<Integer, PlanFragment> cteProduceFragments = Maps.newHashMap();
+
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
     }
@@ -92,6 +94,10 @@ public class PlanTranslatorContext {
 
     public List<PlanFragment> getPlanFragments() {
         return planFragments;
+    }
+
+    public Map<Integer, PlanFragment> getCteProduceFragments() {
+        return cteProduceFragments;
     }
 
     public TupleDescriptor generateTupleDesc() {

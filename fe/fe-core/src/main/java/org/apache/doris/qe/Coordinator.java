@@ -47,6 +47,8 @@ import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.IntersectNode;
+import org.apache.doris.planner.MultiCastDataSink;
+import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -1282,6 +1284,9 @@ public class Coordinator {
             }
         }
 
+        // MultiCastFragment params
+        handleMultiCastFragmentParams();
+
         // assign runtime filter merge addr and target addr
         assignRuntimeFilterAddr();
 
@@ -1380,6 +1385,52 @@ public class Coordinator {
                         dest.setBrpcServer(toBrpcHost(destParams.instanceExecParams.get(j).host));
                         params.destinations.add(dest);
                     }
+                }
+            }
+        }
+    }
+
+    private void handleMultiCastFragmentParams() throws Exception {
+        for (FragmentExecParams params : fragmentExecParamsMap.values()) {
+            if (!(params.fragment instanceof MultiCastPlanFragment)) {
+                continue;
+            }
+
+            MultiCastPlanFragment multi = (MultiCastPlanFragment) params.fragment;
+            Preconditions.checkState(multi.getSink() instanceof MultiCastDataSink);
+            // set # of senders
+            MultiCastDataSink multiSink = (MultiCastDataSink) multi.getSink();
+
+            for (int i = 0; i < multi.getDestFragmentList().size(); i++) {
+                PlanFragment destFragment = multi.getDestFragmentList().get(i);
+                DataStreamSink sink = multiSink.getDataStreamSinks().get(i);
+
+                if (destFragment == null) {
+                    continue;
+                }
+                FragmentExecParams destParams = fragmentExecParamsMap.get(destFragment.getFragmentId());
+
+                // Set params for pipeline level shuffle.
+                // TODO: why no exec node partition type in doris
+                //multi.getDestNode(i).setPartitionType(params.fragment.getOutputPartition().getType());
+                //sink.setExchDop(destFragment.getPipelineDop());
+
+                PlanNodeId exchId = sink.getExchNodeId();
+                // MultiCastSink only send to itself, destination exchange only one senders
+                // and it's don't support sort-merge
+                Preconditions.checkState(!destParams.perExchNumSenders.containsKey(exchId.asInt()));
+                destParams.perExchNumSenders.put(exchId.asInt(), 1);
+
+                // TODO: needScheduleByShuffleJoin opt
+                // add destination host to this fragment's destination
+                for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                    TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                    dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
+                    dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
+                    // TODO:
+                    //dest.brpc_server = SystemInfoService.toBrpcHost(destParams.instanceExecParams.get(j).host);
+                    dest.brpc_server = toRpcHost(destParams.instanceExecParams.get(j).host);
+                    multiSink.getDestinations().get(i).add(dest);
                 }
             }
         }
