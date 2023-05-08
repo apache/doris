@@ -106,6 +106,23 @@ CREATE CATALOG iceberg PROPERTIES (
 "s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
 
+#### Google Dataproc Metastore 作为元数据服务
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    "type"="iceberg",
+    "iceberg.catalog.type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.1:9083",
+    "gs.endpoint" = "https://storage.googleapis.com",
+    "gs.region" = "us-east-1",
+    "gs.access_key" = "ak",
+    "gs.secret_key" = "sk",
+    "use_path_style" = "true"
+);
+```
+
+`hive.metastore.uris`: Dataproc Metastore 服务开放的接口，在 Metastore 管理页面获取 ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
+
 ## 列类型映射
 
 和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。
