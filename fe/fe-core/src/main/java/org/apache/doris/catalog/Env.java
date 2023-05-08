@@ -125,6 +125,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
@@ -447,6 +448,8 @@ public class Env {
 
     private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
 
+    private HiveTransactionMgr hiveTransactionMgr;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -652,6 +655,7 @@ public class Env {
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.resourceGroupMgr = new ResourceGroupMgr();
         this.loadManagerAdapter = new LoadManagerAdapter();
+        this.hiveTransactionMgr = new HiveTransactionMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -766,6 +770,14 @@ public class Env {
     // For unit test only
     public Checkpoint getCheckpointer() {
         return checkpointer;
+    }
+
+    public HiveTransactionMgr getHiveTransactionMgr() {
+        return hiveTransactionMgr;
+    }
+
+    public static HiveTransactionMgr getCurrentHiveTransactionMgr() {
+        return getCurrentEnv().getHiveTransactionMgr();
     }
 
     // Use tryLock to avoid potential dead lock
