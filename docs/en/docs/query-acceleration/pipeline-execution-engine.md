@@ -77,12 +77,7 @@ The default configuration of `parallel_fragment_exec_instance_num` represents th
 set parallel_fragment_exec_instance_num = 16;
 ```
 
-
-#### pipeline_parallel_fragment_exec_instance_num
-The default configuration of `parallel_fragment_exec_instance_num` represents the number of instances that a SQL query will query concurrently; Doris defaults to `0`, which affects the number of query threads in the Pipeline execution engine.Specifically, when set to 0, the number of query threads is half the current number of CPU cores.
-
-```
-set pipeline_parallel_fragment_exec_instance_num = 0;
-```
+Specifically, if set to 0, the concurrency in the Pipeline execution engine will automatically be set to half of the number of CPU cores.
+And the parallel_fragment_exec_instance_num cannot be set to more than 96.
 
 

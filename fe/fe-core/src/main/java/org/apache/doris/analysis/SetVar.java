@@ -155,7 +155,14 @@ public class SetVar {
             this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(getValue().getStringValue()));
             this.result = (LiteralExpr) this.value;
         }
-
+        if (getVariable().equalsIgnoreCase(SessionVariable.PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)) {
+            int instanceNum = Integer.parseInt(getValue().getStringValue());
+            if (instanceNum > 96) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
+                        SessionVariable.PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM,
+                        instanceNum + "(Should not be set to more than 96.)");
+            }
+        }
         if (getVariable().equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)) {
             this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getValue().getStringValue())));
             this.result = (LiteralExpr) this.value;
