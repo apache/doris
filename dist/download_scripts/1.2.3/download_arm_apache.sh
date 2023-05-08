@@ -21,7 +21,7 @@ set -eo pipefail
 FE="apache-doris-fe-1.2.3-bin-arm"
 BE="apache-doris-be-1.2.3-bin-arm"
 DEPS="apache-doris-dependencies-1.2.3-bin-arm"
-DOWNLOAD_LINK_PREFIX="https://dlcdn.apache.org/doris/1.2/1.2.3-rc02/"
+DOWNLOAD_LINK_PREFIX="https://archive.apache.org/dist/doris/1.2/1.2.3-rc02/"
 DOWNLOAD_DIR="apache-doris-1.2.3-bin"
 
 # Check and download download_base.sh

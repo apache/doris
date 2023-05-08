@@ -149,9 +149,6 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     std::string new_meta_file = full_path + "/" + std::to_string(tablet_id) + ".hdr";
     RETURN_IF_ERROR(new_tablet_meta->save(new_meta_file));
 
-    // reset tablet id and rowset id
-    RETURN_IF_ERROR(TabletMeta::reset_tablet_uid(new_meta_file));
-
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
     return SnapshotManager::instance()->convert_rowset_ids(full_path, tablet_id,

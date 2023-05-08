@@ -37,13 +37,19 @@ SHOW CREATE TABLE
 语法：
 
 ```sql
-SHOW CREATE TABLE [DBNAME.]TABLE_NAME
+SHOW [BRIEF] CREATE TABLE [DBNAME.]TABLE_NAME
 ```
 
 说明：
 
-1. `DBNAMNE` : 数据库名称
-2. `TABLE_NAME` : 表名
+<version since="dev">
+
+1. `BRIEF` : 返回结果中不展示分区信息
+
+</version>
+
+2. `DBNAMNE` : 数据库名称
+3. `TABLE_NAME` : 表名
 
 ### Example
 

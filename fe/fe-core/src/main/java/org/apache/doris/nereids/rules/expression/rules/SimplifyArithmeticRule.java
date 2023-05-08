@@ -81,6 +81,10 @@ public class SimplifyArithmeticRule extends AbstractExpressionRewriteRule {
         List<Operand> variables = Lists.newArrayList();
         List<Operand> constants = Lists.newArrayList();
 
+        // TODO currently we don't process decimalV3 for simplicity.
+        if (flattedExpressions.stream().anyMatch(operand -> operand.expression.getDataType().isDecimalV3Type())) {
+            return arithmetic;
+        }
         // 2. move variables to left side and move constants to right sid.
         flattedExpressions.forEach(operand -> {
             if (operand.expression.isConstant()) {
