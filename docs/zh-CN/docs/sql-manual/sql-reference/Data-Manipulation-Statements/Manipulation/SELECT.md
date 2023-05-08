@@ -155,7 +155,7 @@ WHERE cte1.a = cte2.c;
 
 CTE 名称可以在其他 CTE 中引用，从而可以基于其他 CTE 定义 CTE。
 
-目前不止递归的 CTE。
+目前不支持递归的 CTE。
 
 ### example
 
