@@ -667,7 +667,7 @@ public:
             return new BitmapAggField(column);
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
             return new QuantileStateAggField(column);
-        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_UNKNOWN:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC:
             return new AggStateField(column);
         }
         CHECK(false) << ", value column no agg type";

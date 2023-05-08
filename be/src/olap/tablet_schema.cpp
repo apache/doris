@@ -149,7 +149,7 @@ FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::s
     } else if (0 == upper_str.compare("QUANTILE_UNION")) {
         aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_QUANTILE_UNION;
     } else {
-        aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_UNKNOWN;
+        aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC;
     }
 
     return aggregation_type;
