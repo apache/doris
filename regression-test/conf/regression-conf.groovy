@@ -80,7 +80,7 @@ sqlserver_2022_port=1433
 clickhouse_22_port=8123
 
 // hive catalog test config
-// To enable jdbc test, you need first start hive container.
+// To enable hive test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 hms_port=9183
@@ -131,3 +131,6 @@ s3Region = "ap-hongkong"
 // all following suite will be skipped to fast quit the run.
 // <=0 means no limit.
 max_failure_num=0
+
+// used for exporting test
+s3ExportBucketName = ""

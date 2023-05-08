@@ -195,7 +195,7 @@ struct TQueryOptions {
   // deprecated
   60: optional i32 partitioned_hash_agg_rows_threshold = 0
 
-  61: optional bool enable_file_cache = true
+  61: optional bool enable_file_cache = false
   
   62: optional i32 insert_timeout = 14400
 

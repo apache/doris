@@ -592,7 +592,11 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
 * `enable_file_cache`
 
-    控制是否启用block file cache。该变量只有在be.conf中enable_file_cache=true时才有效，如果be.conf中enable_file_cache=false，则block file cache一直处于禁用状态。
+    控制是否启用block file cache，默认 false。该变量只有在be.conf中enable_file_cache=true时才有效，如果be.conf中enable_file_cache=false，该BE节点的block file cache处于禁用状态。
+
+* `file_cache_base_path`
+
+    指定block file cache在BE上的存储路径，默认 'random'，随机选择BE配置的存储路径。
 	
 * `topn_opt_limit_threshold`
 
