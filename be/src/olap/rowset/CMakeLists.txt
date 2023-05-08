@@ -31,4 +31,7 @@ add_library(Rowset STATIC
     beta_rowset_writer.cpp
     vertical_beta_rowset_writer.cpp
     segcompaction.cpp
-    rowset_tree.cpp)
+    rowset_tree.cpp
+)
+
+pch_reuse(Rowset)

@@ -632,7 +632,7 @@ Status TabletReader::init_reader_params_and_create_block(
 
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
+        RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
         reader_params->rs_readers.push_back(std::move(rs_reader));
     }
 
