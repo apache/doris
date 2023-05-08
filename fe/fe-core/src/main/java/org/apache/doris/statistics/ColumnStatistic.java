@@ -148,10 +148,14 @@ public class ColumnStatistic {
             if (!StatisticsUtil.isNullOrEmpty(min)) {
                 columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
                 columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            } else {
+                columnStatisticBuilder.setMinValue(Double.NaN);
             }
             if (!StatisticsUtil.isNullOrEmpty(max)) {
                 columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
                 columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+            } else {
+                columnStatisticBuilder.setMinValue(Double.NaN);
             }
             columnStatisticBuilder.setSelectivity(1.0);
             columnStatisticBuilder.setOriginalNdv(ndv);
