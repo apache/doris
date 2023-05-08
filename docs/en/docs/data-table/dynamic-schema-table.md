@@ -1,6 +1,6 @@
 ---
 {
-    "title": "[Experimental] Dynamie schema table",
+    "title": "Dynamic schema table",
     "language": "en"
 }
 ---
@@ -24,14 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Dynamic Table
-
-<version since="2.0.0">
-
-Dynamic Table
-
-</version>
-
+<version since="2.0.0"></version>
 
 A dynamic schema table is a special kind of table which schema expands automatically with the import procedure. Currently, this feature is mainly used for importing semi-structured data such as JSON. Because JSON is self-describing, we can extract the schema information from the original document and infer the final type information. This special table can reduce manual schema change operations and easily import semi-structured data and automatically expand its schema.
 

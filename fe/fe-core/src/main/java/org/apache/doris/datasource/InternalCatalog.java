@@ -2783,7 +2783,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-
+    @Deprecated
     public long loadCluster(DataInputStream dis, long checksum) throws IOException, DdlException {
         int clusterCount = dis.readInt();
         checksum ^= clusterCount;
@@ -2793,11 +2793,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             Cluster oldCluster = Cluster.read(dis);
             checksum ^= oldCluster.getId();
         }
-
-        InfoSchemaDb db = new InfoSchemaDb(SystemInfoService.DEFAULT_CLUSTER);
-        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        idToDb.put(db.getId(), db);
-        fullNameToDb.put(db.getFullName(), db);
         return checksum;
     }
 

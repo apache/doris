@@ -101,6 +101,8 @@ struct TResultFileSinkOptions {
     13: optional bool parquet_disable_dictionary
     14: optional TParquetVersion parquet_version
     15: optional string orc_schema
+
+    16: optional bool delete_existing_files;
 }
 
 struct TMemoryScratchSink {

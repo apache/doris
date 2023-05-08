@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <fmt/core.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -443,6 +444,7 @@ Status set_config(const std::string& field, const std::string& value, bool need_
 }
 
 Status set_fuzzy_config(const std::string& field, const std::string& value) {
+    LOG(INFO) << fmt::format("FUZZY MODE: {} has been set to {}", field, value);
     return set_config(field, value, false, true);
 }
 
