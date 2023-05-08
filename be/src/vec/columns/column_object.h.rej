@@ -1,0 +1,63 @@
+diff a/be/src/vec/columns/column_object.h b/be/src/vec/columns/column_object.h	(rejected hunks)
+@@ -66,7 +66,7 @@ struct FieldInfo {
+     /// Number of dimension in array. 0 if field is scalar.
+     size_t num_dimensions;
+ };
+-Status get_field_info(const Field& field, FieldInfo* info);
++void get_field_info(const Field& field, FieldInfo* info);
+ /** A column that represents object with dynamic set of subcolumns.
+  *  Subcolumns are identified by paths in document and are stored in
+  *  a trie-like structure. ColumnObject is not suitable for writing into tables
+@@ -109,16 +109,16 @@ public:
+ 
+         /// Inserts a field, which scalars can be arbitrary, but number of
+         /// dimensions should be consistent with current common type.
+-        /// return Status::InvalidArgument when meet conflict types
+-        Status insert(Field field);
++        /// throws InvalidArgument when meet conflict types
++        void insert(Field field);
+ 
+-        Status insert(Field field, FieldInfo info);
++        void insert(Field field, FieldInfo info);
+ 
+         void insertDefault();
+ 
+         void insertManyDefaults(size_t length);
+ 
+-        Status insertRangeFrom(const Subcolumn& src, size_t start, size_t length);
++        void insertRangeFrom(const Subcolumn& src, size_t start, size_t length);
+ 
+         void pop_back(size_t n);
+ 
+@@ -279,12 +279,7 @@ public:
+     void for_each_subcolumn(ColumnCallback callback) override;
+ 
+     // Do nothing, call try_insert instead
+-    void insert(const Field& field) override {
+-        Status st = try_insert(field);
+-        if (!st.ok()) {
+-            LOG(FATAL) << "insert return ERROR status: " << st;
+-        }
+-    }
++    void insert(const Field& field) override { try_insert(field); }
+ 
+     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+ 
+@@ -294,13 +289,12 @@ public:
+     void insert_indices_from(const IColumn& src, const int* indices_begin,
+                              const int* indices_end) override;
+ 
+-    // Only called in Block::add_row
+-    Status try_insert(const Field& field);
++    // May throw execption
++    void try_insert(const Field& field);
+ 
+-    Status try_insert_from(const IColumn& src, size_t n);
++    void try_insert_from(const IColumn& src, size_t n);
+ 
+-    // Only called in Block::add_row
+-    Status try_insert_range_from(const IColumn& src, size_t start, size_t length);
++    void try_insert_range_from(const IColumn& src, size_t start, size_t length);
+ 
+     void insert_default() override;
+ 

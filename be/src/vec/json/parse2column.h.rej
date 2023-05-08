@@ -1,0 +1,19 @@
+diff a/be/src/vec/json/parse2column.h b/be/src/vec/json/parse2column.h	(rejected hunks)
+@@ -35,12 +35,12 @@ class JSONDataParser;
+ 
+ namespace doris::vectorized {
+ 
+-// parse a batch of json strings into column object
+-Status parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons);
++// parse a batch of json strings into column object, throws doris::Execption when failed
++void parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons);
+ 
+-// parse a single json
+-Status parse_json_to_variant(IColumn& column, const StringRef& jsons,
+-                             JSONDataParser<SimdJSONParser>* parser);
++// parse a single json, throws doris::Execption when failed
++void parse_json_to_variant(IColumn& column, const StringRef& jsons,
++                           JSONDataParser<SimdJSONParser>* parser);
+ 
+ // extract keys columns from json strings into columns
+ bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,

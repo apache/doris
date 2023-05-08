@@ -224,8 +224,10 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
             continue;
         }
         if (!paths_set.insert(paths[i].get_path()).second) {
-            return Status::DataQualityError(
-                    fmt::format("Object has ambiguous path {}", paths[i].get_path()));
+            // return Status::DataQualityError(
+            //         fmt::format("Object has ambiguous path {}, {}", paths[i].get_path()));
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Object has ambiguous path {}",
+                                   paths[i].get_path());
         }
 
         if (!column_object.has_subcolumn(paths[i])) {
