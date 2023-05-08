@@ -288,8 +288,6 @@ Status VScanNode::_init_profile() {
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
-    _pre_alloc_free_blocks_num =
-            ADD_COUNTER(_runtime_profile, "PreAllocFreeBlocksNum", TUnit::UNIT);
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
 
     return Status::OK();
