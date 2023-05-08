@@ -1588,11 +1588,11 @@ build_clucene() {
         -DBUILD_SHARED_LIBRARIES=OFF \
         -DBOOST_ROOT="${TP_INSTALL_DIR}" \
         -DZLIB_ROOT="${TP_INSTALL_DIR}" \
-        -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
+        -DCMAKE_CXX_FLAGS="-g -fno-omit-frame-pointer ${warning_narrowing}" \
         -DUSE_STAT64=0 \
         -DUSE_AVX2="${USE_AVX2}" \
         -DUSE_BTHREAD="${USE_BTHREAD}" \
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_CONTRIBS_LIB=ON ..
     ${BUILD_SYSTEM} -j "${PARALLEL}"
     ${BUILD_SYSTEM} install
