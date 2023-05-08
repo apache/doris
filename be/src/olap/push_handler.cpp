@@ -119,7 +119,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     load_id.set_lo(0);
     {
         std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
-        RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
+        RETURN_IF_ERROR(StorageEngine::instance()->txn_manager()->prepare_txn(
                 request.partition_id, tablet, request.transaction_id, load_id));
     }
 

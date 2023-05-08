@@ -132,6 +132,7 @@ if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
     if test -x "${DORIS_GCC_HOME}/bin/ld"; then
         export DORIS_BIN_UTILS="${DORIS_GCC_HOME}/bin/"
     fi
+    ENABLE_PCH='OFF'
 elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     # set CLANG HOME
     if [[ -z "${DORIS_CLANG_HOME}" ]]; then
@@ -152,6 +153,11 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     fi
     if [[ -f "${DORIS_CLANG_HOME}/bin/llvm-symbolizer" ]]; then
         export ASAN_SYMBOLIZER_PATH="${DORIS_CLANG_HOME}/bin/llvm-symbolizer"
+    fi
+    if [[ -z "${ENABLE_PCH}" ]]; then
+        ENABLE_PCH='ON'
+    else
+        ENABLE_PCH='OFF'
     fi
 else
     echo "Error: unknown DORIS_TOOLCHAIN=${DORIS_TOOLCHAIN}, currently only 'gcc' and 'clang' are supported"
