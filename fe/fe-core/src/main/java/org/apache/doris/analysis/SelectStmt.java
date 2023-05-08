@@ -631,6 +631,9 @@ public class SelectStmt extends QueryStmt {
             tableRef.setOnClause(rewriteQueryExprByMvColumnExpr(tableRef.getOnClause(), analyzer));
         }
 
+        if (limitElement != null && orderByElements == null) {
+            addDefaultOrderByElementForLimitOffset();
+        }
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
@@ -1544,6 +1547,30 @@ public class SelectStmt extends QueryStmt {
                 throw new AnalysisException(
                         "HAVING clause not produced by aggregation output " + "(missing from GROUP BY "
                                 + "clause?): " + havingClause.toSql());
+            }
+        }
+    }
+
+    private void addDefaultOrderByElementForLimitOffset() {
+        orderByElements = Lists.newArrayList();
+        // for stable, we order by the key default if not order by at limit clause.
+        for (TableRef ref : getTableRefs()) {
+            if (ref instanceof BaseTableRef) {
+                // we get key column
+                BaseTableRef baseTableRef = ((BaseTableRef) ref);
+                // TODO: support other type, now we support OLAP table.
+                TableIf table = baseTableRef.getTable();
+                if (table.getType() == TableType.OLAP) {
+                    OlapTable olapTable = ((OlapTable) table);
+                    int num = olapTable.getKeysNum();
+                    for (int i = 0; i < num; ++i) {
+                        orderByElements.add(new OrderByElement(
+                                olapTable.getFullSchema().get(i).getDefineExpr(),
+                                true,
+                                true
+                        ));
+                    }
+                }
             }
         }
     }
