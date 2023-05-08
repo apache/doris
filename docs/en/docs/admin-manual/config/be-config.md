@@ -1242,7 +1242,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `enable_lazy_open_partition`
 
 * Type: bool
-* Description: When importing, most partitions may not need to be written, and lazy opening can be used to only open the partitions that need to be written.
+* Description: When importing, most partitions may not need to be written, and lazy opening can be used to only open the partitions that need to be written.When there is mixed deployment in the upgraded version, it needs to be set to false.
 * Default value: true
 
 #### `partition_open_ignore_eovercrowded`
