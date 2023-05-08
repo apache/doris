@@ -182,11 +182,11 @@ public class CastExpr extends Expr {
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type fromType : Type.getSupportedTypes()) {
+        for (Type fromType : Type.getTrivialTypes()) {
             if (fromType.isNull()) {
                 continue;
             }
-            for (Type toType : Type.getSupportedTypes()) {
+            for (Type toType : Type.getTrivialTypes()) {
                 functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),
                         toType, TYPE_NULLABLE_MODE.get(Pair.of(fromType, toType)),
                         Lists.newArrayList(fromType), false,

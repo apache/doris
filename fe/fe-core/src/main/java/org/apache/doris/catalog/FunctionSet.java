@@ -1744,7 +1744,7 @@ public class FunctionSet<T> {
                         "",
                         true, false, true, true));
 
-        for (Type t : Type.getSupportedTypes()) {
+        for (Type t : Type.getTrivialTypes()) {
             if (t.isNull()) {
                 continue; // NULL is handled through type promotion.
             }
@@ -1948,7 +1948,7 @@ public class FunctionSet<T> {
                     null, null, null, true, false, false, true));
 
             // vectorized
-            for (Type kt : Type.getSupportedTypes()) {
+            for (Type kt : Type.getTrivialTypes()) {
                 if (kt.isNull()) {
                     continue;
                 }

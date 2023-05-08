@@ -169,6 +169,10 @@ public abstract class Type {
         supportedTypes = Lists.newArrayList();
         supportedTypes.addAll(trivialTypes);
         supportedTypes.add(NULL);
+        supportedTypes.add(HLL);
+        supportedTypes.add(BITMAP);
+        supportedTypes.add(QUANTILE_STATE);
+        supportedTypes.add(AGG_STATE);
 
         arraySubTypes = Lists.newArrayList();
         arraySubTypes.add(BOOLEAN);
