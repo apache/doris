@@ -462,21 +462,21 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 #### `vertical_compaction_num_columns_per_group`
 
-* 类型: bool
+* 类型: int32
 * 描述: 在列式compaction中, 组成一个合并组的列个数
-* 默认值: true
+* 默认值: 5
 
 #### `vertical_compaction_max_row_source_memory_mb`
 
-* 类型: bool
-* 描述: 在列式compaction中, row_source_buffer能使用的最大内存
-* 默认值: true
+* 类型: int32
+* 描述: 在列式compaction中, row_source_buffer能使用的最大内存，单位是MB。
+* 默认值: 200
 
 #### `vertical_compaction_max_segment_size`
 
-* 类型: bool
-* 描述: 在列式compaction中, 输出的segment文件最大值
-* 默认值: true
+* 类型: int32
+* 描述: 在列式compaction中, 输出的segment文件最大值，单位是m字节。
+* 默认值: 268435456
 
 #### `enable_ordered_data_compaction`
 
@@ -486,9 +486,9 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 #### `ordered_data_compaction_min_segment_size`
 
-* 类型: bool
-* 描述: 在有序数据compaction中, 满足要求的最小segment大小
-* 默认值: true
+* 类型: int32
+* 描述: 在有序数据compaction中, 满足要求的最小segment大小，单位是m字节。
+* 默认值: 10485760
 
 #### `max_base_compaction_threads`
 
