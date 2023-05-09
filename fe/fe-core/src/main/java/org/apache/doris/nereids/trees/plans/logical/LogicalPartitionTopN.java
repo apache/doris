@@ -137,13 +137,6 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         return null;
     }
 
-//    @Override
-//    public List<? extends Expression> getExpressions() {
-//        return orderKeys.stream()
-//            .map(OrderKey::getExpr)
-//            .collect(ImmutableList.toImmutableList());
-//    }
-
     @Override
     public LogicalPartitionTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);

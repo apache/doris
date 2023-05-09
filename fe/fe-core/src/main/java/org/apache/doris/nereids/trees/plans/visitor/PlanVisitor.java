@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -323,6 +324,11 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, C context) {
         return visitAbstractPhysicalSort(topN, context);
+    }
+
+    // TODO: finish corresponding overrides functions
+    public R visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, C context) {
+        return visit(partitionTopN, context);
     }
 
     public R visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, C context) {
