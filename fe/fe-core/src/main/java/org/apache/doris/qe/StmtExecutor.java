@@ -1832,10 +1832,10 @@ public class StmtExecutor {
     private void handlePrepareStmt() throws Exception {
         // register prepareStmt
         LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                prepareStmt.getName(), prepareStmt.isBinaryProtocol());
+                        prepareStmt.getName(), prepareStmt.isBinaryProtocol());
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
-                        context, planner, analyzer, prepareStmt.getName()));
+                            context, planner, analyzer, prepareStmt.getName()));
         if (prepareStmt.isBinaryProtocol()) {
             sendStmtPrepareOK();
         }
@@ -1900,7 +1900,7 @@ public class StmtExecutor {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
             sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
-                    exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
+                        exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
         }
         context.getState().setOk();
     }

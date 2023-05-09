@@ -155,32 +155,32 @@ public class DataDescription implements InsertStmt.DataDesc {
     private int skipLines = 0;
 
     public DataDescription(String tableName,
-            PartitionNames partitionNames,
-            List<String> filePaths,
-            List<String> columns,
-            Separator columnSeparator,
-            String fileFormat,
-            boolean isNegative,
-            List<Expr> columnMappingList) {
+                           PartitionNames partitionNames,
+                           List<String> filePaths,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           String fileFormat,
+                           boolean isNegative,
+                           List<Expr> columnMappingList) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
                 isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
     }
 
     public DataDescription(String tableName,
-            PartitionNames partitionNames,
-            List<String> filePaths,
-            List<String> columns,
-            Separator columnSeparator,
-            String fileFormat,
-            List<String> columnsFromPath,
-            boolean isNegative,
-            List<Expr> columnMappingList,
-            Expr fileFilterExpr,
-            Expr whereExpr,
-            LoadTask.MergeType mergeType,
-            Expr deleteCondition,
-            String sequenceColName,
-            Map<String, String> properties) {
+                           PartitionNames partitionNames,
+                           List<String> filePaths,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           String fileFormat,
+                           List<String> columnsFromPath,
+                           boolean isNegative,
+                           List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition,
+                           String sequenceColName,
+                           Map<String, String> properties) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
@@ -203,14 +203,14 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     // data from table external_hive_table
     public DataDescription(String tableName,
-            PartitionNames partitionNames,
-            String srcTableName,
-            boolean isNegative,
-            List<Expr> columnMappingList,
-            Expr whereExpr,
-            LoadTask.MergeType mergeType,
-            Expr deleteCondition,
-            Map<String, String> properties) {
+                           PartitionNames partitionNames,
+                           String srcTableName,
+                           boolean isNegative,
+                           List<Expr> columnMappingList,
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition,
+                           Map<String, String> properties) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = null;
@@ -230,15 +230,15 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     // data desc for mysql client
     public DataDescription(TableName tableName,
-            PartitionNames partitionNames,
-            String file,
-            boolean clientLocal,
-            List<String> columns,
-            Separator columnSeparator,
-            Separator lineDelimiter,
-            int skipLines,
-            List<Expr> columnMappingList,
-            Map<String, String> properties) {
+                           PartitionNames partitionNames,
+                           String file,
+                           boolean clientLocal,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           Separator lineDelimiter,
+                           int skipLines,
+                           List<Expr> columnMappingList,
+                           Map<String, String> properties) {
         this.tableName = tableName.getTbl();
         this.dbName = tableName.getDb();
         this.partitionNames = partitionNames;

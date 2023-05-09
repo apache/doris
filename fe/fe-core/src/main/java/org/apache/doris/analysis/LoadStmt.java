@@ -230,7 +230,7 @@ public class LoadStmt extends DdlStmt {
     }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-            BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment) {
+                    BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
@@ -246,7 +246,7 @@ public class LoadStmt extends DdlStmt {
     }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-            ResourceDesc resourceDesc, Map<String, String> properties, String comment) {
+                    ResourceDesc resourceDesc, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = null;
@@ -452,11 +452,11 @@ public class LoadStmt extends DdlStmt {
             etlJobType = resourceDesc.getEtlJobType();
             // check resource usage privilege
             if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
-                    resourceDesc.getName(),
-                    PrivPredicate.USAGE)) {
+                                                                         resourceDesc.getName(),
+                                                                         PrivPredicate.USAGE)) {
                 throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
-                        + "'@'" + ConnectContext.get().getRemoteIP()
-                        + "' for resource '" + resourceDesc.getName() + "'");
+                                                    + "'@'" + ConnectContext.get().getRemoteIP()
+                                                    + "' for resource '" + resourceDesc.getName() + "'");
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
