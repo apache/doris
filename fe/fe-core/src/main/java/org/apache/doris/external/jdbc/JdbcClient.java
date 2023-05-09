@@ -211,6 +211,7 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'");
                     break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = stmt.executeQuery("SHOW SCHEMAS");
                     break;
                 default:
@@ -256,6 +257,7 @@ public class JdbcClient {
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                 case JdbcResource.OCEANBASE_ORACLE:
                     databaseNames.add(conn.getSchema());
                     break;
@@ -295,6 +297,7 @@ public class JdbcClient {
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
@@ -337,6 +340,7 @@ public class JdbcClient {
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
@@ -414,6 +418,7 @@ public class JdbcClient {
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = databaseMetaData.getColumns(catalogName, dbName, tableName, null);
                     break;
                 default:
@@ -464,6 +469,7 @@ public class JdbcClient {
             case JdbcResource.SAP_HANA:
                 return saphanaTypeToDoris(fieldSchema);
             case JdbcResource.TRINO:
+            case JdbcResource.PRESTO:
                 return trinoTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
@@ -876,6 +882,8 @@ public class JdbcClient {
             fieldSchema.setDataTypeName(trinoArrType);
             Type type = trinoTypeToDoris(fieldSchema);
             return ArrayType.create(type, true);
+        } else if (trinoType.startsWith("varchar")) {
+            return ScalarType.createStringType();
         }
         switch (trinoType) {
             case "integer":
@@ -892,8 +900,6 @@ public class JdbcClient {
                 return Type.FLOAT;
             case "boolean":
                 return Type.BOOLEAN;
-            case "varchar":
-                return ScalarType.createStringType();
             case "date":
                 return ScalarType.createDateV2Type();
             default:

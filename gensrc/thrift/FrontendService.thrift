@@ -433,6 +433,8 @@ struct TReportExecStatusParams {
   20: optional PaloInternalService.TQueryType query_type
 
   21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+
+  22: optional i32 finished_scan_ranges
 }
 
 struct TFeResult {

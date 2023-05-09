@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
@@ -91,6 +92,14 @@ Status HttpService::start() {
                                       tablet_download_action);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/_tablet/_download",
                                       tablet_download_action);
+    if (config::enable_single_replica_load) {
+        DownloadAction* single_replica_download_action = _pool.add(new DownloadAction(
+                _env, allow_paths, config::single_replica_load_download_num_workers));
+        _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_single_replica/_download",
+                                          single_replica_download_action);
+        _ev_http_server->register_handler(HttpMethod::GET, "/api/_single_replica/_download",
+                                          single_replica_download_action);
+    }
 
     DownloadAction* error_log_download_action =
             _pool.add(new DownloadAction(_env, _env->load_path_mgr()->get_load_error_file_dir()));
