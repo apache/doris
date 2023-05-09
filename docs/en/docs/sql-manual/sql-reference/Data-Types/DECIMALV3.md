@@ -76,9 +76,9 @@ DECIMALV3 in Doris is a real high-precision fixed-point number. Compared with th
 +----------------------+------------------------------+
 |     precision        | Space occupied (memory/disk) |
 +----------------------+------------------------------+
-| 0 < precision <= 8   |            4 bytes           |
+| 0 < precision <= 9   |            4 bytes           |
 +----------------------+------------------------------+
-| 8 < precision <= 18  |            8 bytes           |
+| 9 < precision <= 18  |            8 bytes           |
 +----------------------+------------------------------+
 | 18 < precision <= 38 |           16 bytes           |
 +----------------------+------------------------------+

@@ -27,5 +27,7 @@ add_library(Common STATIC
   exception.cpp
 )
 
+pch_reuse(Common)
+
 # Generate env_config.h according to env_config.h.in
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/env_config.h.in ${GENSRC_DIR}/common/env_config.h)

@@ -56,7 +56,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
     // Must set to -1 otherwise client.getNextNotification will throw exception
-    // Reference to https://github.com/apache/doris/issues/18251
+    // Reference to https://github.com/apDdlache/doris/issues/18251
     private long lastSyncedEventId = -1L;
     public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
@@ -130,10 +130,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.HMS);
         List<String> allDatabases = client.getAllDatabases();
-        Map<String, Boolean> specifiedDatabaseMap = getSpecifiedDatabaseMap();
+        Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
+        Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
         // Update the db name to id map.
         for (String dbName : allDatabases) {
-            if (!specifiedDatabaseMap.isEmpty() && specifiedDatabaseMap.get(dbName) == null) {
+            // Exclude database map take effect with higher priority over include database map
+            if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
+                continue;
+            }
+            if (!includeDatabaseMap.isEmpty() && includeDatabaseMap.containsKey(dbName)) {
                 continue;
             }
             long dbId;

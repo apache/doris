@@ -1341,9 +1341,13 @@ public class SelectStmt extends QueryStmt {
         countAllMap = ExprSubstitutionMap.compose(multiDistinctAggMap, countAllMap, analyzer);
         List<Expr> substitutedAggs =
                 Expr.substituteList(aggExprs, countAllMap, analyzer, false);
-        // the resultExprs must substitute in the same way as aggExprs
-        // then resultExprs can be substitute correctly using combinedSmap
+        // the resultExprs and havingClause must substitute in the same way as aggExprs
+        // then resultExprs and havingClause can be substitute correctly using combinedSmap
         resultExprs = Expr.substituteList(resultExprs, countAllMap, analyzer, false);
+        if (havingClauseAfterAnaylzed != null) {
+            havingClauseAfterAnaylzed =
+                    havingClauseAfterAnaylzed.substitute(countAllMap, analyzer, false);
+        }
         aggExprs.clear();
         TreeNode.collect(substitutedAggs, Expr.isAggregatePredicate(), aggExprs);
 

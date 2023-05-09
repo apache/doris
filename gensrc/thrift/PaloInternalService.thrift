@@ -195,7 +195,7 @@ struct TQueryOptions {
   // deprecated
   60: optional i32 partitioned_hash_agg_rows_threshold = 0
 
-  61: optional bool enable_file_cache = true
+  61: optional bool enable_file_cache = false
   
   62: optional i32 insert_timeout = 14400
 
@@ -212,6 +212,9 @@ struct TQueryOptions {
 
   // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
   69: optional i32 external_agg_partition_bits = 4
+
+  // Specify base path for file cache
+  70: optional string file_cache_base_path
 }
     
 

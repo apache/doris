@@ -28,7 +28,6 @@ import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
-import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -53,7 +52,6 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CleanProfileStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
@@ -76,7 +74,6 @@ import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.DropFileStmt;
@@ -94,8 +91,6 @@ import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
-import org.apache.doris.analysis.LinkDbStmt;
-import org.apache.doris.analysis.MigrateDbStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
@@ -130,18 +125,7 @@ public class DdlExecutor {
      * Execute ddl.
      **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
-        if (ddlStmt instanceof CreateClusterStmt) {
-            CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
-            env.createCluster(stmt);
-        } else if (ddlStmt instanceof AlterClusterStmt) {
-            env.processModifyCluster((AlterClusterStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropClusterStmt) {
-            env.dropCluster((DropClusterStmt) ddlStmt);
-        } else if (ddlStmt instanceof MigrateDbStmt) {
-            env.migrateDb((MigrateDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof LinkDbStmt) {
-            env.linkDb((LinkDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateDbStmt) {
+        if (ddlStmt instanceof CreateDbStmt) {
             env.createDb((CreateDbStmt) ddlStmt);
         } else if (ddlStmt instanceof DropDbStmt) {
             env.dropDb((DropDbStmt) ddlStmt);

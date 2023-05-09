@@ -61,7 +61,7 @@ Status CumulativeCompaction::prepare_compact() {
                   << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
     // 2. pick rowsets to compact
-    RETURN_NOT_OK(pick_rowsets_to_compact());
+    RETURN_IF_ERROR(pick_rowsets_to_compact());
     TRACE("rowsets picked");
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
     _tablet->set_clone_occurred(false);
@@ -88,7 +88,7 @@ Status CumulativeCompaction::execute_compact_impl() {
 
     // 3. do cumulative compaction, merge rowsets
     int64_t permits = get_compaction_permits();
-    RETURN_NOT_OK(do_compaction(permits));
+    RETURN_IF_ERROR(do_compaction(permits));
     TRACE("compaction finished");
 
     // 4. set state to success
@@ -117,7 +117,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     // candidate_rowsets may not be continuous
     // So we need to choose the longest continuous path from it.
     std::vector<Version> missing_versions;
-    RETURN_NOT_OK(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
+    RETURN_IF_ERROR(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
     if (!missing_versions.empty()) {
         DCHECK(missing_versions.size() == 2);
         LOG(WARNING) << "There are missed versions among rowsets. "

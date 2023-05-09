@@ -199,10 +199,10 @@ void OrcReader::_init_profile() {
 Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
-        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, &_file_system, &inner_reader,
-                io::DelegateReader::AccessMode::RANDOM, cache_policy, _io_ctx));
+                io::DelegateReader::AccessMode::RANDOM, reader_options, _io_ctx));
         _file_input_stream.reset(
                 new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics, _io_ctx));
     }

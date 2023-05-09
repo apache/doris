@@ -170,7 +170,7 @@ public abstract class BaseAnalysisTask {
                         String.format("Job has been cancelled: %s", info.toString()), -1);
     }
 
-    public int getLastExecTime() {
+    public long getLastExecTime() {
         return info.lastExecTimeInMs;
     }
 

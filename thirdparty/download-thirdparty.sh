@@ -400,3 +400,13 @@ if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
     cd -
 fi
 echo "Finished patching ${SIMDJSON_SOURCE}"
+
+if [[ "${BRPC_SOURCE}" == 'brpc-1.4.0' ]]; then
+    cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/brpc-1.4.0-gcc13.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${BRPC_SOURCE}"

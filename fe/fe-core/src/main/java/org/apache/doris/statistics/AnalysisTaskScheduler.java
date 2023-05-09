@@ -34,7 +34,7 @@ public class AnalysisTaskScheduler {
     private static final Logger LOG = LogManager.getLogger(AnalysisTaskScheduler.class);
 
     private final PriorityQueue<BaseAnalysisTask> systemJobQueue =
-            new PriorityQueue<>(Comparator.comparingInt(BaseAnalysisTask::getLastExecTime));
+            new PriorityQueue<>(Comparator.comparingLong(BaseAnalysisTask::getLastExecTime));
 
     private final Queue<BaseAnalysisTask> manualJobQueue = new LinkedList<>();
 
