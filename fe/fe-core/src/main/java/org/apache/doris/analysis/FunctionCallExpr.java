@@ -1349,14 +1349,16 @@ public class FunctionCallExpr extends Expr {
                     uncheckedCastChild(assignmentCompatibleType, 2);
                 }
             }
-            childTypes[1] = assignmentCompatibleType;
-            childTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             if (assignmentCompatibleType.isDatetimeV2()) {
                 fn.setReturnType(assignmentCompatibleType);
             }
-
+            for (int i = 1; i < 3; ++i) {
+                if (!children.get(i).getType().matchesType(assignmentCompatibleType)) {
+                    uncheckedCastChild(assignmentCompatibleType, i);
+                }
+            }
         } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                 fnName.getFunction().toLowerCase())) {
             // order by elements add as child like windows function. so if we get the
