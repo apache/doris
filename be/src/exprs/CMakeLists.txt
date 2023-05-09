@@ -30,3 +30,5 @@ add_library(Exprs
   string_functions.cpp
   json_functions.cpp
 )
+
+pch_reuse(Exprs)

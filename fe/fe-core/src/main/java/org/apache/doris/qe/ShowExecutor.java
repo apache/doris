@@ -478,14 +478,7 @@ public class ShowExecutor {
 
     private void handleShowDataTypes() throws AnalysisException {
         ShowDataTypesStmt showStmt = (ShowDataTypesStmt) stmt;
-        ArrayList<PrimitiveType> supportedTypes = showStmt.getTypes();
-        List<List<String>> rows = Lists.newArrayList();
-        for (PrimitiveType type : supportedTypes) {
-            List<String> row = new ArrayList<>();
-            row.add(type.toString());
-            row.add(Integer.toString(type.getSlotSize()));
-            rows.add(row);
-        }
+        List<List<String>> rows = showStmt.getTypesAvailableInDdl();
         showStmt.sortMetaData(rows);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }

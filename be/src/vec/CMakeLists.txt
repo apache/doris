@@ -359,4 +359,6 @@ endif ()
 
 add_library(Vec STATIC
         ${VEC_FILES}
-        )
+)
+
+pch_reuse(Vec)

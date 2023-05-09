@@ -72,8 +72,8 @@ Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
 Compaction::~Compaction() {}
 
 Status Compaction::compact() {
-    RETURN_NOT_OK(prepare_compact());
-    RETURN_NOT_OK(execute_compact());
+    RETURN_IF_ERROR(prepare_compact());
+    RETURN_IF_ERROR(execute_compact());
     return Status::OK();
 }
 
@@ -165,7 +165,7 @@ bool Compaction::is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr&
 Status Compaction::do_compact_ordered_rowsets() {
     build_basic_info();
     RowsetWriterContext ctx;
-    RETURN_NOT_OK(construct_output_rowset_writer(ctx));
+    RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
     LOG(INFO) << "start to do ordered data compaction, tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version;
@@ -173,8 +173,8 @@ Status Compaction::do_compact_ordered_rowsets() {
     auto seg_id = 0;
     std::vector<KeyBoundsPB> segment_key_bounds;
     for (auto rowset : _input_rowsets) {
-        RETURN_NOT_OK(rowset->link_files_to(_tablet->tablet_path(), _output_rs_writer->rowset_id(),
-                                            seg_id));
+        RETURN_IF_ERROR(rowset->link_files_to(_tablet->tablet_path(),
+                                              _output_rs_writer->rowset_id(), seg_id));
         seg_id += rowset->num_segments();
 
         std::vector<KeyBoundsPB> key_bounds;
@@ -269,7 +269,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     OlapStopWatch watch;
 
     if (handle_ordered_data_compaction()) {
-        RETURN_NOT_OK(modify_rowsets());
+        RETURN_IF_ERROR(modify_rowsets());
         TRACE("modify rowsets finished");
 
         int64_t now = UnixMillis();
@@ -295,8 +295,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ", output_version=" << _output_version << ", permits: " << permits;
     bool vertical_compaction = should_vertical_compaction();
     RowsetWriterContext ctx;
-    RETURN_NOT_OK(construct_input_rowset_readers());
-    RETURN_NOT_OK(construct_output_rowset_writer(ctx, vertical_compaction));
+    RETURN_IF_ERROR(construct_input_rowset_readers());
+    RETURN_IF_ERROR(construct_output_rowset_writer(ctx, vertical_compaction));
     if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
         Tablet::add_pending_remote_rowset(_output_rs_writer->rowset_id().to_string());
     }
@@ -345,7 +345,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     TRACE("output rowset built");
 
     // 3. check correctness
-    RETURN_NOT_OK(check_correctness(stats));
+    RETURN_IF_ERROR(check_correctness(stats));
     TRACE("check correctness finished");
 
     if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable) {
@@ -413,7 +413,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     // 4. modify rowsets in memory
-    RETURN_NOT_OK(modify_rowsets(&stats));
+    RETURN_IF_ERROR(modify_rowsets(&stats));
     TRACE("modify rowsets finished");
 
     // 5. update last success compaction time
@@ -494,7 +494,7 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
 Status Compaction::construct_input_rowset_readers() {
     for (auto& rowset : _input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
+        RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
         _input_rs_readers.push_back(std::move(rs_reader));
     }
     return Status::OK();
@@ -552,11 +552,11 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
-            RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+            RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
         }
     } else {
         std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
-        RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+        RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     }
 
     {
