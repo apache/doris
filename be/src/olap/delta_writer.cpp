@@ -142,7 +142,7 @@ Status DeltaWriter::init() {
         _tablet->exceed_version_limit(config::max_tablet_version_num - 100)) {
         //trigger compaction
         StorageEngine::instance()->submit_compaction_task(_tablet,
-                                                          CompactionType::CUMULATIVE_COMPACTION);
+                                                          CompactionType::CUMULATIVE_COMPACTION, true);
         if (_tablet->version_count() > config::max_tablet_version_num) {
             LOG(WARNING) << "failed to init delta writer. version count: "
                          << _tablet->version_count()
