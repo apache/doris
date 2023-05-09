@@ -462,8 +462,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
     // datetime
     {
         vectorized::VecDateTimeValue data_time_value;
-        const char* date = "20210407";
+        const char* date = "20210407000000";
         data_time_value.from_date_str(date, strlen(date));
+        std::cout << data_time_value.type() << std::endl;
         __int64_t dt;
         memcpy(&dt, &data_time_value, sizeof(__int64_t));
         VLiteral literal(create_literal<TYPE_DATETIME, std::string>(std::string(date)));
@@ -473,7 +474,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int64_t>();
         EXPECT_EQ(v, dt);
-        EXPECT_EQ("2021-04-07", literal.value());
+        EXPECT_EQ("2021-04-07 00:00:00", literal.value());
     }
     // datetimev2
     {
