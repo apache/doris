@@ -147,11 +147,11 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 
     auto& tablet_schema = *_tablet_schema;
     for (auto idx : _agg_columns_idx) {
+        auto column = tablet_schema.column(
+                read_params.origin_return_columns->at(_return_columns_loc[idx]));
         AggregateFunctionPtr function =
-                tablet_schema
-                        .column(read_params.origin_return_columns->at(_return_columns_loc[idx]))
-                        .get_aggregate_function({_next_row.block->get_data_type(idx)},
-                                                vectorized::AGG_READER_SUFFIX);
+                column.get_aggregate_function(vectorized::AGG_READER_SUFFIX);
+
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
         // create aggregate data

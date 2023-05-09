@@ -544,6 +544,13 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeTime>();
         break;
     }
+    case PGenericType::AGG_STATE: {
+        nested = std::make_shared<DataTypeAggState>();
+        for (auto child : pcolumn.children()) {
+            ((DataTypeAggState*)nested.get())->add_sub_type(create_data_type(child));
+        }
+        break;
+    }
     default: {
         LOG(FATAL) << fmt::format("Unknown data type: {}", pcolumn.type());
         return nullptr;
