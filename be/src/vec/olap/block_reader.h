@@ -122,6 +122,8 @@ private:
     ColumnPtr _delete_filter_column;
 
     bool _is_rowsets_overlapping = true;
+
+    Arena _arena;
 };
 
 } // namespace vectorized
