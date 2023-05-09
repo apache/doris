@@ -95,29 +95,46 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
         // When _be_exec_version is equal to or greater than 2, we use the new hash method.
         // This is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
         // remove virtual function call in get_data_at to improve performance (argument_column->get_data_at(i)).
-        auto column_nested = reinterpret_cast<const ColumnNullable*>(argument_column.get())
-                                     ->get_nested_column_ptr();
-        auto column_nullmap = reinterpret_cast<const ColumnNullable*>(argument_column.get())
-                                      ->get_null_map_column_ptr();
-        auto column_str = assert_cast<const ColumnString*>(column_nested.get());
-        auto& column_uint8 = assert_cast<const ColumnUInt8&>(*column_nullmap);
-        if (_be_exec_version >= 2) {
-            for (size_t i = 0; i < sz; i++) {
-                if (column_uint8.get_data()[i] != 0) {
-                    StringRef v((const char*)nullptr, 0);
-                    ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));
-                } else {
+        if (argument_column->is_nullable()) {
+            auto column_nested = reinterpret_cast<const ColumnNullable*>(argument_column.get())
+                                         ->get_nested_column_ptr();
+            auto column_nullmap = reinterpret_cast<const ColumnNullable*>(argument_column.get())
+                                          ->get_null_map_column_ptr();
+            auto column_str = assert_cast<const ColumnString*>(column_nested.get());
+            auto& column_uint8 = assert_cast<const ColumnUInt8&>(*column_nullmap);
+            if (_be_exec_version >= 2) {
+                for (size_t i = 0; i < sz; i++) {
+                    if (column_uint8.get_data()[i] != 0) {
+                        StringRef v((const char*)nullptr, 0);
+                        ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));
+                    } else {
+                        auto ele = column_str->get_data_at(i);
+                        const StringRef v(ele.data, ele.size);
+                        ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));
+                    }
+                }
+            } else {
+                for (size_t i = 0; i < sz; i++) {
+                    if (column_uint8.get_data()[i] != 0) {
+                        StringRef v((const char*)nullptr, 0);
+                        ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
+                    } else {
+                        auto ele = column_str->get_data_at(i);
+                        const StringRef v(ele.data, ele.size);
+                        ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
+                    }
+                }
+            }
+        } else {
+            auto column_str = assert_cast<const ColumnString*>(argument_column.get());
+            if (_be_exec_version >= 2) {
+                for (size_t i = 0; i < sz; i++) {
                     auto ele = column_str->get_data_at(i);
                     const StringRef v(ele.data, ele.size);
                     ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));
                 }
-            }
-        } else {
-            for (size_t i = 0; i < sz; i++) {
-                if (column_uint8.get_data()[i] != 0) {
-                    StringRef v((const char*)nullptr, 0);
-                    ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
-                } else {
+            } else {
+                for (size_t i = 0; i < sz; i++) {
                     auto ele = column_str->get_data_at(i);
                     const StringRef v(ele.data, ele.size);
                     ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
