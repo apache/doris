@@ -646,6 +646,14 @@ Translated with www.DeepL.com/Translator (free version)
     | 10000000     |
     +--------------+
     ```
+  
+* `enable_parquet_lazy_materialization`
+
+  Controls whether to use lazy materialization technology in parquet reader. The default value is true.
+
+* `enable_orc_lazy_materialization`
+
+  Controls whether to use lazy materialization technology in orc reader. The default value is true.
 
 ***
 
