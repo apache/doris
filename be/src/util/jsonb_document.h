@@ -69,6 +69,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <algorithm>
 #include <cctype>
@@ -232,7 +233,7 @@ public:
     /// Creates an input stream reading from a character string.
     /// @param string  the input string
     /// @param length  the length of the input string
-    Stream(const char* string, size_t length) : m_position(string), m_end(string + length), leg() {}
+    Stream(const char* string, size_t length) : m_position(string), m_end(string + length) {}
 
     /// Returns a pointer to the current position in the stream.
     const char* position() const { return m_position; }
