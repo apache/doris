@@ -33,30 +33,46 @@ using namespace stream_load;
 template <typename T>
 class OpenPartitionClosure : public google::protobuf::Closure {
 public:
-    OpenPartitionClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel)
-            : vnode_channel(vnode_channel), index_channel(index_channel) {}
+    OpenPartitionClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel,
+                         int64_t partition_id)
+            : vnode_channel(vnode_channel),
+              index_channel(index_channel),
+              partition_id(partition_id) {}
     ~OpenPartitionClosure() = default;
 
     void Run() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         if (cntl.Failed()) {
-            std::stringstream ss;
-            ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
-               << ", error_text=" << this->cntl.ErrorText();
-            LOG(WARNING) << ss.str() << " " << vnode_channel->channel_info();
-            vnode_channel->cancel("Open partition error");
-            index_channel->mark_as_failed(vnode_channel->node_id(), vnode_channel->host(),
-                                          fmt::format("{}, open failed, err: {}",
-                                                      vnode_channel->channel_info(), ss.str()),
-                                          -1);
+            if (_retry_count < _max_retry_count) {
+                LOG(WA RNING) << "Encountered error: " << cntl.ErrorText() << ". Retrying for the "
+                              << ++retry_count << " time";
+                vnode_channel->open_partition(partition_id, this);
+            } else {
+                std::stringstream ss;
+                ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
+                   << ", error_text=" << this->cntl.ErrorText();
+                LOG(WARNING) << ss.str() << " " << vnode_channel->channel_info();
+                vnode_channel->cancel("Open partition error");
+                index_channel->mark_as_failed(vnode_channel->node_id(), vnode_channel->host(),
+                                              fmt::format("{}, open failed, err: {}",
+                                                          vnode_channel->channel_info(), ss.str()),
+                                              -1);
+            }
         }
         delete this;
     }
+
+    void join() { brpc::Join(cntl.call_id()); }
 
     brpc::Controller cntl;
     T result;
     VNodeChannel* vnode_channel;
     IndexChannel* index_channel;
+    int64_t partition_id;
+
+private:
+    int _max_retry_count = 3;
+    int _retry_count = 0;
 };
 
 } // namespace doris

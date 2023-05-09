@@ -478,7 +478,7 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-void VNodeChannel::open_partition(int64_t partition_id) {
+void VNodeChannel::open_partition(int64_t partition_id, OpenPartitionClosure<PartitionOpenResult>* closure) {
     _timeout_watch.reset();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     PartitionOpenRequest request;
@@ -493,17 +493,19 @@ void VNodeChannel::open_partition(int64_t partition_id) {
         }
     }
 
-    OpenPartitionClosure<PartitionOpenResult>* open_partition_closure =
-            new OpenPartitionClosure<PartitionOpenResult>(this,_index_channel);
+    OpenPartitionClosure<PartitionOpenResult>* open_partition_closure;
+    if (closure == nullptr) {
+        open_partition_closure = new OpenPartitionClosure<PartitionOpenResult>(this,_index_channel,partition_id);
+        _open_partition_closures.insert(open_partition_closure);
+    }else {
+        open_partition_closure = closure;
+    }
 
-    int remain_ms = config::open_partition_rpc_timeout_sec * 1000 - _timeout_watch.elapsed_time();
+    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         remain_ms = config::min_load_rpc_timeout_ms;
     }
     open_partition_closure->cntl.set_timeout_ms(remain_ms);
-    if (config::open_partition_ignore_eovercrowded) {
-        open_partition_closure->cntl.ignore_eovercrowded();
-    }
     _stub->open_partition(&open_partition_closure->cntl, &request, &open_partition_closure->result,
                           open_partition_closure);
     request.release_id();
@@ -845,6 +847,10 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    for (auto& open_partition_closure : _open_partition_closures) {
+        open_partition_closure->join();
+        delete open_partition_closure;
+    }
     // set _is_closed to true finally
     Defer set_closed {[&]() {
         std::lock_guard<std::mutex> l(_closed_lock);
@@ -1101,27 +1107,16 @@ Status VOlapTableSink::open(RuntimeState* state) {
 
 void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
     const auto& id = partition->id;
-    auto it = opened_partitions.find(id);
-    {
-        std::unique_lock<std::mutex> l(open_partition_mutex);
-        auto it = opened_partitions.find(id);
-        if (it != opened_partitions.end()) {
-            return;
-        }
-        opened_partitions.insert(std::pair(id, false));
-    }
-    if (it == opened_partitions.end()) {
+    auto it = _opened_partitions.find(id);
+    if (it == _opened_partitions.end()) {
+        _opened_partitions.insert(id);
         for (int j = 0; j < partition->indexes.size(); ++j) {
             for (const auto& tid : partition->indexes[j].tablets) {
                 auto it = _channels[j]->_channels_by_tablet.find(tid);
                 for (const auto& channel : it->second) {
-                    channel->open_partition(partition->id);
+                    channel->open_partition(partition->id, nullptr);
                 }
             }
-        }
-        {
-            std::unique_lock<std::mutex> l(open_partition_mutex);
-            opened_partitions.insert(std::pair(id, true));
         }
     }
 }

@@ -214,7 +214,7 @@ public:
 
     void open();
 
-    void open_partition(int64_t partition_id);
+    void open_partition(int64_t partition_id, OpenPartitionClosure<PartitionOpenResult>* closure);
 
     Status init(RuntimeState* state);
 
@@ -317,7 +317,7 @@ protected:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
-    std::unordered_map<int64_t, RefCountClosure<PartitionOpenResult>*> _partition_open_closures;
+    std::unordered_set<OpenPartitionClosure<PartitionOpenResult>*> _open_partition_closures;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in
@@ -608,8 +608,7 @@ private:
 
     RuntimeState* _state = nullptr;
 
-    std::unordered_map<int64_t,bool> opened_partitions;
-    std::mutex open_partition_mutex;
+    std::unordered_set<int64_t> _opened_partitions;
 };
 
 } // namespace stream_load
