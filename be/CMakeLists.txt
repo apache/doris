@@ -652,6 +652,11 @@ include_directories(
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
+
+if ("${DORIS_JAVA_HOME}" STREQUAL "") 
+    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}/include")
+endif()
+
 include_directories(${DORIS_JAVA_HOME}/include)
 if (NOT OS_MACOSX)
     include_directories(${DORIS_JAVA_HOME}/include/linux)
