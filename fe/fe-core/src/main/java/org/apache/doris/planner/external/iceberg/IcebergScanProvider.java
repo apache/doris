@@ -132,7 +132,7 @@ public class IcebergScanProvider extends QueryScanProvider {
             } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
                 return TFileType.FILE_BROKER;
             } else if (location.startsWith(FeConstants.FS_PREFIX_GFS)) {
-                return TFileType.FILE_BROKER;
+                return TFileType.FILE_HDFS;
             } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
                 return TFileType.FILE_BROKER;
             }
