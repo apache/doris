@@ -35,6 +35,7 @@
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
@@ -57,6 +58,7 @@ class ShortKeyIndexBuilder;
 class PrimaryKeyIndexBuilder;
 class KeyCoder;
 struct RowsetWriterContext;
+struct FlushContext;
 
 namespace io {
 class FileWriter;
@@ -89,11 +91,10 @@ public:
                            std::shared_ptr<MowContext> mow_context);
     ~SegmentWriter();
 
-    Status init(const vectorized::Block* block = nullptr);
+    Status init(const FlushContext* flush_ctx = nullptr);
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key,
-                const vectorized::Block* block = nullptr);
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key, const FlushContext* flush_ctx = nullptr);
 
     template <typename RowType>
     Status append_row(const RowType& row);
@@ -133,11 +134,9 @@ public:
                                 const std::vector<bool>& use_default_flag, bool has_default);
 
 private:
-    Status _create_writers_with_dynamic_block(
-            const vectorized::Block* block,
-            std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
-    Status _create_writers(std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
+    Status _create_writers(const TabletSchema& tablet_schema, const std::vector<uint32_t>& col_ids,
+                           std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();

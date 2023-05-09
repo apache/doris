@@ -51,9 +51,10 @@
 #include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/serde/data_type_serde.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 
@@ -476,12 +477,13 @@ Status MemTable::_do_flush() {
         _aggregate<true>();
     }
     vectorized::Block block = _output_mutable_block.to_block();
+    FlushContext ctx;
     if (_tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
-        unfold_variant_column(block);
+        RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
     }
     SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
-    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size));
+    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size, &ctx));
     return Status::OK();
 }
 
@@ -489,27 +491,68 @@ Status MemTable::close() {
     return flush();
 }
 
-void MemTable::unfold_variant_column(vectorized::Block& block) {
+Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* ctx) {
     if (block.rows() == 0) {
-        return;
+        return Status::OK();
     }
+
+    // Sanitize block to match exactly from the same type of frontend meta
+    vectorized::schema_util::FullBaseSchemaView schema_view;
+    schema_view.table_id = _tablet_schema->table_id();
     vectorized::ColumnWithTypeAndName* variant_column =
             block.try_get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
     if (!variant_column) {
-        return;
+        return Status::OK();
     }
-    // remove it
+    auto base_column = variant_column->column;
     vectorized::ColumnObject& object_column =
-            assert_cast<vectorized::ColumnObject&>(variant_column->column->assume_mutable_ref());
-    // extend
+            assert_cast<vectorized::ColumnObject&>(base_column->assume_mutable_ref());
+    if (object_column.empty()) {
+        block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
+        return Status::OK();
+    }
+    object_column.finalize();
+    // Has extended columns
+    RETURN_IF_ERROR(vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
+    // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
+    //  static   dynamic
+    // | ----- | ------- |
+    // The static ones are original _tablet_schame columns
+    TabletSchemaSPtr flush_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+    vectorized::Block flush_block(std::move(block));
+    // The dynamic ones are auto generated and extended, append them the the orig_block
     for (auto& entry : object_column.get_subcolumns()) {
-        if (entry->path.get_path() == vectorized::ColumnObject::COLUMN_NAME_DUMMY) {
+        const std::string& column_name = entry->path.get_path();
+        auto column_iter = schema_view.column_name_to_column.find(column_name);
+        if (UNLIKELY(column_iter == schema_view.column_name_to_column.end())) {
+            // Column maybe dropped by light weight schema change DDL
             continue;
         }
-        block.insert({entry->data.get_finalized_column().get_ptr(),
-                      entry->data.get_least_common_type(), entry->path.get_path()});
+        TabletColumn column(column_iter->second);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                column, column.is_nullable());
+        // Dynamic generated columns does not appear in original tablet schema
+        if (_tablet_schema->field_index(column.name()) < 0) {
+            _rowset_writer->mutable_schema_change_recorder()->add_extended_columns(
+                    column, schema_view.schema_version);
+            flush_schema->append_column(column);
+            flush_block.insert({data_type->create_column(), data_type, column.name()});
+        }
     }
-    block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
+    // // Schema version updated, update currently flush_schema
+    // i (schema_view.schema_version > _tablet_schema->schema_version()) {
+    //     flush_schema->set_schema_version(schema_view.schema_version);
+    //     _tablet->update_max_version_schema(flush_schema);
+    // }
+    // Last schema alignment before flush to disk, due to the schema maybe variant before this procedure
+    // Eg. add columnA(INT) -> drop ColumnA -> add ColumnA(Double), then columnA could be type of `Double`,
+    // unfold will cast to Double type
+    vectorized::schema_util::unfold_object(
+            flush_block.get_position_by_name(BeConsts::DYNAMIC_COLUMN_NAME), flush_block, true);
+    flush_block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
+    ctx->flush_schema = flush_schema;
+    block.swap(flush_block);
+    return Status::OK();
 }
 
 void MemTable::serialize_block_to_row_column(vectorized::Block& block) {
