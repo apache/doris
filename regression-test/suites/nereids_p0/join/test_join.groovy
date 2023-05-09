@@ -19,7 +19,7 @@ suite("test_join", "nereids_p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql 'set parallel_fragment_exec_instance_num = 2;'
-    sql"use test_query_db"
+    sql "use nereids_p0_test_db"
 
     def tbName1 = "test"
     def tbName2 = "baseall"
