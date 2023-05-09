@@ -131,7 +131,8 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
         String qpsString = properties.get(QUERY_PER_SECOND);
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
-        SqlBlockUtil.checkPropertiesValidate(sql, sqlHash, partitionNumString, tabletNumString, cardinalityString);
+        SqlBlockUtil.checkPropertiesValidate(sql, sqlHash, partitionNumString, tabletNumString,
+                cardinalityString, qpsString);
 
         this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, 0L, null,
                 SCANNED_PARTITION_NUM + " should be a long");

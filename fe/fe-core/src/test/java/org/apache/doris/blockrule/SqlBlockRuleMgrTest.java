@@ -165,24 +165,24 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
 
         // create : sql
         // alter : tabletNum
-        // AnalysisException : sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.
+        // AnalysisException : sql/sqlHash and partition_num/tablet_num/cardinality/qps cannot be set in one rule.
         String alterNumRule =
                 "ALTER SQL_BLOCK_RULE test_rule PROPERTIES(\"partition_num\" = \"10\",\"tablet_num\"=\"300\","
                         + "\"enable\"=\"true\")";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
+                "sql/sqlHash and partition_num/tablet_num/cardinality/qps cannot be set in one rule.",
                 () -> alterSqlBlockRule(alterNumRule));
 
         // create : cardinality
         // alter : sqlHash
-        // AnalysisException : sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.
+        // AnalysisException : sql/sqlHash and partition_num/tablet_num/cardinality/qps cannot be set in one rule.
         String limitRule1 = "CREATE SQL_BLOCK_RULE test_rule1 PROPERTIES(\"cardinality\"=\"10\", \"global\"=\"true\","
                 + " \"enable\"=\"true\");";
         createSqlBlockRule(limitRule1);
         String alterSqlRule1 = "ALTER SQL_BLOCK_RULE test_rule1 PROPERTIES(\"sqlHash\"=\"" + sqlHash
                 + "\",\"enable\"=\"true\")";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
+                "sql/sqlHash and partition_num/tablet_num/cardinality/qps cannot be set in one rule.",
                 () -> alterSqlBlockRule(alterSqlRule1));
         dropSqlBlockRule("DROP SQL_BLOCK_RULE test_rule,test_rule1");
     }

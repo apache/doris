@@ -85,7 +85,7 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
         SqlBlockUtil.checkSqlAndLimitationsSetBoth(sql, sqlHash,
-                partitionNumString, tabletNumString, cardinalityString);
+                partitionNumString, tabletNumString, cardinalityString, qpsString);
         this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, LONG_NOT_SET, null,
                 CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM + " should be a long");
         this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, LONG_NOT_SET, null,
