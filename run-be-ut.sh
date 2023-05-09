@@ -129,6 +129,7 @@ CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
+    ENABLE_PCH          -- ${ENABLE_PCH}
 "
 echo "Build Backend UT"
 
@@ -199,6 +200,8 @@ cd "${CMAKE_BUILD_DIR}"
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
     -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
     ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
+    -DENABLE_PCH="${ENABLE_PCH}" \
+    -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 

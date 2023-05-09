@@ -25,7 +25,6 @@ import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.EnterStmt;
 import org.apache.doris.analysis.ExecuteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
@@ -646,8 +645,6 @@ public class StmtExecutor {
                 handleQueryWithRetry(queryId);
             } else if (parsedStmt instanceof SetStmt) {
                 handleSetStmt();
-            } else if (parsedStmt instanceof EnterStmt) {
-                handleEnterStmt();
             } else if (parsedStmt instanceof SwitchStmt) {
                 handleSwitchStmt();
             } else if (parsedStmt instanceof UseStmt) {
@@ -2078,20 +2075,6 @@ public class StmtExecutor {
             LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
-    }
-
-    // Process enter cluster
-    private void handleEnterStmt() {
-        final EnterStmt enterStmt = (EnterStmt) parsedStmt;
-        try {
-            context.getEnv().changeCluster(context, enterStmt.getClusterName());
-            context.setDatabase("");
-        } catch (DdlException e) {
-            LOG.warn("", e);
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return;
-        }
-        context.getState().setOk();
     }
 
     private void handleExportStmt() throws Exception {

@@ -93,7 +93,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private final Map<String, String> lastDBOfCatalog = Maps.newConcurrentMap();
 
     // Use a separate instance to facilitate access.
-    // internalDataSource still exists in idToDataSource and nameToDataSource
+    // internalDataSource still exists in idToCatalog and nameToCatalog
     private InternalCatalog internalCatalog;
 
     public CatalogMgr() {
