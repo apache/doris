@@ -337,6 +337,7 @@ public class FileGroupInfo {
             rangeDesc.setSize(fileStatus.size);
             rangeDesc.setFileSize(fileStatus.size);
         }
+        rangeDesc.setModificationTime(fileStatus.getModificationTime());
         return rangeDesc;
     }
 }

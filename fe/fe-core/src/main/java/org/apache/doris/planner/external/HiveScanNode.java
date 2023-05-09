@@ -170,7 +170,7 @@ public class HiveScanNode extends FileQueryScanNode {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                     allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
-                            status.getBlockLocations(), status.getLength(),
+                            status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                             isSplittable, fileCacheValue.getPartitionValues()));
                 }
             }

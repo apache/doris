@@ -26,6 +26,7 @@ import java.util.List;
 
 @Data
 public class IcebergSplit extends FileSplit {
+    // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts) {
         super(file, start, length, fileLength, hosts, null);
     }

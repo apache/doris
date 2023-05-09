@@ -306,6 +306,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
         }
+        rangeDesc.setModificationTime(fileSplit.getModificationTime());
         return rangeDesc;
     }
 
