@@ -342,6 +342,7 @@ public class DateLiteral extends LiteralExpr {
             Preconditions.checkArgument(type.isDateType());
             TemporalAccessor dateTime = null;
             boolean parsed = false;
+            s = s.replace("'", "");
             if (!s.contains("-")) {
                 // handle format like 20210106, but should not handle 2021-1-6
                 for (DateTimeFormatter formatter : formatterList) {

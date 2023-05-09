@@ -160,6 +160,15 @@ public class InsertStmt extends DdlStmt {
         this.planHints = null;
     }
 
+    // for InsertOverwriteTable
+    public InsertStmt(TableName name, PartitionNames targetPartitionNames, QueryStmt queryStmt) {
+        this.tblName = name;
+        this.targetPartitionNames = targetPartitionNames;
+        this.targetColumnNames = null;
+        this.queryStmt = queryStmt;
+        this.planHints = null;
+    }
+
     public TupleDescriptor getOlapTuple() {
         return olapTuple;
     }
