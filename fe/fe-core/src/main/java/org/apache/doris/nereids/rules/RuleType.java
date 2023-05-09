@@ -218,6 +218,8 @@ public enum RuleType {
     ADJUST_NULLABLE_ON_SORT(RuleTypeClass.REWRITE),
     ADJUST_NULLABLE_ON_TOP_N(RuleTypeClass.REWRITE),
 
+    BUILD_CTE_ANCHOR_AND_CTE_PRODUCER(RuleTypeClass.REWRITE),
+
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // exploration rules

@@ -29,6 +29,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTERelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
@@ -376,4 +380,21 @@ public abstract class PlanVisitor<R, C> {
     public R visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows, C context) {
         return visit(assertNumRows, context);
     }
+
+    public R visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, C context) {
+        return visit(cteProducer, context);
+    }
+
+    public R visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, C context) {
+        return visit(cteConsumer, context);
+    }
+
+    public R visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, C context) {
+        return visit(cteAnchor, context);
+    }
+
+    public R visitLogicalCTERelation(LogicalCTERelation cteRelation, C context) {
+        throw new RuntimeException("Unexpected CTERelation node here");
+    }
+
 }

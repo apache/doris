@@ -97,6 +97,10 @@ public class CascadesContext implements ScheduleContext, PlanSource {
 
     private Optional<Scope> outerScope = Optional.empty();
 
+    private Map<Integer, Long> cteIdToProducerId = new HashMap<>();
+
+    private Map<Integer, LogicalSubQueryAlias> cteIdToCTE = new HashMap<>();
+
     public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
             PhysicalProperties requestProperties) {
         this(plan, memo, statementContext, new CTEContext(), requestProperties);
@@ -430,5 +434,9 @@ public class CascadesContext implements ScheduleContext, PlanSource {
                 locked.pop().readUnlock();
             }
         }
+    }
+
+    public void putCteIDToCTE(LogicalSubQueryAlias logicalSubQueryAlias) {
+        this.cteIdToCTE.put(logicalSubQueryAlias.hashCode(), logicalSubQueryAlias);
     }
 }

@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
+import org.apache.doris.nereids.rules.rewrite.logical.BuildCTEAnchorAndCTEProducer;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
@@ -84,6 +85,9 @@ import java.util.List;
  */
 public class NereidsRewriter extends BatchRewriteJob {
     private static final List<RewriteJob> REWRITE_JOBS = jobs(
+
+            topic("CTE", topDown(new BuildCTEAnchorAndCTEProducer())),
+
             topic("Normalization",
                 topDown(
                     new EliminateOrderByConstant(),

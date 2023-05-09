@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -29,21 +28,19 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
-public class LogicalCTEConsumer extends LogicalLeaf {
+public class LogicalCTERelation extends LogicalLeaf {
 
-    private final long cteId;
+    private final LogicalPlan childPlan;
 
-    private final Map<NamedExpression, NamedExpression> consumerToProducerOutputMap;
+    private final int cteId;
 
-    public LogicalCTEConsumer(Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, long cteId,
-            Map<NamedExpression, NamedExpression> outputExpressionMap) {
-        super(PlanType.LOGICAL_CTE_CONSUMER, groupExpression, logicalProperties);
+    public LogicalCTERelation(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, LogicalPlan childPlan, int cteId) {
+        super(PlanType.LOGICAL_CTE_RELATION, groupExpression, logicalProperties);
+        this.childPlan = childPlan;
         this.cteId = cteId;
-        this.consumerToProducerOutputMap = outputExpressionMap;
     }
 
     @Override
@@ -58,25 +55,25 @@ public class LogicalCTEConsumer extends LogicalLeaf {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTEConsumer(groupExpression, Optional.of(getLogicalProperties()),
-                cteId, consumerToProducerOutputMap);
+        return new LogicalCTERelation(groupExpression, Optional.of(getLogicalProperties()), childPlan, cteId);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTEConsumer(groupExpression, logicalProperties, cteId, consumerToProducerOutputMap);
+        return new LogicalCTERelation(groupExpression, logicalProperties, childPlan, cteId);
     }
 
     @Override
     public List<Slot> computeOutput() {
-        return null;
+        return childPlan.computeOutput();
     }
 
-    public long getCteId() {
+    public LogicalPlan getChildPlan() {
+        return childPlan;
+    }
+
+    public int getCteId() {
         return cteId;
     }
 
-    public Map<NamedExpression, NamedExpression> getConsumerToProducerOutputMap() {
-        return consumerToProducerOutputMap;
-    }
 }

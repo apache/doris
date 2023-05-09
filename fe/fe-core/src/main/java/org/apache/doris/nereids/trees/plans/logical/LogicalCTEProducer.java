@@ -33,8 +33,14 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan>
 
     private final long cteId;
 
-    public LogicalCTEProducer(PlanType type, CHILD_TYPE child, long cteId) {
-        super(type, child);
+    public LogicalCTEProducer(CHILD_TYPE child, long cteId) {
+        super(PlanType.LOGICAL_CTE_PRODUCER, child);
+        this.cteId = cteId;
+    }
+
+    public LogicalCTEProducer(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, long cteId) {
+        super(type, groupExpression, logicalProperties, child);
         this.cteId = cteId;
     }
 
@@ -44,31 +50,32 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan>
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return null;
+        return new LogicalCTEProducer<>(type, groupExpression, Optional.of(getLogicalProperties()), children.get(0),
+                cteId);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return null;
+        return visitor.visit(this, context);
     }
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return null;
+        return child().getExpressions();
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return null;
+        return new LogicalCTEProducer<>(type, groupExpression, Optional.of(getLogicalProperties()), child(), cteId);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return null;
+        return new LogicalCTEProducer<>(type, groupExpression, logicalProperties, child(), cteId);
     }
 
     @Override
     public List<Slot> computeOutput() {
-        return null;
+        return child().computeOutput();
     }
 }

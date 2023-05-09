@@ -44,6 +44,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;
 
+    private final int uniqueId;
+
     public LogicalSubQueryAlias(String tableAlias, CHILD_TYPE child) {
         this(ImmutableList.of(tableAlias), Optional.empty(), Optional.empty(), Optional.empty(), child);
     }
@@ -66,6 +68,16 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier));
         this.columnAliases = columnAliases;
+        this.uniqueId = uniqueId();
+    }
+
+    public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, int uniqueId) {
+        super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
+        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier));
+        this.columnAliases = columnAliases;
+        this.uniqueId = uniqueId;
     }
 
     @Override
@@ -121,12 +133,12 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             return false;
         }
         LogicalSubQueryAlias that = (LogicalSubQueryAlias) o;
-        return qualifier.equals(that.qualifier);
+        return qualifier.equals(that.qualifier) && this.child().equals(that.child());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(qualifier);
+        return Objects.hash(qualifier, child().hashCode());
     }
 
     @Override
@@ -155,5 +167,13 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     public LogicalSubQueryAlias<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalSubQueryAlias<>(qualifier, columnAliases, Optional.empty(),
                 logicalProperties, child());
+    }
+
+    public int uniqueId() {
+        return Objects.hash(this, this.child());
+    }
+
+    public int getUniqueId() {
+        return uniqueId;
     }
 }

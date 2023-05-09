@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTERelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -130,12 +131,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         CTEContext cteContext = cascadesContext.getCteContext();
         Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTE(tableName);
         if (analyzedCte.isPresent()) {
-            LogicalPlan ctePlan = analyzedCte.get();
-            if (ctePlan instanceof LogicalSubQueryAlias
-                    && ((LogicalSubQueryAlias<?>) ctePlan).getAlias().equals(tableName)) {
-                return ctePlan;
-            }
-            return new LogicalSubQueryAlias<>(unboundRelation.getNameParts(), ctePlan);
+            return new LogicalCTERelation(Optional.empty(), Optional.empty(),
+                    analyzedCte.get(), analyzedCte.get().hashCode());
         }
         String catalogName = cascadesContext.getConnectContext().getCurrentCatalog().getName();
         String dbName = cascadesContext.getConnectContext().getDatabase();

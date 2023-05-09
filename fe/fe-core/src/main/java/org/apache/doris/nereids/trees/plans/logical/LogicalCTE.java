@@ -40,14 +40,21 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     private final List<LogicalSubQueryAlias<Plan>> aliasQueries;
 
+    private final boolean registered;
+
     public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child) {
-        this(aliasQueries, Optional.empty(), Optional.empty(), child);
+        this(aliasQueries, Optional.empty(), Optional.empty(), child, false);
+    }
+
+    public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child, boolean registered) {
+        this(aliasQueries, Optional.empty(), Optional.empty(), child, registered);
     }
 
     public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, boolean registered) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
         this.aliasQueries = ImmutableList.copyOf(Objects.requireNonNull(aliasQueries, "aliasQueries can not be null"));
+        this.registered = registered;
     }
 
     public List<LogicalSubQueryAlias<Plan>> getAliasQueries() {
@@ -116,11 +123,16 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     @Override
     public LogicalCTE<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTE<>(aliasQueries, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalCTE<>(aliasQueries, groupExpression, Optional.of(getLogicalProperties()), child(),
+                registered);
     }
 
     @Override
     public LogicalCTE<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTE<>(aliasQueries, Optional.empty(), logicalProperties, child());
+        return new LogicalCTE<>(aliasQueries, Optional.empty(), logicalProperties, child(), registered);
+    }
+
+    public boolean isRegistered() {
+        return registered;
     }
 }

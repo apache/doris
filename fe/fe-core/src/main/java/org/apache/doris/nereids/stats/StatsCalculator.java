@@ -45,6 +45,9 @@ import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -736,4 +739,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return groupExprs.get(0).getPlan();
     }
 
+    @Override
+    public Statistics visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, Void context) {
+        return groupExpression.childStatistics(0);
+    }
+
+    @Override
+    public Statistics visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, Void context) {
+        return Statistics.zero()
+    }
+
+    @Override
+    public Statistics visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, Void context) {
+        return groupExpression.childStatistics(1);
+    }
 }

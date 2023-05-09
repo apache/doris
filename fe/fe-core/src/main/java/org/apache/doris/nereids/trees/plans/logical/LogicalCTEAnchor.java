@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -34,41 +36,46 @@ public class LogicalCTEAnchor<
 
     private final long cteId;
 
-    public LogicalCTEAnchor(PlanType type, Optional<GroupExpression> groupExpression,
+    public LogicalCTEAnchor(LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, long cteId) {
+        this(Optional.empty(), Optional.empty(), leftChild, rightChild, cteId);
+    }
+
+    public LogicalCTEAnchor(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, long cteId) {
-        super(type, groupExpression, logicalProperties, leftChild, rightChild);
+        super(PlanType.LOGICAL_CTE_ANCHOR, groupExpression, logicalProperties, leftChild, rightChild);
         this.cteId = cteId;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return null;
+        return new LogicalCTEAnchor<>(groupExpression, Optional.of(getLogicalProperties()),
+                children.get(0), children.get(1), cteId);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return null;
+        return visitor.visit(this, context);
     }
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return null;
+        return ImmutableList.of();
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return null;
+        return new LogicalCTEAnchor<>(groupExpression, Optional.of(getLogicalProperties()), left(), right(), cteId);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return null;
+        return new LogicalCTEAnchor<>(groupExpression, logicalProperties, left(), right(), cteId);
     }
 
     @Override
     public List<Slot> computeOutput() {
-        return null;
+        return right().getOutput();
     }
 
     public long getCteId() {
