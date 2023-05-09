@@ -1163,7 +1163,7 @@ void VOlapTableSink::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    do {
+    while(true) {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
             index_channel->for_each_node_channel([&running_channels_num, this]
@@ -1179,7 +1179,8 @@ void VOlapTableSink::_send_batch_process() {
                       << print_id(_load_id);
             return;
         }
-    } while (bthread_usleep(config::olap_table_sink_send_interval_ms * 1000));
+        bthread_usleep(config::olap_table_sink_send_interval_ms * 1000);
+    }
 }
 
 size_t VOlapTableSink::get_pending_bytes() const {
