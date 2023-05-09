@@ -149,7 +149,7 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
         cache_policy.set_cache_path(segment_cache_path(seg_id));
         io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
                                              cache_policy);
-        if (!is_local()) {
+        if (!is_local() && reader_options.cache_type != io::FileCachePolicy::NO_CACHE) {
             reader_options.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
         }
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
@@ -385,7 +385,7 @@ bool BetaRowset::check_current_rowset_segment() {
         cache_policy.set_cache_path(segment_cache_path(seg_id));
         io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
                                              cache_policy);
-        if (!is_local()) {
+        if (!is_local() && reader_options.cache_type != io::FileCachePolicy::NO_CACHE) {
             reader_options.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
         }
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
