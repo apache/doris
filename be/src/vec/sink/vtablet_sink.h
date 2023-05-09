@@ -214,7 +214,7 @@ public:
 
     void open();
 
-    void open_partition(int64_t partition_id, OpenPartitionClosure<PartitionOpenResult>* closure);
+    void open_partition(int64_t partition_id, int64_t retry_count);
 
     Status init(RuntimeState* state);
 

@@ -478,8 +478,7 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-void VNodeChannel::open_partition(int64_t partition_id,
-                                  OpenPartitionClosure<PartitionOpenResult>* closure) {
+void VNodeChannel::open_partition(int64_t partition_id, int64_t retry_count) {
     _timeout_watch.reset();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     PartitionOpenRequest request;
@@ -494,14 +493,10 @@ void VNodeChannel::open_partition(int64_t partition_id,
         }
     }
 
-    OpenPartitionClosure<PartitionOpenResult>* open_partition_closure;
-    if (closure == nullptr) {
-        open_partition_closure =
-                new OpenPartitionClosure<PartitionOpenResult>(this, _index_channel, partition_id);
-        _open_partition_closures.insert(open_partition_closure);
-    } else {
-        open_partition_closure = closure;
-    }
+    OpenPartitionClosure<PartitionOpenResult>* open_partition_closure =
+            new OpenPartitionClosure<PartitionOpenResult>(this, _index_channel, partition_id,
+                                                          retry_count);
+    _open_partition_closures.insert(open_partition_closure);
 
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
@@ -1116,7 +1111,7 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
             for (const auto& tid : partition->indexes[j].tablets) {
                 auto it = _channels[j]->_channels_by_tablet.find(tid);
                 for (const auto& channel : it->second) {
-                    channel->open_partition(partition->id, nullptr);
+                    channel->open_partition(partition->id, 0);
                 }
             }
         }

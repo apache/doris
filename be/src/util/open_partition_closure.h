@@ -34,19 +34,18 @@ template <typename T>
 class OpenPartitionClosure : public google::protobuf::Closure {
 public:
     OpenPartitionClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel,
-                         int64_t partition_id)
+                         int64_t partition_id, int64_t retry_count)
             : vnode_channel(vnode_channel),
               index_channel(index_channel),
-              partition_id(partition_id) {}
+              partition_id(partition_id),
+              retry_count(retry_count) {}
     ~OpenPartitionClosure() = default;
 
     void Run() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         if (cntl.Failed()) {
-            if (_retry_count < _max_retry_count) {
-                LOG(WARNING) << "Encountered error: " << cntl.ErrorText() << ". Retrying for the "
-                             << ++_retry_count << " time";
-                vnode_channel->open_partition(partition_id, this);
+            if (retry_count < _max_retry_count) {
+                vnode_channel->open_partition(partition_id, ++retry_count);
             } else {
                 std::stringstream ss;
                 ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
@@ -68,10 +67,10 @@ public:
     VNodeChannel* vnode_channel;
     IndexChannel* index_channel;
     int64_t partition_id;
+    int64_t retry_count;
 
 private:
-    int _max_retry_count = 3;
-    int _retry_count = 0;
+    int64_t _max_retry_count = 3;
 };
 
 } // namespace doris
