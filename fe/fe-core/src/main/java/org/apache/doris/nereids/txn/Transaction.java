@@ -32,6 +32,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TQueryType;
@@ -91,7 +92,7 @@ public class Transaction {
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeInsertIntoSelectCommand() {
+    public void executeInsertIntoSelectCommand(StmtExecutor executor) {
         LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
         try {
             handleTransactionForNotInTxnModel();
@@ -100,7 +101,7 @@ public class Transaction {
             handleTransactionErrorForNotInTxnModel(t);
         } finally {
             if (ctx.getSessionVariable().enableProfile() && coordinator != null) {
-                coordinator.endProfile(true);
+                executor.updateProfile(true);
             }
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }

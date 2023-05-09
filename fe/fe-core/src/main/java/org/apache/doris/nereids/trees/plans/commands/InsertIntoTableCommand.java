@@ -147,7 +147,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             return;
         }
 
-        txn.executeInsertIntoSelectCommand();
+        txn.executeInsertIntoSelectCommand(executor);
     }
 
     private void checkDatabaseAndTable(ConnectContext ctx) {

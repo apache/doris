@@ -150,4 +150,8 @@ public class StatementContext {
     public InsertIntoContext getInsertIntoContext() {
         return insertIntoContext;
     }
+
+    public StatementBase getParsedStatement() {
+        return parsedStatement;
+    }
 }
