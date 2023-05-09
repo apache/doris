@@ -45,7 +45,7 @@ public:
         if (cntl.Failed()) {
             if (_retry_count < _max_retry_count) {
                 LOG(WARNING) << "Encountered error: " << cntl.ErrorText() << ". Retrying for the "
-                              << ++_retry_count << " time";
+                             << ++_retry_count << " time";
                 vnode_channel->open_partition(partition_id, this);
             } else {
                 std::stringstream ss;
