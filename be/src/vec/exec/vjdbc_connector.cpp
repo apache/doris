@@ -279,7 +279,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_BIGINT:
     case TYPE_LARGEINT: {
         if (type_str != "java.lang.Long" && type_str != "java.math.BigDecimal" &&
-            type_str != "java.math.BigInteger" &&
+            type_str != "java.math.BigInteger" && type_str != "java.lang.String" &&
             type_str != "com.clickhouse.data.value.UnsignedInteger" &&
             type_str != "com.clickhouse.data.value.UnsignedLong") {
             return Status::InternalError(error_msg);
