@@ -46,6 +46,37 @@
 #define DECLARE_mDouble(name) DECLARE_FIELD(double, name)
 #define DECLARE_mString(name) DECLARE_FIELD(std::string, name)
 
+#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)                      \
+    FIELD_TYPE FIELD_NAME;                                                                   \
+    static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &(FIELD_NAME), FIELD_DEFAULT, \
+                                     VALMUTABLE);
+
+#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)              \
+    static auto validator_##FIELD_NAME = VALIDATOR;          \
+    static RegisterConfValidator reg_validator_##FIELD_NAME( \
+            #FIELD_NAME, []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
+
+#define DEFINE_Int16(name, defaultstr) DEFINE_FIELD(int16_t, name, defaultstr, false)
+#define DEFINE_Bools(name, defaultstr) DEFINE_FIELD(std::vector<bool>, name, defaultstr, false)
+#define DEFINE_Doubles(name, defaultstr) DEFINE_FIELD(std::vector<double>, name, defaultstr, false)
+#define DEFINE_Int16s(name, defaultstr) DEFINE_FIELD(std::vector<int16_t>, name, defaultstr, false)
+#define DEFINE_Int32s(name, defaultstr) DEFINE_FIELD(std::vector<int32_t>, name, defaultstr, false)
+#define DEFINE_Int64s(name, defaultstr) DEFINE_FIELD(std::vector<int64_t>, name, defaultstr, false)
+#define DEFINE_Bool(name, defaultstr) DEFINE_FIELD(bool, name, defaultstr, false)
+#define DEFINE_Double(name, defaultstr) DEFINE_FIELD(double, name, defaultstr, false)
+#define DEFINE_Int32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr, false)
+#define DEFINE_Int64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr, false)
+#define DEFINE_String(name, defaultstr) DEFINE_FIELD(std::string, name, defaultstr, false)
+#define DEFINE_Strings(name, defaultstr) \
+    DEFINE_FIELD(std::vector<std::string>, name, defaultstr, false)
+#define DEFINE_mBool(name, defaultstr) DEFINE_FIELD(bool, name, defaultstr, true)
+#define DEFINE_mInt16(name, defaultstr) DEFINE_FIELD(int16_t, name, defaultstr, true)
+#define DEFINE_mInt32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr, true)
+#define DEFINE_mInt64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr, true)
+#define DEFINE_mDouble(name, defaultstr) DEFINE_FIELD(double, name, defaultstr, true)
+#define DEFINE_mString(name, defaultstr) DEFINE_FIELD(std::string, name, defaultstr, true)
+#define DEFINE_Validator(name, validator) DEFINE_VALIDATOR(name, validator)
+
 namespace doris {
 class Status;
 
