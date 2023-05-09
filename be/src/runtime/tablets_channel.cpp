@@ -292,7 +292,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         }
     }
     if (index_slots == nullptr) {
-        return Status::InternalError("unknown index id, key=" + _key.to_string());
+        Status::InternalError("unknown index id, key={}", _key.to_string());
     }
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;
@@ -344,7 +344,7 @@ Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
         }
     }
     if (index_slots == nullptr) {
-        return Status::InternalError("unknown index id, key=" + _key.to_string());
+        Status::InternalError("unknown index id, key={}", _key.to_string());
     }
     int64_t partition_id = _tablet_partition_map[tablet_id];
     DCHECK(partition_id != 0);
@@ -401,7 +401,7 @@ Status TabletsChannel::open_all_writers_for_partition(const PartitionOpenRequest
         }
     }
     if (index_slots == nullptr) {
-        return Status::InternalError("unknown index id, key=" + _key.to_string());
+        Status::InternalError("unknown index id, key={}", _key.to_string());
     }
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;
