@@ -46,6 +46,7 @@ public class HivePartition {
         this.partitionValues = partitionValues;
     }
 
+    // return partition name like: nation=cn/city=beijing
     public String getPartitionName(List<Column> partColumns) {
         Preconditions.checkState(partColumns.size() == partitionValues.size());
         StringBuilder sb = new StringBuilder();

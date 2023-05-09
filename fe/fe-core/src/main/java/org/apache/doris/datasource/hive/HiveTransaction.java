@@ -27,6 +27,11 @@ import org.apache.hadoop.hive.common.ValidWriteIdList;
 
 import java.util.List;
 
+/**
+ * HiveTransaction is used to save info of a hive transaction.
+ * Used when reading hive transactional table.
+ * Each HiveTransaction is bound to a query.
+ */
 public class HiveTransaction {
     private final String queryId;
     private final String user;

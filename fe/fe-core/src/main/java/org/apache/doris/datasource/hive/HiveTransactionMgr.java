@@ -25,15 +25,20 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
+/**
+ * HiveTransactionMgr is used to manage hive transaction.
+ * For each query, it will register a HiveTransaction.
+ * When query is finished, it will deregister the HiveTransaction.
+ */
 public class HiveTransactionMgr {
     private static final Logger LOG = LogManager.getLogger(HiveTransactionMgr.class);
     private Map<String, HiveTransaction> txnMap = Maps.newConcurrentMap();
 
     public HiveTransactionMgr() {
-
     }
 
-    public void register(HiveTransaction txn) {
+    public void register(HiveTransaction txn) throws UserException {
+        txn.begin();
         txnMap.put(txn.getQueryId(), txn);
     }
 
@@ -46,9 +51,5 @@ public class HiveTransactionMgr {
                 LOG.warn("failed to commit hive txn: " + queryId, e);
             }
         }
-    }
-
-    public HiveTransaction get(String queryId) {
-        return txnMap.get(queryId);
     }
 }

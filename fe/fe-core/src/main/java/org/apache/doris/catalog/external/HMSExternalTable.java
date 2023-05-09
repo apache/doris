@@ -56,6 +56,9 @@ public class HMSExternalTable extends ExternalTable {
 
     private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
 
+    private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
+    private static final String TBL_PROP_INSERT_ONLY = "insert_only";
+
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
@@ -148,12 +151,12 @@ public class HMSExternalTable extends ExternalTable {
             //  "insert_only" = "true"
             // And must check "insert_only" first, because "transactional_properties" may be "default"
             Map<String, String> parameters = remoteTable.getParameters();
-            if (parameters.containsKey("insert_only")) {
-                if (!parameters.get("insert_only").equalsIgnoreCase("true")) {
+            if (parameters.containsKey(TBL_PROP_INSERT_ONLY)) {
+                if (!parameters.get(TBL_PROP_INSERT_ONLY).equalsIgnoreCase("true")) {
                     return false;
                 }
-            } else if (parameters.containsKey("transactional_properties")) {
-                if (!parameters.get("transactional_properties").equalsIgnoreCase("insert_only")) {
+            } else if (parameters.containsKey(TBL_PROP_TXN_PROPERTIES)) {
+                if (!parameters.get(TBL_PROP_TXN_PROPERTIES).equalsIgnoreCase(TBL_PROP_INSERT_ONLY)) {
                     return false;
                 }
             } else {

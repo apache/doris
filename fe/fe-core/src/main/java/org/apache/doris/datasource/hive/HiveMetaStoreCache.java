@@ -659,7 +659,7 @@ public class HiveMetaStoreCache {
                             true);
                 }
                 if (!directory.getOriginalFiles().isEmpty()) {
-                    throw new Exception("Original non-ACID files in transactional tables are not supported");
+                    throw Hnew Exception("Original non-ACID files in transactional tables are not supported");
                 }
 
                 // delta directories

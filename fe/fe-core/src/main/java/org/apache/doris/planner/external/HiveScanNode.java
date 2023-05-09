@@ -104,7 +104,6 @@ public class HiveScanNode extends FileQueryScanNode {
         if (hmsTable.isHiveTransactionalTable()) {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable);
-            this.hiveTransaction.begin();
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
         }
     }
