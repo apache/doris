@@ -69,7 +69,8 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority, _self_profile));
+            channel = std::make_shared<TabletsChannel>(key, _load_id, _is_high_priority,
+                                                       _self_profile);
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
@@ -95,7 +96,8 @@ Status LoadChannel::open_partition(const PartitionOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority, _self_profile));
+            channel = std::make_shared<TabletsChannel>(key, _load_id, _is_high_priority,
+                                                       _self_profile);
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
