@@ -833,6 +833,7 @@ public class TabletScheduler extends MasterDaemon {
         if (deleteBackendDropped(tabletCtx, force)
                 || deleteBadReplica(tabletCtx, force)
                 || deleteBackendUnavailable(tabletCtx, force)
+                || deleteDiskUnavailable(tabletCtx, force)
                 || deleteTooSlowReplica(tabletCtx, force)
                 || deleteCloneOrDecommissionReplica(tabletCtx, force)
                 || deleteReplicaWithFailedVersion(tabletCtx, force)
@@ -889,6 +890,20 @@ public class TabletScheduler extends MasterDaemon {
             }
             if (!be.isScheduleAvailable()) {
                 deleteReplicaInternal(tabletCtx, replica, "backend unavailable", force);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean deleteDiskUnavailable(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+        for (Replica replica : tabletCtx.getReplicas()) {
+            DiskInfo disk = infoService.getDisk(replica.getPathHash());
+            if (disk == null) {
+                continue;
+            }
+            if (!disk.isScheduleAvailable()) {
+                deleteReplicaInternal(tabletCtx, replica, "disk unavailable", force);
                 return true;
             }
         }
