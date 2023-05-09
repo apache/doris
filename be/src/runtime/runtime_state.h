@@ -86,6 +86,10 @@ public:
     Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
 
     const TQueryOptions& query_options() const { return _query_options; }
+    int64_t scan_queue_mem_limit() const {
+        return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
+                                                           : _query_options.mem_limit / 20;
+    }
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
@@ -387,7 +391,9 @@ public:
         return 0;
     }
 
-    void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
+    void set_be_exec_version(int32_t version) noexcept {
+        _query_options.be_exec_version = version;
+    }
 
     int64_t external_agg_bytes_threshold() const {
         return _query_options.__isset.external_agg_bytes_threshold

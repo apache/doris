@@ -302,11 +302,11 @@ Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners) {
     if (_is_pipeline_scan) {
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
                 _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
-                _state->query_options().mem_limit / 20, _col_distribute_ids);
+                _state->scan_queue_mem_limit(), _col_distribute_ids);
     } else {
-        _scanner_ctx = ScannerContext::create_shared(_state, this, _input_tuple_desc,
-                                                     _output_tuple_desc, scanners, limit(),
-                                                     _state->query_options().mem_limit / 20);
+        _scanner_ctx =
+                ScannerContext::create_shared(_state, this, _input_tuple_desc, _output_tuple_desc,
+                                              scanners, limit(), _state->scan_queue_mem_limit());
     }
     RETURN_IF_ERROR(_scanner_ctx->init());
     return Status::OK();
