@@ -267,7 +267,7 @@ _main() {
     # Start Doris BE
     {
         set +e
-        bash init_be.sh >/opt/apache-doris/be/log/init_be.log 2>&1
+        bash init_be.sh > ${DORIS_HOME}/be/log/init_be.log 2>&1
     } &
     # check BE started status
     check_be_status
