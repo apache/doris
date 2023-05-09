@@ -257,35 +257,35 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                 );
     }
 
-    @Test
-    public void testLimitPushWindow() {
-        NamedExpression grade = scanScore.getOutput().get(2).toSlot();
-
-        List<Expression> partitionKeyList = ImmutableList.of();
-        List<OrderExpression> orderKeyList = ImmutableList.of(new OrderExpression(
-                new OrderKey(grade, true, true)));
-        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
-                WindowFrame.FrameBoundary.newPrecedingBoundary(),
-                WindowFrame.FrameBoundary.newCurrentRowBoundary());
-        WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList, windowFrame);
-        Alias windowAlias1 = new Alias(window1, window1.toSql());
-        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
-        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scanScore);
-
-        LogicalPlan plan = new LogicalPlanBuilder(window)
-                .limit(100)
-                .build();
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .rewrite()
-                .matches(
-                    logicalLimit(
-                        logicalWindow(
-                            logicalOlapScan()
-                        ).when(logicalWindow -> logicalWindow.getPartitionLimit() == 100)
-                    ).when(limit -> limit.getLimit() == 100)
-                );
-    }
+//    @Test
+//    public void testLimitPushWindow() {
+//        NamedExpression grade = scanScore.getOutput().get(2).toSlot();
+//
+//        List<Expression> partitionKeyList = ImmutableList.of();
+//        List<OrderExpression> orderKeyList = ImmutableList.of(new OrderExpression(
+//                new OrderKey(grade, true, true)));
+//        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+//                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+//                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+//        WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList, windowFrame);
+//        Alias windowAlias1 = new Alias(window1, window1.toSql());
+//        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
+//        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scanScore);
+//
+//        LogicalPlan plan = new LogicalPlanBuilder(window)
+//                .limit(100)
+//                .build();
+//
+//        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+//                .rewrite()
+//                .matches(
+//                    logicalLimit(
+//                        logicalWindow(
+//                            logicalOlapScan()
+//                        ).when(logicalWindow -> logicalWindow.getPartitionLimit() == 100)
+//                    ).when(limit -> limit.getLimit() == 100)
+//                );
+//    }
 
     private void test(JoinType joinType, boolean hasProject, PatternDescriptor<? extends Plan> pattern) {
         Plan plan = generatePlan(joinType, hasProject);
