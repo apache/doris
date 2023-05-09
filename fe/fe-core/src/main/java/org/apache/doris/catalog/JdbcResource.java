@@ -279,10 +279,13 @@ public class JdbcResource extends Resource {
             // `yearIsDateType` is a parameter of JDBC, and the default is true.
             // We force the use of `yearIsDateType=false`
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "yearIsDateType", "true", "false");
-            // `tinyInt1isBit` is a parameter of JDBC, and the default is true.
-            // We force the use of `tinyInt1isBit=false`, so that for mysql type tinyint,
-            // it will convert to Doris tinyint, not bit.
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+            // MySQL Types and Return Values for GetColumnTypeName and GetColumnClassName
+            // are presented in https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-reference-type-conversions.html
+            // However when tinyInt1isBit=false, GetColumnClassName of MySQL returns java.lang.Boolean,
+            // while that of Doris returns java.lang.Integer. In order to be compatible with both MySQL and Doris,
+            // Jdbc params should set tinyInt1isBit=true&transformedBitIsBoolean=true
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "tinyInt1isBit", "true", "true");
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "transformedBitIsBoolean", "true", "true");
             // set useUnicode and characterEncoding to false and utf-8
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useUnicode", "false", "true");
             newJdbcUrl = checkAndSetJdbcParam(newJdbcUrl, "characterEncoding", "utf-8");
