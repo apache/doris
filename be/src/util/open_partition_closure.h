@@ -59,7 +59,6 @@ public:
                                               -1);
             }
         }
-        delete this;
     }
 
     void join() { brpc::Join(cntl.call_id()); }
