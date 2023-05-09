@@ -319,9 +319,14 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
                                    .type(TYPE_INT)
                                    .column_name(SEQUENCE_COL)
                                    .column_pos(2)
+                                   .nullable(false)
                                    .build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v1").column_pos(3).build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_DATETIME)
+                                   .column_name("v1")
+                                   .column_pos(3)
+                                   .nullable(false)
+                                   .build());
     tuple_builder.build(&desc_tbl_builder);
 
     return desc_tbl_builder.desc_tbl();

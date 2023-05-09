@@ -28,6 +28,7 @@
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
 #include "util/stack_util.h"
+#include "vec/columns/column_const.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
@@ -125,6 +126,92 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
     int result_column_id = -1;
     RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
     return Block::filter_block(block, result_column_id, column_to_keep);
+}
+
+// TODO Performance Optimization
+Status VExprContext::execute_conjuncts(const std::vector<VExprContext*>& ctxs,
+                                       const std::vector<IColumn::Filter*>* filters, Block* block,
+                                       IColumn::Filter* result_filter, bool* can_filter_all) {
+    DCHECK(result_filter->size() == block->rows());
+    *can_filter_all = false;
+    auto* __restrict result_filter_data = result_filter->data();
+    for (auto* ctx : ctxs) {
+        int result_column_id = -1;
+        RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
+        ColumnPtr& filter_column = block->get_by_position(result_column_id).column;
+        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+            size_t column_size = nullable_column->size();
+            if (column_size == 0) {
+                *can_filter_all = true;
+                return Status::OK();
+            } else {
+                const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
+                const IColumn::Filter& filter =
+                        assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+                auto* __restrict filter_data = filter.data();
+                const size_t size = filter.size();
+                auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+
+                for (size_t i = 0; i < size; ++i) {
+                    result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
+                }
+                if (memchr(result_filter_data, 0x1, size) == nullptr) {
+                    *can_filter_all = true;
+                    return Status::OK();
+                }
+            }
+        } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+            // filter all
+            if (!const_column->get_bool(0)) {
+                *can_filter_all = true;
+                return Status::OK();
+            }
+        } else {
+            const IColumn::Filter& filter =
+                    assert_cast<const ColumnUInt8&>(*filter_column).get_data();
+            auto* __restrict filter_data = filter.data();
+
+            const size_t size = filter.size();
+            for (size_t i = 0; i < size; ++i) {
+                result_filter_data[i] &= filter_data[i];
+            }
+
+            if (memchr(result_filter_data, 0x1, size) == nullptr) {
+                *can_filter_all = true;
+                return Status::OK();
+            }
+        }
+    }
+    if (filters != nullptr) {
+        for (auto* filter : *filters) {
+            auto* __restrict filter_data = filter->data();
+            const size_t size = filter->size();
+            for (size_t i = 0; i < size; ++i) {
+                result_filter_data[i] &= filter_data[i];
+            }
+        }
+    }
+    return Status::OK();
+}
+
+// TODO Performance Optimization
+// need exception safety
+Status VExprContext::execute_conjuncts_and_filter_block(
+        const std::vector<VExprContext*>& ctxs, const std::vector<IColumn::Filter*>* filters,
+        Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep) {
+    IColumn::Filter result_filter(block->rows(), 1);
+    bool can_filter_all;
+    RETURN_IF_ERROR(execute_conjuncts(ctxs, filters, block, &result_filter, &can_filter_all));
+    if (can_filter_all) {
+        for (auto& col : columns_to_filter) {
+            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+        }
+    } else {
+        RETURN_IF_CATCH_EXCEPTION(
+                Block::filter_block_internal(block, columns_to_filter, result_filter));
+    }
+    Block::erase_useless_column(block, column_to_keep);
+    return Status::OK();
 }
 
 Status VExprContext::get_output_block_after_execute_exprs(

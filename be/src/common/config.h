@@ -855,7 +855,7 @@ CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
-CONF_Bool(enable_simdjson_reader, "false");
+CONF_Bool(enable_simdjson_reader, "true");
 
 CONF_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
