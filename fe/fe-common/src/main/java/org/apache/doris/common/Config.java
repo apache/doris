@@ -1924,6 +1924,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
 
+    /*
+     * "max_instance_num" is used to set the maximum concurrency. When the value set
+     * by "parallel_fragment_exec_instance_num" is greater than "max_instance_num",
+     * an error will be reported.
+     */
+    @ConfField(mutable = true)
+    public static int max_instance_num = 128;
+
+
     /**
      * This config used for export/outfile.
      * Whether delete all files in the directory specified by export/outfile.

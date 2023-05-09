@@ -1312,7 +1312,7 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             request.disks[root_path_info.path] = disk;
         }
         int num_cores = config::pipeline_executor_size > 0 ? config::pipeline_executor_size
-                                                                    : CpuInfo::num_cores();
+                                                           : CpuInfo::num_cores();
         request.__set_num_cores(num_cores);
         _handle_report(request, ReportType::DISK);
     }

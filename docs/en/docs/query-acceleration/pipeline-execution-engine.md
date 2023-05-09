@@ -78,6 +78,6 @@ set parallel_fragment_exec_instance_num = 16;
 ```
 
 Specifically, if set to 0, the concurrency in the Pipeline execution engine will automatically be set to half of the number of CPU cores.
-And the parallel_fragment_exec_instance_num cannot be set to more than 96.
+"parallel_fragment_exec_instance_num" cannot be set higher than the "max_instance_num" in "fe.conf" (default is 128).
 
 
