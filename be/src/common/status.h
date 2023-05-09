@@ -55,6 +55,7 @@ TStatusError(UNINITIALIZED);
 TStatusError(ABORTED);
 TStatusError(DATA_QUALITY_ERROR);
 TStatusError(LABEL_ALREADY_EXISTS);
+TStatusError(NOT_AUTHORIZED);
 #undef TStatusError
 // BE internal errors
 E(OS_ERROR, -100);
@@ -290,7 +291,9 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
         && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
         && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
-        && code != ErrorCode::INVERTED_INDEX_NO_TERMS;
+        && code != ErrorCode::INVERTED_INDEX_NO_TERMS
+        && code != ErrorCode::META_KEY_NOT_FOUND
+        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST;
 }
 // clang-format on
 
@@ -403,6 +406,7 @@ public:
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
+    ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
 #undef ERROR_CTOR
 
     template <int code>
@@ -421,6 +425,7 @@ public:
     bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
 
     bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
+    bool is_not_authorized() const { return code() == TStatusCode::NOT_AUTHORIZED; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.

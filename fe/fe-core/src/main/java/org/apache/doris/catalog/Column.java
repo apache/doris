@@ -270,6 +270,10 @@ public class Column implements Writable, GsonPostProcessable {
         return this.name;
     }
 
+    public String getNonShadowName() {
+        return removeNamePrefix(name);
+    }
+
     public String getNameWithoutMvPrefix() {
         return CreateMaterializedViewStmt.mvColumnBreaker(name);
     }

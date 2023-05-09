@@ -18,7 +18,6 @@
 package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;

@@ -86,7 +86,8 @@ public class HistogramTask extends BaseAnalysisTask {
         if (info.samplePercent > 0) {
             return String.valueOf(info.samplePercent / 100.0);
         } else {
-            double sampRate = (double) info.sampleRows / tbl.getRowCount();
+            long rowCount = tbl.getRowCount() > 0 ? tbl.getRowCount() : 1;
+            double sampRate = (double) info.sampleRows / rowCount;
             return sampRate >= 1 ? "1.0" : String.format("%.4f", sampRate);
         }
     }

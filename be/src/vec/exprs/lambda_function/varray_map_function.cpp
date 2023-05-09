@@ -60,7 +60,7 @@ public:
     std::string get_name() const override { return name; }
 
     doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id, DataTypePtr result_type,
+                          int* result_column_id, const DataTypePtr& result_type,
                           const std::vector<VExpr*>& children) override {
         ///* array_map(lambda,arg1,arg2,.....) *///
 
@@ -138,6 +138,12 @@ public:
                                                "R" + array_column_type_name.name};
             lambda_block.insert(std::move(data_column));
         }
+        //check nullable(array(nullable(nested)))
+        DCHECK(result_type->is_nullable() &&
+               is_array(((DataTypeNullable*)result_type.get())->get_nested_type()))
+                << "array_map result type is error, now must be nullable(array): "
+                << result_type->get_name()
+                << " ,and block structure is: " << block->dump_structure();
 
         //3. child[0]->execute(new_block)
         RETURN_IF_ERROR(children[0]->execute(context, &lambda_block, result_column_id));
@@ -156,6 +162,7 @@ public:
                           result_type, res_name};
 
         } else {
+            // deal with eg: select array_map(x -> x is null, [null, 1, 2]);
             // need to create the nested column null map for column array
             auto nested_null_map = ColumnUInt8::create(res_col->size(), 0);
             result_arr = {ColumnNullable::create(
@@ -167,6 +174,21 @@ public:
         }
         block->insert(std::move(result_arr));
         *result_column_id = block->columns() - 1;
+        //check nullable(nested)
+        DCHECK((assert_cast<const DataTypeArray*>(
+                        (((DataTypeNullable*)result_type.get())->get_nested_type().get())))
+                       ->get_nested_type()
+                       ->equals(*make_nullable(res_type)))
+                << " array_map function FE given result type is: " << result_type->get_name()
+                << " get nested is: "
+                << (assert_cast<const DataTypeArray*>(
+                            (((DataTypeNullable*)result_type.get())->get_nested_type().get())))
+                           ->get_nested_type()
+                           ->get_name()
+                << " and now actual nested type after calculate " << res_type->get_name()
+                << " ,and block structure is: " << block->dump_structure()
+                << " ,and lambda_block structure is: " << lambda_block.dump_structure();
+
         return Status::OK();
     }
 };

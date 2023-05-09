@@ -914,7 +914,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
                 current += snprintf(current, end - current, "%" PRIu64, prefix);
                 current += snprintf(current, end - current, "%.19" PRIu64, middle);
                 current += snprintf(current, end - current, "%.19" PRIu64, suffix);
-            } else if (OLAP_LIKELY(middle > 0)) {
+            } else if (LIKELY(middle > 0)) {
                 current += snprintf(current, end - current, "%" PRIu64, middle);
                 current += snprintf(current, end - current, "%.19" PRIu64, suffix);
             } else {

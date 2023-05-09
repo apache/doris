@@ -119,7 +119,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     load_id.set_lo(0);
     {
         std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
-        RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
+        RETURN_IF_ERROR(StorageEngine::instance()->txn_manager()->prepare_txn(
                 request.partition_id, tablet, request.transaction_id, load_id));
     }
 
@@ -129,7 +129,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     Status res;
     // check delete condition if push for delete
     std::queue<DeletePredicatePB> del_preds;
-    if (push_type == PUSH_FOR_DELETE) {
+    if (push_type == PushType::PUSH_FOR_DELETE) {
         DeletePredicatePB del_pred;
         TabletSchema tablet_schema;
         tablet_schema.copy_from(*tablet->tablet_schema());
@@ -184,7 +184,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
 
     // add pending data to tablet
 
-    if (push_type == PUSH_FOR_DELETE) {
+    if (push_type == PushType::PUSH_FOR_DELETE) {
         rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
         del_preds.pop();
     }

@@ -35,7 +35,9 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisTaskInfo.ScheduleType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
@@ -45,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -85,6 +88,7 @@ public class AnalyzeStmt extends DdlStmt {
     public static final String PROPERTY_SAMPLE_ROWS = "sample.rows";
     public static final String PROPERTY_NUM_BUCKETS = "num.buckets";
     public static final String PROPERTY_ANALYSIS_TYPE = "analysis.type";
+    public static final String PROPERTY_PERIOD_SECONDS = "period.seconds";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(PROPERTY_SYNC)
@@ -93,6 +97,7 @@ public class AnalyzeStmt extends DdlStmt {
             .add(PROPERTY_SAMPLE_ROWS)
             .add(PROPERTY_NUM_BUCKETS)
             .add(PROPERTY_ANALYSIS_TYPE)
+            .add(PROPERTY_PERIOD_SECONDS)
             .build();
 
     private final TableName tableName;
@@ -219,7 +224,7 @@ public class AnalyzeStmt extends DdlStmt {
 
         if (properties.containsKey(PROPERTY_SAMPLE_PERCENT)) {
             checkNumericProperty(PROPERTY_SAMPLE_PERCENT, properties.get(PROPERTY_SAMPLE_PERCENT),
-                    0, 100, false, "should be > 0 and < 100");
+                    1, 100, true, "should be >= 1 and <= 100");
         }
 
         if (properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
@@ -230,6 +235,11 @@ public class AnalyzeStmt extends DdlStmt {
         if (properties.containsKey(PROPERTY_NUM_BUCKETS)) {
             checkNumericProperty(PROPERTY_NUM_BUCKETS, properties.get(PROPERTY_NUM_BUCKETS),
                     1, Integer.MAX_VALUE, true, "needs at least 1 buckets");
+        }
+
+        if (properties.containsKey(PROPERTY_PERIOD_SECONDS)) {
+            checkNumericProperty(PROPERTY_PERIOD_SECONDS, properties.get(PROPERTY_PERIOD_SECONDS),
+                    1, Integer.MAX_VALUE, true, "needs at least 1 seconds");
         }
 
         if (properties.containsKey(PROPERTY_ANALYSIS_TYPE)) {
@@ -328,15 +338,30 @@ public class AnalyzeStmt extends DdlStmt {
         return Integer.parseInt(properties.get(PROPERTY_NUM_BUCKETS));
     }
 
+    public long getPeriodTimeInMs() {
+        if (!properties.containsKey(PROPERTY_PERIOD_SECONDS)) {
+            return 0;
+        }
+        int minutes = Integer.parseInt(properties.get(PROPERTY_PERIOD_SECONDS));
+        return TimeUnit.SECONDS.toMillis(minutes);
+    }
+
+    public AnalysisMode getAnalysisMode() {
+        return isIncremental() ? AnalysisMode.INCREMENTAL : AnalysisMode.FULL;
+    }
+
     public AnalysisType getAnalysisType() {
         return AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE));
     }
 
     public AnalysisMethod getAnalysisMethod() {
-        if (getSamplePercent() > 0 || getSampleRows() > 0) {
-            return AnalysisMethod.SAMPLE;
-        }
-        return AnalysisMethod.FULL;
+        double samplePercent = getSamplePercent();
+        int sampleRows = getSampleRows();
+        return (samplePercent > 0 || sampleRows > 0) ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
+    }
+
+    public ScheduleType getScheduleType() {
+        return getPeriodTimeInMs() > 0 ? ScheduleType.PERIOD : ScheduleType.ONCE;
     }
 
     @Override

@@ -77,14 +77,6 @@ public class PlanReceiver implements AbstractReceiver {
     HyperGraph hyperGraph;
     final Set<Slot> finalOutputs;
 
-    public PlanReceiver() {
-        throw new RuntimeException("");
-    }
-
-    public PlanReceiver(int limit) {
-        throw new RuntimeException("");
-    }
-
     public PlanReceiver(JobContext jobContext, int limit, HyperGraph hyperGraph, Set<Slot> outputs) {
         this.jobContext = jobContext;
         this.limit = limit;
@@ -179,7 +171,7 @@ public class PlanReceiver implements AbstractReceiver {
         BitSet usedEdgesBitmap = new BitSet();
         usedEdgesBitmap.or(usdEdges.get(left));
         usedEdgesBitmap.or(usdEdges.get(right));
-        edges.stream().forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
+        edges.forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
         long allReferenceNodes = getAllReferenceNodes(usedEdgesBitmap);
 
         // check all edges

@@ -46,7 +46,7 @@ class BetaRowset;
 // the segments of a specified rowset:
 //
 //  SegmentCacheHandle cache_handle;
-//  RETURN_NOT_OK(SegmentCache::instance()->load_segments(_rowset, &cache_handle));
+//  RETURN_IF_ERROR(SegmentCache::instance()->load_segments(_rowset, &cache_handle));
 //  for (auto& seg_ptr : cache_handle.value()->segments) {
 //      ... visit segment ...
 //  }
@@ -92,6 +92,8 @@ public:
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
                          bool use_cache = false);
+
+    void erase_segment(const SegmentLoader::CacheKey& key);
 
     // Try to prune the segment cache if expired.
     Status prune();

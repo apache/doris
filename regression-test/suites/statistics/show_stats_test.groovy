@@ -17,7 +17,7 @@
 
 suite("test_show_stats") {
     def dbName = "test_show_stats"
-    def tblName = "${dbName}.example_tbl"
+    def tblName = "${dbName}.show_stats_tbl"
 
     sql "DROP DATABASE IF EXISTS ${dbName}"
 
@@ -28,7 +28,7 @@ suite("test_show_stats") {
     sql """
         CREATE TABLE IF NOT EXISTS ${tblName} (
             `user_id` LARGEINT NOT NULL,
-            `date` DATE NOT NULL,
+            `date` DATEV2 NOT NULL,
             `city` VARCHAR(20),
             `age` SMALLINT,
             `sex` TINYINT,
@@ -55,22 +55,22 @@ suite("test_show_stats") {
         INSERT INTO ${tblName} (`user_id`, `date`, `city`, `age`,
                                             `sex`, `last_visit_date`, `cost`,
                                             `max_dwell_time`, `min_dwell_time`)
-        VALUES (10000, "2017-10-01", "北京", 20, 0, "2017-10-01 07:00:00", 15, 2, 2),
-            (10000, "2017-10-01", "北京", 20, 0, "2017-10-01 06:00:00", 20, 10, 10),
-            (10001, "2017-10-01", "北京", 30, 1, "2017-10-01 17:05:45", 2, 22, 22),
-            (10002, "2017-10-02", "上海", 20, 1, "2017-10-02 12:59:12", 200, 5, 5),
-            (10003, "2017-10-02", "广州", 32, 0, "2017-10-02 11:20:00", 30, 11, 11),
-            (10004, "2017-10-01", "深圳", 35, 0, "2017-10-01 10:00:15", 100, 3, 3),
-            (10004, "2017-10-03", "深圳", 35, 0, "2017-10-03 10:20:22", 11, 6, 6);
+        VALUES (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 07:00:00", 15, 2, 2),
+            (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 06:00:00", 20, 10, 10),
+            (10001, "2017-10-01", "Beijing", 30, 1, "2017-10-01 17:05:45", 2, 22, 22),
+            (10002, "2017-10-02", "Shanghai", 20, 1, "2017-10-02 12:59:12", 200, 5, 5),
+            (10003, "2017-10-02", "Guangzhou", 32, 0, "2017-10-02 11:20:00", 30, 11, 11),
+            (10004, "2017-10-01", "Shenzhen", 35, 0, "2017-10-01 10:00:15", 100, 3, 3),
+            (10004, "2017-10-03", "Shenzhen", 35, 0, "2017-10-03 10:20:22", 11, 6, 6);
     """
 
     sql "ANALYZE sync TABLE ${tblName};"
 
     sql "ANALYZE sync TABLE ${tblName} UPDATE HISTOGRAM;"
 
-    qt_sql "SHOW COLUMN STATS ${tblName}(city);"
+    qt_sql_1 "SHOW COLUMN STATS ${tblName}(city);"
 
-    qt_sql "SHOW COLUMN HISTOGRAM ${tblName}(city);"
+    qt_sql_2 "SHOW COLUMN HISTOGRAM ${tblName}(city);"
 
     sql "DROP DATABASE IF EXISTS ${dbName}"
 }

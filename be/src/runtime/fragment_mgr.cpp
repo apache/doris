@@ -388,6 +388,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     exec_status.set_t_status(&params);
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
+    params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
 
     DCHECK(req.runtime_state != nullptr);
     if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
@@ -907,7 +908,6 @@ void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancel
     }
     if (exec_state) {
         exec_state->cancel(reason, msg);
-        return;
     }
 
     std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_fragment_ctx;
@@ -1160,6 +1160,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                                    butil::IOBufAsZeroCopyInputStream* attach_data) {
     bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
+    int64_t start_apply = MonotonicMillis();
 
     const auto& fragment_instance_ids = request->fragment_instance_ids();
     if (fragment_instance_ids.size() > 0) {
@@ -1205,7 +1206,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         int filter_id = request->filter_id();
         IRuntimeFilter* real_filter = nullptr;
         RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filter(filter_id, &real_filter));
-        RETURN_IF_ERROR(real_filter->update_filter(&params));
+        RETURN_IF_ERROR(real_filter->update_filter(&params, start_apply));
     }
 
     return Status::OK();

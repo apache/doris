@@ -178,6 +178,16 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
     }
 }
 
+void OlapBlockDataConvertor::set_source_content_with_specifid_columns(
+        const vectorized::Block* block, size_t row_pos, size_t num_rows,
+        std::vector<uint32_t> cids) {
+    assert(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
+           block->columns() <= _convertors.size());
+    for (auto i : cids) {
+        _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
+    }
+}
+
 void OlapBlockDataConvertor::clear_source_content() {
     for (auto& convertor : _convertors) {
         convertor->clear_source_column();

@@ -77,7 +77,7 @@ protected:
     Status _filter_output_block(Block* block);
 
     // Not virtual, all child will call this method explictly
-    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+    Status prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr);
 
 public:
     VScanNode* get_parent() { return _parent; }

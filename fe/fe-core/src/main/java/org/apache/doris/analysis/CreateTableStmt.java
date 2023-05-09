@@ -329,6 +329,13 @@ public class CreateTableStmt extends DdlStmt {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
             }
+            if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
+                throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
+            }
+            if (Objects.equals(columnDef.getType(), Type.DECIMALV2) && Config.disable_decimalv2) {
+                throw new AnalysisException("Disable to create table with `DECIMAL` type columns,"
+                                            + "please use `DECIMALV3`.");
+            }
         }
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {

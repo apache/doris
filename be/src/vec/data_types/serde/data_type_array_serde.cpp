@@ -17,8 +17,13 @@
 
 #include "data_type_array_serde.h"
 
+#include <arrow/array/builder_nested.h>
+
+#include "gutil/casts.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
@@ -41,6 +46,41 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
 void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     column.deserialize_and_insert_from_arena(blob->getBlob());
+}
+
+void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                                               arrow::ArrayBuilder* array_builder, int start,
+                                               int end) const {
+    auto& array_column = static_cast<const ColumnArray&>(column);
+    auto& offsets = array_column.get_offsets();
+    auto& nested_data = array_column.get_data();
+    auto& builder = assert_cast<arrow::ListBuilder&>(*array_builder);
+    auto nested_builder = builder.value_builder();
+    for (size_t array_idx = start; array_idx < end; ++array_idx) {
+        checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
+        nested_serde->write_column_to_arrow(nested_data, null_map, nested_builder,
+                                            offsets[array_idx - 1], offsets[array_idx]);
+    }
+}
+
+void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                int start, int end,
+                                                const cctz::time_zone& ctz) const {
+    auto& column_array = static_cast<ColumnArray&>(column);
+    auto& offsets_data = column_array.get_offsets();
+    auto concrete_array = down_cast<const arrow::ListArray*>(arrow_array);
+    auto arrow_offsets_array = concrete_array->offsets();
+    auto arrow_offsets = down_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    auto prev_size = offsets_data.back();
+    auto arrow_nested_start_offset = arrow_offsets->Value(start);
+    auto arrow_nested_end_offset = arrow_offsets->Value(end);
+    for (int64_t i = start + 1; i < end + 1; ++i) {
+        // convert to doris offset, start from offsets.back()
+        offsets_data.emplace_back(prev_size + arrow_offsets->Value(i) - arrow_nested_start_offset);
+    }
+    return nested_serde->read_column_from_arrow(
+            column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
+            arrow_nested_end_offset, ctz);
 }
 
 } // namespace vectorized

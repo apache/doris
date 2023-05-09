@@ -41,6 +41,12 @@ class JsonbOutStream;
 namespace vectorized {
 class Arena;
 
+// special data type using, maybe has various serde actions, so use specific date serde
+//  DataTypeDateV2 => T:UInt32
+//  DataTypeDateTimeV2 => T:UInt64
+//  DataTypeTime => T:Float64
+//  DataTypeDate => T:Int64
+//  DataTypeDateTime => T:Int64
 template <typename T>
 class DataTypeNumberSerDe : public DataTypeSerDe {
     static_assert(IsNumber<T>);
@@ -55,6 +61,12 @@ public:
                                  int32_t col_id, int row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+
+    void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                               arrow::ArrayBuilder* array_builder, int start,
+                               int end) const override;
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
+                                int end, const cctz::time_zone& ctz) const override;
 };
 
 template <typename T>

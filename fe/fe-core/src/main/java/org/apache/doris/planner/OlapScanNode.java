@@ -53,6 +53,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -708,6 +709,20 @@ public class OlapScanNode extends ScanNode {
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
+            if (!Config.recover_with_skip_missing_version.equalsIgnoreCase("disable")) {
+                long tabletVersion = -1L;
+                for (Replica replica : tablet.getReplicas()) {
+                    if (replica.getVersion() > tabletVersion) {
+                        tabletVersion = replica.getVersion();
+                    }
+                }
+                if (tabletVersion != visibleVersion) {
+                    LOG.warn("tablet {} version {} is not equal to partition {} version {}",
+                            tabletId, tabletVersion, partition.getId(), visibleVersion);
+                    visibleVersion = tabletVersion;
+                    visibleVersionStr = String.valueOf(visibleVersion);
+                }
+            }
             TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
             TPaloScanRange paloRange = new TPaloScanRange();
             paloRange.setDbName("");
@@ -783,7 +798,12 @@ public class OlapScanNode extends ScanNode {
                 scanBackendIds.add(backend.getId());
             }
             if (tabletIsNull) {
-                throw new UserException(tabletId + " have no queryable replicas. err: " + Joiner.on(", ").join(errs));
+                if (Config.recover_with_skip_missing_version.equalsIgnoreCase("ignore_all")) {
+                    continue;
+                } else {
+                    throw new UserException(tabletId + " have no queryable replicas. err: "
+                            + Joiner.on(", ").join(errs));
+                }
             }
             TScanRange scanRange = new TScanRange();
             scanRange.setPaloScanRange(paloRange);

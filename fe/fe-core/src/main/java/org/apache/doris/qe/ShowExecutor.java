@@ -34,7 +34,6 @@ import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
 import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
-import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
@@ -67,7 +66,6 @@ import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowMTMVJobStmt;
 import org.apache.doris.analysis.ShowMTMVTaskStmt;
-import org.apache.doris.analysis.ShowMigrationsStmt;
 import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowPluginsStmt;
@@ -137,7 +135,6 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.clone.DynamicPartitionScheduler;
-import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -322,10 +319,6 @@ public class ShowExecutor {
             handleShowBackup();
         } else if (stmt instanceof ShowRestoreStmt) {
             handleShowRestore();
-        } else if (stmt instanceof ShowClusterStmt) {
-            handleShowCluster();
-        } else if (stmt instanceof ShowMigrationsStmt) {
-            handleShowMigrations();
         } else if (stmt instanceof ShowBrokerStmt) {
             handleShowBroker();
         } else if (stmt instanceof ShowResourcesStmt) {
@@ -485,14 +478,7 @@ public class ShowExecutor {
 
     private void handleShowDataTypes() throws AnalysisException {
         ShowDataTypesStmt showStmt = (ShowDataTypesStmt) stmt;
-        ArrayList<PrimitiveType> supportedTypes = showStmt.getTypes();
-        List<List<String>> rows = Lists.newArrayList();
-        for (PrimitiveType type : supportedTypes) {
-            List<String> row = new ArrayList<>();
-            row.add(type.toString());
-            row.add(Integer.toString(type.getSlotSize()));
-            rows.add(row);
-        }
+        List<List<String>> rows = showStmt.getTypesAvailableInDdl();
         showStmt.sortMetaData(rows);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
@@ -677,40 +663,7 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(metaData, finalRows);
     }
 
-    // Show clusters
-    private void handleShowCluster() throws AnalysisException {
-        final ShowClusterStmt showStmt = (ShowClusterStmt) stmt;
-        final List<List<String>> rows = Lists.newArrayList();
-        final List<String> clusterNames = ctx.getEnv().getClusterNames();
-
-        final Set<String> clusterNameSet = Sets.newTreeSet();
-        for (String cluster : clusterNames) {
-            clusterNameSet.add(cluster);
-        }
-
-        for (String clusterName : clusterNameSet) {
-            rows.add(Lists.newArrayList(clusterName));
-        }
-
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    // Show migrations
-    private void handleShowMigrations() throws AnalysisException {
-        final ShowMigrationsStmt showStmt = (ShowMigrationsStmt) stmt;
-        final List<List<String>> rows = Lists.newArrayList();
-        final Set<BaseParam> infos = ctx.getEnv().getMigrations();
-
-        for (BaseParam param : infos) {
-            final int percent = (int) (param.getFloatParam(0) * 100f);
-            rows.add(Lists.newArrayList(param.getStringParam(0), param.getStringParam(1), param.getStringParam(2),
-                    String.valueOf(percent + "%")));
-        }
-
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowDbId() throws AnalysisException {
+    private void handleShowDbId() {
         ShowDbIdStmt showStmt = (ShowDbIdStmt) stmt;
         long dbId = showStmt.getDbId();
         List<List<String>> rows = Lists.newArrayList();
@@ -990,7 +943,8 @@ public class ShowExecutor {
                 return;
             }
             List<String> createTableStmt = Lists.newArrayList();
-            Env.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */, -1L);
+            Env.getDdlStmt(null, null, table, createTableStmt, null, null, false,
+                    true /* hide password */, false, -1L, showStmt.isNeedBriefDdl());
             if (createTableStmt.isEmpty()) {
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
                 return;
@@ -1833,7 +1787,7 @@ public class ShowExecutor {
 
     private void handleShowBackends() {
         final ShowBackendsStmt showStmt = (ShowBackendsStmt) stmt;
-        List<List<String>> backendInfos = BackendsProcDir.getClusterBackendInfos(showStmt.getClusterName());
+        List<List<String>> backendInfos = BackendsProcDir.getBackendInfos();
 
         backendInfos.sort(new Comparator<List<String>>() {
             @Override

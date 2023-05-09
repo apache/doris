@@ -58,6 +58,7 @@ eval set -- "${OPTS}"
 
 _USE_AVX2=1
 TAR=0
+HELP=0
 VERSION=
 if [[ "$#" == 1 ]]; then
     _USE_AVX2=1
@@ -94,13 +95,11 @@ fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit
 fi
 
 if [[ -z ${VERSION} ]]; then
     echo "Must specify version"
     usage
-    exit 1
 fi
 
 echo "Get params:
@@ -109,31 +108,33 @@ echo "Get params:
     TAR             -- ${TAR}
 "
 
+ARCH="$(uname -m)"
+
+ORI_OUTPUT="${ROOT}/output"
+
+FE="apache-doris-fe-${VERSION}-bin-${ARCH}"
+BE="apache-doris-be-${VERSION}-bin-${ARCH}"
+DEPS="apache-doris-dependencies-${VERSION}-bin-${ARCH}"
+
+OUTPUT="${ORI_OUTPUT}/apache-doris-${VERSION}-bin-${ARCH}"
+OUTPUT_FE="${OUTPUT}/${FE}"
+OUTPUT_DEPS="${OUTPUT}/${DEPS}"
+OUTPUT_BE="${OUTPUT}/${BE}"
+
+if [[ "${_USE_AVX2}" == "0" && "${ARCH}" == "x86_64" ]]; then
+    OUTPUT_BE="${OUTPUT_BE}-noavx2"
+fi
+
+echo "Package Name:"
+echo "FE:   ${OUTPUT_FE}"
+echo "BE:   ${OUTPUT_BE}"
+echo "JAR:  ${OUTPUT_DEPS}"
+
 sh build.sh --clean &&
     USE_AVX2="${_USE_AVX2}" sh build.sh &&
     USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool
 
 echo "Begin to pack"
-ORI_OUTPUT="${ROOT}/output"
-
-FE=apache-doris-fe-${VERSION}-bin-x86_64
-BE=apache-doris-be-${VERSION}-bin-x86_64
-DEPS=apache-doris-dependencies-${VERSION}-bin-x86_64
-
-OUTPUT="${ORI_OUTPUT}/apache-doris-${VERSION}-bin-x86_64"
-OUTPUT_FE="${OUTPUT}/${FE}"
-OUTPUT_DEPS="${OUTPUT}/${DEPS}"
-OUTPUT_BE="${OUTPUT}/${BE}"
-
-if [[ "${_USE_AVX2}" == "0" ]]; then
-    OUTPUT_BE="${OUTPUT_BE}-noavx2"
-fi
-
-echo "Pakage Name:"
-echo "FE:   ${OUTPUT_FE}"
-echo "BE:   ${OUTPUT_BE}"
-echo "JAR:  ${OUTPUT_DEPS}"
-
 rm -rf "${OUTPUT}"
 mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_DEPS}"
 

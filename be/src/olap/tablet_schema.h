@@ -282,6 +282,18 @@ public:
         str += "]";
         return str;
     }
+    vectorized::Block create_missing_columns_block();
+    vectorized::Block create_update_columns_block();
+    void set_partial_update_info(bool is_partial_update,
+                                 const std::set<string>& partial_update_input_columns);
+    bool is_partial_update() const { return _is_partial_update; }
+    size_t partial_input_column_size() const { return _partial_update_input_columns.size(); }
+    bool is_column_missing(size_t cid) const;
+    bool allow_key_not_exist_in_partial_update() const {
+        return _allow_key_not_exist_in_partial_update;
+    }
+    std::vector<uint32_t> get_missing_cids() { return _missing_cids; }
+    std::vector<uint32_t> get_update_cids() { return _update_cids; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -316,6 +328,13 @@ private:
     bool _disable_auto_compaction = false;
     int64_t _mem_size = 0;
     bool _store_row_column = false;
+
+    bool _is_partial_update;
+    std::set<std::string> _partial_update_input_columns;
+    std::vector<uint32_t> _missing_cids;
+    std::vector<uint32_t> _update_cids;
+    // if key not exist in old rowset, use default value or null
+    bool _allow_key_not_exist_in_partial_update = true;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

@@ -362,10 +362,11 @@ struct TTabletMetaInfo {
     1: optional Types.TTabletId tablet_id
     2: optional Types.TSchemaHash schema_hash
     3: optional Types.TPartitionId partition_id
-    4: optional TTabletMetaType meta_type
+    // 4: optional TTabletMetaType Deprecated_meta_type
     5: optional bool is_in_memory
-    // 6: optional string storage_policy;
+    // 6: optional string Deprecated_storage_policy
     7: optional i64 storage_policy_id
+    8: optional Types.TReplicaId replica_id
 }
 
 struct TUpdateTabletMetaInfoReq {

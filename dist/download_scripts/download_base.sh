@@ -39,7 +39,7 @@ DOWNLOAD_DIR="$5"
 FILE_SUFFIX=".tar.xz"
 
 # Check if curl cmd exists
-if [[ -n $(which curl >/dev/null 2>&1) ]]; then
+if [[ -n $(command -v curl >/dev/null 2>&1) ]]; then
     echo "curl command not found on the system"
     exit 1
 fi
@@ -58,31 +58,28 @@ fi
 
 mkdir "${DOWNLOAD_DIR}"
 
-# Begin to download
-FE_LINK="${DOWNLOAD_LINK_PREFIX}${FE}${FILE_SUFFIX}"
-BE_LINK="${DOWNLOAD_LINK_PREFIX}${BE}${FILE_SUFFIX}"
-DEPS_LINK="${DOWNLOAD_LINK_PREFIX}${DEPS}${FILE_SUFFIX}"
-
 download() {
     MODULE="$1"
-    LINK="$2"
+    LINK=""${DOWNLOAD_LINK_PREFIX}${2}${FILE_SUFFIX}""
     DIR="$3"
-    echo "Begin to download ${MODULE} from \"${LINK}\" to \"${DIR}/\" ..."
+    echo "Begin to download '${MODULE}' from \"${LINK}\" to \"${DIR}/\" ..."
     total_size=$(curl -sI "${LINK}" | grep -i Content-Length | awk '{print $2}' | tr -d '\r')
     echo "Total size: ${total_size} Bytes"
     echo "curl -# ${LINK} | tar xJ -C ${DIR}/"
     curl -# "${LINK}" | tar xJ -C "${DIR}/"
+    mv "${DIR}/${2}" "${DIR}/${MODULE}"
 }
 
-download "FE" "${FE_LINK}" "${DOWNLOAD_DIR}"
-download "BE" "${BE_LINK}" "${DOWNLOAD_DIR}"
-download "DEPS" "${DEPS_LINK}" "${DOWNLOAD_DIR}"
+# Begin to download
+download "fe" "${FE}" "${DOWNLOAD_DIR}"
+download "be" "${BE}" "${DOWNLOAD_DIR}"
+download "dependencies" "${DEPS}" "${DOWNLOAD_DIR}"
 
 # Assemble
 echo "Begin to assemble the binaries ..."
 
 echo "Move java-udf-jar-with-dependencies.jar to be/lib/ ..."
-mv "${DOWNLOAD_DIR}/${DEPS}/java-udf-jar-with-dependencies.jar" "${DOWNLOAD_DIR}/${BE}/lib"
+mv "${DOWNLOAD_DIR}/dependencies/java-udf-jar-with-dependencies.jar" "${DOWNLOAD_DIR}/be/lib"
 
 echo "Download complete!"
 echo "You can now deploy Apache Doris from ${DOWNLOAD_DIR}/"

@@ -349,26 +349,6 @@ Status TabletMeta::create_from_file(const string& file_path) {
     return Status::OK();
 }
 
-Status TabletMeta::reset_tablet_uid(const string& header_file) {
-    Status res = Status::OK();
-    TabletMeta tmp_tablet_meta;
-    if ((res = tmp_tablet_meta.create_from_file(header_file)) != Status::OK()) {
-        LOG(WARNING) << "fail to load tablet meta from file"
-                     << ", meta_file=" << header_file;
-        return res;
-    }
-    TabletMetaPB tmp_tablet_meta_pb;
-    tmp_tablet_meta.to_meta_pb(&tmp_tablet_meta_pb);
-    *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid::gen_uid().to_proto();
-    res = save(header_file, tmp_tablet_meta_pb);
-    if (!res.ok()) {
-        LOG(FATAL) << "fail to save tablet meta pb to "
-                   << " meta_file=" << header_file;
-        return res;
-    }
-    return res;
-}
-
 std::string TabletMeta::construct_header_file_path(const string& schema_hash_path,
                                                    int64_t tablet_id) {
     std::stringstream header_name_stream;
@@ -422,7 +402,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
                    << " tablet=" << full_name() << " _tablet_uid=" << _tablet_uid.to_string();
     }
     string meta_binary;
-    RETURN_NOT_OK(serialize(&meta_binary));
+    RETURN_IF_ERROR(serialize(&meta_binary));
     Status status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (!status.ok()) {
         LOG(FATAL) << "fail to save tablet_meta. status=" << status << ", tablet_id=" << tablet_id()

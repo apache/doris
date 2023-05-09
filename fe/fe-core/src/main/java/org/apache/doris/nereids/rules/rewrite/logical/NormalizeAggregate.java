@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -99,7 +100,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                     aggregate.getOutputExpressions(), Alias.class::isInstance);
             Set<AggregateFunction> aggregateFunctionsInWindow = collectAggregateFunctionsInWindow(
                     aggregate.getOutputExpressions());
-            Set<Expression> existsAggAlias = existsAliases.stream().map(alias -> alias.child())
+            Set<Expression> existsAggAlias = existsAliases.stream().map(UnaryNode::child)
                     .filter(AggregateFunction.class::isInstance)
                     .collect(Collectors.toSet());
 
