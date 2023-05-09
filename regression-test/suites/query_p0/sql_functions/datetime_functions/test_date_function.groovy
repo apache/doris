@@ -632,15 +632,15 @@ suite("test_date_function") {
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
 
-    // explain {
-    //     sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
-    //     contains "`birth` < '2022-01-01 00:00:00'"
-    // }
+    explain {
+        sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
+        contains "`birth` < '2022-01-01 00:00:00'"
+    }
 
-    // explain {
-    //     sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
-    //     contains "`birth1` < '2022-01-01'"
-    // }
+    explain {
+        sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
+        contains "`birth1` < '2022-01-01'"
+    }
 
     sql """
         insert into ${tableName} values 

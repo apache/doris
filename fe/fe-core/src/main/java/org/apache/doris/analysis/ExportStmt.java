@@ -81,6 +81,7 @@ public class ExportStmt extends StatementBase {
     private String label;
 
     private String maxFileSize;
+    private String deleteExistingFiles;
     private SessionVariable sessionVariables;
 
     private String qualifiedUser;
@@ -338,6 +339,7 @@ public class ExportStmt extends StatementBase {
 
         // max_file_size
         this.maxFileSize = properties.getOrDefault(OutFileClause.PROP_MAX_FILE_SIZE, "");
+        this.deleteExistingFiles = properties.getOrDefault(OutFileClause.PROP_DELETE_EXISTING_FILES, "");
 
         if (properties.containsKey(LABEL)) {
             FeNameFormat.checkLabel(properties.get(LABEL));
@@ -396,5 +398,9 @@ public class ExportStmt extends StatementBase {
 
     public String getMaxFileSize() {
         return maxFileSize;
+    }
+
+    public String getDeleteExistingFiles() {
+        return deleteExistingFiles;
     }
 }

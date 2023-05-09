@@ -88,4 +88,6 @@ endif()
 
 add_library(Runtime STATIC
     ${RUNTIME_FILES}
-    )
+)
+
+pch_reuse(Runtime)

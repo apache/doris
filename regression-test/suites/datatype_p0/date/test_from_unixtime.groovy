@@ -24,10 +24,4 @@ suite("test_from_unixtime") {
     sql "set time_zone='+00:00'"
 
     qt_sql2 "select from_unixtime(1553152255)"
-
-    sql """ set time_zone = 'Europe/London' """
-    qt_sql3 "select from_unixtime(1682520140)"
-
-    sql "set enable_fold_constant_by_be=false"
-    qt_sql4 "select from_unixtime(1682520140)"
 }

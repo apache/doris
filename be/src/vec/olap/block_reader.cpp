@@ -110,7 +110,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
         auto& rs_reader = read_params.rs_readers[i];
         // _vcollect_iter.topn_next() will init rs_reader by itself
         if (!_vcollect_iter.use_topn_next()) {
-            RETURN_NOT_OK(rs_reader->init(
+            RETURN_IF_ERROR(rs_reader->init(
                     &_reader_context,
                     is_empty ? std::pair {0, 0} : read_params.rs_readers_segment_offsets[i]));
         }
@@ -173,7 +173,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 }
 
 Status BlockReader::init(const ReaderParams& read_params) {
-    RETURN_NOT_OK(TabletReader::init(read_params));
+    RETURN_IF_ERROR(TabletReader::init(read_params));
 
     int32_t return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());

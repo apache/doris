@@ -67,7 +67,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
         // segment iterator will be inited here
         // In vertical compaction, every group will load segment so we should cache
         // segment to avoid tot many s3 head request
-        RETURN_NOT_OK(
+        RETURN_IF_ERROR(
                 rs_reader->get_segment_iterators(&_reader_context, segment_iters, {0, 0}, true));
         // if segments overlapping, all segment iterator should be inited in
         // heap merge iterator. If segments are none overlapping, only first segment of this
@@ -187,7 +187,7 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
 Status VerticalBlockReader::init(const ReaderParams& read_params) {
     StorageReadOptions opts;
     _reader_context.batch_size = opts.block_row_max;
-    RETURN_NOT_OK(TabletReader::init(read_params));
+    RETURN_IF_ERROR(TabletReader::init(read_params));
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {

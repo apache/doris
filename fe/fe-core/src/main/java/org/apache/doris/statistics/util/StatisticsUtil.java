@@ -59,12 +59,15 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.thrift.TException;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -73,6 +76,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class StatisticsUtil {
+
+    private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
     public static List<ResultRow> executeQuery(String template, Map<String, String> params) {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -103,9 +108,14 @@ public class StatisticsUtil {
         }
     }
 
-    // TODO: finish this.
-    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches) throws TException {
-        return new ArrayList<>();
+    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches)
+            throws TException {
+        if (CollectionUtils.isEmpty(resultBatches)) {
+            return Collections.emptyList();
+        }
+        return resultBatches.stream()
+                .map(AnalysisTaskInfo::fromResultRow)
+                .collect(Collectors.toList());
     }
 
     public static List<ColumnStatistic> deserializeToColumnStatistics(List<ResultRow> resultBatches)
@@ -361,5 +371,21 @@ public class StatisticsUtil {
         StringJoiner builder = new StringJoiner(delimiter);
         values.forEach(v -> builder.add(String.valueOf(v)));
         return builder.toString();
+    }
+
+    public static int convertStrToInt(String str) {
+        return StringUtils.isNumeric(str) ? Integer.parseInt(str) : 0;
+    }
+
+    public static long convertStrToLong(String str) {
+        return StringUtils.isNumeric(str) ? Long.parseLong(str) : 0;
+    }
+
+    public static String getReadableTime(long timeInMs) {
+        if (timeInMs <= 0) {
+            return "";
+        }
+        SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
+        return format.format(new Date(timeInMs));
     }
 }

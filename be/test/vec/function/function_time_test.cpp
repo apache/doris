@@ -545,9 +545,9 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
     DataSet data_set = {
             {{DATETIME("2019-08-01 13:21:03"), STRING("Asia/Shanghai"),
               STRING("America/Los_Angeles")},
-             str_to_date_time("2019-07-31 21:21:03", true)},
+             str_to_date_time("2019-07-31 22:21:03", true)},
             {{DATETIME("2019-08-01 13:21:03"), STRING("+08:00"), STRING("America/Los_Angeles")},
-             str_to_date_time("2019-07-31 21:21:03", true)}};
+             str_to_date_time("2019-07-31 22:21:03", true)}};
 
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
@@ -1684,9 +1684,9 @@ TEST(VTimestampFunctionsTest, convert_tz_v2_test) {
     DataSet data_set = {
             {{DATETIME("2019-08-01 13:21:03"), STRING("Asia/Shanghai"),
               STRING("America/Los_Angeles")},
-             str_to_datetime_v2("2019-07-31 21:21:03", "%Y-%m-%d %H:%i:%s.%f")},
+             str_to_datetime_v2("2019-07-31 22:21:03", "%Y-%m-%d %H:%i:%s.%f")},
             {{DATETIME("2019-08-01 13:21:03"), STRING("+08:00"), STRING("America/Los_Angeles")},
-             str_to_datetime_v2("2019-07-31 21:21:03", "%Y-%m-%d %H:%i:%s.%f")}};
+             str_to_datetime_v2("2019-07-31 22:21:03", "%Y-%m-%d %H:%i:%s.%f")}};
 
     check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set);
 }

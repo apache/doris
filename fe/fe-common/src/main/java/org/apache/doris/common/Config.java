@@ -1035,17 +1035,6 @@ public class Config extends ConfigBase {
     public static boolean force_do_metadata_checkpoint = false;
 
     /**
-     * The multi cluster feature will be deprecated in version 0.12
-     * set this config to true will disable all operations related to cluster feature, include:
-     *   create/drop cluster
-     *   add free backend/add backend to cluster/decommission cluster balance
-     *   change the backends num of cluster
-     *   link/migration db
-     */
-    @ConfField(mutable = true)
-    public static boolean disable_cluster_feature = true;
-
-    /**
      * Decide how often to check dynamic partition
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1441,6 +1430,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
+
+    /*
+     * if true, will allow the system to collect statistics automatically
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_auto_collect_statistics = true;
+
+    /*
+     * the system automatically checks the time interval for statistics
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int auto_check_statistics_in_sec = 300;
 
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
@@ -1895,6 +1896,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static boolean skip_localhost_auth_check  = false;
 
+    @ConfField(mutable = true)
+    public static boolean enable_round_robin_create_tablet = false;
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -1919,5 +1923,13 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
+
+    /**
+     * This config used for export/outfile.
+     * Whether delete all files in the directory specified by export/outfile.
+     * It is a very dangerous operation, should only be used in test env.
+     */
+    @ConfField(mutable = false)
+    public static boolean enable_delete_existing_files  = false;
 }
 

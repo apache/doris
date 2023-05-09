@@ -301,6 +301,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
+            _convert_dict_cols_to_string_cols(block);
             *read_rows = block->rows();
             return Status::OK();
         }
@@ -457,6 +458,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                 *read_rows = 0;
                 *batch_eof = true;
                 _lazy_read_filtered_rows += pre_read_rows;
+                _convert_dict_cols_to_string_cols(block);
                 return Status::OK();
             }
         } else {
