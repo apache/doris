@@ -150,10 +150,6 @@ public:
     virtual void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
                                        Arena* arena) const = 0;
 
-    virtual void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
-                                                         const IColumn& column, size_t begin,
-                                                         size_t end, Arena* arena) const = 0;
-
     virtual void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
                                                    const IColumn& column, Arena* arena) const = 0;
 
@@ -210,13 +206,8 @@ public:
 
     virtual DataTypePtr get_serialized_type() const { return std::make_shared<DataTypeString>(); }
 
-    bool is_generic() const { return _is_generic; }
-
-    void set_generic() { _is_generic = true; }
-
 protected:
     DataTypes argument_types;
-    bool _is_generic = false;
 };
 
 /// Implement method to obtain an address of 'add' function.
@@ -391,38 +382,6 @@ public:
             }
         }
     }
-
-    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
-                                                 const IColumn& column, size_t begin, size_t end,
-                                                 Arena* arena) const override {
-        DCHECK(end <= column.size() && begin <= end)
-                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
-        for (size_t i = begin; i <= end; ++i) {
-            VectorBufferReader buffer_reader(
-                    (assert_cast<const ColumnString&>(column)).get_data_at(i));
-            deserialize_and_merge(place, buffer_reader, arena);
-        }
-    }
-
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena* arena) const override {
-        if (column.empty()) {
-            return;
-        }
-        deserialize_and_merge_from_column_range(place, column, 0, column.size() - 1, arena);
-    }
-
-    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
-                               Arena* arena) const override {
-        char deserialized_data[size_of_data()];
-        AggregateDataPtr deserialized_place = (AggregateDataPtr)deserialized_data;
-
-        auto derived = static_cast<const Derived*>(this);
-        derived->create(deserialized_place);
-        derived->deserialize(deserialized_place, buf, arena);
-        derived->merge(place, deserialized_place, arena);
-        derived->destroy(deserialized_place);
-    }
 };
 
 /// Implements several methods for manipulation with data. T - type of structure with data for aggregation.
@@ -466,6 +425,16 @@ public:
         DEFER({ derived->destroy(deserialized_place); });
         derived->deserialize(deserialized_place, buf, arena);
         derived->merge(place, deserialized_place, arena);
+    }
+
+    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
+                                           Arena* arena) const override {
+        size_t num_rows = column.size();
+        for (size_t i = 0; i != num_rows; ++i) {
+            VectorBufferReader buffer_reader(
+                    (assert_cast<const ColumnString&>(column)).get_data_at(i));
+            deserialize_and_merge(place, buffer_reader, arena);
+        }
     }
 };
 

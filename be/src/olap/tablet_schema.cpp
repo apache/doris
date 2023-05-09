@@ -148,8 +148,10 @@ FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::s
         aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_BITMAP_UNION;
     } else if (0 == upper_str.compare("QUANTILE_UNION")) {
         aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_QUANTILE_UNION;
-    } else {
+    } else if (!upper_str.empty()) {
         aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC;
+    } else {
+        aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_UNKNOWN;
     }
 
     return aggregation_type;
@@ -495,7 +497,6 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_merge() co
     }
     auto function = vectorized::AggregateFunctionSimpleFactory::instance().get(
             _aggregation_name, argument_types, false);
-    function->set_generic();
     return function;
 }
 

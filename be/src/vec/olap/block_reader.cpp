@@ -461,22 +461,12 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
         auto column_ptr = _stored_data_columns[idx].get();
 
         if (begin <= end) {
-            if (function->is_generic()) {
-                function->deserialize_and_merge_from_column_range(place, *column_ptr, begin, end,
-                                                                  nullptr);
-            } else {
-                function->add_batch_range(begin, end, place,
-                                          const_cast<const IColumn**>(&column_ptr), &_arena,
-                                          _stored_has_null_tag[idx]);
-            }
+            function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
+                                      nullptr, _stored_has_null_tag[idx]);
         }
 
         if (is_close) {
-            if (function->is_generic()) {
-                function->serialize_without_key_to_column(place, columns[_return_columns_loc[idx]]);
-            } else {
-                function->insert_result_into(place, *columns[_return_columns_loc[idx]]);
-            }
+            function->insert_result_into(place, *columns[_return_columns_loc[idx]]);
             // reset aggregate data
             function->reset(place);
         }

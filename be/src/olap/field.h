@@ -669,9 +669,10 @@ public:
             return new QuantileStateAggField(column);
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC:
             return new AggStateField(column);
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_UNKNOWN:
+            CHECK(false) << ", value column no agg type";
+            return nullptr;
         }
-        CHECK(false) << ", value column no agg type";
-        return nullptr;
     }
 
     static Field* create_by_type(const FieldType& type) {
