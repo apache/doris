@@ -34,7 +34,7 @@ This document mainly introduces the performance of Doris on the TPC-H 100G test 
 >
 > Note 2: The operations involved in this document are all tested on CentOS 7.x.
 >
-> Note 3: Doris starting from version 1.2.2, the page cache is turned off by default to reduce the probability of OOM, which has a certain impact on performance. For performance testing, enable the page cache by adding disable_storage_page_cache=false to be.conf.
+> Note 3: Doris starting from version 1.2.2, the page cache is turned off by default to reduce memory usage, which has a certain impact on performance. For performance testing, enable the page cache by adding disable_storage_page_cache=false to be.conf.
 
 On 22 queries on the TPC-H standard test data set, we conducted a comparison test based on Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 versions. Compared with Apache Doris 1.1.3, the overall performance of Apache Doris 1.2.0-rc01 has been improved by nearly 3 times, and by nearly 11 times compared with Apache Doris 0.15.0 RC04.
 

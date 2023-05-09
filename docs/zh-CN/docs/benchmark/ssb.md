@@ -34,7 +34,7 @@ under the License.
 >
 > 注 2：本文档涉及的操作都在 Ubuntu Server 20.04 环境进行，CentOS 7 也可测试。
 > 
-> 注 3: Doris 从 1.2.2 版本开始，为了减少 OOM 的概率，默认关闭了 Page Cache，会对性能有一定影响，所以在进行性能测试时请在 be.conf 添加 disable_storage_page_cache=false 来打开 Page Cache。
+> 注 3: Doris 从 1.2.2 版本开始，为了减少内存占用，默认关闭了 Page Cache，会对性能有一定影响，所以在进行性能测试时请在 be.conf 添加 disable_storage_page_cache=false 来打开 Page Cache。
 
 在 SSB 标准测试数据集上的 13 个查询上，我们基于 Apache Doris 1.2.0-rc01， Apache Doris 1.1.3 及 Apache Doris 0.15.0 RC04 版本进行了对别测试。
 
