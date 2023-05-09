@@ -61,6 +61,9 @@ public:
     void Run() noexcept override {
         std::unique_ptr<SelfDeleteClosure> self_guard(this);
         try {
+            if (_data) {
+                _data->unref();
+            }
             if (cntl.Failed()) {
                 std::string err = fmt::format(
                         "failed to send brpc when exchange, error={}, error_text={}, client: {}, "
@@ -70,9 +73,6 @@ public:
                 _fail_fn(_id, err);
             } else {
                 _suc_fn(_id, _eos, result);
-            }
-            if (_data) {
-                _data->unref();
             }
         } catch (const std::exception& exp) {
             LOG(FATAL) << "brpc callback error: " << exp.what();

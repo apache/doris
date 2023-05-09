@@ -158,8 +158,11 @@ Status DeltaWriter::init() {
             return Status::Error<TRY_LOCK_FAILED>();
         }
         std::lock_guard<std::mutex> push_lock(_tablet->get_push_lock());
-        RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
-                                                                  _req.txn_id, _req.load_id));
+        RETURN_IF_ERROR(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
+                                                                    _req.txn_id, _req.load_id));
+    }
+    if (_tablet->enable_unique_key_merge_on_write() && _delete_bitmap == nullptr) {
+        _delete_bitmap.reset(new DeleteBitmap(_tablet->tablet_id()));
     }
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param, *_tablet->tablet_schema());
@@ -171,9 +174,12 @@ Status DeltaWriter::init() {
     context.tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _tablet->table_id();
-    context.is_direct_write = true;
     context.tablet = _tablet;
-    RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
+    context.is_direct_write = true;
+    context.mow_context =
+            std::make_shared<MowContext>(_cur_max_version, _rowset_ids, _delete_bitmap);
+    RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &_rowset_writer));
+
     _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
 
@@ -181,7 +187,7 @@ Status DeltaWriter::init() {
     // unique key should flush serial because we need to make sure same key should sort
     // in the same order in all replica.
     bool should_serial = _tablet->keys_type() == KeysType::UNIQUE_KEYS;
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
+    RETURN_IF_ERROR(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
     _is_init = true;
@@ -199,7 +205,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init && !_is_cancelled) {
-        RETURN_NOT_OK(init());
+        RETURN_IF_ERROR(init());
     }
 
     if (_is_cancelled) {
@@ -263,7 +269,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
 
     if (need_wait) {
         // wait all memtables in flush queue to be flushed.
-        RETURN_NOT_OK(_flush_token->wait());
+        RETURN_IF_ERROR(_flush_token->wait());
     }
     return Status::OK();
 }
@@ -280,14 +286,11 @@ Status DeltaWriter::wait_flush() {
             return _cancel_status;
         }
     }
-    RETURN_NOT_OK(_flush_token->wait());
+    RETURN_IF_ERROR(_flush_token->wait());
     return Status::OK();
 }
 
 void DeltaWriter::_reset_mem_table() {
-    if (_tablet->enable_unique_key_merge_on_write() && _delete_bitmap == nullptr) {
-        _delete_bitmap.reset(new DeleteBitmap(_tablet->tablet_id()));
-    }
 #ifndef BE_TEST
     auto mem_table_insert_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
@@ -310,10 +313,10 @@ void DeltaWriter::_reset_mem_table() {
         _mem_table_insert_trackers.push_back(mem_table_insert_tracker);
         _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
     }
+    auto mow_context = std::make_shared<MowContext>(_cur_max_version, _rowset_ids, _delete_bitmap);
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
-                                  _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
-                                  _rowset_ids, _cur_max_version, mem_table_insert_tracker,
-                                  mem_table_flush_tracker));
+                                  _req.tuple_desc, _rowset_writer.get(), mow_context,
+                                  mem_table_insert_tracker, mem_table_flush_tracker));
 }
 
 Status DeltaWriter::close() {
@@ -324,7 +327,7 @@ Status DeltaWriter::close() {
         // in same partition has data loaded.
         // so we have to also init this DeltaWriter, so that it can create an empty rowset
         // for this tablet when being closed.
-        RETURN_NOT_OK(init());
+        RETURN_IF_ERROR(init());
     }
 
     if (_is_cancelled) {
@@ -340,7 +343,7 @@ Status DeltaWriter::close() {
     auto s = _flush_memtable_async();
     _mem_table.reset();
     _is_closed = true;
-    if (OLAP_UNLIKELY(!s.ok())) {
+    if (UNLIKELY(!s.ok())) {
         return s;
     } else {
         return Status::OK();
@@ -397,8 +400,8 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
             SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
             return Status::OK();
         }
-        RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments, nullptr,
-                                                    _delete_bitmap, _cur_max_version, true));
+        RETURN_IF_ERROR(_tablet->calc_delete_bitmap(_cur_rowset, segments, nullptr, _delete_bitmap,
+                                                    _cur_max_version, true));
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
                 _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids,
@@ -530,6 +533,9 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
     }
 
     _tablet_schema->set_table_id(table_schema_param->table_id());
+    // set partial update columns info
+    _tablet_schema->set_partial_update_info(table_schema_param->is_partial_update(),
+                                            table_schema_param->partial_update_input_columns());
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
@@ -555,11 +561,11 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
     request.set_allocated_rowset_meta(&rowset_meta_pb);
     request.set_host(BackendOptions::get_localhost());
-    request.set_http_port(config::single_replica_load_download_port);
+    request.set_http_port(config::webserver_port);
     string tablet_path = _tablet->tablet_path();
     request.set_rowset_path(tablet_path);
     request.set_token(ExecEnv::GetInstance()->token());
-    request.set_brpc_port(config::single_replica_load_brpc_port);
+    request.set_brpc_port(config::brpc_port);
     request.set_node_id(node_info.id());
     for (int segment_id = 0; segment_id < _cur_rowset->rowset_meta()->num_segments();
          segment_id++) {

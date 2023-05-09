@@ -19,7 +19,6 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -33,6 +32,7 @@ import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
+import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -63,17 +63,25 @@ public class MetadataGenerator {
         if (!request.isSetMetadaTableParams()) {
             return errorResult("Metadata table params is not set. ");
         }
+        TFetchSchemaTableDataResult result;
+        TMetadataTableRequestParams params = request.getMetadaTableParams();
         switch (request.getMetadaTableParams().getMetadataType()) {
             case ICEBERG:
-                return icebergMetadataResult(request.getMetadaTableParams());
-            case BACKENDS:
-                return backendsMetadataResult(request.getMetadaTableParams());
-            case RESOURCE_GROUPS:
-                return resourceGroupsMetadataResult(request.getMetadaTableParams());
-            default:
+                result = icebergMetadataResult(params);
                 break;
+            case BACKENDS:
+                result = backendsMetadataResult(params);
+                break;
+            case RESOURCE_GROUPS:
+                result = resourceGroupsMetadataResult(params);
+                break;
+            default:
+                return errorResult("Metadata table params is not set.");
         }
-        return errorResult("Metadata table params is not set. ");
+        if (result.getStatus().getStatusCode() == TStatusCode.OK) {
+            filterColumns(result, params.getColumnsName(), params.getMetadataType());
+        }
+        return result;
     }
 
     @NotNull
@@ -119,6 +127,7 @@ public class MetadataGenerator {
                     }
                     trow.addToColumnValue(new TCell().setStringVal(snapshot.operation()));
                     trow.addToColumnValue(new TCell().setStringVal(snapshot.manifestListLocation()));
+
                     dataBatch.add(trow);
                 }
                 break;
@@ -136,17 +145,7 @@ public class MetadataGenerator {
         }
         TBackendsMetadataParams backendsParam = params.getBackendsMetadataParams();
         final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
-        List<Long> backendIds = null;
-        if (!Strings.isNullOrEmpty(backendsParam.cluster_name)) {
-            final Cluster cluster = Env.getCurrentEnv().getCluster(backendsParam.cluster_name);
-            // root not in any cluster
-            if (null == cluster) {
-                return errorResult("Cluster is not existed.");
-            }
-            backendIds = cluster.getBackendIdList();
-        } else {
-            backendIds = clusterInfoService.getBackendIds(false);
-        }
+        List<Long> backendIds = clusterInfoService.getBackendIds(false);
 
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         long start = System.currentTimeMillis();
@@ -232,6 +231,7 @@ public class MetadataGenerator {
 
             // node role, show the value only when backend is alive.
             trow.addToColumnValue(new TCell().setStringVal(backend.isAlive() ? backend.getNodeRoleTag().value : ""));
+
             dataBatch.add(trow);
         }
 
@@ -263,6 +263,34 @@ public class MetadataGenerator {
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    private static void filterColumns(TFetchSchemaTableDataResult result,
+            List<String> columnNames, TMetadataType type) {
+        List<TRow> fullColumnsRow = result.getDataBatch();
+        List<TRow> filterColumnsRows = Lists.newArrayList();
+        for (TRow row : fullColumnsRow) {
+            TRow filterRow = new TRow();
+            for (String columnName : columnNames) {
+                Integer index = 0;
+                switch (type) {
+                    case ICEBERG:
+                        index = IcebergTableValuedFunction.getColumnIndexFromColumnName(columnName);
+                        break;
+                    case BACKENDS:
+                        index = BackendsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+                        break;
+                    case RESOURCE_GROUPS:
+                        index = ResourceGroupsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+                        break;
+                    default:
+                        break;
+                }
+                filterRow.addToColumnValue(row.getColumnValue().get(index));
+            }
+            filterColumnsRows.add(filterRow);
+        }
+        result.setDataBatch(filterColumnsRows);
     }
 
     private static org.apache.iceberg.Table getIcebergTable(HMSExternalCatalog catalog, String db, String tbl)

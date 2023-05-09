@@ -19,7 +19,6 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
@@ -70,7 +69,7 @@ public class BackendsProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        final List<List<String>> backendInfos = getClusterBackendInfos(null);
+        final List<List<String>> backendInfos = getBackendInfos();
         for (List<String> backendInfo : backendInfos) {
             List<String> oneInfo = new ArrayList<>(backendInfo.size());
             oneInfo.addAll(backendInfo);
@@ -80,26 +79,16 @@ public class BackendsProcDir implements ProcDirInterface {
     }
 
     /**
-     * get backends of cluster
-     * @param clusterName
+     * get backends info
+     *
      * @return
      */
-    public static List<List<String>> getClusterBackendInfos(String clusterName) {
+    public static List<List<String>> getBackendInfos() {
         final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
         List<List<String>> backendInfos = new LinkedList<>();
-        List<Long> backendIds;
-        if (!Strings.isNullOrEmpty(clusterName)) {
-            final Cluster cluster = Env.getCurrentEnv().getCluster(clusterName);
-            // root not in any cluster
-            if (null == cluster) {
-                return backendInfos;
-            }
-            backendIds = cluster.getBackendIdList();
-        } else {
-            backendIds = clusterInfoService.getBackendIds(false);
-            if (backendIds == null) {
-                return backendInfos;
-            }
+        List<Long> backendIds = clusterInfoService.getBackendIds(false);
+        if (backendIds == null) {
+            return backendInfos;
         }
 
         long start = System.currentTimeMillis();
@@ -118,17 +107,15 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(String.valueOf(backendId));
             backendInfo.add(backend.getOwnerClusterName());
             backendInfo.add(backend.getIp());
-            if (Strings.isNullOrEmpty(clusterName)) {
-                if (backend.getHostName() != null) {
-                    backendInfo.add(backend.getHostName());
-                } else {
-                    backendInfo.add(NetUtils.getHostnameByIp(backend.getIp()));
-                }
-                backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
-                backendInfo.add(String.valueOf(backend.getBePort()));
-                backendInfo.add(String.valueOf(backend.getHttpPort()));
-                backendInfo.add(String.valueOf(backend.getBrpcPort()));
+            if (backend.getHostName() != null) {
+                backendInfo.add(backend.getHostName());
+            } else {
+                backendInfo.add(NetUtils.getHostnameByIp(backend.getIp()));
             }
+            backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
+            backendInfo.add(String.valueOf(backend.getBePort()));
+            backendInfo.add(String.valueOf(backend.getHttpPort()));
+            backendInfo.add(String.valueOf(backend.getBrpcPort()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
             backendInfo.add(String.valueOf(backend.isAlive()));

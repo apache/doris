@@ -661,7 +661,7 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
 
     // load segments
     SegmentCacheHandle segment_cache_handle;
-    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
             std::static_pointer_cast<BetaRowset>(rowset_reader->rowset()), &segment_cache_handle,
             false));
 
@@ -731,7 +731,7 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
                 if (res.is<END_OF_FILE>()) {
                     break;
                 }
-                RETURN_NOT_OK_LOG(
+                RETURN_NOT_OK_STATUS_WITH_WARN(
                         res, "failed to read next block when schema change for inverted index.");
             }
 
@@ -1548,8 +1548,8 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
     }
     *max_rowset = rowset;
 
-    RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                                                           versions_to_be_changed));
+    RETURN_IF_ERROR(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
+                                                             versions_to_be_changed));
 
     return Status::OK();
 }
@@ -1704,7 +1704,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     for (int i = 0, new_schema_size = new_tablet->tablet_schema()->num_columns();
          i < new_schema_size; ++i) {
         const TabletColumn& new_column = new_tablet->tablet_schema()->column(i);
-        const string& column_name = new_column.name();
+        const std::string& column_name = new_column.name();
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
 
@@ -1729,6 +1729,11 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             continue;
         }
 
+        if (column_name.find("__doris_shadow_") == 0) {
+            // Should delete in the future, just a protection for bug.
+            LOG(INFO) << "a shadow column is encountered " << column_name;
+            return Status::InternalError("failed due to operate on shadow column");
+        }
         // Newly added column go here
         column_mapping->ref_column = -1;
 
@@ -1738,8 +1743,9 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         RETURN_IF_ERROR(
                 _init_column_mapping(column_mapping, new_column, new_column.default_value()));
 
-        VLOG_TRACE << "A column with default value will be added after schema changing. "
-                   << "column=" << column_name << ", default_value=" << new_column.default_value();
+        LOG(INFO) << "A column with default value will be added after schema changing. "
+                  << "column=" << column_name << ", default_value=" << new_column.default_value()
+                  << " to table " << new_tablet->get_table_id();
     }
 
     if (materialized_function_map.count(WHERE_SIGN)) {

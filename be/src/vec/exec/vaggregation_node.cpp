@@ -473,9 +473,9 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                 std::bind<void>(&AggregationNode::_update_memusage_with_serialized_key, this);
         _executor.close = std::bind<void>(&AggregationNode::_close_with_serialized_key, this);
 
-        _should_limit_output = _limit != -1 &&        // has limit
-                               !_vconjunct_ctx_ptr && // no having conjunct
-                               _needs_finalize;       // agg's finalize step
+        _should_limit_output = _limit != -1 &&                  // has limit
+                               _vconjunct_ctx_ptr == nullptr && // no having conjunct
+                               _needs_finalize;                 // agg's finalize step
     }
 
     return Status::OK();
@@ -930,8 +930,7 @@ Status AggregationNode::_reset_hash_table() {
                         ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
                          _align_aggregate_states) *
                                 _align_aggregate_states));
-                HashTableType new_hash_table;
-                hash_table = std::move(new_hash_table);
+                hash_table = HashTableType();
                 _agg_arena_pool.reset(new Arena);
                 return Status::OK();
             },
@@ -1778,6 +1777,9 @@ void AggregationNode::_close_with_serialized_key() {
                         mapped = nullptr;
                     }
                 });
+                if (data.has_null_key_data()) {
+                    _destroy_agg_status(data.get_null_key_data());
+                }
             },
             _agg_data->_aggregated_method_variant);
     release_tracker();

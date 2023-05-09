@@ -24,15 +24,19 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory> // unique_ptr
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 #include "common/status.h" // Status
+#include "gen_cpp/segment_v2.pb.h"
+#include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
 #include "util/slice.h"
@@ -75,11 +79,15 @@ struct SegmentWriterOptions {
     bool is_direct_write = false;
 };
 
+using TabletSharedPtr = std::shared_ptr<Tablet>;
+
 class SegmentWriter {
 public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
-                           TabletSchemaSPtr tablet_schema, DataDir* data_dir,
-                           uint32_t max_row_per_segment, const SegmentWriterOptions& opts);
+                           TabletSchemaSPtr tablet_schema, TabletSharedPtr tablet,
+                           DataDir* data_dir, uint32_t max_row_per_segment,
+                           const SegmentWriterOptions& opts,
+                           std::shared_ptr<MowContext> mow_context);
     ~SegmentWriter();
 
     Status init(const vectorized::Block* block = nullptr);
@@ -92,6 +100,8 @@ public:
     Status append_row(const RowType& row);
 
     Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
+                                             size_t num_rows);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
@@ -120,6 +130,10 @@ public:
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
 
     void clear();
+
+    void set_mow_context(std::shared_ptr<MowContext> mow_context);
+    Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
+                                const std::vector<bool>& use_default_flag, bool has_default);
 
 private:
     Status _create_writers_with_dynamic_block(
@@ -151,10 +165,12 @@ private:
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
     bool _should_create_writers_with_dynamic_block(size_t num_columns_in_block);
+    void _serialize_block_to_row_column(vectorized::Block& block);
 
 private:
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
+    TabletSharedPtr _tablet;
     DataDir* _data_dir;
     uint32_t _max_row_per_segment;
     SegmentWriterOptions _opts;
@@ -191,6 +207,13 @@ private:
     bool _is_first_row = true;
     faststring _min_key;
     faststring _max_key;
+
+    std::shared_ptr<MowContext> _mow_context;
+    // group every rowset-segment row id to speed up reader
+    PartialUpdateReadPlan _rssid_to_rid;
+    std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
+
+    // record row locations here and used when memtable flush
 };
 
 } // namespace segment_v2

@@ -85,6 +85,7 @@ public class FileGroupInfo {
     // used for stream load, FILE_LOCAL or FILE_STREAM
     private TFileType fileType;
     private List<String> hiddenColumns = null;
+    private boolean isPartialUpdate = false;
 
     // for broker load
     public FileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
@@ -106,7 +107,7 @@ public class FileGroupInfo {
     // for stream load
     public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-            TFileType fileType, List<String> hiddenColumns) {
+            TFileType fileType, List<String> hiddenColumns, boolean isPartialUpdate) {
         this.jobType = JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
@@ -119,6 +120,7 @@ public class FileGroupInfo {
         this.strictMode = strictMode;
         this.fileType = fileType;
         this.hiddenColumns = hiddenColumns;
+        this.isPartialUpdate = isPartialUpdate;
     }
 
     public Table getTargetTable() {
@@ -157,6 +159,10 @@ public class FileGroupInfo {
 
     public List<String> getHiddenColumns() {
         return hiddenColumns;
+    }
+
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
     }
 
     public void getFileStatusAndCalcInstance(FederationBackendPolicy backendPolicy) throws UserException {

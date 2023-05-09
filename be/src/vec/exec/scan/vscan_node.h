@@ -269,7 +269,6 @@ protected:
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
     doris::Mutex _rf_locks;
-    std::map<int, RuntimeFilterContext*> _conjunct_id_to_runtime_filter_ctxs;
     phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;
@@ -322,8 +321,8 @@ protected:
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
-    std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
-    std::unique_ptr<VExprContext*> _common_vexpr_ctxs_pushdown = nullptr;
+    std::vector<VExprContext*> _stale_vexpr_ctxs;
+    VExprContext* _common_vexpr_ctxs_pushdown = nullptr;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;

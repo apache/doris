@@ -406,8 +406,13 @@ void PrefetchBuffer::prefetch_buffer() {
         buf_size = merge_small_ranges(_offset, read_range_index);
     }
 
-    s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, _io_ctx);
+    {
+        SCOPED_RAW_TIMER(&_statis.read_time);
+        s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, _io_ctx);
+    }
     g_bytes_downloaded << _len;
+    _statis.prefetch_request_io += 1;
+    _statis.prefetch_request_bytes += _len;
     std::unique_lock lck {_lock};
     _prefetched.wait(lck, [this]() { return _buffer_status == BufferStatus::PENDING; });
     if (!s.ok() && _offset < _reader->size()) {
@@ -506,8 +511,13 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     }
     // [0]: maximum len trying to read, [1] maximum length buffer can provide, [2] actual len buffer has
     size_t read_len = std::min({buf_len, _offset + _size - off, _offset + _len - off});
-    memcpy((void*)out, _buf.get() + (off - _offset), read_len);
+    {
+        SCOPED_RAW_TIMER(&_statis.copy_time);
+        memcpy((void*)out, _buf.get() + (off - _offset), read_len);
+    }
     *bytes_read = read_len;
+    _statis.request_io += 1;
+    _statis.request_bytes += read_len;
     if (off + *bytes_read == _offset + _len) {
         reset_offset(_offset + _whole_buffer_size);
     }
@@ -520,11 +530,15 @@ void PrefetchBuffer::close() {
     _prefetched.wait(lck, [this]() { return _buffer_status != BufferStatus::PENDING; });
     _buffer_status = BufferStatus::CLOSED;
     _prefetched.notify_all();
+    if (_sync_profile != nullptr) {
+        _sync_profile(*this);
+    }
 }
 
 // buffered reader
-PrefetchBufferedReader::PrefetchBufferedReader(io::FileReaderSPtr reader, PrefetchRange file_range,
-                                               const IOContext* io_ctx, int64_t buffer_size)
+PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
+                                               PrefetchRange file_range, const IOContext* io_ctx,
+                                               int64_t buffer_size)
         : _reader(std::move(reader)), _file_range(file_range), _io_ctx(io_ctx) {
     if (buffer_size == -1L) {
         buffer_size = config::remote_storage_read_buffer_mb * 1024 * 1024;
@@ -533,12 +547,35 @@ PrefetchBufferedReader::PrefetchBufferedReader(io::FileReaderSPtr reader, Prefet
     _whole_pre_buffer_size = buffer_size;
     _file_range.end_offset = std::min(_file_range.end_offset, _size);
     int buffer_num = buffer_size > s_max_pre_buffer_size ? buffer_size / s_max_pre_buffer_size : 1;
+    std::function<void(PrefetchBuffer&)> sync_buffer = nullptr;
+    if (profile != nullptr) {
+        const char* prefetch_buffered_reader = "PrefetchBufferedReader";
+        ADD_TIMER(profile, prefetch_buffered_reader);
+        auto copy_time = ADD_CHILD_TIMER(profile, "CopyTime", prefetch_buffered_reader);
+        auto read_time = ADD_CHILD_TIMER(profile, "ReadTime", prefetch_buffered_reader);
+        auto prefetch_request_io =
+                ADD_CHILD_COUNTER(profile, "PreRequestIO", TUnit::UNIT, prefetch_buffered_reader);
+        auto prefetch_request_bytes = ADD_CHILD_COUNTER(profile, "PreRequestBytes", TUnit::BYTES,
+                                                        prefetch_buffered_reader);
+        auto request_io =
+                ADD_CHILD_COUNTER(profile, "RequestIO", TUnit::UNIT, prefetch_buffered_reader);
+        auto request_bytes =
+                ADD_CHILD_COUNTER(profile, "RequestBytes", TUnit::BYTES, prefetch_buffered_reader);
+        sync_buffer = [=](PrefetchBuffer& buf) {
+            COUNTER_UPDATE(copy_time, buf._statis.copy_time);
+            COUNTER_UPDATE(read_time, buf._statis.read_time);
+            COUNTER_UPDATE(prefetch_request_io, buf._statis.prefetch_request_io);
+            COUNTER_UPDATE(prefetch_request_bytes, buf._statis.prefetch_request_bytes);
+            COUNTER_UPDATE(request_io, buf._statis.request_io);
+            COUNTER_UPDATE(request_bytes, buf._statis.request_bytes);
+        };
+    }
     // set the _cur_offset of this reader as same as the inner reader's,
     // to make sure the buffer reader will start to read at right position.
     for (int i = 0; i < buffer_num; i++) {
-        _pre_buffers.emplace_back(
-                std::make_shared<PrefetchBuffer>(_file_range, s_max_pre_buffer_size,
-                                                 _whole_pre_buffer_size, _reader.get(), _io_ctx));
+        _pre_buffers.emplace_back(std::make_shared<PrefetchBuffer>(
+                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(), _io_ctx,
+                sync_buffer));
     }
 }
 
@@ -681,16 +718,30 @@ Status DelegateReader::create_file_reader(RuntimeProfile* profile,
                                           const FileDescription& file_description,
                                           std::shared_ptr<io::FileSystem>* file_system,
                                           io::FileReaderSPtr* file_reader, AccessMode access_mode,
-                                          io::FileCachePolicy cache_policy, const IOContext* io_ctx,
-                                          const PrefetchRange file_range) {
+                                          io::FileReaderOptions reader_options,
+                                          const IOContext* io_ctx, const PrefetchRange file_range) {
     io::FileReaderSPtr reader;
     RETURN_IF_ERROR(FileFactory::create_file_reader(profile, system_properties, file_description,
-                                                    file_system, &reader, cache_policy));
+                                                    file_system, &reader, reader_options));
     if (reader->size() < IN_MEMORY_FILE_SIZE) {
         *file_reader = std::make_shared<InMemoryFileReader>(reader);
     } else if (access_mode == AccessMode::SEQUENTIAL) {
-        io::FileReaderSPtr safeReader = std::make_shared<ThreadSafeReader>(reader);
-        *file_reader = std::make_shared<io::PrefetchBufferedReader>(safeReader, file_range, io_ctx);
+        bool is_thread_safe = false;
+        if (typeid_cast<io::S3FileReader*>(reader.get())) {
+            is_thread_safe = true;
+        } else if (io::CachedRemoteFileReader* cached_reader =
+                           typeid_cast<io::CachedRemoteFileReader*>(reader.get())) {
+            if (typeid_cast<io::S3FileReader*>(cached_reader->get_remote_reader())) {
+                is_thread_safe = true;
+            }
+        }
+        if (is_thread_safe) {
+            // PrefetchBufferedReader needs thread-safe reader to prefetch data concurrently.
+            *file_reader = std::make_shared<io::PrefetchBufferedReader>(profile, reader, file_range,
+                                                                        io_ctx);
+        } else {
+            *file_reader = std::move(reader);
+        }
     } else {
         *file_reader = std::move(reader);
     }

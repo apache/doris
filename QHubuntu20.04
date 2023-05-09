@@ -1,9 +1,0 @@
-
-# https://mirrors.tuna.tsinghua.edu.cn/help/ubuntu/
-VERSION=QH20.04
-sudo apt-get install --only-upgrade ca-certificates  
-wget https://gitee.com/lin-xi-269/tools/raw/master/source/$VERSION
-sudo mv /etc/apt/sources.list /etc/apt/sources.list.back
-sudo mv $VERSION /etc/apt/sources.list
-sudo apt-get update 
-sudo apt-get upgrade 

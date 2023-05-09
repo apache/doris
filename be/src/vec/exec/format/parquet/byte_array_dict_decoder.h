@@ -52,6 +52,10 @@ public:
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter) override;
 
+    template <bool has_filter>
+    Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                          ColumnSelectVector& select_vector, bool is_dict_filter);
+
     Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override;
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) override;
@@ -62,7 +66,7 @@ public:
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
 
 protected:
-    template <typename DecimalPrimitiveType>
+    template <typename DecimalPrimitiveType, bool has_filter>
     Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                   ColumnSelectVector& select_vector);
 
@@ -73,7 +77,7 @@ protected:
     std::unordered_map<StringRef, int32_t> _dict_value_to_code;
 };
 
-template <typename DecimalPrimitiveType>
+template <typename DecimalPrimitiveType, bool has_filter>
 Status ByteArrayDictDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
                                                     DataTypePtr& data_type,
                                                     ColumnSelectVector& select_vector) {
@@ -85,7 +89,7 @@ Status ByteArrayDictDecoder::_decode_binary_decimal(MutableColumnPtr& doris_colu
     size_t dict_index = 0;
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {

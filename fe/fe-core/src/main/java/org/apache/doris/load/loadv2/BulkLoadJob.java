@@ -33,7 +33,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -77,11 +76,9 @@ public abstract class BulkLoadJob extends LoadJob {
 
     // input params
     protected BrokerDesc brokerDesc;
-    // queryId of OriginStatement
-    protected String queryId;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
-    // the expr of columns will be reanalyze when the log is replayed
+    // the expr of columns will be reanalyzed when the log is replayed
     private OriginStatement originStmt;
 
     // include broker desc and data desc
@@ -104,11 +101,9 @@ public abstract class BulkLoadJob extends LoadJob {
         this.userInfo = userInfo;
 
         if (ConnectContext.get() != null) {
-            this.queryId = DebugUtil.printId(ConnectContext.get().queryId());
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
         } else {
-            this.queryId = "N/A";
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
     }

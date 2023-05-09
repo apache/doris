@@ -111,7 +111,7 @@ Status NewFileScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 VFileScanner::create_unique(_state, this, _limit_per_scanner,
                                             scan_range.scan_range.ext_scan_range.file_scan_range,
                                             runtime_profile(), _kv_cache.get());
-        RETURN_IF_ERROR(scanner->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range,
+        RETURN_IF_ERROR(scanner->prepare(_vconjunct_ctx_ptr, &_colname_to_value_range,
                                          &_colname_to_slot_id));
         scanners->push_back(std::move(scanner));
     }

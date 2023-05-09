@@ -87,11 +87,12 @@ public class DynamicPartitionUtil {
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
         Preconditions.checkState(!rangePartitionInfo.isMultiColumnPartition());
         Column partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
-        if ((partitionColumn.getDataType() == PrimitiveType.DATE)
+        if ((partitionColumn.getDataType() == PrimitiveType.DATE
+                || partitionColumn.getDataType() == PrimitiveType.DATEV2)
                 && (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString()))) {
             ErrorReport.reportDdlException(DynamicPartitionProperty.TIME_UNIT + " could not be "
-                    + TimeUnit.HOUR.toString() + " when type of partition column "
-                    + partitionColumn.getDisplayName() + " is " + PrimitiveType.DATE.toString());
+                    + TimeUnit.HOUR + " when type of partition column "
+                    + partitionColumn.getDisplayName() + " is " + PrimitiveType.DATE + " or " + PrimitiveType.DATEV2);
         } else if (PrimitiveType.getIntegerTypes().contains(partitionColumn.getDataType())
                 && timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
             // The partition column's type is INT, not support HOUR
@@ -462,7 +463,7 @@ public class DynamicPartitionUtil {
             }
             if (Strings.isNullOrEmpty(reservedHistoryPeriods)) {
                 properties.put(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS,
-                        String.valueOf(DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS));
+                        DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS);
             }
         }
         return true;

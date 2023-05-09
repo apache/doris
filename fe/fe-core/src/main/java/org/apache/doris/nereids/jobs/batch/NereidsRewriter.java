@@ -145,19 +145,14 @@ public class NereidsRewriter extends BatchRewriteJob {
             // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
             // resulting in inconsistent output results and results in apply
             topDown(
+                new SimplifyAggGroupBy(),
                 new NormalizeAggregate(),
                 new NormalizeSort()
             ),
 
             topic("Window analysis",
                 topDown(
-                    new SimplifyAggGroupBy()
-                ),
-                topDown(
                     new ExtractAndNormalizeWindowExpression(),
-                    // execute NormalizeAggregate() again to resolve nested AggregateFunctions in WindowExpression,
-                    // e.g. sum(sum(c1)) over(partition by avg(c1))
-                    new NormalizeAggregate(),
                     new CheckAndStandardizeWindowFunctionAndFrame()
                 )
             ),

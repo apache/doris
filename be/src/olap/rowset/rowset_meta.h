@@ -355,6 +355,11 @@ public:
         }
     }
 
+    void add_segment_key_bounds(const KeyBoundsPB& segments_key_bounds) {
+        *_rowset_meta_pb.add_segments_key_bounds() = segments_key_bounds;
+        set_segments_overlap(OVERLAPPING);
+    }
+
     void set_newest_write_timestamp(int64_t timestamp) {
         _rowset_meta_pb.set_newest_write_timestamp(timestamp);
     }

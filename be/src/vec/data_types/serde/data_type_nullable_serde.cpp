@@ -17,6 +17,7 @@
 
 #include "data_type_nullable_serde.h"
 
+#include <arrow/array/array_base.h>
 #include <gen_cpp/types.pb.h>
 
 #include <algorithm>
@@ -94,5 +95,41 @@ void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const Json
     auto& null_map_data = col.get_null_map_data();
     null_map_data.push_back(0);
 }
+
+/**nullable serialize to arrow
+   1/ convert the null_map from doris to arrow null byte map
+   2/ pass the arrow null byteamp to nested column , and call AppendValues
+**/
+void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                                                  arrow::ArrayBuilder* array_builder, int start,
+                                                  int end) const {
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    const PaddedPODArray<UInt8>& bytemap = column_nullable.get_null_map_data();
+    PaddedPODArray<UInt8> res;
+    if (column_nullable.has_null()) {
+        res.reserve(end - start);
+        for (size_t i = start; i < end; ++i) {
+            res.emplace_back(
+                    !(bytemap)[i]); //Invert values since Arrow interprets 1 as a non-null value
+        }
+    }
+    const UInt8* arrow_null_bytemap_raw_ptr = res.empty() ? nullptr : res.data();
+    nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
+                                        arrow_null_bytemap_raw_ptr, array_builder, start, end);
+}
+
+void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                   int start, int end,
+                                                   const cctz::time_zone& ctz) const {
+    auto& col = reinterpret_cast<ColumnNullable&>(column);
+    NullMap& map_data = col.get_null_map_data();
+    for (size_t i = start; i < end; ++i) {
+        auto is_null = arrow_array->IsNull(i);
+        map_data.emplace_back(is_null);
+    }
+    return nested_serde->read_column_from_arrow(col.get_nested_column(), arrow_array, start, end,
+                                                ctz);
+}
+
 } // namespace vectorized
 } // namespace doris

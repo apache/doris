@@ -257,6 +257,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
 
+    public static final String ENABLE_SAVE_STATISTICS_SYNC_JOB = "enable_save_statistics_sync_job";
+
     public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
 
     public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
@@ -286,6 +288,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
+
+    public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
@@ -318,8 +322,6 @@ public class SessionVariable implements Serializable, Writable {
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
-
-
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
@@ -612,7 +614,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean checkOverflowForDecimal = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
-    private boolean enableDPHypOptimizer = false;
+    public boolean enableDPHypOptimizer = false;
 
     /**
      * This variable is used to select n-th optimized plan in memo.
@@ -731,6 +733,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
     public boolean enableCboStatistics = false;
 
+    /**
+     * If true, when synchronously collecting statistics, the information of
+     * the statistics job will be saved, currently mainly used for p0 test
+     */
+    @VariableMgr.VarAttr(name = ENABLE_SAVE_STATISTICS_SYNC_JOB)
+    public boolean enableSaveStatisticsSyncJob = false;
+
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
 
@@ -793,8 +802,19 @@ public class SessionVariable implements Serializable, Writable {
     public boolean groupByAndHavingUseAliasFirst = false;
 
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
-    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
-    public boolean enableFileCache = true;
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = {
+            "是否启用file cache。该变量只有在be.conf中enable_file_cache=true时才有效，"
+                    + "如果be.conf中enable_file_cache=false，该BE节点的file cache处于禁用状态。",
+            "Set wether to use file cache. This variable takes effect only if the BE config enable_file_cache=true. "
+                    + "The cache is not used when BE config enable_file_cache=false."})
+    public boolean enableFileCache = false;
+
+    // Specify base path for file cache, or chose a random path.
+    @VariableMgr.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = {
+            "指定block file cache在BE上的存储路径，默认 'random'，随机选择BE配置的存储路径。",
+            "Specify the storage path of the block file cache on BE, default 'random', "
+                    + "and randomly select the storage path configured by BE."})
+    public String fileCacheBasePath = "random";
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -1407,6 +1427,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableCboStatistics;
     }
 
+    public boolean isEnableSaveStatisticsSyncJob() {
+        return enableSaveStatisticsSyncJob;
+    }
+
     public long getFileSplitSize() {
         return fileSplitSize;
     }
@@ -1546,16 +1570,8 @@ public class SessionVariable implements Serializable, Writable {
         this.enableNereidsPlanner = enableNereidsPlanner;
     }
 
-    public boolean isEnableDPHypOptimizer() {
-        return isEnableNereidsPlanner() && enableDPHypOptimizer;
-    }
-
     public int getNthOptimizedPlan() {
         return nthOptimizedPlan;
-    }
-
-    public void setEnableDphypOptimizer(boolean enableDPHypOptimizer) {
-        this.enableDPHypOptimizer = enableDPHypOptimizer;
     }
 
     public Set<String> getDisableNereidsRules() {
@@ -1654,6 +1670,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableFileCache = enableFileCache;
     }
 
+    public String getFileCacheBasePath() {
+        return fileCacheBasePath;
+    }
+
+    public void setFileCacheBasePath(String basePath) {
+        this.fileCacheBasePath = basePath;
+    }
+
     public int getMaxTableCountUseCascadesJoinReorder() {
         return this.maxTableCountUseCascadesJoinReorder;
     }
@@ -1740,6 +1764,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 
         tResult.setEnableFileCache(enableFileCache);
+
+        tResult.setFileCacheBasePath(fileCacheBasePath);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);

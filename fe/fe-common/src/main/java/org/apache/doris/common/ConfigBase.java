@@ -57,6 +57,15 @@ public class ConfigBase {
         ExperimentalType expType() default ExperimentalType.NONE;
 
         Class<? extends ConfHandler> callback() default DefaultConfHandler.class;
+
+        // description for this config item.
+        // There should be 2 elements in the array.
+        // The first element is the description in Chinese.
+        // The second element is the description in English.
+        String[] description() default {"待补充", "TODO"};
+
+        // Enum options for this config item, if it has.
+        String[] options() default {};
     }
 
     public interface ConfHandler {
@@ -221,11 +230,6 @@ public class ConfigBase {
             }
 
             setConfigField(f, confVal);
-
-            // to be compatible with old version
-            if (confKey.equalsIgnoreCase("async_load_task_pool_size")) {
-                Config.async_loading_load_task_pool_size = Config.async_load_task_pool_size;
-            }
         }
     }
 

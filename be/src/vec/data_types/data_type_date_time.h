@@ -32,6 +32,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
+#include "vec/data_types/serde/data_type_date64_serde.h"
 
 namespace doris {
 namespace vectorized {
@@ -83,6 +84,8 @@ public:
     bool equals(const IDataType& rhs) const override;
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
+
+    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDate64SerDe>(); }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 

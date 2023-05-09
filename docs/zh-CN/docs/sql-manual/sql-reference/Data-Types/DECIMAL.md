@@ -33,5 +33,8 @@ under the License.
 
     默认值为 DECIMAL(9, 0)。
 
+### note
+    我们打算在2024年删除这个类型，目前阶段，Doris默认禁止创建含有DECIMAL类型的表，如果需要使用需要在FE的config中添加`disable_decimalv2 = false`，并重启FE。
+
 ### keywords
     DECIMAL

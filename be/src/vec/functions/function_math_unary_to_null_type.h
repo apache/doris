@@ -30,6 +30,8 @@ namespace doris::vectorized {
 template <typename Impl>
 class FunctionMathUnaryToNullType : public IFunction {
 public:
+    using IFunction::execute;
+
     static constexpr auto name = Impl::name;
     static FunctionPtr create() { return std::make_shared<FunctionMathUnaryToNullType>(); }
 

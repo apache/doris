@@ -62,6 +62,7 @@ suite("test_map_load_and_function", "p0") {
         }
     }
 
+    sql "sync"
     // check result
     qt_select_all "SELECT * FROM ${testTable} ORDER BY id"
 

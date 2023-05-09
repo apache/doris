@@ -25,7 +25,13 @@ class RuntimeState;
 namespace doris::pipeline {
 
 OperatorBase::OperatorBase(OperatorBuilderBase* operator_builder)
-        : _operator_builder(operator_builder), _is_closed(false) {}
+        : _operator_builder(operator_builder),
+          _runtime_profile(new RuntimeProfile(fmt::format(
+                  "{} (id={})", _operator_builder->get_name(), _operator_builder->id()))),
+          _mem_tracker(std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
+                                                    _runtime_profile.get(), nullptr,
+                                                    "PeakMemoryUsage")),
+          _is_closed(false) {}
 
 bool OperatorBase::is_sink() const {
     return _operator_builder->is_sink();

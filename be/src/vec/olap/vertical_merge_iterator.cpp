@@ -120,7 +120,7 @@ size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
     size_t result = 1;
     int start = index + 1;
     int end = _buffer->size();
-    while (index < end) {
+    while (start < end) {
         RowSource next(_buffer->get_element(start++));
         if (next.agg_flag()) {
             ++result;

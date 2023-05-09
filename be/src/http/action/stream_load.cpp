@@ -592,6 +592,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_enable_profile(false);
         }
     }
+    if (!http_req->header(HTTP_PARTIAL_COLUMNS).empty()) {
+        if (iequal(http_req->header(HTTP_PARTIAL_COLUMNS), "true")) {
+            request.__set_partial_update(true);
+        } else {
+            request.__set_partial_update(false);
+        }
+    }
 
 #ifndef BE_TEST
     // plan this load

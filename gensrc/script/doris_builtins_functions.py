@@ -631,7 +631,7 @@ visible_functions = [
     [['array_popfront'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
     [['array_popfront'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], ''],
     [['array_popfront'], 'ARRAY_STRING', ['ARRAY_STRING'], ''],
-    [['array_map'], 'ARRAY',   ['LAMBDA_FUNCTION', 'ARRAY', '...'], ''],
+    [['array_map'], 'ARRAY', ['LAMBDA_FUNCTION', 'ARRAY<K>', '...'], '', ['K']],
     [['array_filter'], 'ARRAY_BOOLEAN',['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], ''],
     [['array_filter'], 'ARRAY_TINYINT',['ARRAY_TINYINT', 'ARRAY_BOOLEAN'], ''],
     [['array_filter'], 'ARRAY_SMALLINT',['ARRAY_SMALLINT', 'ARRAY_BOOLEAN'], ''],
@@ -1456,7 +1456,8 @@ visible_functions = [
     [['esquery'], 'BOOLEAN', ['MAP', 'VARCHAR'], ''],
     [['esquery'], 'BOOLEAN', ['STRING', 'VARCHAR'], ''],
     [['esquery'], 'BOOLEAN', ['VARIANT', 'VARCHAR'], ''],
-
+    # used for accept graph sql
+    [['g'], 'BOOLEAN', ['VARCHAR'], ''],
     # String builtin functions
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],

@@ -60,7 +60,7 @@ public:
     std::string get_name() const override { return name; }
 
     doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id, DataTypePtr result_type,
+                          int* result_column_id, const DataTypePtr& result_type,
                           const std::vector<VExpr*>& children) override {
         ///* array_filter(array, array<boolean>) *///
 
