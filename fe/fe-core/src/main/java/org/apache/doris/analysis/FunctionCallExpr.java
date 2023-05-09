@@ -1349,6 +1349,8 @@ public class FunctionCallExpr extends Expr {
                     uncheckedCastChild(assignmentCompatibleType, 2);
                 }
             }
+            childTypes[1] = assignmentCompatibleType;
+            childTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             if (assignmentCompatibleType.isDatetimeV2()) {
