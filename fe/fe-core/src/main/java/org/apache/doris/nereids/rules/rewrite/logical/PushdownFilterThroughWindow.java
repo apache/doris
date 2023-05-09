@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import java.util.List;
@@ -72,29 +73,26 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
         return logicalFilter(logicalWindow()).then(filter -> {
             LogicalWindow<Plan> window = filter.child();
 
-            if (window.getPartitionLimit() > 0) {
-                // The window already has the partition limit, so return directly.
-                return null;
-            }
+            // TODO: Check whether the child is already PartitionTopN
 
             // Check the filter conditions. Now, we currently only support
             // simple conditions of the form 'column </<= constant'.
             // TODO: Support more complex situations in filter conditions.
             Set<Expression> conjuncts = filter.getConjuncts();
             if (conjuncts.size() != 1) {
-                return null;
+                return filter;
             }
 
             Expression conjunct = conjuncts.iterator().next();
             if (!(conjunct instanceof LessThan || conjunct instanceof LessThanEqual)) {
-                return null;
+                return filter;
             }
 
             BinaryOperator op = (BinaryOperator) conjunct;
             Expression leftChild = op.children().get(0);
             Expression rightChild = op.children().get(1);
             if (!(leftChild instanceof SlotReference) || !(rightChild instanceof IntegerLikeLiteral)) {
-                return null;
+                return filter;
             }
 
             // Adjust the value for 'limitVal' based on the comparison operators.
@@ -113,34 +111,37 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
             // 4. The window frame should be 'UNBOUNDED' to 'CURRENT'.
             List<NamedExpression> windowExprs = window.getWindowExpressions();
             if (windowExprs.size() != 1) {
-                return null;
+                return filter;
             }
             NamedExpression windowExpr = windowExprs.get(0);
             if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
-                return null;
+                return filter;
             }
 
             // Check the column in filter conditions.
             // The column used in the filter condition must match the slot
             // reference for the window function result used as the alias.
             if (!checkSlotReferenceMatch(leftChild, windowExpr)) {
-                return null;
+                return filter;
             }
 
             WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
             // Check the window function name.
             if (!LogicalWindow.checkWindowFuncName4PartitionLimit(windowFunc)) {
-                return null;
+                return filter;
+            }
+
+            if (!LogicalWindow.checkWindowPartitionAndOrderKey4PartitionLimit(windowFunc)) {
+                return filter;
             }
 
             // Check the window type and window frame.
             if (!LogicalWindow.checkWindowFrame4PartitionLimit(windowFunc)) {
-                return null;
+                return filter;
             }
 
-            // Embedded the partition limit to the window.
-            Plan newWindow = window.withPartitionLimit(limitVal);
-            return filter.withChildren(newWindow);
+            // return PartitionTopN -> Window -> Filter
+            return filter.withChildren(window.withChildren(new LogicalPartitionTopN<>(windowFunc, false, limitVal, window.child(0))));
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_WINDOW);
     }
 

@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -201,6 +202,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitLogicalTopN(LogicalTopN<? extends Plan> topN, C context) {
         return visit(topN, context);
+    }
+
+    public R visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN, C context) {
+        return visit(partitionTopN, context);
     }
 
     public R visitLogicalLimit(LogicalLimit<? extends Plan> limit, C context) {

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -66,39 +67,35 @@ public class PushdownLimit implements RewriteRuleFactory {
                 .then(limit -> {
                     LogicalWindow<Plan> window = limit.child();
 
-                    if (window.getPartitionLimit() > 0) {
-                        return null;
-                    }
+                    // TODO: Check whther this is already has the partitionTopN
 
                     List<NamedExpression> windowExprs = window.getWindowExpressions();
                     if (windowExprs.size() != 1) {
-                        return null;
+                        return limit;
                     }
                     NamedExpression windowExpr = windowExprs.get(0);
                     if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
-                        return null;
+                        return limit;
                     }
 
                     WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
                     // Check the window function name.
                     if (!LogicalWindow.checkWindowFuncName4PartitionLimit(windowFunc)) {
-                        return null;
+                        return limit;
                     }
 
                     // Check the 'Partition By' and 'Order By' item.
                     // The window only contain the order keys can use this rule.
                     if (windowFunc.getPartitionKeys().size() > 0 || windowFunc.getOrderKeys().size() == 0) {
-                        return null;
+                        return limit;
                     }
 
                     // Check the window type and window frame.
                     if (!LogicalWindow.checkWindowFrame4PartitionLimit(windowFunc)) {
-                        return null;
+                        return limit;
                     }
 
-                    // Embedded the partition limit to the window.
-                    Plan newWindow = window.withPartitionLimit(limit.getLimit());
-                    return limit.withChildren(newWindow);
+                    return limit.withChildren(window.withChildren(new LogicalPartitionTopN<>(windowFunc, false, limit.getLimit(), window.child(0))));
                 })
                 .toRule(RuleType.PUSH_LIMIT_THROUGH_JOIN),
 
