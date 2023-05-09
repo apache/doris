@@ -422,6 +422,10 @@ public class BinaryPredicate extends Predicate implements Writable {
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
         }
+        // MySQL will try to parse string as bigint, if failed, will take string as 0.
+        if (t1 == PrimitiveType.BIGINT && t2.isCharFamily()) {
+            return Type.BIGINT;
+        }
 
         // Implicit conversion affects query performance.
         // For a common example datekey='20200825' which datekey is int type.
