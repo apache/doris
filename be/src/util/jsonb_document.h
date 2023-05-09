@@ -1180,7 +1180,7 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
 
         if (LIKELY(pval->type_ == JsonbType::T_Object)) {
             if (stream.getLeg().size() == 1 && stream.getLeg()[0] == WILDCARD) {
-                return this;
+                return pval;
             } else {
                 pval = ((ObjectVal*)pval)
                                ->find(stream.getLeg().c_str(), stream.getLeg().size(), handler);
@@ -1189,7 +1189,7 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
         } else if (LIKELY(pval->type_ == JsonbType::T_Array)) {
             int index = 0;
             if (stream.getLeg().size() == 1 && stream.getLeg()[0] == WILDCARD) {
-                return this;
+                return pval;
             } else if (std::string(stream.getLeg().c_str(), 4) == LAST) {
                 auto pos = stream.getLeg().find(MINUS);
 
