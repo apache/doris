@@ -69,9 +69,11 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
 
+#include <algorithm>
+#include <cctype>
 #include <limits>
+#include <string>
 #include <type_traits>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
@@ -1168,6 +1170,7 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
     JsonbValue* pval = this;
 
     while (pval && !stream.exhausted()) {
+        stream.skip_whitespace();
         stream.clearLeg();
 
         if (!JsonbPath::parsePath(&stream, pval)) {
@@ -1240,6 +1243,7 @@ inline bool JsonbPath::parse_array(Stream* stream) {
 
     if (stream->peek() == WILDCARD) {
         stream->skip(1);
+        stream->skip_whitespace();
         if (stream->peek() == END_ARRAY) {
             stream->appendLeg(WILDCARD);
             return true;
@@ -1249,11 +1253,13 @@ inline bool JsonbPath::parse_array(Stream* stream) {
     }
 
     for (; !stream->exhausted() && stream->peek() != END_ARRAY; stream->skip(1)) {
+        stream->skip_whitespace();
         stream->appendLeg(stream->peek());
     }
 
     if (!stream->exhausted() && stream->peek() == END_ARRAY) {
         stream->skip(1);
+        stream->skip_whitespace();
         return true;
     } else {
         return false; //invalid json path
@@ -1269,6 +1275,7 @@ inline bool JsonbPath::parse_member(Stream* stream) {
 
     if (stream->peek() == WILDCARD) {
         stream->skip(1);
+        stream->skip_whitespace();
         stream->appendLeg(WILDCARD);
         return true;
     }
@@ -1277,21 +1284,24 @@ inline bool JsonbPath::parse_member(Stream* stream) {
     const char* right_quotation_marks = nullptr;
 
     for (; !stream->exhausted(); stream->skip(1)) {
+        stream->skip_whitespace();
         if (stream->peek() == ESCAPE) {
             stream->skip(1);
+            stream->skip_whitespace();
             stream->appendLeg(stream->peek());
             continue;
         } else if (stream->peek() == DOUBLE_QUOTE) {
             if (left_quotation_marks == nullptr) {
                 left_quotation_marks = stream->position();
                 continue;
-            } else if (right_quotation_marks == nullptr) {
+            } else {
                 right_quotation_marks = stream->position();
                 stream->skip(1);
+                stream->skip_whitespace();
                 break;
             }
         } else if (stream->peek() == BEGIN_MEMBER || stream->peek() == BEGIN_ARRAY) {
-            if (left_quotation_marks == nullptr || right_quotation_marks != nullptr) {
+            if (left_quotation_marks == nullptr) {
                 break;
             }
         }
