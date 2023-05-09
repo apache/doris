@@ -949,4 +949,24 @@ public class SelectStmtTest {
         Assert.assertFalse(stmt.getColLabels().contains("siteid"));
         Assert.assertEquals(stmt.resultExprs.size(), 3);
     }
+
+    @Test
+    public void testAddDefaultOrderBy() throws Exception {
+        String sql;
+        String explainString;
+        sql = "select * from db1.baseall limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
+
+        sql = "select * from db1.baseall join db1.table1 on k1=siteid limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainString.contains("order by: <slot 6> `k1` ASC, <slot 7> `k2` ASC, <slot 8> `siteid` ASC,"
+                + " <slot 9> `citycode` ASC, <slot 10> `username` ASC"));
+
+        sql = "select * from db1.baseall join (select * from db1.table1) t on k1=siteid limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(
+                explainString.contains("order by: <slot 10> `siteid` ASC, <slot 11> `citycode` ASC, <slot 12> `username` ASC")
+                        && explainString.contains("order by: <slot 14> `k1` ASC, <slot 15> `k2` ASC"));
+    }
 }

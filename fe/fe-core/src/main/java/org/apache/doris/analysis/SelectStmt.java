@@ -631,9 +631,29 @@ public class SelectStmt extends QueryStmt {
             tableRef.setOnClause(rewriteQueryExprByMvColumnExpr(tableRef.getOnClause(), analyzer));
         }
 
-        if (limitElement != null && orderByElements == null) {
-            addDefaultOrderByElementForLimitOffset();
+        // if the query contains limit clause but not order by clause, order by keys by default.
+        if (analyzer.isNeedAddOrderBy()) {
+            orderByElements = Lists.newArrayList();
+            for (TableRef ref : getTableRefs()) {
+                if (ref instanceof BaseTableRef
+                        && ref.getTable().getType() == TableType.OLAP) {
+                    OlapTable olapTable = ((OlapTable) ref.getTable());
+                    int num = olapTable.getKeysNum();
+                    for (int i = 0; i < num; ++i) {
+                        String colName = olapTable.getFullSchema().get(i).getName();
+                        SlotRef slotRef = new SlotRef(null, colName);
+                        orderByElements.add(new OrderByElement(slotRef, true, true));
+                    }
+                } else if (ref instanceof InlineViewRef) {
+                    QueryStmt query = ((InlineViewRef) ref).getQueryStmt();
+                    Analyzer viewAnalyzer = query.getAnalyzer();
+                    query.analyzer = null;
+                    viewAnalyzer.setNeedAddOrderBy(true);
+                    query.analyze(viewAnalyzer);
+                }
+            }
         }
+
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
@@ -645,6 +665,7 @@ public class SelectStmt extends QueryStmt {
                 groupingInfo.substituteGroupingFn(orderingExprNotInSelect, analyzer);
             }
         }
+
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
@@ -1547,30 +1568,6 @@ public class SelectStmt extends QueryStmt {
                 throw new AnalysisException(
                         "HAVING clause not produced by aggregation output " + "(missing from GROUP BY "
                                 + "clause?): " + havingClause.toSql());
-            }
-        }
-    }
-
-    private void addDefaultOrderByElementForLimitOffset() {
-        orderByElements = Lists.newArrayList();
-        // for stable, we order by the key default if not order by at limit clause.
-        for (TableRef ref : getTableRefs()) {
-            if (ref instanceof BaseTableRef) {
-                // we get key column
-                BaseTableRef baseTableRef = ((BaseTableRef) ref);
-                // TODO: support other type, now we support OLAP table.
-                TableIf table = baseTableRef.getTable();
-                if (table.getType() == TableType.OLAP) {
-                    OlapTable olapTable = ((OlapTable) table);
-                    int num = olapTable.getKeysNum();
-                    for (int i = 0; i < num; ++i) {
-                        orderByElements.add(new OrderByElement(
-                                olapTable.getFullSchema().get(i).getDefineExpr(),
-                                true,
-                                true
-                        ));
-                    }
-                }
             }
         }
     }

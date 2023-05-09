@@ -198,6 +198,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
             throw new AnalysisException("OFFSET requires an ORDER BY clause: "
                     + limitElement.toSql().trim());
         }
+        if (limitElement.hasLimit() && limitElement.hasOffset() && orderByElements == null) {
+            analyzer.setNeedAddOrderBy(true);
+        }
         limitElement.analyze(analyzer);
     }
 
@@ -344,7 +347,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         sortInfo = new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);
         // order by w/o limit and offset in inline views, set operands and insert statements
         // are ignored.
-        if (!hasLimit() && !hasOffset() && (!analyzer.isRootAnalyzer() || fromInsert)) {
+        if (!analyzer.isNeedAddOrderBy() && !hasLimit() && !hasOffset() && (!analyzer.isRootAnalyzer() || fromInsert)) {
             evaluateOrderBy = false;
             if (LOG.isDebugEnabled()) {
                 // Return a warning that the order by was ignored.
