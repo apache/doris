@@ -74,8 +74,7 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(
-                std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>())));
+        return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>()));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -127,9 +126,8 @@ public:
 
         auto nullable_col =
                 ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_res->size(), 0));
-        block.get_by_position(result).column = ColumnNullable::create(
-                ColumnArray::create(std::move(nullable_col), std::move(col_offsets)),
-                std::move(null_map));
+        block.get_by_position(result).column =
+                ColumnArray::create(std::move(nullable_col), std::move(col_offsets));
         return status;
     }
 };

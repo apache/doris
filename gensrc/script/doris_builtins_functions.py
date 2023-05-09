@@ -1819,7 +1819,7 @@ visible_functions = [
     [['protocol'], 'STRING', ['STRING'], ''],
 
     # search functions
-    [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], 'ALWAYS_NULLABLE'],
+    [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], ''],
     [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], 'ALWAYS_NOT_NULLABLE'],
 
     [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE'],
