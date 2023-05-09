@@ -603,7 +603,7 @@ public class NodeAction extends RestBaseController {
             List<String> hostPorts = reqInfo.getHostPorts();
             List<HostInfo> hostInfos = new ArrayList<>();
             for (String hostPort : hostPorts) {
-                hostInfos.add(SystemInfoService.getHostAndPort(hostPort, true));
+                hostInfos.add(SystemInfoService.getHostAndPort(hostPort));
             }
             SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
             if ("ADD".equals(action)) {
@@ -652,7 +652,7 @@ public class NodeAction extends RestBaseController {
             } else {
                 frontendNodeType = FrontendNodeType.OBSERVER;
             }
-            HostInfo info = SystemInfoService.getHostAndPort(reqInfo.getHostPort(), true);
+            HostInfo info = SystemInfoService.getHostAndPort(reqInfo.getHostPort());
             if ("ADD".equals(action)) {
                 currentEnv.addFrontend(frontendNodeType, info.getHost(), info.getPort());
             } else if ("DROP".equals(action)) {

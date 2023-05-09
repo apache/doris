@@ -1114,7 +1114,7 @@ public class SystemInfoService {
         this.idToReportVersionRef = null;
     }
 
-    public static HostInfo getHostAndPort(String hostPort, boolean strictCheck)
+    public static HostInfo getHostAndPort(String hostPort)
             throws AnalysisException {
         hostPort = hostPort.replaceAll("\\s+", "");
         if (hostPort.isEmpty()) {
@@ -1149,7 +1149,7 @@ public class SystemInfoService {
 
 
     public static Pair<String, Integer> validateHostAndPort(String hostPort) throws AnalysisException {
-        HostInfo hostInfo = getHostAndPort(hostPort, true);
+        HostInfo hostInfo = getHostAndPort(hostPort);
         return Pair.of(hostInfo.getHost(), hostInfo.getPort());
     }
 

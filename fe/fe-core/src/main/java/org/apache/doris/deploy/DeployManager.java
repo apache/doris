@@ -251,7 +251,7 @@ public class DeployManager extends MasterDaemon {
             String[] splittedHosts = existFeHosts.split(",");
             for (String host : splittedHosts) {
                 try {
-                    helperNodes.add(SystemInfoService.getHostAndPort(host, true));
+                    helperNodes.add(SystemInfoService.getHostAndPort(host));
                 } catch (AnalysisException e) {
                     LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
                     System.exit(-1);

@@ -54,7 +54,7 @@ public class ModifyNodeHostNameClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort, true);
+        HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
         this.host = hostInfo.getHost();
         this.port = hostInfo.getPort();
 

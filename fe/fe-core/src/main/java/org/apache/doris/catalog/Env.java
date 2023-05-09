@@ -1162,8 +1162,8 @@ public class Env {
     }
 
     private void getSelfHostPort() {
-        String hostName = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
-        selfNode = new HostInfo(hostName, Config.edit_log_port);
+        String host = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
+        selfNode = new HostInfo(host, Config.edit_log_port);
         LOG.info("get self node: {}", selfNode);
     }
 
@@ -1196,7 +1196,7 @@ public class Env {
             if (helpers != null) {
                 String[] splittedHelpers = helpers.split(",");
                 for (String helper : splittedHelpers) {
-                    HostInfo helperHostPort = SystemInfoService.getHostAndPort(helper, true);
+                    HostInfo helperHostPort = SystemInfoService.getHostAndPort(helper);
                     if (helperHostPort.isSame(selfNode)) {
                         /**
                          * If user specified the helper node to this FE itself,

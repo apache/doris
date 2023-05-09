@@ -63,7 +63,7 @@ public class FrontendClause extends AlterClause {
                                                 analyzer.getQualifiedUser());
         }
 
-        HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort, true);
+        HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
         this.host = hostInfo.getHost();
         this.port = hostInfo.getPort();
     }
