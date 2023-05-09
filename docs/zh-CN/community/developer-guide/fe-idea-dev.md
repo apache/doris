@@ -57,7 +57,7 @@ JDK1.8+, IntelliJ IDEA
 
         将其中的：
 
-        `#rl "https://www.apache.org/dyn/closer.lua?path=thrift/0.16.0/thrift-0.16.0.tar.gz"`
+        `url "https://www.apache.org/dyn/closer.lua?path=thrift/0.16.0/thrift-0.16.0.tar.gz"`
 
         修改为：
 

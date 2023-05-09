@@ -628,8 +628,8 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     const double guard_space =
             ignore_guard ? 0 : config::storage_flood_stage_usage_percent / 100.0 * 0.9;
     std::vector<DataDirInfo> data_dir_infos;
-    RETURN_NOT_OK_LOG(get_all_data_dir_info(&data_dir_infos, false),
-                      "failed to get root path stat info when sweep trash.")
+    RETURN_NOT_OK_STATUS_WITH_WARN(get_all_data_dir_info(&data_dir_infos, false),
+                                   "failed to get root path stat info when sweep trash.")
     std::sort(data_dir_infos.begin(), data_dir_infos.end(), DataDirInfoLessAvailability());
 
     time_t now = time(nullptr); //获取UTC时间
@@ -969,11 +969,6 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
 
     string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(),
                                                                 request.tablet_id);
-    res = TabletMeta::reset_tablet_uid(header_path);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail reset tablet uid file path = " << header_path << " res=" << res;
-        return res;
-    }
     res = _tablet_manager->load_tablet_from_dir(store, request.tablet_id, request.schema_hash,
                                                 schema_hash_path_stream.str(), false, restore);
     if (!res.ok()) {

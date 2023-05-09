@@ -58,7 +58,7 @@ NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t l
           _docvalue_context(docvalue_context),
           _doc_value_mode(doc_value_mode) {}
 
-Status NewEsScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+Status NewEsScanner::prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";
     RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
 

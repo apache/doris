@@ -26,7 +26,7 @@ under the License.
 
 # 在macOS平台上编译
 
-本文介绍如何在macOS平台上编译源码。
+本文介绍如何在 macOS 平台上编译源码。
 
 ## 环境要求
 
@@ -38,7 +38,7 @@ under the License.
 1. 使用[Homebrew](https://brew.sh/)安装依赖
     ```shell
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@15 openjdk@11 npm
+        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
     ```
 
 2. 编译源码
@@ -109,4 +109,4 @@ under the License.
 参考前面提到的设置`file descriptors`。
 
 ### Java版本
-推荐使用Java 11。
+推荐使用Java 8。

@@ -1376,8 +1376,8 @@ public class RestoreJob extends AbstractJob {
                         }
                         long signature = env.getNextId();
                         DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
-                                brokerAddrs.get(0), repo.getStorage().getProperties(),
-                                repo.getStorage().getStorageType(), repo.getLocation());
+                                brokerAddrs.get(0), repo.getRemoteFileSystem().getProperties(),
+                                repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                         batchTask.addTask(task);
                         unfinishedSignatureToId.put(signature, beId);
                     }

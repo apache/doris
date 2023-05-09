@@ -205,10 +205,11 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
         // If the new tablet is fresher than the existing one, then replace
         // the existing tablet with the new one.
         // Use default replica_id to ignore whether replica_id is match when drop tablet.
-        RETURN_NOT_OK_LOG(_drop_tablet_unlocked(tablet_id, /* replica_id */ 0, keep_files, false),
-                          strings::Substitute("failed to drop old tablet when add new tablet. "
-                                              "tablet_id=$0",
-                                              tablet_id));
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                _drop_tablet_unlocked(tablet_id, /* replica_id */ 0, keep_files, false),
+                strings::Substitute("failed to drop old tablet when add new tablet. "
+                                    "tablet_id=$0",
+                                    tablet_id));
     }
     // Register tablet into DataDir, so that we can manage tablet from
     // the perspective of root path.
@@ -822,12 +823,14 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         return Status::Error<TABLE_INDEX_VALIDATE_ERROR>();
     }
 
-    RETURN_NOT_OK_LOG(tablet->init(),
-                      strings::Substitute("tablet init failed. tablet=$0", tablet->full_name()));
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            tablet->init(),
+            strings::Substitute("tablet init failed. tablet=$0", tablet->full_name()));
 
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
-    RETURN_NOT_OK_LOG(_add_tablet_unlocked(tablet_id, tablet, update_meta, force),
-                      strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            _add_tablet_unlocked(tablet_id, tablet, update_meta, force),
+            strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
 
     return Status::OK();
 }
@@ -846,12 +849,6 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
             path_util::dir_name(path_util::dir_name(path_util::dir_name(header_path)));
     std::string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
     int32_t shard = stol(shard_str);
-    // load dir is called by clone, restore, storage migration
-    // should change tablet uid when tablet object changed
-    RETURN_NOT_OK_LOG(
-            TabletMeta::reset_tablet_uid(header_path),
-            strings::Substitute("failed to set tablet uid when copied meta file. header_path=%0",
-                                header_path));
 
     bool exists = false;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(header_path, &exists));
@@ -868,11 +865,15 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     // has to change shard id here, because meta file maybe copied from other source
     // its shard is different from local shard
     tablet_meta->set_shard_id(shard);
+    // load dir is called by clone, restore, storage migration
+    // should change tablet uid when tablet object changed
+    tablet_meta->set_tablet_uid(TabletUid::gen_uid());
     std::string meta_binary;
     tablet_meta->serialize(&meta_binary);
-    RETURN_NOT_OK_LOG(load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force,
-                                            restore, true),
-                      strings::Substitute("fail to load tablet. header_path=$0", header_path));
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore,
+                                  true),
+            strings::Substitute("fail to load tablet. header_path=$0", header_path));
 
     return Status::OK();
 }
@@ -1200,10 +1201,10 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
 
     // We generate a new tablet_uid for this new tablet.
     uint64_t shard_id = 0;
-    RETURN_NOT_OK_LOG(store->get_shard(&shard_id), "fail to get root path shard");
+    RETURN_NOT_OK_STATUS_WITH_WARN(store->get_shard(&shard_id), "fail to get root path shard");
     Status res = TabletMeta::create(request, TabletUid::gen_uid(), shard_id, next_unique_id,
                                     col_idx_to_unique_id, tablet_meta);
-    RETURN_NOT_OK(res);
+    RETURN_IF_ERROR(res);
     if (request.__isset.storage_format) {
         if (request.storage_format == TStorageFormat::DEFAULT) {
             (*tablet_meta)

@@ -205,10 +205,10 @@ Status ParquetReader::_open_file() {
     if (_file_reader == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
-        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, &_file_system, &_file_reader,
-                io::DelegateReader::AccessMode::RANDOM, cache_policy, _io_ctx));
+                io::DelegateReader::AccessMode::RANDOM, reader_options, _io_ctx));
     }
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);

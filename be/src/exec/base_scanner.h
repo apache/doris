@@ -131,7 +131,7 @@ protected:
 
     // for vectorized load
     std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
-    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
+    vectorized::VExprContext* _vpre_filter_ctx_ptr = nullptr;
     vectorized::Block _src_block;
     bool _src_block_mem_reuse = false;
     int _num_of_columns_from_file;

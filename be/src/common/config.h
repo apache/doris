@@ -39,11 +39,6 @@ CONF_Int32(brpc_port, "8060");
 // which means the number of bthreads is #cpu-cores
 CONF_Int32(brpc_num_threads, "-1");
 
-// port to brpc server for single replica load
-CONF_Int32(single_replica_load_brpc_port, "8070");
-// the number of bthreads to brpc server for single replica load
-CONF_Int32(single_replica_load_brpc_num_threads, "64");
-
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
@@ -390,15 +385,14 @@ CONF_Bool(enable_https, "false");
 CONF_String(ssl_certificate_path, "");
 // Path of private key
 CONF_String(ssl_private_key_path, "");
+// Whether to check authorization
+CONF_Bool(enable_http_auth, "false");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
 CONF_mInt32(periodic_counter_update_period_ms, "500");
 
 CONF_Bool(enable_single_replica_load, "false");
-
-// Port to download server for single replica load
-CONF_Int32(single_replica_load_download_port, "8050");
 // Number of download workers for single replica load
 CONF_Int32(single_replica_load_download_num_workers, "64");
 
@@ -684,9 +678,6 @@ CONF_Int32(aws_log_level, "3");
 // the buffer size when read data from remote storage like s3
 CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
-// Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
-CONF_Bool(enable_tcmalloc_hook, "true");
-
 // Print more detailed logs, more detailed records, etc.
 CONF_mBool(memory_debug, "false");
 
@@ -943,6 +934,8 @@ CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 CONF_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 CONF_Int32(max_depth_in_bkd_tree, "32");
+// index compaction
+CONF_Bool(inverted_index_compaction_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 CONF_Int32(num_broadcast_buffer, "32");
 // semi-structure configs

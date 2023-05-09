@@ -34,11 +34,10 @@
 namespace doris {
 
 const std::string FILE_PARAMETER = "file";
-const std::string DB_PARAMETER = "db";
-const std::string LABEL_PARAMETER = "label";
 const std::string TOKEN_PARAMETER = "token";
 
-DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs)
+DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs,
+                               int32_t num_workers)
         : _exec_env(exec_env), _download_type(NORMAL) {
     for (auto& dir : allow_dirs) {
         std::string p;
@@ -48,10 +47,20 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
         }
         _allow_paths.emplace_back(std::move(p));
     }
+    if (num_workers > 0) {
+        // for single-replica-load
+        ThreadPoolBuilder("DownloadThreadPool")
+                .set_min_threads(num_workers)
+                .set_max_threads(num_workers)
+                .build(&_download_workers);
+        _is_async = true;
+    } else {
+        _is_async = false;
+    }
 }
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
-        : _exec_env(exec_env), _download_type(ERROR_LOG) {
+        : _exec_env(exec_env), _download_type(ERROR_LOG), _is_async(false) {
     io::global_local_filesystem()->canonicalize(error_log_root_dir, &_error_log_root_dir);
 }
 
@@ -141,6 +150,15 @@ void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_
 }
 
 void DownloadAction::handle(HttpRequest* req) {
+    if (_is_async) {
+        // async for heavy download job, currently mainly for single-replica-load
+        CHECK(_download_workers->submit_func([this, req]() { _handle(req); }).ok());
+    } else {
+        _handle(req);
+    }
+}
+
+void DownloadAction::_handle(HttpRequest* req) {
     VLOG_CRITICAL << "accept one download request " << req->debug_string();
 
     // Get 'file' parameter, then assembly file absolute path

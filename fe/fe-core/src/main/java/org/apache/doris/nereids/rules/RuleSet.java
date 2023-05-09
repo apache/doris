@@ -81,7 +81,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimi
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -168,27 +167,33 @@ public class RuleSet {
             .add(OuterJoinAssocProject.INSTANCE)
             .build();
 
+    public static final List<Rule> otherReorderRules = ImmutableList.<Rule>builder()
+            .addAll(OTHER_REORDER_RULES)
+            .addAll(EXPLORATION_RULES)
+            .build();
+
+    public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER_RULES = ImmutableList.<Rule>builder()
+            .addAll(ZIG_ZAG_TREE_JOIN_REORDER)
+            .addAll(OTHER_REORDER_RULES)
+            .addAll(EXPLORATION_RULES)
+            .build();
+
+    public static final List<Rule> BUSHY_TREE_JOIN_REORDER_RULES = ImmutableList.<Rule>builder()
+            .addAll(BUSHY_TREE_JOIN_REORDER)
+            .addAll(OTHER_REORDER_RULES)
+            .addAll(EXPLORATION_RULES)
+            .build();
+
     public List<Rule> getOtherReorderRules() {
-        List<Rule> rules = new ArrayList<>();
-        rules.addAll(OTHER_REORDER_RULES);
-        rules.addAll(EXPLORATION_RULES);
-        return rules;
+        return otherReorderRules;
     }
 
     public List<Rule> getZigZagTreeJoinReorder() {
-        List<Rule> rules = new ArrayList<>();
-        rules.addAll(ZIG_ZAG_TREE_JOIN_REORDER);
-        rules.addAll(OTHER_REORDER_RULES);
-        rules.addAll(EXPLORATION_RULES);
-        return rules;
+        return ZIG_ZAG_TREE_JOIN_REORDER_RULES;
     }
 
     public List<Rule> getBushyTreeJoinReorder() {
-        List<Rule> rules = new ArrayList<>();
-        rules.addAll(BUSHY_TREE_JOIN_REORDER);
-        rules.addAll(OTHER_REORDER_RULES);
-        rules.addAll(EXPLORATION_RULES);
-        return rules;
+        return BUSHY_TREE_JOIN_REORDER_RULES;
     }
 
     public List<Rule> getImplementationRules() {

@@ -1222,6 +1222,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.0Alpha1",
                 "releasenotes/release-1.2.4.1",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",

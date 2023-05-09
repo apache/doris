@@ -58,7 +58,8 @@ class FileFactory {
     ENABLE_FACTORY_CREATOR(FileFactory);
 
 public:
-    static io::FileCachePolicy get_cache_policy(RuntimeState* state);
+    static io::FileReaderOptions get_reader_options(RuntimeState* state);
+    static io::FileReaderOptions NO_CACHE_READER_OPTIONS;
 
     /// Create FileWriter
     static Status create_file_writer(TFileType::type type, ExecEnv* env,
@@ -72,7 +73,7 @@ public:
             RuntimeProfile* profile, const FileSystemProperties& system_properties,
             const FileDescription& file_description, std::shared_ptr<io::FileSystem>* file_system,
             io::FileReaderSPtr* file_reader,
-            io::FileCachePolicy cache_policy = io::FileCachePolicy::NO_CACHE);
+            io::FileReaderOptions reader_options = NO_CACHE_READER_OPTIONS);
 
     // Create FileReader for stream load pipe
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader);

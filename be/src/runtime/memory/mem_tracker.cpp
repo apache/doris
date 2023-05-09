@@ -113,7 +113,7 @@ void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshot
                                      int64_t group_num, std::string parent_label) {
     std::lock_guard<std::mutex> l(mem_tracker_pool[group_num].group_lock);
     for (auto tracker : mem_tracker_pool[group_num].trackers) {
-        if (tracker->parent_label() == parent_label && tracker->consumption() != 0) {
+        if (tracker->parent_label() == parent_label && tracker->peak_consumption() != 0) {
             snapshots->push_back(tracker->make_snapshot());
         }
     }

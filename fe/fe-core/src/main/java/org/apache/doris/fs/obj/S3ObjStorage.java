@@ -44,6 +44,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -86,7 +87,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         setProperties(properties);
     }
 
-    private void setProperties(Map<String, String> properties) {
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    protected void setProperties(Map<String, String> properties) {
         this.properties.putAll(properties);
         try {
             S3Properties.requiredS3Properties(this.properties);
@@ -111,9 +116,12 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         // That is, for S3 endpoint, ignore the `use_path_style` property, and the s3 client will automatically use
         // virtual hosted-sytle.
         // And for other endpoint, if `use_path_style` is true, use path style. Otherwise, use virtual hosted-sytle.
+        // 'forceHostedStyle==false' means that use path style.
         if (!this.properties.get(S3Properties.ENDPOINT).toLowerCase().contains(S3Properties.S3_PREFIX)) {
-            forceHostedStyle = !this.properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false")
-                    .equalsIgnoreCase("true");
+            String usePathStyle = this.properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
+            boolean isUsePathStyle = usePathStyle.equalsIgnoreCase("true");
+            // when it's path style, we will not use virtual hosted-style
+            forceHostedStyle = !isUsePathStyle;
         } else {
             forceHostedStyle = false;
         }
@@ -227,7 +235,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .putObject(
                                     PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
                                     requestBody);
-            LOG.info("put object success: " + response.eTag());
+            LOG.info("put object success: " + response.toString());
             return Status.OK;
         } catch (S3Exception e) {
             LOG.error("put object failed:", e);
@@ -264,13 +272,14 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         try {
             S3URI origUri = S3URI.create(origFilePath);
             S3URI descUri = S3URI.create(destFilePath, forceHostedStyle);
-            getClient(descUri.getVirtualBucket())
+            CopyObjectResponse response = getClient(descUri.getVirtualBucket())
                     .copyObject(
                             CopyObjectRequest.builder()
                                     .copySource(origUri.getBucket() + "/" + origUri.getKey())
                                     .destinationBucket(descUri.getBucket())
                                     .destinationKey(descUri.getKey())
                                     .build());
+            LOG.info("copy file from " + origFilePath + " to " + destFilePath + " success: " + response.toString());
             return Status.OK;
         } catch (S3Exception e) {
             LOG.error("copy file failed: ", e);

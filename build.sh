@@ -380,13 +380,14 @@ echo "Get params:
     ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
     DENABLE_CLANG_COVERAGE -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME  -- ${DISPLAY_BUILD_TIME}
+    ENABLE_PCH          -- ${ENABLE_PCH}
 "
 
 # Clean and build generated code
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
 fi
-./generated-source.sh
+"${DORIS_HOME}"/generated-source.sh
 
 # Assesmble FE modules
 FE_MODULES=''
@@ -445,6 +446,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
+        -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_BTHREAD_SCANNER="${USE_BTHREAD_SCANNER}" \
@@ -453,6 +455,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
+        -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -512,9 +515,9 @@ if [[ "${FE_MODULES}" != '' ]]; then
         clean_fe
     fi
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests -Dcheckstyle.skip=true
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true
     else
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests
     fi
     cd "${DORIS_HOME}"
 fi

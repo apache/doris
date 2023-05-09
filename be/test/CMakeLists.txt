@@ -62,6 +62,7 @@ set(HTTP_TEST_FILES
     http/message_body_sink_test.cpp
     http/http_utils_test.cpp
     http/http_client_test.cpp
+    http/http_auth_test.cpp
     # TODO this will overide HttpChannel and make other test failed
     # http/metrics_action_test.cpp
 )

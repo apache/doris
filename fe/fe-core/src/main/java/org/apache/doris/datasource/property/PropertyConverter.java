@@ -62,19 +62,25 @@ public class PropertyConverter {
      *                 s3.endpoint -> AWS_ENDPOINT
      *                 s3.access_key -> AWS_ACCESS_KEY
      * These properties will be used for catalog/resource, and persisted to catalog/resource properties.
+     * Some properties like AWS_XXX will be hidden, can find from HIDDEN_KEY in PrintableMap
+     * @see org.apache.doris.common.util.PrintableMap
      */
     public static Map<String, String> convertToMetaProperties(Map<String, String> props) {
         Map<String, String> metaProperties = new HashMap<>();
-        CloudCredential credential = GlueProperties.getCredential(props);
-        if (!credential.isWhole()) {
-            credential = GlueProperties.getCompatibleCredential(props);
-        }
         if (props.containsKey(GlueProperties.ENDPOINT)
                 || props.containsKey(AWSGlueConfig.AWS_GLUE_ENDPOINT)) {
+            CloudCredential credential = GlueProperties.getCredential(props);
+            if (!credential.isWhole()) {
+                credential = GlueProperties.getCompatibleCredential(props);
+            }
             metaProperties = convertToGlueProperties(props, credential);
         } else if (props.containsKey(DLFProperties.ENDPOINT)
                 || props.containsKey(DataLakeConfig.CATALOG_ENDPOINT)) {
-            metaProperties = convertToDLFProperties(props, credential);
+            metaProperties = convertToDLFProperties(props, DLFProperties.getCredential(props));
+        } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
+            // checkout env in the end
+            // if meet AWS_XXX properties, convert to s3 properties
+            return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), true);
         }
         metaProperties.putAll(props);
         metaProperties.putAll(S3ClientBEProperties.getBeFSProperties(props));
@@ -97,7 +103,7 @@ public class PropertyConverter {
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
             // checkout env in the end
             // compatible with the s3,obs,oss,cos when they use aws client.
-            return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props));
+            return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), false);
         }
         return props;
     }
@@ -124,7 +130,8 @@ public class PropertyConverter {
     }
 
     private static Map<String, String> convertToS3EnvProperties(Map<String, String> properties,
-                                                                CloudCredentialWithEndpoint credential) {
+                                                                CloudCredentialWithEndpoint credential,
+                                                                boolean isMeta) {
         // Old properties to new properties
         properties.put(S3Properties.ENDPOINT, credential.getEndpoint());
         properties.put(S3Properties.REGION,
@@ -142,6 +149,9 @@ public class PropertyConverter {
         }
         if (properties.containsKey(S3Properties.Env.CONNECTION_TIMEOUT_MS)) {
             properties.put(S3Properties.REQUEST_TIMEOUT_MS, properties.get(S3Properties.Env.CONNECTION_TIMEOUT_MS));
+        }
+        if (isMeta) {
+            return properties;
         }
         return convertToS3Properties(properties, credential);
     }

@@ -33,6 +33,8 @@ namespace doris::vectorized {
 template <typename Impl>
 class FunctionMathUnary : public IFunction {
 public:
+    using IFunction::execute;
+
     static constexpr auto name = Impl::name;
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Impl>()))>;

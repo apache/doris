@@ -141,7 +141,8 @@ enum class FieldType {
     OLAP_FIELD_TYPE_DECIMAL64 = 32,
     OLAP_FIELD_TYPE_DECIMAL128I = 33,
     OLAP_FIELD_TYPE_JSONB = 34,
-    OLAP_FIELD_TYPE_VARIANT = 35
+    OLAP_FIELD_TYPE_VARIANT = 35,
+    OLAP_FIELD_TYPE_AGG_STATE = 36
 };
 
 // Define all aggregation methods supported by Field
@@ -162,7 +163,7 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
 };
 
-enum PushType {
+enum class PushType {
     PUSH_NORMAL = 1,          // for broker/hadoop load, not used any more
     PUSH_FOR_DELETE = 2,      // for delete
     PUSH_FOR_LOAD_DELETE = 3, // not used any more

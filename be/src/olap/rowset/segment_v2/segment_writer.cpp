@@ -787,6 +787,8 @@ Status SegmentWriter::finalize_footer() {
 }
 
 Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+    MonotonicStopWatch timer;
+    timer.start();
     // check disk capacity
     if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
         return Status::InternalError("disk {} exceed capacity limit.", _data_dir->path_hash());
@@ -801,6 +803,10 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     RETURN_IF_ERROR(_file_writer->finalize());
     *segment_file_size = _file_writer->bytes_appended();
 
+    if (timer.elapsed_time() > 5000000000l) {
+        LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()
+                  << ", segmemt_size " << *segment_file_size;
+    }
     return Status::OK();
 }
 

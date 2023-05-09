@@ -68,11 +68,9 @@ public:
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
                                              int column_to_keep);
-    [[nodiscard]] static Status filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr,
-                                             Block* block, int column_to_keep);
 
-    static Block get_output_block_after_execute_exprs(const std::vector<vectorized::VExprContext*>&,
-                                                      const Block&, Status&);
+    [[nodiscard]] static Status get_output_block_after_execute_exprs(
+            const std::vector<vectorized::VExprContext*>&, const Block&, Block*);
 
     int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);

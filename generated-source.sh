@@ -30,10 +30,11 @@ export DORIS_HOME="${ROOT}"
 
 echo "Build generated code"
 cd "${DORIS_HOME}/gensrc"
-rm -rf "${DORIS_HOME}/gensrc/build"
 # DO NOT using parallel make(-j) for gensrc
 make
 rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"
+rm -rf "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/parquet"
+
 cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris"
 cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/"
 cd "${DORIS_HOME}/"
