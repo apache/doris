@@ -328,8 +328,8 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     return Status::OK();
 }
 
-// Due to the use of non blocking operations, 
-// the open partition rpc has not yet arrived when the actual write request arrives, 
+// Due to the use of non blocking operations,
+// the open partition rpc has not yet arrived when the actual write request arrives,
 // it is a logic to avoid delta writer not open.
 template <typename TabletWriterAddRequest>
 Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,

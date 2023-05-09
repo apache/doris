@@ -478,7 +478,8 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-void VNodeChannel::open_partition(int64_t partition_id, OpenPartitionClosure<PartitionOpenResult>* closure) {
+void VNodeChannel::open_partition(int64_t partition_id,
+                                  OpenPartitionClosure<PartitionOpenResult>* closure) {
     _timeout_watch.reset();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     PartitionOpenRequest request;
@@ -495,9 +496,10 @@ void VNodeChannel::open_partition(int64_t partition_id, OpenPartitionClosure<Par
 
     OpenPartitionClosure<PartitionOpenResult>* open_partition_closure;
     if (closure == nullptr) {
-        open_partition_closure = new OpenPartitionClosure<PartitionOpenResult>(this,_index_channel,partition_id);
+        open_partition_closure =
+                new OpenPartitionClosure<PartitionOpenResult>(this, _index_channel, partition_id);
         _open_partition_closures.insert(open_partition_closure);
-    }else {
+    } else {
         open_partition_closure = closure;
     }
 
