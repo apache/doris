@@ -644,12 +644,6 @@ public class SelectStmt extends QueryStmt {
                         SlotRef slotRef = new SlotRef(null, colName);
                         orderByElements.add(new OrderByElement(slotRef, true, true));
                     }
-                } else if (ref instanceof InlineViewRef) {
-                    QueryStmt query = ((InlineViewRef) ref).getQueryStmt();
-                    Analyzer viewAnalyzer = query.getAnalyzer();
-                    query.analyzer = null;
-                    viewAnalyzer.setNeedAddOrderBy(true);
-                    query.analyze(viewAnalyzer);
                 }
             }
         }
