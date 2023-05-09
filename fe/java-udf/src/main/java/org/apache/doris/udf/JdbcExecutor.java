@@ -710,6 +710,20 @@ public class JdbcExecutor {
         }
     }
 
+    private void stringPutToBigInteger(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, int startRowForNullable) {
+        BigInteger[] data = new BigInteger[numRows];
+        for (int i = 0; i < numRows; i++) {
+            if (column[i] == null) {
+                data[i] = null;
+                UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+            } else {
+                data[i] = new BigInteger((String) column[i]);
+            }
+        }
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16, startRowForNullable);
+    }
+
     private void clickHouseUInt64ToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, int startRowForNullable) {
         if (isNullable) {
@@ -741,6 +755,8 @@ public class JdbcExecutor {
             bigDecimalPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof BigInteger) {
             bigIntegerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof String) {
+            stringPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof com.clickhouse.data.value.UnsignedLong) {
             clickHouseUInt64ToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
