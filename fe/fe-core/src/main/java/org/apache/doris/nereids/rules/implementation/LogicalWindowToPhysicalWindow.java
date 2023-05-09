@@ -80,8 +80,6 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         //  Only add this variable in PhysicalWindow
         List<NamedExpression> windowList = logicalWindow.getWindowExpressions();
 
-        long partitionLimit = logicalWindow.getPartitionLimit();
-
         /////////// create three kinds of groups and compute tupleSize of each
         // windowFrameGroup
         List<WindowFrameGroup> windowFrameGroupList = createWindowFrameGroups(windowList);
@@ -105,7 +103,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
             for (OrderKeyGroup orderKeyGroup : partitionKeyGroup.groups) {
                 // in OrderKeyGroup, create PhysicalWindow for each WindowFrameGroup;
                 // each PhysicalWindow contains the same windowExpressions as WindowFrameGroup.groups
-                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup, partitionLimit);
+                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup);
             }
         }
         return (PhysicalWindow) newRoot;
@@ -115,8 +113,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
      * create PhysicalWindow and PhysicalSort
      * ******************************************************************************************** */
 
-    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup,
-                   long partitionLimit) {
+    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup) {
         // PhysicalSort node for orderKeys; if there exists no orderKey, newRoot = root
         // Plan newRoot = createPhysicalSortNode(root, orderKeyGroup, ctx);
         Plan newRoot = root;
@@ -127,7 +124,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
 
         // PhysicalWindow nodes for each different window frame, so at least one PhysicalWindow node will be added
         for (WindowFrameGroup windowFrameGroup : orderKeyGroup.groups) {
-            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, requiredOrderKeys, partitionLimit);
+            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, requiredOrderKeys);
         }
 
         return newRoot;
@@ -156,14 +153,13 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
     }
 
     private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup,
-                                                      List<OrderKey> requiredOrderKeys, long partitionLimit) {
+                                                      List<OrderKey> requiredOrderKeys) {
         // requiredProperties:
         //  Distribution: partitionKeys
         //  Order: requiredOrderKeys
-        LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, partitionLimit, root);
+        LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, root);
         PhysicalWindow<Plan> physicalWindow = new PhysicalWindow<>(
                 windowFrameGroup,
-                partitionLimit,
                 RequireProperties.followParent(),
                 tempLogicalWindow.getLogicalProperties(),
                 root);

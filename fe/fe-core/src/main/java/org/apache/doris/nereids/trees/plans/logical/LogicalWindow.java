@@ -50,29 +50,21 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     private final boolean isChecked;
 
-    private final long partitionLimit;
-
     public LogicalWindow(List<NamedExpression> windowExpressions, CHILD_TYPE child) {
-        this(windowExpressions, false, -1, Optional.empty(), Optional.empty(), child);
+        this(windowExpressions, false, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalWindow(List<NamedExpression> windowExpressions, long partitionLimit, CHILD_TYPE child) {
-        this(windowExpressions, false, partitionLimit, Optional.empty(), Optional.empty(), child);
+    public LogicalWindow(List<NamedExpression> windowExpressions, boolean isChecked, CHILD_TYPE child) {
+        this(windowExpressions, isChecked, Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalWindow(List<NamedExpression> windowExpressions, boolean isChecked,
-                         long partitionLimit, CHILD_TYPE child) {
-        this(windowExpressions, isChecked, partitionLimit, Optional.empty(), Optional.empty(), child);
-    }
-
-    public LogicalWindow(List<NamedExpression> windowExpressions, boolean isChecked, long partitionLimit,
                          Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
                          CHILD_TYPE child) {
         super(PlanType.LOGICAL_WINDOW, groupExpression, logicalProperties, child);
         this.windowExpressions = ImmutableList.copyOf(Objects.requireNonNull(windowExpressions, "output expressions"
                 + "in LogicalWindow cannot be null"));
         this.isChecked = isChecked;
-        this.partitionLimit = partitionLimit;
     }
 
     public boolean isChecked() {
@@ -85,28 +77,18 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public long getPartitionLimit() {
-        return partitionLimit;
-    }
-
-    @Override
     public List<? extends Expression> getExpressions() {
         return windowExpressions;
     }
 
     public LogicalWindow withChecked(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow(windowExpressions, true, partitionLimit, Optional.empty(), Optional.empty(), child);
-    }
-
-    public LogicalWindow withPartitionLimit(long partitionLimit) {
-        return new LogicalWindow<>(windowExpressions, isChecked, partitionLimit, Optional.empty(),
-            Optional.empty(), child());
+        return new LogicalWindow(windowExpressions, true, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalWindow<>(windowExpressions, isChecked, partitionLimit, children.get(0));
+        return new LogicalWindow<>(windowExpressions, isChecked, children.get(0));
     }
 
     @Override
@@ -116,13 +98,13 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalWindow<>(windowExpressions, isChecked, partitionLimit,
+        return new LogicalWindow<>(windowExpressions, isChecked,
                 groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalWindow<>(windowExpressions, isChecked, partitionLimit,
+        return new LogicalWindow<>(windowExpressions, isChecked,
                 Optional.empty(), logicalProperties, child());
     }
 
@@ -169,7 +151,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         }
         LogicalWindow<?> that = (LogicalWindow<?>) o;
         return Objects.equals(windowExpressions, that.windowExpressions)
-            && isChecked == that.isChecked && partitionLimit == that.partitionLimit;
+            && isChecked == that.isChecked;
     }
 
     @Override
@@ -181,6 +163,10 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return windowFunc.getFunction() instanceof RowNumber
             || windowFunc.getFunction() instanceof Rank
             || windowFunc.getFunction() instanceof DenseRank;
+    }
+
+    public static boolean checkWindowPartitionAndOrderKey4PartitionLimit(WindowExpression windowFunc) {
+        return !windowFunc.getPartitionKeys().isEmpty() || !windowFunc.getOrderKeys().isEmpty();
     }
 
     /**

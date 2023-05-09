@@ -40,8 +40,6 @@ public interface Window {
 
     List<NamedExpression> getWindowExpressions();
 
-    long getPartitionLimit();
-
     /**
      * translate WindowFrame to AnalyticWindow
      */

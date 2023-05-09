@@ -842,12 +842,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 inputPlanFragment.addPlanRoot(analyticEvalNode);
             }
         } else {
-            // Pass the 'PartitionLimit` from the 'window' to its' child 'sort' which can pruning the data earlier.
-            PlanNode child = inputPlanFragment.getPlanRoot();
-            long partitionLimit = physicalWindow.getPartitionLimit();
-            if (child instanceof SortNode && partitionLimit > 0) {
-                ((SortNode) child).setPartitionLimit(partitionLimit);
-            }
             analyticEvalNode.setNumInstances(inputPlanFragment.getPlanRoot().getNumInstances());
             inputPlanFragment.addPlanRoot(analyticEvalNode);
         }
