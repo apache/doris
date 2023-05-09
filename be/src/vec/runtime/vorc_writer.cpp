@@ -327,7 +327,38 @@ Status VOrcWriterWrapper::write(const Block& block) {
                 break;
             }
             case TYPE_LARGEINT: {
-                return Status::InvalidArgument("do not support large int type.");
+                orc::StringVectorBatch* cur_batch =
+                        dynamic_cast<orc::StringVectorBatch*>(root->fields[i]);
+                if (null_map != nullptr) {
+                    cur_batch->hasNulls = true;
+                    auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if (null_data[row_id] != 0) {
+                            cur_batch->notNull[row_id] = 0;
+                        } else {
+                            cur_batch->notNull[row_id] = 1;
+                            auto value = assert_cast<const ColumnVector<Int128>&>(*col)
+                                                 .get_data()[row_id];
+                            std::string value_str = fmt::format("{}", value);
+                            LOG(INFO) << "--ftw: value " << value_str;
+                            cur_batch->data[row_id] = const_cast<char*>(value_str.data());
+                            cur_batch->length[row_id] = value_str.length();
+                        }
+                    }
+                } else if (const auto& not_null_column =
+                                   check_and_get_column<const ColumnVector<Int128>>(col)) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        auto value = not_null_column->get_data()[row_id];
+                        std::string value_str = fmt::format("{}", value);
+                        LOG(INFO) << "--ftw: value " << value_str;
+                        cur_batch->data[row_id] = const_cast<char*>(value_str.data());
+                        cur_batch->length[row_id] = value_str.length();
+                    }
+                } else {
+                    RETURN_WRONG_TYPE
+                }
+                SET_NUM_ELEMENTS;
+                break;
             }
             case TYPE_FLOAT: {
                 WRITE_SINGLE_ELEMENTS_INTO_BATCH(orc::DoubleVectorBatch, ColumnVector<Float32>)
