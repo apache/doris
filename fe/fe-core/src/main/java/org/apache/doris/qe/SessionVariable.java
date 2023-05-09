@@ -873,6 +873,7 @@ public class SessionVariable implements Serializable, Writable {
             // this.enableTwoPhaseReadOpt = false;
             this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
         } else {
+            this.enablePipelineEngine = true;
             // this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
