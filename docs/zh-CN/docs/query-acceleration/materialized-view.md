@@ -530,7 +530,7 @@ select year(k4)+month(k4)+day(k4) from d_table where year(k4) = 2020; // 命中k
 
 ## 异常错误
 
-1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data" 由于数据质量问题或者Schema Change内存使用超出限制导致物化视图创建失败。如果是内存问题，调大`memory_limitation_per_thread_for_schema_change_bytes`参数即可。 注意：bitmap类型仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败
+1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data" 由于数据质量问题或者Schema Change内存使用超出限制导致物化视图创建失败。如果是内存问题，调大`memory_limitation_per_thread_for_schema_change_bytes`参数即可。 注意：to_bitmap的参数仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败。String类型的字段可使用bitmap_hash或bitmap_hash64计算hash值，并返回hash值的bitmap。
 
 
 
