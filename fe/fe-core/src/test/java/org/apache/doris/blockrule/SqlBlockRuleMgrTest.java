@@ -141,9 +141,9 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
 
         // test reach qps :
         String limitRule4 = "CREATE SQL_BLOCK_RULE test_rule3 PROPERTIES(\"qps\"=\"-1\", \"global\"=\"true\","
-            + " \"enable\"=\"true\");";
+                + " \"enable\"=\"true\");";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of qps can't be negative",
-            () -> createSqlBlockRule(limitRule4));
+                () -> createSqlBlockRule(limitRule4));
     }
 
     @Test
@@ -263,7 +263,7 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
 
         // test qps
         String sqlRule2 = "CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES(\"qps\"=\"100\", \"global\"=\"true\","
-            + " \"enable\"=\"true\");";
+                + " \"enable\"=\"true\");";
         createSqlBlockRule(sqlRule2);
         ShowSqlBlockRuleStmt showStmt2 = new ShowSqlBlockRuleStmt("test_rule2");
         SqlBlockRule alteredSqlBlockRule2 = mgr.getSqlBlockRule(showStmt2).get(0);
