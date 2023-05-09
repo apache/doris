@@ -1679,6 +1679,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static long max_hive_partition_cache_num = 100000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {"Hive表到分区名列表缓存的最大数量。",
+        "Max cache number of hive table to partition names list."})
+    public static long max_hive_table_catch_num = 1000;
+
+    @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
+        "Max number of hive partition values to return while list partitions, -1 means no limitation."})
+    public static short max_hive_list_partition_num = -1;
+
     /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
