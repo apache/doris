@@ -36,6 +36,11 @@ under the License.
     </properties>
     <dependencies>
         <dependency>
+            <groupId>com.vesoft</groupId>
+            <artifactId>client</artifactId>
+            <version>3.0.0</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>

@@ -679,6 +679,8 @@ struct FunctionJsonObjectImpl {
 template <typename SpecificImpl>
 class FunctionJsonAlwaysNotNullable : public IFunction {
 public:
+    using IFunction::execute;
+
     static constexpr auto name = SpecificImpl::name;
 
     static FunctionPtr create() {

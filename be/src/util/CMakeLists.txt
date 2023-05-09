@@ -21,6 +21,8 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/util")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/util")
 
+add_library(cityhash cityhash102/city.cc)
+
 set(UTIL_FILES
   arrow/row_batch.cpp
   arrow/utils.cpp
@@ -47,10 +49,8 @@ set(UTIL_FILES
   path_builder.cpp
 # TODO: not supported on RHEL 5
   perf_counters.cpp
-  progress_updater.cpp
   runtime_profile.cpp
   static_asserts.cpp
-  string_parser.cpp
   thrift_util.cpp
   thrift_client.cpp
   thrift_server.cpp
@@ -92,7 +92,6 @@ set(UTIL_FILES
   s3_util.cpp
   hdfs_util.cpp
   time_lut.cpp
-  cityhash102/city.cc
   telemetry/telemetry.cpp
   telemetry/brpc_carrier.cpp
   telemetry/open_telemetry_scop_wrapper.hpp
@@ -102,6 +101,7 @@ set(UTIL_FILES
   jni_native_method.cpp
 )
 
+
 if (OS_MACOSX)
     list(REMOVE_ITEM UTIL_FILES perf_counters.cpp disk_info.cpp)
     list(APPEND UTIL_FILES perf_counters_mac.cpp disk_info_mac.cpp)
@@ -110,4 +110,6 @@ endif()
 add_library(Util STATIC
     ${UTIL_FILES}
 )
+target_link_libraries(Util cityhash)
 
+pch_reuse(Util)
