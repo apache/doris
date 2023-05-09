@@ -82,8 +82,6 @@ public:
         ColumnPtr haystack_ptr = block.get_by_position(arguments[0]).column;
         ColumnPtr needles_ptr = block.get_by_position(arguments[1]).column;
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
-
         const ColumnString* col_haystack_vector =
                 check_and_get_column<ColumnString>(&*haystack_ptr);
         const ColumnConst* col_haystack_const =
