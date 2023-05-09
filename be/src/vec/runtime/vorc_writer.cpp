@@ -340,7 +340,6 @@ Status VOrcWriterWrapper::write(const Block& block) {
                             auto value = assert_cast<const ColumnVector<Int128>&>(*col)
                                                  .get_data()[row_id];
                             std::string value_str = fmt::format("{}", value);
-                            LOG(INFO) << "--ftw: value " << value_str;
                             cur_batch->data[row_id] = const_cast<char*>(value_str.data());
                             cur_batch->length[row_id] = value_str.length();
                         }
@@ -350,7 +349,6 @@ Status VOrcWriterWrapper::write(const Block& block) {
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         auto value = not_null_column->get_data()[row_id];
                         std::string value_str = fmt::format("{}", value);
-                        LOG(INFO) << "--ftw: value " << value_str;
                         cur_batch->data[row_id] = const_cast<char*>(value_str.data());
                         cur_batch->length[row_id] = value_str.length();
                     }
