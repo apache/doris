@@ -129,6 +129,17 @@ enum class JsonbType : char {
     NUM_TYPES,
 };
 
+//for parse json path
+constexpr char SCOPE = '$';
+constexpr char BEGIN_MEMBER = '.';
+constexpr char BEGIN_ARRAY = '[';
+constexpr char END_ARRAY = ']';
+constexpr char DOUBLE_QUOTE = '"';
+constexpr char WILDCARD = '*';
+constexpr char MINUS = '-';
+constexpr char LAST[] = "last";
+constexpr char ESCAPE = '\\';
+
 /*
  * JsonbDocument is the main object that accesses and queries JSONB packed
  * bytes. NOTE: JsonbDocument only allows object container as the top level
@@ -211,6 +222,91 @@ private:
     } header_;
 
     char payload_[0];
+};
+
+/// A simple input stream class for the JSON path parser.
+class Stream {
+public:
+    /// Creates an input stream reading from a character string.
+    /// @param string  the input string
+    /// @param length  the length of the input string
+    Stream(const char *string, size_t length)
+            : m_position(string), m_end(string + length), leg() {}
+
+    /// Returns a pointer to the current position in the stream.
+    const char *position() const { return m_position; }
+
+    /// Returns a pointer to the position just after the end of the stream.
+    const char *end() const { return m_end; }
+
+    /// Returns the number of bytes remaining in the stream.
+    size_t remaining() const {
+        assert(m_position <= m_end);
+        return m_end - m_position;
+    }
+
+    /// Tells if the stream has been exhausted.
+    bool exhausted() const { return remaining() == 0; }
+
+    /// Reads the next byte from the stream and moves the position forward.
+    char read() {
+        assert(!exhausted());
+        return *m_position++;
+    }
+
+    /// Reads the next byte from the stream without moving the position forward.
+    char peek() const {
+        assert(!exhausted());
+        return *m_position;
+    }
+
+    /// Moves the position to the next non-whitespace character.
+    void skip_whitespace() {
+        m_position = std::find_if_not(m_position, m_end,
+                                      [](char c) { return std::isspace(c); });
+    }
+
+    /// Moves the position n bytes forward.
+    void skip(size_t n) {
+        assert(remaining() >= n);
+        m_position += n;
+    }
+
+    void appendLeg(char a) {
+        leg += a;
+    }
+
+    void clearLeg() {
+        leg.clear();
+    }
+
+    void setLeg(std::string a) {
+        clearLeg();
+        leg = a;
+    }
+
+    std::string getLeg() {
+        return leg;
+    }
+
+private:
+    /// The current position in the stream.
+    const char *m_position;
+
+    /// The end of the stream.
+    const char *const m_end;
+
+    ///path leg
+    std::string leg;
+};
+
+class JsonbPath{
+public:
+    // parse json path
+    static bool parsePath(Stream *stream, JsonbValue* value);
+
+    static bool parse_array(Stream *stream);
+    static bool parse_member(Stream *stream);
 };
 
 /*
@@ -394,13 +490,13 @@ public:
     const char* getValuePtr() const;
 
     // find the JSONB value by a key path string (null terminated)
-    JsonbValue* findPath(const char* key_path, const char* delim = ".",
+    JsonbValue* findPath(const char* key_path,
                          hDictFind handler = nullptr) {
-        return findPath(key_path, (unsigned int)strlen(key_path), delim, handler);
+        return findPath(key_path, (unsigned int)strlen(key_path), handler);
     }
 
     // find the JSONB value by a key path string (with length)
-    JsonbValue* findPath(const char* key_path, unsigned int len, const char* delim,
+    JsonbValue* findPath(const char* key_path, unsigned int len,
                          hDictFind handler);
     friend class JsonbDocument;
 
@@ -1072,120 +1168,159 @@ inline const char* JsonbValue::getValuePtr() const {
 }
 
 inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_len,
-                                        const char* delim = ".", hDictFind handler = nullptr) {
-    if (!key_path) return nullptr;
+                                        hDictFind handler = nullptr) {
+    if(!key_path) return nullptr;
     if (kp_len == 0) return this;
-
-    // skip $ and . at beginning
-    if (kp_len > 0 && *key_path == '$') {
-        key_path++;
-        kp_len--;
-        if (kp_len > 0 && *key_path == '.') {
-            key_path++;
-            kp_len--;
-        }
-    }
-
-    if (kp_len == 0) return this;
-
-    if (!delim) delim = "."; // default delimiter
+    Stream stream(key_path, kp_len);
+    stream.skip_whitespace();
+    if (stream.exhausted() || stream.read() != SCOPE) return nullptr;
 
     JsonbValue* pval = this;
-    const char* fence = key_path + kp_len;
-    char idx_buf[21]; // buffer to parse array index (integer value)
 
-    while (pval && key_path < fence) {
-        const char* key = key_path;
-        unsigned int klen = 0;
-        const char* left_bracket = nullptr;
-        const char* right_bracket = nullptr;
-        const char* left_quotation_marks = nullptr;
-        const char* right_quotation_marks = nullptr;
-        size_t idx_len = 0;
-        // find the current key and [] bracket position
-        for (; key_path != fence; ++key_path, ++klen) {
-            if ('[' == *key_path) {
-                left_bracket = key_path;
-            } else if (']' == *key_path) {
-                right_bracket = key_path;
-            } else if ('"' == *key_path) {
-                if (left_quotation_marks == nullptr) {
-                    left_quotation_marks = key_path;
+    while ( pval && !stream.exhausted() ) {
+
+        stream.clearLeg();
+
+        if(!JsonbPath::parsePath(&stream,pval)){
+            return nullptr;
+        }
+
+        if(stream.getLeg().size()==0){
+            return nullptr;
+        }
+
+        if (LIKELY(pval->type_ == JsonbType::T_Object)) {
+            if(stream.getLeg().size() == 1 && stream.getLeg()[0] == WILDCARD){
+
+                return this;
+            } else{
+                pval = ((ObjectVal*)pval)->find(stream.getLeg().c_str(), stream.getLeg().size(), handler);
+            }
+            if (!pval) return nullptr;
+        } else if (LIKELY(pval->type_ == JsonbType::T_Array)) {
+
+            int index = 0;
+            if(stream.getLeg().size() == 1 && stream.getLeg()[0] == WILDCARD){
+                return this;
+            } else if(std::string(stream.getLeg().c_str(),4) == LAST){
+                auto pos = stream.getLeg().find(MINUS);
+
+                if(pos != std::string::npos){
+                    stream.setLeg(stream.getLeg().substr(pos + 1));
+                    size_t num = ((ArrayVal*)pval)->numElem();
+                    if(std::stoi(stream.getLeg()) > num){
+                        return nullptr; //invalid json path
+                    }
+                    index = num - 1 - std::stoi(stream.getLeg());
+                } else if(stream.getLeg().size() == 4){
+                    index = ((ArrayVal*)pval)->numElem() - 1;
                 } else {
-                    right_quotation_marks = key_path;
+                    return nullptr;//invalid json path
                 }
-            } else if (*key_path == *delim) {
-                if (left_quotation_marks == nullptr || right_quotation_marks != nullptr) {
-                    break;
-                }
-            }
-        }
-
-        if (left_quotation_marks != nullptr || right_quotation_marks != nullptr) {
-            key++;
-            klen = klen - 2;
-        }
-
-        // check brackets and array index length
-        if (left_bracket || right_bracket) {
-            if (!left_bracket || !right_bracket) {
-                return nullptr;
-            }
-            // check the last char is ]
-            if (key + klen - 1 != right_bracket) {
-                return nullptr;
-            }
-            // the part before left_bracket is object key
-            klen = left_bracket - key;
-            // the part between left_bracket and right_bracket is array index
-            idx_len = right_bracket - left_bracket - 1;
-        }
-
-        if (!klen && !idx_len) return nullptr;
-
-        // get value of key in object
-        if (klen) {
-            if (LIKELY(pval->type_ == JsonbType::T_Object)) {
-                pval = ((ObjectVal*)pval)->find(key, klen, handler);
-                if (!pval) return nullptr;
             } else {
-                return nullptr;
-            }
-        }
-
-        // get value at idx in array
-        if (idx_len) {
-            if (LIKELY(pval->type_ == JsonbType::T_Array)) {
-                if (idx_len >= sizeof(idx_buf)) return nullptr;
-                memcpy(idx_buf, left_bracket + 1, idx_len);
-                idx_buf[idx_len] = 0;
-
-                char* end = nullptr;
-                int index = (int)strtol(idx_buf, &end, 10);
-                if (end && !*end)
-                    pval = ((ArrayVal*)pval)->get(index);
-                else
-                    // incorrect index string
+                std::string::size_type pos;
+                index = std::stoi(stream.getLeg(),&pos,10);
+                if (pos != stream.getLeg().size()) {
+                    return nullptr;//invalid json path
+                }else if(index >= ((ArrayVal*)pval)->numElem()){
                     return nullptr;
-
-                // doris::StringParser::ParseResult parse_result;
-                // int index = doris::StringParser::string_to_int<int>(left_bracket + 1, idx_len, &parse_result);
-                // if (parse_result == doris::StringParser::ParseResult::PARSE_SUCCESS)
-            } else {
-                return nullptr;
+                }
             }
-        }
 
-        // skip the delimiter
-        if (key_path < fence) {
-            ++key_path;
-            if (key_path == fence)
-                // we have a trailing delimiter at the end
-                return nullptr;
+            pval = ((ArrayVal*)pval)->get(index);
+
         }
     }
 
+
     return pval;
+}
+
+inline bool JsonbPath::parsePath(Stream *stream,JsonbValue* value){
+
+    if(stream->peek() == BEGIN_ARRAY && value->type() == JsonbType::T_Array){
+        return parse_array(stream);
+    } else if (stream->peek() == BEGIN_MEMBER && value->type() == JsonbType::T_Object){
+        return parse_member(stream);
+    } else {
+        return false;//invalid json path
+    }
+}
+
+inline bool JsonbPath::parse_array(Stream *stream){
+
+    assert(stream->peek() == BEGIN_ARRAY);
+    stream->skip(1);
+    stream->skip_whitespace();
+    if (stream->exhausted()) return false; //invalid json path
+
+    if (stream->peek() == WILDCARD) {
+        stream->skip(1);
+        if(stream->peek() == END_ARRAY){
+            stream->appendLeg(WILDCARD);
+            return true;
+        } else {
+            return false;//invalid json path
+        }
+    }
+
+    for (; !stream->exhausted() && stream->peek() != END_ARRAY; stream->skip(1)) {
+        stream->appendLeg(stream->peek());
+    }
+
+    if(!stream->exhausted() && stream->peek() == END_ARRAY){
+        stream->skip(1);
+        return true;
+    } else {
+        return false;//invalid json path
+    }
+}
+
+inline bool JsonbPath::parse_member(Stream *stream){
+
+    // advance past the .
+    assert(stream->peek() == BEGIN_MEMBER);
+    stream->skip(1);
+    stream->skip_whitespace();
+    if (stream->exhausted()) return false; //invalid json path
+
+    if (stream->peek() == WILDCARD) {
+        stream->skip(1);
+        stream->appendLeg(WILDCARD);
+        return true;
+    }
+
+    const char* left_quotation_marks = nullptr;
+    const char* right_quotation_marks = nullptr;
+
+    for (; !stream->exhausted(); stream->skip(1)) {
+        if(stream->peek() == ESCAPE){
+            stream->skip(1);
+            stream->appendLeg(stream->peek());
+            continue ;
+        } else if(stream->peek() == DOUBLE_QUOTE){
+            if(left_quotation_marks == nullptr){
+                left_quotation_marks = stream->position();
+                continue ;
+            }else if(right_quotation_marks == nullptr) {
+                right_quotation_marks = stream->position();
+                stream->skip(1);
+                break ;
+            }
+        }else if(stream->peek() == BEGIN_MEMBER || stream->peek() == BEGIN_ARRAY){
+            if(left_quotation_marks == nullptr || right_quotation_marks != nullptr){
+                break ;
+            }
+        }
+
+        stream->appendLeg(stream->peek());
+    }
+
+    if(left_quotation_marks != nullptr && right_quotation_marks == nullptr){
+        return false;//invalid json path
+    }
+
+    return true;
 }
 
 #pragma pack(pop)
