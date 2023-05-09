@@ -95,6 +95,7 @@ public class StatisticsRepository {
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
             + " WHERE task_id = -1 AND ${now} - last_exec_time_in_ms  > "
             + TimeUnit.HOURS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS)
+            + " AND schedule_type = 'ONCE'"
             + " ORDER BY last_exec_time_in_ms"
             + " LIMIT ${limit} OFFSET ${offset}";
 
@@ -116,13 +117,39 @@ public class StatisticsRepository {
             + " WHERE tbl_id = ${tblId}"
             + " AND part_id IS NOT NULL";
 
-    private static final String FETCH_PERIODIC_ANALYSIS_JOB_SQL = "SELECT * FROM "
+    private static final String FETCH_PERIODIC_ANALYSIS_JOB_TEMPLATE = "SELECT * FROM "
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
             + " WHERE task_id = -1 "
             + " AND schedule_type = 'PERIOD' "
             + " AND state = 'FINISHED' "
-            + " AND last_exec_time_in_ms > 0 "
             + " AND (${currentTimeStamp} - last_exec_time_in_ms >= period_time_in_ms)";
+
+    private static final String FETCH_AUTOMATIC_ANALYSIS_JOB_SQL = "SELECT * FROM "
+            + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
+            + " WHERE task_id = -1 "
+            + " AND schedule_type = 'AUTOMATIC' "
+            + " AND state = 'FINISHED' "
+            + " AND last_exec_time_in_ms > 0";
+
+    private static final String PERSIST_TABLE_STATS_TEMPLATE = "INSERT INTO "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, ${indexId}, ${partId}, ${rowCount},"
+            + " ${lastAnalyzeTimeInMs}, NOW())";
+
+    private static final String FETCH_TABLE_LEVEL_STATS_TEMPLATE = "SELECT * FROM "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + " WHERE tbl_id = ${tblId}"
+            + " AND part_id IS NULL";
+
+    private static final String FETCH_TABLE_LEVEL_PART_STATS_TEMPLATE = "SELECT * FROM "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + " WHERE part_id = ${partId}";
+
+
+    private static final String FETCH_PART_TABLE_STATS_TEMPLATE = "SELECT * FROM "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + " WHERE tbl_id = ${tblId}"
+            + " AND part_id IS NOT NULL";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
@@ -197,6 +224,7 @@ public class StatisticsRepository {
     }
 
     public static void dropStatistics(Set<Long> partIds) throws DdlException {
+        dropStatisticsByPartId(partIds, StatisticConstants.ANALYSIS_TBL_NAME);
         dropStatisticsByPartId(partIds, StatisticConstants.STATISTIC_TBL_NAME);
     }
 
@@ -256,6 +284,10 @@ public class StatisticsRepository {
         params.put("message", "");
         StatisticsUtil.execUpdate(
                 new StringSubstitutor(params).replace(PERSIST_ANALYSIS_TASK_SQL_TEMPLATE));
+    }
+
+    public static void persistTableStats(Map<String, String> params) throws Exception {
+        StatisticsUtil.execUpdate(PERSIST_TABLE_STATS_TEMPLATE, params);
     }
 
     public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
@@ -361,11 +393,64 @@ public class StatisticsRepository {
                 .of("currentTimeStamp", String.valueOf(System.currentTimeMillis()));
         try {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            String sql = stringSubstitutor.replace(FETCH_PERIODIC_ANALYSIS_JOB_SQL);
+            String sql = stringSubstitutor.replace(FETCH_PERIODIC_ANALYSIS_JOB_TEMPLATE);
             return StatisticsUtil.execStatisticQuery(sql);
         } catch (Exception e) {
             LOG.warn("Failed to update status", e);
             return Collections.emptyList();
         }
+    }
+
+    public static List<ResultRow> fetchAutomaticAnalysisJobs() {
+        try {
+            return StatisticsUtil.execStatisticQuery(FETCH_AUTOMATIC_ANALYSIS_JOB_SQL);
+        } catch (Exception e) {
+            LOG.warn("Failed to update status", e);
+            return Collections.emptyList();
+        }
+    }
+
+    public static TableStatistic fetchTableLevelStats(long tblId) throws DdlException {
+        ImmutableMap<String, String> params = ImmutableMap
+                .of("tblId", String.valueOf(tblId));
+        String sql = StatisticsUtil.replaceParams(FETCH_TABLE_LEVEL_STATS_TEMPLATE, params);
+        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(sql);
+        if (resultRows.size() == 1) {
+            return TableStatistic.fromResultRow(resultRows.get(0));
+        }
+        throw new DdlException("Query result is not as expected: " + sql);
+    }
+
+    public static TableStatistic fetchTableLevelOfPartStats(long partId) throws DdlException {
+        ImmutableMap<String, String> params = ImmutableMap
+                .of("partId", String.valueOf(partId));
+        String sql = StatisticsUtil.replaceParams(FETCH_TABLE_LEVEL_PART_STATS_TEMPLATE, params);
+        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(sql);
+        if (resultRows.size() == 1) {
+            return TableStatistic.fromResultRow(resultRows.get(0));
+        }
+        throw new DdlException("Query result is not as expected: " + sql);
+    }
+
+    public static Map<Long, TableStatistic> fetchTableLevelOfIdPartStats(long tblId) throws DdlException {
+        ImmutableMap<String, String> params = ImmutableMap
+                .of("tblId", String.valueOf(tblId));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(FETCH_PART_TABLE_STATS_TEMPLATE);
+        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(sql);
+
+        if (resultRows.size() == 0) {
+            return Collections.emptyMap();
+        }
+
+        Map<Long, TableStatistic> idToPartitionTableStats = Maps.newHashMap();
+
+        for (ResultRow resultRow : resultRows) {
+            long partId = Long.parseLong(resultRow.getColumnValue("part_id"));
+            TableStatistic partStats = TableStatistic.fromResultRow(resultRow);
+            idToPartitionTableStats.put(partId, partStats);
+        }
+
+        return idToPartitionTableStats;
     }
 }

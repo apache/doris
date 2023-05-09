@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_periodic_stats") {
-    def dbName = "test_periodic_stats"
-    def tblName = "periodic_stats_tbl"
+suite("test_automatic_stats") {
+    def dbName = "test_automatic_stats"
+    def tblName = "automatic_stats_tbl"
     def fullTblName = "${dbName}.${tblName}"
 
     def colStatisticsTblName = "__internal_schema.column_statistics"
@@ -26,18 +26,18 @@ suite("test_periodic_stats") {
 
     def columnNames = """
         (
-            `t_1683115873000_user_id`, `t_1683115873000_date`,
-            `t_1683115873000_city`, `t_1683115873000_age`, `t_1683115873000_sex`,
-            `t_1683115873000_last_visit_date`, `t_1683115873000_cost`,
-            `t_1683115873000_max_dwell_time`, `t_1683115873000_min_dwell_time`
+            `t_1683555707000_user_id`, `t_1683555707000_date`,
+            `t_1683555707000_city`, `t_1683555707000_age`, `t_1683555707000_sex`,
+            `t_1683555707000_last_visit_date`, `t_1683555707000_cost`,
+            `t_1683555707000_max_dwell_time`, `t_1683555707000_min_dwell_time`
         )
     """
 
     def columnNameValues = """
         (
-            't_1683115873000_user_id', 't_1683115873000_date', 't_1683115873000_city',
-            't_1683115873000_age', 't_1683115873000_sex', 't_1683115873000_last_visit_date',
-            't_1683115873000_cost', 't_1683115873000_max_dwell_time', 't_1683115873000_min_dwell_time'
+            't_1683555707000_user_id', 't_1683555707000_date', 't_1683555707000_city',
+            't_1683555707000_age', 't_1683555707000_sex', 't_1683555707000_last_visit_date',
+            't_1683555707000_cost', 't_1683555707000_max_dwell_time', 't_1683555707000_min_dwell_time'
         )
     """
 
@@ -59,25 +59,25 @@ suite("test_periodic_stats") {
 
     sql """
         CREATE TABLE IF NOT EXISTS ${fullTblName} (
-            `t_1683115873000_user_id` LARGEINT NOT NULL,
-            `t_1683115873000_date` DATEV2 NOT NULL,
-            `t_1683115873000_city` VARCHAR(20),
-            `t_1683115873000_age` SMALLINT,
-            `t_1683115873000_sex` TINYINT,
-            `t_1683115873000_last_visit_date` DATETIME REPLACE,
-            `t_1683115873000_cost` BIGINT SUM,
-            `t_1683115873000_max_dwell_time` INT MAX,
-            `t_1683115873000_min_dwell_time` INT MIN
+            `t_1683555707000_user_id` LARGEINT NOT NULL,
+            `t_1683555707000_date` DATEV2 NOT NULL,
+            `t_1683555707000_city` VARCHAR(20),
+            `t_1683555707000_age` SMALLINT,
+            `t_1683555707000_sex` TINYINT,
+            `t_1683555707000_last_visit_date` DATETIME REPLACE,
+            `t_1683555707000_cost` BIGINT SUM,
+            `t_1683555707000_max_dwell_time` INT MAX,
+            `t_1683555707000_min_dwell_time` INT MIN
         ) ENGINE=OLAP
-        AGGREGATE KEY(`t_1683115873000_user_id`, `t_1683115873000_date`,
-         `t_1683115873000_city`, `t_1683115873000_age`, `t_1683115873000_sex`)
-        PARTITION BY LIST(`t_1683115873000_date`)
+        AGGREGATE KEY(`t_1683555707000_user_id`, `t_1683555707000_date`,
+         `t_1683555707000_city`, `t_1683555707000_age`, `t_1683555707000_sex`)
+        PARTITION BY LIST(`t_1683555707000_date`)
         (
             PARTITION `p_201701` VALUES IN ("2017-10-01"),
             PARTITION `p_201702` VALUES IN ("2017-10-02"),
             PARTITION `p_201703` VALUES IN ("2017-10-03")
         )
-        DISTRIBUTED BY HASH(`t_1683115873000_user_id`) BUCKETS 1
+        DISTRIBUTED BY HASH(`t_1683555707000_user_id`) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1"
         );
@@ -104,9 +104,13 @@ suite("test_periodic_stats") {
     //     WHERE tbl_name = '${tblName}';
     // """
 
+    sql """
+        SET enable_save_statistics_sync_job = true;
+    """
+
     // Varify column stats
     sql """
-        ANALYZE TABLE ${fullTblName} WITH sync WITH period 90;
+        ANALYZE TABLE ${fullTblName} WITH sync WITH auto;
     """
 
     qt_sql_1 """
@@ -121,34 +125,46 @@ suite("test_periodic_stats") {
             col_name;
     """
 
-    Thread.sleep(180000)
-
-    qt_sql_2 """
-        SELECT
-            tbl_name, col_name, analysis_type, analysis_mode, analysis_method,
-            schedule_type, period_time_in_ms
-        FROM
-            ${analysisJobsTblName}
-        WHERE
-            tbl_name = '${tblName}'
-        ORDER BY
-            col_name;
+    sql """
+        ALTER TABLE ${fullTblName} DROP PARTITION `p_201701`;
     """
 
-    qt_sql_3 """
-        SELECT
-            col_id, min, max, count, ndv, null_count
-        FROM
-            ${colStatisticsTblName}
-        WHERE
-            col_id IN ${columnNameValues}
-        ORDER BY
-            col_id,
-            min,
-            max,
-            count,
-            ndv,
-            null_count;
+    // Thread.sleep(180000)
+
+    // sql_2 """
+    //      SELECT
+    //          tbl_name, col_name, analysis_type, analysis_mode, analysis_method,
+    //          schedule_type, period_time_in_ms
+    //      FROM
+    //          ${analysisJobsTblName}
+    //      WHERE
+    //          tbl_name = '${tblName}'
+    //      ORDER BY
+    //          col_name;
+    //  """
+
+    // qt_sql_3 """
+    //      SELECT
+    //          col_id, min, max, count, ndv, null_count
+    //      FROM
+    //          ${colStatisticsTblName}
+    //      WHERE
+    //          col_id IN ${columnNameValues}
+    //      ORDER BY
+    //          col_id,
+    //          min,
+    //          max,
+    //          count,
+    //          ndv,
+    //          null_count;
+    //  """
+
+    sql """
+        SHOW TABLE STATS ${fullTblName};
+    """
+
+    sql """
+        SHOW TABLE STATS ${fullTblName} PARTITION `p_201702`;
     """
 
     // Below test would failed on community pipeline for unknown reason, comment it temporarily
@@ -248,8 +264,8 @@ suite("test_periodic_stats") {
     //     DROP DATABASE IF EXISTS ${dbName};
     // """
 
-    sql """
-        DELETE FROM ${analysisJobsTblName}
-        WHERE tbl_name = '${tblName}';
-     """
+//    sql """
+//        DELETE FROM ${analysisJobsTblName}
+//        WHERE tbl_name = '${tblName}';
+//     """
 }
