@@ -24,8 +24,6 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_struct.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
@@ -58,8 +56,6 @@
 
 #define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
     M(Array, ColumnArray)              \
-    M(Map, ColumnMap)                  \
-    M(Struct, ColumnStruct)            \
     M(BitMap, ColumnBitmap)            \
     M(HLL, ColumnHLL)
 
