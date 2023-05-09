@@ -168,7 +168,7 @@ suite("test_map_load_and_compaction", "p0") {
         backends = sql """ show backends; """
         assertTrue(backends.size() > 0)
         for (String[] b : backends) {
-            assertEquals("true", b[10])
+            assertEquals("true", b[9])
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")

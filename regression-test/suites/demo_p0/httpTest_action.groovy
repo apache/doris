@@ -26,7 +26,7 @@ suite("http_test_action") {
     for (String[] backend in backends) {
         if (backend[10].equals("true")) {
             backendIdToBackendIP.put(backend[0], backend[2])
-            backendIdToBackendBrpcPort.put(backend[0], backend[7])
+            backendIdToBackendBrpcPort.put(backend[0], backend[6])
         }
     }
 
