@@ -163,6 +163,7 @@ mkdir -p ./docker-build/be/resource
        └── be                                                      // BE 构建目录
            ├── dockerfile                                          // dockerfile 脚本
            └── resource                                            // 资源目录
+               ├── entry_point.sh                                  // 环境准备脚本
                ├── init_be.sh                                      // 启动及注册脚本
                └── apache-doris-x.x.x-bin-x86_64/arm-be.tar.gz     // 二进制程序包
    ```
@@ -187,7 +188,9 @@ mkdir -p ./docker-build/be/resource
        cd /opt && \
        mv apache-doris-be-${x.x.x}-bin-x86_64 /opt/apache-doris/be
    
-   ADD ./resource/init_be.sh /opt/apache-doris/be/bin
+   ADD resource/init_be.sh /opt/apache-doris/be/bin
+   ADD resource/entry_point.sh /usr/local/bin
+   RUN chmod 755 /usr/local/bin/entry_point.sh
    RUN chmod 755 /opt/apache-doris/be/bin/init_be.sh
    
    ENTRYPOINT ["/opt/apache-doris/be/bin/init_be.sh"]
@@ -196,6 +199,10 @@ mkdir -p ./docker-build/be/resource
    编写后命名为 `Dockerfile` 并保存至 `./docker-build/be` 目录下
 
 4. 编写 BE 的执行脚本
+
+   可参考复制 [entry_point.sh](https://github.com/apache/doris/tree/master/docker/runtime/be/resource/entry_point.sh) 的内容
+
+   编写后命名为 `entry_point.sh` 并保存至 `./docker-build/be/resouce` 目录下
 
    可参考复制 [init_be.sh](https://github.com/apache/doris/tree/master/docker/runtime/be/resource/init_be.sh) 的内容
 
@@ -265,7 +272,7 @@ mkdir -p ./docker-build/broker/resource
 
    编写后命名为 `Dockerfile` 并保存至 `./docker-build/broker` 目录下
 
-4. 编写 BE 的执行脚本
+4. 编写 Broker 的执行脚本
 
    可参考复制 [init_broker.sh](https://github.com/apache/doris/tree/master/docker/runtime/broker/resource/init_broker.sh) 的内容
 
