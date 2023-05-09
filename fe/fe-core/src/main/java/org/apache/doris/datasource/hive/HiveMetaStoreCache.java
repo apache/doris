@@ -93,6 +93,8 @@ public class HiveMetaStoreCache {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreCache.class);
     private static final int MIN_BATCH_FETCH_PARTITION_NUM = 50;
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
+    // After hive 3, transactional table's will have file '_orc_acid_version' with value >= '2'.
+    public static final String HIVE_ORC_ACID_VERSION_FILE = "_orc_acid_version";
 
     private HMSExternalCatalog catalog;
 
@@ -276,7 +278,7 @@ public class HiveMetaStoreCache {
         result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
         RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
         RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
-        locatedFiles.locations().forEach(result::addFile);
+        locatedFiles.files().forEach(result::addFile);
         result.setPartitionValues(partitionValues);
         return result;
     }
@@ -662,18 +664,20 @@ public class HiveMetaStoreCache {
 
                 // delta directories
                 for (AcidUtils.ParsedDelta delta : directory.getCurrentDirectories()) {
-                    String location = delta.getPath().getName();
+                    String location = delta.getPath().toString();
                     RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
                     RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
-                    locatedFiles.locations().forEach(fileCacheValue::addFile);
+                    locatedFiles.files().stream().filter(f -> !f.getName().equals(HIVE_ORC_ACID_VERSION_FILE))
+                            .forEach(fileCacheValue::addFile);
                 }
 
                 // base
                 if (directory.getBaseDirectory() != null) {
-                    String location = directory.getBaseDirectory().getName();
+                    String location = directory.getBaseDirectory().toString();
                     RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
                     RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
-                    locatedFiles.locations().forEach(fileCacheValue::addFile);
+                    locatedFiles.files().stream().filter(f -> !f.getName().equals(HIVE_ORC_ACID_VERSION_FILE))
+                            .forEach(fileCacheValue::addFile);
                 }
                 fileCacheValues.add(fileCacheValue);
             }
