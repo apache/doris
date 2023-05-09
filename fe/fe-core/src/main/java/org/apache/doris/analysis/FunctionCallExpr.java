@@ -1340,7 +1340,8 @@ public class FunctionCallExpr extends Expr {
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
-            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
+            Type assignmentCompatibleType = Type.convertDateLikeTypeToV2(
+                    ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true));
             if (assignmentCompatibleType.isDecimalV3()) {
                 if (childTypes[1].isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
                     uncheckedCastChild(assignmentCompatibleType, 1);
@@ -1355,6 +1356,11 @@ public class FunctionCallExpr extends Expr {
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             if (assignmentCompatibleType.isDatetimeV2()) {
                 fn.setReturnType(assignmentCompatibleType);
+            }
+            for (int i = 1; i < children.size(); ++i) {
+                if (!children.get(i).getType().matchesType(childTypes[i])) {
+                    castChild(childTypes[i], i);
+                }
             }
         } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                 fnName.getFunction().toLowerCase())) {
