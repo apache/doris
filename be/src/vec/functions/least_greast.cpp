@@ -79,7 +79,7 @@ struct CompareMultiImpl {
             auto& column_res = reinterpret_cast<ColumnString&>(*result_column);
 
             for (int i = 0; i < input_rows_count; ++i) {
-                auto str_data = column_string.get_data_at(i);
+                auto str_data = column_string.get_data_at(index_check_const(i, col_const[0]));
                 for (int cmp_col = 1; cmp_col < arguments.size(); ++cmp_col) {
                     auto temp_data = assert_cast<const ColumnString&>(*cols[cmp_col])
                                              .get_data_at(index_check_const(i, col_const[i]));
@@ -90,7 +90,13 @@ struct CompareMultiImpl {
             }
 
         } else {
-            result_column->insert_range_from(*(cols[0]), 0, input_rows_count);
+            if (col_const[0]) {
+                for (int i = 0; i < input_rows_count; ++i) {
+                    result_column->insert_range_from(*(cols[0]), 0, 1);
+                }
+            } else {
+                result_column->insert_range_from(*(cols[0]), 0, input_rows_count);
+            }
             WhichDataType which(data_type);
 
 #define DISPATCH(TYPE, COLUMN_TYPE)                                                               \
