@@ -236,6 +236,7 @@ Status OrcReader::init_reader(
     _lazy_read_ctx.vconjunct_ctx = vconjunct_ctx;
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     RETURN_IF_ERROR(_create_file_reader());
+    RETURN_IF_ERROR(_init_read_columns());
     return Status::OK();
 }
 
@@ -565,7 +566,6 @@ Status OrcReader::set_fill_columns(
                 partition_columns,
         const std::unordered_map<std::string, VExprContext*>& missing_columns) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
-    RETURN_IF_ERROR(_init_read_columns());
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
