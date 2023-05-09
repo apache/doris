@@ -44,8 +44,8 @@ public:
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         if (cntl.Failed()) {
             if (_retry_count < _max_retry_count) {
-                LOG(WA RNING) << "Encountered error: " << cntl.ErrorText() << ". Retrying for the "
-                              << ++retry_count << " time";
+                LOG(WARNING) << "Encountered error: " << cntl.ErrorText() << ". Retrying for the "
+                              << ++_retry_count << " time";
                 vnode_channel->open_partition(partition_id, this);
             } else {
                 std::stringstream ss;
