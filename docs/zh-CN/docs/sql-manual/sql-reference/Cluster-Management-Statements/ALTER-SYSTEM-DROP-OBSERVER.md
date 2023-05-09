@@ -47,7 +47,7 @@ ALTER SYSTEM DROP OBSERVER "follower_host:edit_log_port"
 
 ### Example
 
-1. 添加一个 FOLLOWER节点
+1. 删除一个 OBSERVER 节点
 
    ```sql
    ALTER SYSTEM DROP OBSERVER "host_ip:9010"
