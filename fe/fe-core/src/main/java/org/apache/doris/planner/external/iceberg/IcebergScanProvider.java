@@ -175,7 +175,7 @@ public class IcebergScanProvider extends QueryScanProvider {
             for (FileScanTask splitTask : task.split(128 * 1024 * 1024)) {
                 String dataFilePath = splitTask.file().path().toString();
                 IcebergSplit split = new IcebergSplit(new Path(dataFilePath), splitTask.start(),
-                        splitTask.length(), new String[0]);
+                        splitTask.length(), task.file().fileSizeInBytes(), new String[0]);
                 split.setFormatVersion(formatVersion);
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(splitTask));

@@ -116,16 +116,11 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                 List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
                         pathPartitionKeys, false);
 
-                TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
+                TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys,
+                        locationType);
                 // external data lake table
                 if (split instanceof IcebergSplit) {
                     IcebergScanProvider.setIcebergParams(rangeDesc, (IcebergSplit) split);
-                }
-
-                // file size of orc files is not correct get by FileSplit.getLength(),
-                // broker reader needs correct file size
-                if (locationType == TFileType.FILE_BROKER && fileFormatType == TFileFormatType.FORMAT_ORC) {
-                    rangeDesc.setFileSize(((OrcSplit) fileSplit).getFileLength());
                 }
 
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
@@ -187,14 +182,24 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
     }
 
     private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
-            List<String> columnsFromPathKeys)
+            List<String> columnsFromPathKeys, TFileType locationType)
             throws DdlException, MetaNotFoundException {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         rangeDesc.setStartOffset(fileSplit.getStart());
         rangeDesc.setSize(fileSplit.getLength());
-        // fileSize only be used when format is orc or parquet and TFileType is broker
-        // When TFileType is other type, it is not necessary
-        rangeDesc.setFileSize(fileSplit.getLength());
+
+        // broker reader needs file size
+        if (locationType == TFileType.FILE_BROKER) {
+            if (fileSplit instanceof OrcSplit) {
+                rangeDesc.setFileSize(((OrcSplit) fileSplit).getFileLength());
+            } else if (fileSplit instanceof HiveSplit) {
+                rangeDesc.setFileSize(((HiveSplit) fileSplit).getFileSize());
+            } else {
+                throw new DdlException("File size can not be got, please do not use broker to read this file. "
+                        + "Try to use hdfs reader or s3 reader.");
+            }
+        }
+
         rangeDesc.setColumnsFromPath(columnsFromPath);
         rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 

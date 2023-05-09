@@ -23,10 +23,11 @@ import org.apache.hadoop.mapred.FileSplit;
 
 @Data
 public class HiveSplit extends FileSplit {
-    public HiveSplit() {}
+    private long fileSize;
 
-    public HiveSplit(Path file, long start, long length, String[] hosts) {
+    public HiveSplit(Path file, long start, long length, long fileSize, String[] hosts) {
         super(file, start, length, hosts);
+        this.fileSize = fileSize;
     }
 
     protected TableFormatType tableFormatType;
