@@ -125,7 +125,6 @@ public class InsertStmt extends DdlStmt {
     private DataPartition dataPartition;
 
     private List<Column> targetColumns = Lists.newArrayList();
-
     /*
      * InsertStmt may be analyzed twice, but transaction must be only begun once.
      * So use a boolean to check if transaction already begun.
@@ -154,6 +153,15 @@ public class InsertStmt extends DdlStmt {
     public InsertStmt(TableName name, QueryStmt queryStmt) {
         this.tblName = name;
         this.targetPartitionNames = null;
+        this.targetColumnNames = null;
+        this.queryStmt = queryStmt;
+        this.planHints = null;
+    }
+
+    // for InsertOverwriteTable
+    public InsertStmt(TableName name, PartitionNames targetPartitionNames, QueryStmt queryStmt) {
+        this.tblName = name;
+        this.targetPartitionNames = targetPartitionNames;
         this.targetColumnNames = null;
         this.queryStmt = queryStmt;
         this.planHints = null;
