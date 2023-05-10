@@ -103,8 +103,8 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
             Expr lambda = this.children.get(0);
             if (!(lambda instanceof LambdaFunctionExpr)) {
-                throw new AnalysisException("array_map must use lambda as first input params, now is" +
-                        lambda.debugString());
+                throw new AnalysisException("array_map must use lambda as first input params, now is"
+                        + lambda.debugString());
             }
             fn = new Function(fnName, Arrays.asList(argTypes), ArrayType.create(lambda.getChild(0).getType(), true),
                     true, true, NullableMode.DEPEND_ON_ARGUMENT);
