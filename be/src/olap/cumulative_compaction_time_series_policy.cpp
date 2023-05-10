@@ -180,7 +180,8 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     for (auto it = first_rowset_iter; it != candidate_rowsets.end(); ++it) {
         const auto& rowset = *it;
         // check whether this rowset is delete version
-        if (rowset->rowset_meta()->has_delete_predicate()) {
+        if (!config::enable_delete_when_cumu_compaction &&
+            rowset->rowset_meta()->has_delete_predicate()) {
             *last_delete_version = rowset->version();
             if (!input_rowsets->empty()) {
                 // we meet a delete version, and there were other versions before.

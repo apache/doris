@@ -22,6 +22,7 @@
 #include <ostream>
 #include <string>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_common.h"
@@ -242,7 +243,8 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     int64_t total_size = 0;
     for (auto& rowset : candidate_rowsets) {
         // check whether this rowset is delete version
-        if (rowset->rowset_meta()->has_delete_predicate()) {
+        if (!config::enable_delete_when_cumu_compaction &&
+            rowset->rowset_meta()->has_delete_predicate()) {
             *last_delete_version = rowset->version();
             if (!input_rowsets->empty()) {
                 // we meet a delete version, and there were other versions before.
