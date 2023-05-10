@@ -185,7 +185,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // add pending data to tablet
 
     if (push_type == PushType::PUSH_FOR_DELETE) {
-        rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
+        rowset_to_add->rowset_meta()->set_delete_predicate(std::move(del_preds.front()));
         del_preds.pop();
     }
     Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(

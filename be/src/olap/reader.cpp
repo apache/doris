@@ -603,19 +603,23 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
-    if (read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
-        read_params.reader_type == READER_SEGMENT_COMPACTION) {
+    if (read_params.reader_type == READER_SEGMENT_COMPACTION) {
         return Status::OK();
     }
-    // Only BASE_COMPACTION and COLD_DATA_COMPACTION need set filter_delete = true
+    // Only BASE_COMPACTION and COLD_DATA_COMPACTION and CUMULATIVE_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
-    // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
-    if (read_params.reader_type == READER_BASE_COMPACTION ||
-        read_params.reader_type == READER_COLD_DATA_COMPACTION ||
-        read_params.reader_type == READER_CHECKSUM) {
-        _filter_delete = true;
-    }
+    // CUMULATIVE_COMPACTION will lose the filter_delete info of base rowset
+    // if (read_params.reader_type == READER_BASE_COMPACTION ||
+    //     read_params.reader_type == READER_COLD_DATA_COMPACTION ||
+    //     read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
+    //     read_params.reader_type == READER_CHECKSUM) {
+    //     _filter_delete = true;
+    // }
+    _filter_delete = (read_params.reader_type == READER_BASE_COMPACTION ||
+                      read_params.reader_type == READER_COLD_DATA_COMPACTION ||
+                      read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
+                      read_params.reader_type == READER_CHECKSUM);
 
     return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
                                 read_params.version.second);
