@@ -1014,6 +1014,11 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                 reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get())
                         ->get_nested_type());
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
+        if (nested_orc_type->getKind() == orc::TypeKind::MAP ||
+            nested_orc_type->getKind() == orc::TypeKind::STRUCT) {
+            return Status::InternalError(
+                    "Array does not support nested map/struct type in column {}", col_name);
+        }
         return _orc_column_to_doris_column<is_filter>(
                 col_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 nested_orc_type, orc_list->elements.get(), element_size);
@@ -1035,6 +1040,15 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                         ->get_value_type());
         const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
         const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
+        if (orc_key_type->getKind() == orc::TypeKind::LIST ||
+            orc_key_type->getKind() == orc::TypeKind::MAP ||
+            orc_key_type->getKind() == orc::TypeKind::STRUCT ||
+            orc_value_type->getKind() == orc::TypeKind::LIST ||
+            orc_value_type->getKind() == orc::TypeKind::MAP ||
+            orc_value_type->getKind() == orc::TypeKind::STRUCT) {
+            return Status::InternalError("Map does not support nested complex type in column {}",
+                                         col_name);
+        }
         const ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
         const ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(col_name, doris_key_column,
@@ -1058,6 +1072,12 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
             orc::ColumnVectorBatch* orc_field = orc_struct->fields[i];
             const orc::Type* orc_type = orc_column_type->getSubtype(i);
+            if (orc_type->getKind() == orc::TypeKind::LIST ||
+                orc_type->getKind() == orc::TypeKind::MAP ||
+                orc_type->getKind() == orc::TypeKind::STRUCT) {
+                return Status::InternalError(
+                        "Struct does not support nested complex type in column {}", col_name);
+            }
             const ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
             const DataTypePtr& doris_type = doris_struct_type->get_element(i);
             RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(
