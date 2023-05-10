@@ -42,7 +42,8 @@ public class SqlBlockUtil {
 
     // check (sql or sqlHash) and (limitations: partitioNum, tabletNum, cardinality, qps) are not set both
     public static void checkSqlAndLimitationsSetBoth(String sql, String sqlHash,
-            String partitionNumString, String tabletNumString, String cardinalityString, String qpsString) throws AnalysisException {
+            String partitionNumString, String tabletNumString, String cardinalityString, String qpsString)
+            throws AnalysisException {
         if ((!STRING_DEFAULT.equals(sql) || !STRING_DEFAULT.equals(sqlHash))
                 && !isSqlBlockLimitationsEmpty(partitionNumString, tabletNumString, cardinalityString, qpsString)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
@@ -71,7 +72,8 @@ public class SqlBlockUtil {
                 && StringUtils.isEmpty(qpsString);
     }
 
-    public static Boolean isSqlBlockLimitationsDefault(Long partitionNum, Long tabletNum, Long cardinality, Double qps) {
+    public static Boolean isSqlBlockLimitationsDefault(Long partitionNum, Long tabletNum,
+                                                       Long cardinality, Double qps) {
         return partitionNum == LONG_ZERO && tabletNum == LONG_ZERO && cardinality == LONG_ZERO && qps == DOUBLE_ZERO;
     }
 
