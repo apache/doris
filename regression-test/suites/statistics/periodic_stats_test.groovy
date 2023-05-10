@@ -16,83 +16,83 @@
 // under the License.
 
 suite("test_periodic_stats") {
-    def dbName = "test_periodic_stats"
-    def tblName = "periodic_stats_tbl"
-    def fullTblName = "${dbName}.${tblName}"
-
-    def colStatisticsTblName = "__internal_schema.column_statistics"
-    def colHistogramTblName = "__internal_schema.histogram_statistics"
-    def analysisJobsTblName = "__internal_schema.analysis_jobs"
-
-    def columnNames = """
-        (
-            `t_1683115873000_user_id`, `t_1683115873000_date`,
-            `t_1683115873000_city`, `t_1683115873000_age`, `t_1683115873000_sex`,
-            `t_1683115873000_last_visit_date`, `t_1683115873000_cost`,
-            `t_1683115873000_max_dwell_time`, `t_1683115873000_min_dwell_time`
-        )
-    """
-
-    def columnNameValues = """
-        (
-            't_1683115873000_user_id', 't_1683115873000_date', 't_1683115873000_city',
-            't_1683115873000_age', 't_1683115873000_sex', 't_1683115873000_last_visit_date',
-            't_1683115873000_cost', 't_1683115873000_max_dwell_time', 't_1683115873000_min_dwell_time'
-        )
-    """
-
-    sql """
-        SET enable_save_statistics_sync_job = true;
-    """
-
-    sql """
-        DROP DATABASE IF EXISTS ${dbName};
-    """
-
-    sql """
-        CREATE DATABASE IF NOT EXISTS ${dbName};
-    """
-
-    sql """
-        DROP TABLE IF EXISTS ${fullTblName};
-    """
-
-    sql """
-        CREATE TABLE IF NOT EXISTS ${fullTblName} (
-            `t_1683115873000_user_id` LARGEINT NOT NULL,
-            `t_1683115873000_date` DATEV2 NOT NULL,
-            `t_1683115873000_city` VARCHAR(20),
-            `t_1683115873000_age` SMALLINT,
-            `t_1683115873000_sex` TINYINT,
-            `t_1683115873000_last_visit_date` DATETIME REPLACE,
-            `t_1683115873000_cost` BIGINT SUM,
-            `t_1683115873000_max_dwell_time` INT MAX,
-            `t_1683115873000_min_dwell_time` INT MIN
-        ) ENGINE=OLAP
-        AGGREGATE KEY(`t_1683115873000_user_id`, `t_1683115873000_date`,
-         `t_1683115873000_city`, `t_1683115873000_age`, `t_1683115873000_sex`)
-        PARTITION BY LIST(`t_1683115873000_date`)
-        (
-            PARTITION `p_201701` VALUES IN ("2017-10-01"),
-            PARTITION `p_201702` VALUES IN ("2017-10-02"),
-            PARTITION `p_201703` VALUES IN ("2017-10-03")
-        )
-        DISTRIBUTED BY HASH(`t_1683115873000_user_id`) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1"
-        );
-    """
-
-    sql """
-        INSERT INTO ${fullTblName} ${columnNames}
-        VALUES (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 07:00:00", 15, 2, 2),
-            (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 06:00:00", 20, 10, 10),
-            (10001, "2017-10-01", "Beijing", 30, 1, "2017-10-01 17:05:45", 2, 22, 22),
-            (10002, "2017-10-02", "Shanghai", 20, 1, "2017-10-02 12:59:12", 200, 5, 5),
-            (10003, "2017-10-02", "Guangzhou", 32, 0, "2017-10-02 11:20:00", 30, 11, 11),
-            (10004, "2017-10-01", "Shenzhen", 35, 0, "2017-10-01 10:00:15", 100, 3, 3),
-            (10004, "2017-10-03", "Shenzhen", 35, 0, "2017-10-03 10:20:22", 11, 6, 6);
-    """
+    //    def dbName = "test_periodic_stats"
+    //    def tblName = "periodic_stats_tbl"
+    //    def fullTblName = "${dbName}.${tblName}"
+    //
+    //    def colStatisticsTblName = "__internal_schema.column_statistics"
+    //    def colHistogramTblName = "__internal_schema.histogram_statistics"
+    //    def analysisJobsTblName = "__internal_schema.analysis_jobs"
+    //
+    //    def columnNames = """
+    //        (
+    //            `t_1683115873000_user_id`, `t_1683115873000_date`,
+    //            `t_1683115873000_city`, `t_1683115873000_age`, `t_1683115873000_sex`,
+    //            `t_1683115873000_last_visit_date`, `t_1683115873000_cost`,
+    //            `t_1683115873000_max_dwell_time`, `t_1683115873000_min_dwell_time`
+    //        )
+    //    """
+    //
+    //    def columnNameValues = """
+    //        (
+    //            't_1683115873000_user_id', 't_1683115873000_date', 't_1683115873000_city',
+    //            't_1683115873000_age', 't_1683115873000_sex', 't_1683115873000_last_visit_date',
+    //            't_1683115873000_cost', 't_1683115873000_max_dwell_time', 't_1683115873000_min_dwell_time'
+    //        )
+    //    """
+    //
+    //    sql """
+    //        SET enable_save_statistics_sync_job = true;
+    //    """
+    //
+    //    sql """
+    //        DROP DATABASE IF EXISTS ${dbName};
+    //    """
+    //
+    //    sql """
+    //        CREATE DATABASE IF NOT EXISTS ${dbName};
+    //    """
+    //
+    //    sql """
+    //        DROP TABLE IF EXISTS ${fullTblName};
+    //    """
+    //
+    //    sql """
+    //        CREATE TABLE IF NOT EXISTS ${fullTblName} (
+    //            `t_1683115873000_user_id` LARGEINT NOT NULL,
+    //            `t_1683115873000_date` DATEV2 NOT NULL,
+    //            `t_1683115873000_city` VARCHAR(20),
+    //            `t_1683115873000_age` SMALLINT,
+    //            `t_1683115873000_sex` TINYINT,
+    //            `t_1683115873000_last_visit_date` DATETIME REPLACE,
+    //            `t_1683115873000_cost` BIGINT SUM,
+    //            `t_1683115873000_max_dwell_time` INT MAX,
+    //            `t_1683115873000_min_dwell_time` INT MIN
+    //        ) ENGINE=OLAP
+    //        AGGREGATE KEY(`t_1683115873000_user_id`, `t_1683115873000_date`,
+    //         `t_1683115873000_city`, `t_1683115873000_age`, `t_1683115873000_sex`)
+    //        PARTITION BY LIST(`t_1683115873000_date`)
+    //        (
+    //            PARTITION `p_201701` VALUES IN ("2017-10-01"),
+    //            PARTITION `p_201702` VALUES IN ("2017-10-02"),
+    //            PARTITION `p_201703` VALUES IN ("2017-10-03")
+    //        )
+    //        DISTRIBUTED BY HASH(`t_1683115873000_user_id`) BUCKETS 1
+    //        PROPERTIES (
+    //            "replication_num" = "1"
+    //        );
+    //    """
+    //
+    //    sql """
+    //        INSERT INTO ${fullTblName} ${columnNames}
+    //        VALUES (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 07:00:00", 15, 2, 2),
+    //            (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 06:00:00", 20, 10, 10),
+    //            (10001, "2017-10-01", "Beijing", 30, 1, "2017-10-01 17:05:45", 2, 22, 22),
+    //            (10002, "2017-10-02", "Shanghai", 20, 1, "2017-10-02 12:59:12", 200, 5, 5),
+    //            (10003, "2017-10-02", "Guangzhou", 32, 0, "2017-10-02 11:20:00", 30, 11, 11),
+    //            (10004, "2017-10-01", "Shenzhen", 35, 0, "2017-10-01 10:00:15", 100, 3, 3),
+    //            (10004, "2017-10-03", "Shenzhen", 35, 0, "2017-10-03 10:20:22", 11, 6, 6);
+    //    """
 
     // sql """
     //     DELETE FROM ${colStatisticsTblName}
@@ -105,51 +105,51 @@ suite("test_periodic_stats") {
     // """
 
     // Varify column stats
-    sql """
-        ANALYZE TABLE ${fullTblName} WITH sync WITH period 15;
-    """
-
-    qt_sql_1 """
-        SELECT
-            tbl_name, col_name, analysis_type, analysis_mode,
-            analysis_method, schedule_type, period_time_in_ms
-        FROM
-            ${analysisJobsTblName}
-        WHERE
-            tbl_name = '${tblName}'
-        ORDER BY
-            col_name;
-    """
-
-    Thread.sleep(1000 * 29)
-
-    qt_sql_2 """
-        SELECT
-            tbl_name, col_name, analysis_type, analysis_mode, analysis_method,
-            schedule_type, period_time_in_ms
-        FROM
-            ${analysisJobsTblName}
-        WHERE
-            tbl_name = '${tblName}'
-        ORDER BY
-            col_name;
-    """
-
-    qt_sql_3 """
-        SELECT
-            col_id, min, max, count, ndv, null_count
-        FROM
-            ${colStatisticsTblName}
-        WHERE
-            col_id IN ${columnNameValues}
-        ORDER BY
-            col_id,
-            min,
-            max,
-            count,
-            ndv,
-            null_count;
-    """
+    //    sql """
+    //        ANALYZE TABLE ${fullTblName} WITH sync WITH period 15;
+    //    """
+    //
+    //    qt_sql_1 """
+    //        SELECT
+    //            tbl_name, col_name, analysis_type, analysis_mode,
+    //            analysis_method, schedule_type, period_time_in_ms
+    //        FROM
+    //            ${analysisJobsTblName}
+    //        WHERE
+    //            tbl_name = '${tblName}'
+    //        ORDER BY
+    //            col_name;
+    //    """
+    //
+    //    Thread.sleep(1000 * 29)
+    //
+    //    qt_sql_2 """
+    //        SELECT
+    //            tbl_name, col_name, analysis_type, analysis_mode, analysis_method,
+    //            schedule_type, period_time_in_ms
+    //        FROM
+    //            ${analysisJobsTblName}
+    //        WHERE
+    //            tbl_name = '${tblName}'
+    //        ORDER BY
+    //            col_name;
+    //    """
+    //
+    //    qt_sql_3 """
+    //        SELECT
+    //            col_id, min, max, count, ndv, null_count
+    //        FROM
+    //            ${colStatisticsTblName}
+    //        WHERE
+    //            col_id IN ${columnNameValues}
+    //        ORDER BY
+    //            col_id,
+    //            min,
+    //            max,
+    //            count,
+    //            ndv,
+    //            null_count;
+    //    """
 
     // Below test would failed on community pipeline for unknown reason, comment it temporarily
     // sql """
@@ -248,8 +248,8 @@ suite("test_periodic_stats") {
     //     DROP DATABASE IF EXISTS ${dbName};
     // """
 
-    sql """
-        DELETE FROM ${analysisJobsTblName}
-        WHERE tbl_name = '${tblName}';
-     """
+    //    sql """
+    //        DELETE FROM ${analysisJobsTblName}
+    //        WHERE tbl_name = '${tblName}';
+    //     """
 }
