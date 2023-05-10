@@ -524,7 +524,9 @@ public class Memo {
     }
 
     public Group newGroup(LogicalProperties logicalProperties) {
-        return new Group(groupIdGenerator.getNextId(), logicalProperties);
+        Group group = new Group(groupIdGenerator.getNextId(), logicalProperties);
+        groups.put(group.getGroupId(), group);
+        return group;
     }
 
     // This function is used to copy new group expression
