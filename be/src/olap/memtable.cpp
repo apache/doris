@@ -275,6 +275,7 @@ void MemTable::_collect_vskiplist_results() {
         vectorized::MutableBlock mutable_block =
                 vectorized::MutableBlock::build_mutable_block(&in_block);
         _vec_row_comparator->set_block(&mutable_block);
+        // skip sort if the table is dup table without keys
         if (_schema->num_key_columns() > 0) {
             std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
                   [this](const RowInBlock* l, const RowInBlock* r) -> bool {
