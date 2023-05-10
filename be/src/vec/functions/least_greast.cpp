@@ -82,7 +82,7 @@ struct CompareMultiImpl {
                 auto str_data = column_string.get_data_at(index_check_const(i, col_const[0]));
                 for (int cmp_col = 1; cmp_col < arguments.size(); ++cmp_col) {
                     auto temp_data = assert_cast<const ColumnString&>(*cols[cmp_col])
-                                             .get_data_at(index_check_const(i, col_const[i]));
+                                             .get_data_at(index_check_const(i, col_const[cmp_col]));
                     str_data = Op<StringRef, StringRef>::apply(temp_data, str_data) ? temp_data
                                                                                     : str_data;
                 }
