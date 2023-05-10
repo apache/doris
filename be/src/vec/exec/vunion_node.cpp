@@ -189,7 +189,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
                 child(_child_idx)->get_next_span(), _child_eos);
         SCOPED_TIMER(_materialize_exprs_evaluate_timer);
         if (child_block.rows() > 0) {
-            mblock.merge(materialize_block(&child_block, _child_idx));
+            RETURN_IF_ERROR(mblock.merge(materialize_block(&child_block, _child_idx)));
         }
         // It shouldn't be the case that we reached the limit because we shouldn't have
         // incremented '_num_rows_returned' yet.
