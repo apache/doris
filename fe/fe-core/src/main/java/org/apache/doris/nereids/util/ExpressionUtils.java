@@ -506,18 +506,4 @@ public class ExpressionUtils {
         }
         return expression;
     }
-
-    /**
-     * ensure datelike type to datelikev2 type.
-     */
-    public static Expression toDateLikeV2Literal(Expression expression) {
-        if (Config.enable_date_conversion && expression instanceof Literal) {
-            if (expression.getDataType().isDateType()) {
-                return DateV2Literal.fromJavaDateType(((DateLiteral) expression).toJavaDateType());
-            } else if (expression.getDataType().isDateTimeType()) {
-                return DateTimeV2Literal.fromJavaDateType(((DateTimeLiteral) expression).toJavaDateType());
-            }
-        }
-        return expression;
-    }
 }

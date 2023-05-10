@@ -91,7 +91,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         } else if (expr instanceof AggregateExpression && ((AggregateExpression) expr).getFunction().isDistinct()) {
             return expr;
         }
-        return ExpressionUtils.toDateLikeV2Literal(expr.accept(this, ctx));
+        return expr.accept(this, ctx);
     }
 
     /**
