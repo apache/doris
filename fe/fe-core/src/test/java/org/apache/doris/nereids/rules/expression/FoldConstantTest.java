@@ -194,17 +194,23 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
         String interval = "'1991-05-01' - interval 1 day";
         Expression e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        Expression e8 = new DateTimeLiteral(1991, 4, 30, 0, 0, 0);
+        Expression e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1991, 4, 30, 0, 0, 0)
+                : new DateTimeLiteral(1991, 4, 30, 0, 0, 0);
         assertRewrite(e7, e8);
 
         interval = "'1991-05-01' + interval '1' day";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1991, 5, 2, 0, 0, 0);
+        e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1991, 5, 2, 0, 0, 0)
+                : new DateTimeLiteral(1991, 5, 2, 0, 0, 0);
         assertRewrite(e7, e8);
 
         interval = "'1991-05-01' + interval 1+1 day";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1991, 5, 3, 0, 0, 0);
+        e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1991, 5, 3, 0, 0, 0)
+                : new DateTimeLiteral(1991, 5, 3, 0, 0, 0);
         assertRewrite(e7, e8);
 
         interval = "date '1991-05-01' + interval 10 / 2 + 1 day";
@@ -214,37 +220,51 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         interval = "interval '1' day + '1991-05-01'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1991, 5, 2, 0, 0, 0);
+        e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1991, 5, 2, 0, 0, 0)
+                : new DateTimeLiteral(1991, 5, 2, 0, 0, 0);
         assertRewrite(e7, e8);
 
         interval = "interval '3' month + '1991-05-01'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1991, 8, 1, 0, 0, 0);
+        e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1991, 8, 1, 0, 0, 0)
+                : new DateTimeLiteral(1991, 8, 1, 0, 0, 0);
         assertRewrite(e7, e8);
 
         interval = "interval 3 + 1 month + '1991-05-01'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1991, 9, 1, 0, 0, 0);
+        e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1991, 9, 1, 0, 0, 0)
+                : new DateTimeLiteral(1991, 9, 1, 0, 0, 0);
         assertRewrite(e7, e8);
 
         interval = "interval 3 + 1 year + '1991-05-01'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1995, 5, 1, 0, 0, 0);
+        e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1995, 5, 1, 0, 0, 0)
+                : new DateTimeLiteral(1995, 5, 1, 0, 0, 0);
         assertRewrite(e7, e8);
 
         interval = "interval 3 + 3 / 2 hour + '1991-05-01 10:00:00'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1991, 5, 1, 14, 0, 0);
+        e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1991, 5, 1, 14, 0, 0)
+                : new DateTimeLiteral(1991, 5, 1, 14, 0, 0);
         assertRewrite(e7, e8);
 
         interval = "interval 3 * 2 / 3 minute + '1991-05-01 10:00:00'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1991, 5, 1, 10, 2, 0);
+        e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1991, 5, 1, 10, 2, 0)
+                : new DateTimeLiteral(1991, 5, 1, 10, 2, 0);
         assertRewrite(e7, e8);
 
         interval = "interval 3 / 2 + 1 second + '1991-05-01 10:00:00'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1991, 5, 1, 10, 0, 2);
+        e8 = Config.enable_date_conversion
+                ? new DateTimeV2Literal(1991, 5, 1, 10, 0, 2)
+                : new DateTimeLiteral(1991, 5, 1, 10, 0, 2);
         assertRewrite(e7, e8);
 
         // a + interval 1 day
