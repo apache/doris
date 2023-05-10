@@ -124,6 +124,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
+        if (limit.getPhase().isLocal()) {
+            return new PhysicalProperties(childOutputProperty.getDistributionSpec(),
+                    childOutputProperty.getOrderSpec());
+        }
         return new PhysicalProperties(DistributionSpecGather.INSTANCE, childOutputProperty.getOrderSpec());
     }
 
