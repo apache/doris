@@ -267,7 +267,7 @@ Status VUnionNode::materialize_child_block(RuntimeState* state, int child_id,
                                 _row_descriptor)));
 
     if (input_block->rows() > 0) {
-        mblock.merge(materialize_block(input_block, child_id));
+        RETURN_IF_ERROR(mblock.merge(materialize_block(input_block, child_id)));
         if (!mem_reuse) {
             output_block->swap(mblock.to_block());
         }
