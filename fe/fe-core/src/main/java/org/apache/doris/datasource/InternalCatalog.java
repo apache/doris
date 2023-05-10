@@ -222,8 +222,9 @@ public class InternalCatalog implements CatalogIf<Database> {
     private ConcurrentHashMap<Long, Cluster> idToCluster = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String, Cluster> nameToCluster = new ConcurrentHashMap<>();
 
+    // Add transient to fix gson issue.
     @Getter
-    private EsRepository esRepository = new EsRepository();
+    private transient EsRepository esRepository = new EsRepository();
     @Getter
     private IcebergTableCreationRecordMgr icebergTableCreationRecordMgr = new IcebergTableCreationRecordMgr();
 
