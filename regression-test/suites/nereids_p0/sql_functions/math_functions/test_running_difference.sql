@@ -21,6 +21,7 @@ INSERT into running_difference_test (id,day, time_val,doublenum) values ('1', '2
 SELECT * from running_difference_test ORDER BY id ASC;
 
 SELECT
+/*+ enable_nereids_planner=false */
     id,
     running_difference(id) AS delta
 FROM
@@ -34,6 +35,7 @@ FROM
 )as runningDifference ORDER BY id ASC;
 
 SELECT
+/*+ enable_nereids_planner=false */
     day,
     running_difference(day) AS delta
 FROM
@@ -47,6 +49,7 @@ FROM
 )as runningDifference ORDER BY id ASC;
 
 SELECT
+/*+ enable_nereids_planner=false */
     time_val,
     running_difference(time_val) AS delta
 FROM
@@ -60,6 +63,7 @@ FROM
 )as runningDifference ORDER BY id ASC;
 
 SELECT
+/*+ enable_nereids_planner=false */
     doublenum,
     running_difference(doublenum) AS delta
 FROM

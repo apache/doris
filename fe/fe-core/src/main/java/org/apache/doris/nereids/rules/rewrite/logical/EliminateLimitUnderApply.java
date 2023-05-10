@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import com.google.common.collect.ImmutableList;
 
@@ -33,6 +34,12 @@ public class EliminateLimitUnderApply extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalApply(any(), logicalLimit()).then(apply -> {
+            if (apply.right().child() instanceof LogicalSort
+                    || (apply.right().child().children().size() > 0
+                            && apply.right().child().child(0) instanceof LogicalSort)) {
+                // must keep the limit if it's a limit on sort ( order by xx limit yy )
+                return null;
+            }
             List<Plan> children = new ImmutableList.Builder<Plan>()
                     .add(apply.left())
                     .add(apply.right().child())

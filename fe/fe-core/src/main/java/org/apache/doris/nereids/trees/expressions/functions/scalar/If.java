@@ -59,6 +59,10 @@ public class If extends ScalarFunction
         implements TernaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(BooleanType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateV2Type.INSTANCE)
+                    .args(BooleanType.INSTANCE, DateV2Type.INSTANCE, DateV2Type.INSTANCE),
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(BooleanType.INSTANCE, BooleanType.INSTANCE, BooleanType.INSTANCE),
             FunctionSignature.ret(TinyIntType.INSTANCE)
@@ -78,10 +82,6 @@ public class If extends ScalarFunction
             FunctionSignature.ret(DateTimeType.INSTANCE)
                     .args(BooleanType.INSTANCE, DateTimeType.INSTANCE, DateTimeType.INSTANCE),
             FunctionSignature.ret(DateType.INSTANCE).args(BooleanType.INSTANCE, DateType.INSTANCE, DateType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateV2Type.INSTANCE)
-                    .args(BooleanType.INSTANCE, DateV2Type.INSTANCE, DateV2Type.INSTANCE),
             FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT)
                     .args(BooleanType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DecimalV3Type.WILDCARD)
