@@ -92,9 +92,9 @@ public class DFSFileSystem extends RemoteFileSystem {
                         properties.get(HdfsResource.HADOOP_KERBEROS_KEYTAB));
             }
             if (username == null) {
-                dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf);
+                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
             } else {
-                dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf, username);
+                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf, username);
             }
         } catch (Exception e) {
             LOG.error("errors while connect to " + remotePath, e);
