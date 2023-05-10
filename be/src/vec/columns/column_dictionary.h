@@ -288,7 +288,9 @@ public:
     }
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx], _type); }
-
+    uint32_t get_crc32_hash_value(uint32_t idx) const {
+        return _dict.get_crc32_hash_value(_codes[idx], _type);
+    }
     template <typename HybridSetType>
     void find_codes(const HybridSetType* values, std::vector<vectorized::UInt8>& selected) const {
         return _dict.find_codes(values, selected);
@@ -303,6 +305,8 @@ public:
     }
 
     bool is_dict_sorted() const { return _dict_sorted; }
+
+    bool is_dict_empty() const { return _dict.empty(); }
 
     bool is_dict_code_converted() const { return _dict_code_converted; }
 
@@ -396,6 +400,31 @@ public:
             }
         }
 
+        inline uint32_t get_crc32_hash_value(T code, FieldType type) const {
+            if (_compute_hash_value_flags[code]) {
+                return _hash_values[code];
+            } else {
+                auto& sv = (*_dict_data)[code];
+                // The char data is stored in the disk with the schema length,
+                // and zeros are filled if the length is insufficient
+
+                // When reading data, use shrink_char_type_column_suffix_zero(_char_type_idx)
+                // Remove the suffix 0
+                // When writing data, use the CharField::consume function to fill in the trailing 0.
+
+                // For dictionary data of char type, sv.size is the schema length,
+                // so use strnlen to remove the 0 at the end to get the actual length.
+                int32_t len = sv.size;
+                if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                    len = strnlen(sv.data, sv.size);
+                }
+                uint32_t hash_val = HashUtil::crc_hash(sv.data, len, 0);
+                _hash_values[code] = hash_val;
+                _compute_hash_value_flags[code] = 1;
+                return _hash_values[code];
+            }
+        }
+
         // For > , code takes upper_bound - 1; For >= , code takes upper_bound
         // For < , code takes upper_bound; For <=, code takes upper_bound - 1
         // For example a sorted dict: <'b',0> <'c',1> <'d',2>
@@ -480,7 +509,7 @@ public:
 
         size_t byte_size() { return _dict_data->size() * sizeof((*_dict_data)[0]); }
 
-        bool empty() { return _dict_data->empty(); }
+        bool empty() const { return _dict_data->empty(); }
 
         size_t avg_str_len() { return empty() ? 0 : _total_str_len / _dict_data->size(); }
 

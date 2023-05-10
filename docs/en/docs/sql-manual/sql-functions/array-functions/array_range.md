@@ -36,7 +36,7 @@ array_range
 
 #### Syntax
 
-```
+```sql
 ARRAY<Int> array_range(Int end)
 ARRAY<Int> array_range(Int start, Int end)
 ARRAY<Int> array_range(Int start, Int end, Int step)

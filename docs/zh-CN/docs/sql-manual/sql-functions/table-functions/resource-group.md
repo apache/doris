@@ -40,11 +40,8 @@ resource_groups
 
 该函数用于from子句中。
 
-语法：
-
-```
-resource_groups();
-```
+#### syntax
+`resource_groups()`
 
 resource_groups()表结构：
 ```

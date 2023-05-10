@@ -17,11 +17,15 @@
 
 #include "olap/key_coder.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <limits>
 
+#include "gtest/gtest_pred_impl.h"
+#include "olap/uint24.h"
 #include "util/debug_util.h"
 
 namespace doris {

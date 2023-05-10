@@ -124,6 +124,9 @@ Since the table order is a UNIQUE model, the rows with the same Key, after which
   |---|---|---| 
   | 1 | 100 | Pending shipments |
 
+## Update primary key column
+Currently, the Update operation only supports updating the Value column, and the update of the Key column can refer to [Using FlinkCDC to update key column](../../ecosystem/flink-doris-connector.md#Use-FlinkCDC-to-update-Key-column)
+
 ## More Help
 
 For more detailed syntax used by **data update**, please refer to the [update](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE.md) command manual , you can also enter `HELP UPDATE` in the Mysql client command line to get more help information.

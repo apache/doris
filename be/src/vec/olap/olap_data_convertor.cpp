@@ -75,6 +75,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE: {
         return std::make_unique<OlapColumnDataConvertorQuantileState>();
     }
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
+        return std::make_unique<OlapColumnDataConvertorVarChar>(false);
+    }
     case FieldType::OLAP_FIELD_TYPE_HLL: {
         return std::make_unique<OlapColumnDataConvertorHLL>();
     }
@@ -175,6 +178,16 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
     for (const auto& typed_column : *block) {
         _convertors[cid]->set_source_column(typed_column, row_pos, num_rows);
         ++cid;
+    }
+}
+
+void OlapBlockDataConvertor::set_source_content_with_specifid_columns(
+        const vectorized::Block* block, size_t row_pos, size_t num_rows,
+        std::vector<uint32_t> cids) {
+    assert(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
+           block->columns() <= _convertors.size());
+    for (auto i : cids) {
+        _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
     }
 }
 

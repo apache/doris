@@ -167,7 +167,7 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
-### grpc_threadmgr_threads_nums
+### `grpc_threadmgr_threads_nums`
 
 Default: 4096
 
@@ -418,6 +418,12 @@ Default：false
 
 Https enable flag. If the value is false, http is supported. Otherwise, both http and https are supported, and http requests are automatically redirected to https.
 If enable_https is true, you need to configure ssl certificate information in fe.conf.
+
+#### `enable_ssl`
+
+Default：true
+
+If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
 
 #### `qe_max_connection`
 
@@ -1779,6 +1785,20 @@ In some very special circumstances, such as code bugs, or human misoperation, et
 
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing
 
+#### `recover_with_skip_missing_version`
+
+Default：disable
+
+IsMutable：true
+
+MasterOnly：true
+
+In some scenarios, there is an unrecoverable metadata problem in the cluster, and the visibleVersion of the data does not match be. In this case, it is still necessary to restore the remaining data (which may cause problems with the correctness of the data). This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
+This configuration has three values:
+* disable : If an exception occurs, an error will be reported normally.
+* ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
+* ignore_all: In addition to ignore_version, when encountering no queryable replica, skip it directly instead of throwing an exception
+
 #### `min_clone_task_timeout_sec` `And max_clone_task_timeout_sec`
 
 Default：Minimum 3 minutes, maximum two hours
@@ -2681,3 +2701,11 @@ If false, when select from tables in information_schema database,
 the result will not contain the information of the table in external catalog.
 This is to avoid query time when external catalog is not reachable.
 
+#### `max_instance_num`
+
+<version since="1.2.4"></version>
+
+Default: 128
+
+This is used to limit the setting of "parallel_fragment_exec_instance_num".
+"parallel_fragment_exec_instance_num" cannot be set higher than "max_instance_num".

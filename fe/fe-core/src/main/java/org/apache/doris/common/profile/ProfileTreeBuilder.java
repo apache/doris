@@ -132,7 +132,7 @@ public class ProfileTreeBuilder {
     public void build() throws UserException {
         reset();
         checkProfile();
-        analyzeAndBuildFragmentTrees();
+        analyzeAndBuild();
         assembleFragmentTrees();
     }
 
@@ -151,8 +151,33 @@ public class ProfileTreeBuilder {
         }
     }
 
-    private void analyzeAndBuildFragmentTrees() throws UserException {
+    private void analyzeAndBuild() throws UserException {
         List<Pair<RuntimeProfile, Boolean>> childrenFragment = profileRoot.getChildList();
+        for (Pair<RuntimeProfile, Boolean> pair : childrenFragment) {
+            String name = pair.first.getName();
+            if (name.equals("Fragments")) {
+                analyzeAndBuildFragmentTrees(pair.first);
+            } else if (name.equals("LoadChannels")) {
+                analyzeAndBuildLoadChannels(pair.first);
+            } else {
+                throw new UserException("Invalid execution profile name: " + name);
+            }
+        }
+    }
+
+    private void analyzeAndBuildLoadChannels(RuntimeProfile loadChannelsProfile) throws UserException {
+        List<Pair<RuntimeProfile, Boolean>> childrenFragment = loadChannelsProfile.getChildList();
+        for (Pair<RuntimeProfile, Boolean> pair : childrenFragment) {
+            analyzeAndBuildLoadChannel(pair.first);
+        }
+    }
+
+    private void analyzeAndBuildLoadChannel(RuntimeProfile loadChannelsProfil) throws UserException {
+        // TODO, `show load profile` add load channel profile, or add `show load channel profile`.
+    }
+
+    private void analyzeAndBuildFragmentTrees(RuntimeProfile fragmentsProfile) throws UserException {
+        List<Pair<RuntimeProfile, Boolean>> childrenFragment = fragmentsProfile.getChildList();
         for (Pair<RuntimeProfile, Boolean> pair : childrenFragment) {
             analyzeAndBuildFragmentTree(pair.first);
         }
@@ -191,7 +216,7 @@ public class ProfileTreeBuilder {
             fragmentTreeRoot = instanceTreeRoot;
         }
 
-        // 2. Build tree for each single instance
+        // 3. Build tree for each single instance
         int i = 0;
         Map<String, ProfileTreeNode> instanceTrees = Maps.newHashMap();
         for (Pair<RuntimeProfile, Boolean> pair : fragmentChildren) {

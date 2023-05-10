@@ -28,6 +28,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "gutil/hash/hash.h"      // IWYU pragma: keep
 #include "runtime/define_primitive_type.h"
 #include "util/cpu_info.h"
 #include "util/murmur_hash3.h"

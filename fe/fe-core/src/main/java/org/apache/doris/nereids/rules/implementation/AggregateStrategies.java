@@ -980,7 +980,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             return ImmutableList.<PhysicalHashAggregate<? extends Plan>>builder()
-                    .add(anyLocalGatherGlobalGatherDistinctAgg)
+                    // TODO: this plan pattern is not good usually, we remove it temporary.
+                    // .add(anyLocalGatherGlobalGatherDistinctAgg)
                     .add(anyLocalHashGlobalGatherDistinctAgg)
                     .build();
         } else {

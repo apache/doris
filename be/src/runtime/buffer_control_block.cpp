@@ -128,8 +128,18 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     }
 
     if (_waiting_rpc.empty()) {
+        // Merge result into batch to reduce rpc times
+        if (!_batch_queue.empty() &&
+            ((_batch_queue.back()->result_batch.rows.size() + num_rows) < _buffer_limit) &&
+            !result->eos) {
+            std::vector<std::string>& back_rows = _batch_queue.back()->result_batch.rows;
+            std::vector<std::string>& result_rows = result->result_batch.rows;
+            back_rows.insert(back_rows.end(), std::make_move_iterator(result_rows.begin()),
+                             std::make_move_iterator(result_rows.end()));
+        } else {
+            _batch_queue.push_back(std::move(result));
+        }
         _buffer_rows += num_rows;
-        _batch_queue.push_back(std::move(result));
         _data_arrival.notify_one();
     } else {
         auto ctx = _waiting_rpc.front();

@@ -17,18 +17,30 @@
 
 #include "olap/txn_manager.h"
 
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <memory>
+#include <new>
 #include <string>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include "common/config.h"
+#include "gtest/gtest_pred_impl.h"
 #include "olap/olap_meta.h"
+#include "olap/options.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_schema.h"
+#include "util/uid_util.h"
 
 using ::testing::_;
 using ::testing::Return;

@@ -34,9 +34,7 @@ array_sort
 
 #### Syntax
 
-```
-ARRAY<T> array_sort(ARRAY<T> arr)
-```
+`ARRAY<T> array_sort(ARRAY<T> arr)`
 
 返回按升序排列后的数组，如果输入数组为NULL，则返回NULL。
 如果数组元素包含NULL, 则输出的排序数组会将NULL放在最前面。

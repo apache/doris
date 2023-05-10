@@ -33,6 +33,9 @@ array_avg
 </version>
 
 ### description
+#### Syntax
+
+`Array<T> array_avg(arr)`
 
 Get the average of all elements in an array (`NULL` values are skipped).
 When the array is empty or all elements in the array are `NULL` values, the function returns `NULL`.

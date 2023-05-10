@@ -6,12 +6,11 @@
 
 #include <stdlib.h>
 #include <string.h>
-
-#include <algorithm>
+#include <stdint.h>
 #include <fstream>
 #include <sstream>
-#include <streambuf>
 #include <string>
+#include <utility>
 
 #if defined(__x86_64__)
 #if defined(_MSC_VER)

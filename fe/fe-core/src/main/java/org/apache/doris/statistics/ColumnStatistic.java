@@ -271,4 +271,8 @@ public class ColumnStatistic {
     public boolean minOrMaxIsInf() {
         return Double.isInfinite(maxValue) || Double.isInfinite(minValue);
     }
+
+    public boolean hasHistogram() {
+        return histogram != null && histogram != Histogram.UNKNOWN;
+    }
 }

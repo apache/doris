@@ -173,8 +173,77 @@ suite("aggregate") {
     qt_aggregate """ select any(c_bigint), any(c_double),any(c_string), any(c_date), any(c_timestamp),any_value(c_date_1), any(c_timestamp_1), 
                  any_value(c_timestamp_2), any(c_timestamp_3) , any(c_boolean), any(c_short_decimal), any(c_long_decimal)from ${tableName2} """
 
+    // init query case data
+    def dbName = "test_agg_db"
+    sql "DROP DATABASE IF EXISTS ${dbName}"
+    sql "CREATE DATABASE ${dbName}"
+    sql "USE $dbName"
+    sql """
+        CREATE TABLE IF NOT EXISTS `baseall` (
+            `k0` boolean null comment "",
+            `k1` tinyint(4) null comment "",
+            `k2` smallint(6) null comment "",
+            `k3` int(11) null comment "",
+            `k4` bigint(20) null comment "",
+            `k5` decimal(9, 3) null comment "",
+            `k6` char(5) null comment "",
+            `k10` date null comment "",
+            `k11` datetime null comment "",
+            `k7` varchar(20) null comment "",
+            `k8` double max null comment "",
+            `k9` float sum null comment "",
+            `k12` string replace null comment "",
+            `k13` largeint(40) replace null comment ""
+        ) engine=olap
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+        """
+    sql """
+        CREATE TABLE IF NOT EXISTS `test` (
+            `k0` boolean null comment "",
+            `k1` tinyint(4) null comment "",
+            `k2` smallint(6) null comment "",
+            `k3` int(11) null comment "",
+            `k4` bigint(20) null comment "",
+            `k5` decimal(9, 3) null comment "",
+            `k6` char(5) null comment "",
+            `k10` date null comment "",
+            `k11` datetime null comment "",
+            `k7` varchar(20) null comment "",
+            `k8` double max null comment "",
+            `k9` float sum null comment "",
+            `k12` string replace_if_not_null null comment "",
+            `k13` largeint(40) replace null comment ""
+        ) engine=olap
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+        """
+    sql """
+        CREATE TABLE IF NOT EXISTS `bigtable` (
+            `k0` boolean null comment "",
+            `k1` tinyint(4) null comment "",
+            `k2` smallint(6) null comment "",
+            `k3` int(11) null comment "",
+            `k4` bigint(20) null comment "",
+            `k5` decimal(9, 3) null comment "",
+            `k6` char(5) null comment "",
+            `k10` date null comment "",
+            `k11` datetime null comment "",
+            `k7` varchar(20) null comment "",
+            `k8` double max null comment "",
+            `k9` float sum null comment "",
+            `k12` string replace null comment "",
+            `k13` largeint(40) replace null comment ""
+        ) engine=olap
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+        """
+    streamLoad {
+        table "baseall"
+        db dbName
+        set 'column_separator', ','
+        file "../baseall.txt"
+    }
+    sql "insert into ${dbName}.test select * from ${dbName}.baseall where k1 <= 3"
+    sql "insert into ${dbName}.bigtable select * from ${dbName}.baseall"
 
-    sql "use test_query_db"
     List<String> fields = ["k1", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9"]
     // test_query_normal_aggression
     String k1 = fields[1]
@@ -314,4 +383,5 @@ suite("aggregate") {
 
     qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from regression_test_nereids_p0_aggregate.${tableName} """
     qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from regression_test_nereids_p0_aggregate.${tableName} """
+    qt_select_quantile_percent """ select QUANTILE_PERCENT(QUANTILE_UNION(TO_QUANTILE_STATE(c_bigint,2048)),0.5) from regression_test_nereids_p0_aggregate.${tableName};  """ 
 }

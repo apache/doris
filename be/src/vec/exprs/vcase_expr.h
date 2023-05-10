@@ -39,6 +39,8 @@ class VExprContext;
 namespace doris::vectorized {
 
 class VCaseExpr final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VCaseExpr);
+
 public:
     VCaseExpr(const TExprNode& node);
     ~VCaseExpr() = default;
@@ -51,7 +53,7 @@ public:
     virtual void close(RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) override;
     virtual VExpr* clone(ObjectPool* pool) const override {
-        return pool->add(new VCaseExpr(*this));
+        return pool->add(VCaseExpr::create_unique(*this).release());
     }
     virtual const std::string& expr_name() const override;
     virtual std::string debug_string() const override;

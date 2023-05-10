@@ -615,7 +615,7 @@ public class NodeAction extends RestBaseController {
                 }
                 Map<String, String> tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties,
                         Tag.DEFAULT_BACKEND_TAG);
-                currentSystemInfo.addBackends(hostInfos, false, "", tagMap);
+                currentSystemInfo.addBackends(hostInfos, tagMap);
             } else if ("DROP".equals(action)) {
                 currentSystemInfo.dropBackends(hostInfos);
             } else if ("DECOMMISSION".equals(action)) {

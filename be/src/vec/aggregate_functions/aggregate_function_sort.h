@@ -87,7 +87,7 @@ struct AggregateFunctionSortData {
 
         PBlock pblock;
         pblock.ParseFromString(data);
-        new (&block) Block(pblock);
+        block = Block(pblock);
     }
 
     void add(const IColumn** columns, size_t columns_num, size_t row_num) {
@@ -179,7 +179,7 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data(_sort_desc, _block);
-        _nested_func->create(get_nested_place(place));
+        SAFE_CREATE(_nested_func->create(get_nested_place(place)), this->data(place).~Data());
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {

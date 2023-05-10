@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.controller;
 
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -70,50 +71,25 @@ public class QueryProfileController extends BaseController {
     private void addFinishedQueryInfo(Map<String, Object> result) {
         List<List<String>> finishedQueries = ProfileManager.getInstance().getAllQueries();
         List<String> columnHeaders = Lists.newLinkedList();
-        columnHeaders.addAll(ProfileManager.PROFILE_HEADERS);
-        columnHeaders.addAll(ProfileManager.EXECUTION_HEADERS);
-        int jobIdIndex = -1;
-        int queryIdIndex = -1;
-        int queryTypeIndex = -1;
-        for (int i = 0; i < columnHeaders.size(); ++i) {
-            if (columnHeaders.get(i).equals(ProfileManager.JOB_ID)) {
-                jobIdIndex = i;
-                continue;
-            }
-            if (columnHeaders.get(i).equals(ProfileManager.QUERY_ID)) {
-                queryIdIndex = i;
-                continue;
-            }
-            if (columnHeaders.get(i).equals(ProfileManager.QUERY_TYPE)) {
-                queryTypeIndex = i;
-                continue;
-            }
-        }
-        // set href as the first column
-        columnHeaders.add(0, DETAIL_COL);
+        columnHeaders.addAll(SummaryProfile.SUMMARY_KEYS);
 
         result.put("column_names", columnHeaders);
-        result.put("href_column", Lists.newArrayList(DETAIL_COL));
+        // The first column is profile id, which is also a href column
+        result.put("href_column", Lists.newArrayList(columnHeaders.get(0)));
         List<Map<String, Object>> list = Lists.newArrayList();
         result.put("rows", list);
 
         for (List<String> row : finishedQueries) {
-            List<String> realRow = Lists.newLinkedList(row);
-
-            String queryType = realRow.get(queryTypeIndex);
-            String id = (QUERY_ID_TYPES.contains(queryType)) ? realRow.get(queryIdIndex) : realRow.get(jobIdIndex);
-
-            realRow.add(0, id);
             Map<String, Object> rowMap = new HashMap<>();
-            for (int i = 0; i < realRow.size(); ++i) {
-                rowMap.put(columnHeaders.get(i), realRow.get(i));
+            for (int i = 0; i < row.size(); ++i) {
+                rowMap.put(columnHeaders.get(i), row.get(i));
             }
 
             // add hyper link
-            if (Strings.isNullOrEmpty(id)) {
+            if (Strings.isNullOrEmpty(row.get(0))) {
                 rowMap.put("__hrefPaths", Lists.newArrayList("/query_profile/-1"));
             } else {
-                rowMap.put("__hrefPaths", Lists.newArrayList("/query_profile/" + id));
+                rowMap.put("__hrefPaths", Lists.newArrayList("/query_profile/" + row.get(0)));
             }
 
             list.add(rowMap);

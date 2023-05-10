@@ -34,6 +34,7 @@
 #include "olap/hll.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
@@ -588,12 +589,10 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
 
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
-    auto block = VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, input_block,
-                                                                    status);
+    Block block;
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
+                                                                       input_block, &block));
     auto num_rows = block.rows();
-    if (UNLIKELY(num_rows == 0)) {
-        return status;
-    }
     std::vector<MysqlRowBuffer<is_binary_format>> rows_buffer;
     rows_buffer.resize(num_rows);
     if constexpr (is_binary_format) {
@@ -711,7 +710,8 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
         case TYPE_STRING:
         case TYPE_CHAR:
-        case TYPE_VARCHAR: {
+        case TYPE_VARCHAR:
+        case TYPE_AGG_STATE: {
             if (type_ptr->is_nullable()) {
                 status = _add_one_column<PrimitiveType::TYPE_VARCHAR, true>(column_ptr, result,
                                                                             rows_buffer);

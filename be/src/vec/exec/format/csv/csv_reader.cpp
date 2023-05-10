@@ -166,22 +166,14 @@ Status CsvReader::init_reader(bool is_load) {
 
     _file_description.start_offset = start_offset;
 
-    io::FileReaderSPtr csv_file_reader;
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &csv_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &csv_file_reader, cache_policy));
-    }
-    if (typeid_cast<io::S3FileReader*>(csv_file_reader.get()) != nullptr ||
-        typeid_cast<io::BrokerFileReader*>(csv_file_reader.get()) != nullptr) {
-        // PrefetchBufferedReader now only support csv&json format when reading s3&broker file
-        _file_reader.reset(
-                new io::PrefetchBufferedReader(csv_file_reader, _range.start_offset, _range.size));
-    } else {
-        _file_reader = std::move(csv_file_reader);
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
+        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &_file_reader,
+                io::DelegateReader::AccessMode::SEQUENTIAL, reader_options, _io_ctx,
+                io::PrefetchRange(_range.start_offset, _range.size)));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
@@ -214,13 +206,13 @@ Status CsvReader::init_reader(bool is_load) {
     case TFileFormatType::FORMAT_CSV_LZOP:
         [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
-                                                      _size, _line_delimiter,
-                                                      _line_delimiter_length, start_offset));
+        _line_reader = NewPlainTextLineReader::create_unique(
+                _profile, _file_reader, _decompressor.get(), _size, _line_delimiter,
+                _line_delimiter_length, start_offset);
 
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader));
+        _line_reader = NewPlainBinaryLineReader::create_unique(_file_reader);
         break;
     default:
         return Status::InternalError(
@@ -664,9 +656,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     }
 
     _file_description.start_offset = start_offset;
-    io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+    io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
     RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties, _file_description,
-                                                    &_file_system, &_file_reader, cache_policy));
+                                                    &_file_system, &_file_reader, reader_options));
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("get parsed schema failed, empty csv file: " + _range.path);
@@ -682,9 +674,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
 
-    _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
-                                                  _size, _line_delimiter, _line_delimiter_length,
-                                                  start_offset));
+    _line_reader = NewPlainTextLineReader::create_unique(
+            _profile, _file_reader, _decompressor.get(), _size, _line_delimiter,
+            _line_delimiter_length, start_offset);
 
     return Status::OK();
 }

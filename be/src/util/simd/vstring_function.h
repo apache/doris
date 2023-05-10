@@ -303,6 +303,47 @@ public:
         LowerUpperImpl<'a', 'z'> lowerUpper;
         lowerUpper.transfer(src, src + len, dst);
     }
+
+    static inline size_t get_char_len(const char* src, size_t len, std::vector<size_t>& str_index) {
+        size_t char_len = 0;
+        for (size_t i = 0, char_size = 0; i < len; i += char_size) {
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)src[i]];
+            str_index.push_back(i);
+            ++char_len;
+        }
+        return char_len;
+    }
+
+    // utf8-encoding:
+    // - 1-byte: 0xxx_xxxx;
+    // - 2-byte: 110x_xxxx 10xx_xxxx;
+    // - 3-byte: 1110_xxxx 10xx_xxxx 10xx_xxxx;
+    // - 4-byte: 1111_0xxx 10xx_xxxx 10xx_xxxx 10xx_xxxx.
+    // Counting utf8 chars in a byte string is equivalent to counting first byte of utf chars, that
+    // is to say, counting bytes which do not match 10xx_xxxx pattern.
+    // All 0xxx_xxxx, 110x_xxxx, 1110_xxxx and 1111_0xxx are greater than 1011_1111 when use int8_t arithmetic,
+    // so just count bytes greater than 1011_1111 in a byte string as the result of utf8_length.
+    static inline size_t get_char_len(const char* src, size_t len) {
+        size_t char_len = 0;
+        const char* p = src;
+        const char* end = p + len;
+#if defined(__SSE2__) || defined(__aarch64__)
+        constexpr auto bytes_sse2 = sizeof(__m128i);
+        const auto src_end_sse2 = p + (len & ~(bytes_sse2 - 1));
+        // threshold = 1011_1111
+        const auto threshold = _mm_set1_epi8(0xBF);
+        for (; p < src_end_sse2; p += bytes_sse2) {
+            char_len += __builtin_popcount(_mm_movemask_epi8(_mm_cmpgt_epi8(
+                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(p)), threshold)));
+        }
+#endif
+        // process remaining bytes the number of which not exceed bytes_sse2 at the
+        // tail of string, one by one.
+        for (; p < end; ++p) {
+            char_len += static_cast<int8_t>(*p) > static_cast<int8_t>(0xBF);
+        }
+        return char_len;
+    }
 };
 } // namespace simd
 } // namespace doris

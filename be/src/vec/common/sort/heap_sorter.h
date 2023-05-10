@@ -44,6 +44,8 @@ class VSortExecExprs;
 namespace doris::vectorized {
 
 class SortingHeap {
+    ENABLE_FACTORY_CREATOR(SortingHeap);
+
 public:
     const HeapSortCursorImpl& top() { return _queue.top(); }
 
@@ -71,6 +73,8 @@ private:
 };
 
 class HeapSorter final : public Sorter {
+    ENABLE_FACTORY_CREATOR(HeapSorter);
+
 public:
     HeapSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,

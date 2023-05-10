@@ -313,8 +313,7 @@ FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(std::unique_ptr<MergeSorterState>(
-                  new MergeSorterState(row_desc, offset, limit, state, profile))) {}
+          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)) {}
 
 Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);

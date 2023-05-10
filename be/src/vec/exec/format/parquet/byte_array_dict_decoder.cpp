@@ -100,6 +100,17 @@ MutableColumnPtr ByteArrayDictDecoder::convert_dict_column_to_string_column(
 
 Status ByteArrayDictDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                            ColumnSelectVector& select_vector, bool is_dict_filter) {
+    if (select_vector.has_filter()) {
+        return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
+    } else {
+        return _decode_values<false>(doris_column, data_type, select_vector, is_dict_filter);
+    }
+}
+
+template <bool has_filter>
+Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                            ColumnSelectVector& select_vector,
+                                            bool is_dict_filter) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (doris_column->is_column_dictionary()) {
         ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
@@ -111,7 +122,7 @@ Status ByteArrayDictDecoder::decode_values(MutableColumnPtr& doris_column, DataT
     _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
 
     if (doris_column->is_column_dictionary() || is_dict_filter) {
-        return _decode_dict_values(doris_column, select_vector, is_dict_filter);
+        return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);
     }
 
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
@@ -122,7 +133,7 @@ Status ByteArrayDictDecoder::decode_values(MutableColumnPtr& doris_column, DataT
         size_t dict_index = 0;
 
         ColumnSelectVector::DataReadType read_type;
-        while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 std::vector<StringRef> string_values;
@@ -151,13 +162,13 @@ Status ByteArrayDictDecoder::decode_values(MutableColumnPtr& doris_column, DataT
         return Status::OK();
     }
     case TypeIndex::Decimal32:
-        return _decode_binary_decimal<Int32>(doris_column, data_type, select_vector);
+        return _decode_binary_decimal<Int32, has_filter>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal64:
-        return _decode_binary_decimal<Int64>(doris_column, data_type, select_vector);
+        return _decode_binary_decimal<Int64, has_filter>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal128:
-        return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+        return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal128I:
-        return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+        return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
     default:
         break;
     }

@@ -290,6 +290,8 @@ public abstract class TestWithFeService {
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
         Config.edit_log_type = "local";
+        Config.disable_decimalv2 = false;
+        Config.disable_datev1 = false;
         File file = new File(Config.custom_config_dir);
         if (!file.exists()) {
             file.mkdir();
@@ -415,7 +417,6 @@ public abstract class TestWithFeService {
         try {
             cleanDir(dorisHome + "/" + runningDir);
             cleanDir(Config.plugin_dir);
-            cleanDir(Config.custom_config_dir);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -470,7 +471,8 @@ public abstract class TestWithFeService {
         if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             return stmtExecutor.planner();
         } else {
-            return null;
+            throw new Exception(
+                    connectContext.getState().toString() + ", " + connectContext.getState().getErrorMessage());
         }
     }
 
@@ -597,7 +599,8 @@ public abstract class TestWithFeService {
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {
         // Note: adding `EXPLAIN` is necessary for non-query SQL, e.g., DDL, DML, etc.
         // TODO: Use a graceful way to get explain plan string, rather than modifying the SQL string.
-        Assertions.assertTrue(getSQLPlanOrErrorMsg("EXPLAIN " + sql).contains(expect));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg("EXPLAIN " + sql).contains(expect),
+                getSQLPlanOrErrorMsg("EXPLAIN " + sql));
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String... expects) throws Exception {

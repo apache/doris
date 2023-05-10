@@ -28,8 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-`INT YEARWEEK(DATE date)`
-`INT YEARWEEK(DATE date, INT mode)`
+`INT YEARWEEK(DATE date[, INT mode])`
 
 Returns year and week for a date.The value of the mode argument defaults to 0.
 When the week of the date belongs to the previous year, the year and week of the previous year are returned; 

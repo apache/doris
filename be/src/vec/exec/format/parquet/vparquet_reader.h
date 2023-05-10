@@ -69,6 +69,8 @@ struct TypeDescriptor;
 namespace doris::vectorized {
 
 class ParquetReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(ParquetReader);
+
 public:
     struct Statistics {
         int32_t filtered_row_groups = 0;
@@ -90,10 +92,11 @@ public:
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                  io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache = nullptr);
+                  io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache = nullptr,
+                  bool enable_lazy_mat = true);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  io::IOContext* io_ctx, RuntimeState* state);
+                  io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
     // for test
@@ -200,6 +203,8 @@ private:
     Status _process_bloom_filter(bool* filter_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
+    std::vector<io::PrefetchRange> _generate_random_access_ranges(
+            const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
 
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
@@ -225,7 +230,6 @@ private:
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
-
     // should turn off filtering by page index and lazy read if having complex type
     bool _has_complex_type = false;
 
@@ -249,14 +253,15 @@ private:
     bool _closed = false;
     io::IOContext* _io_ctx;
     RuntimeState* _state;
+    // Cache to save some common part such as file footer.
+    // Owned by scan node and shared by all parquet readers of this scan node.
+    // Maybe null if not used
+    ShardedKVCache* _kv_cache = nullptr;
+    bool _enable_lazy_mat = true;
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
     const std::unordered_map<std::string, int>* _colname_to_slot_id;
     const std::vector<VExprContext*>* _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, std::vector<VExprContext*>>* _slot_id_to_filter_conjuncts;
-    // Cache to save some common part such as file footer.
-    // Owned by scan node and shared by all parquet readers of this scan node.
-    // Maybe null if not used
-    ShardedKVCache* _kv_cache = nullptr;
 };
 } // namespace doris::vectorized

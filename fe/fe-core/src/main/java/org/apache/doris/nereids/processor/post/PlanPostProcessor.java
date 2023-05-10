@@ -18,10 +18,15 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 /**
  * PlanPostprocessor: a PlanVisitor to rewrite PhysicalPlan to new PhysicalPlan.
  */
 public class PlanPostProcessor extends DefaultPlanRewriter<CascadesContext> {
+
+    public Plan processRoot(Plan plan, CascadesContext ctx) {
+        return plan.accept(this, ctx);
+    }
 }

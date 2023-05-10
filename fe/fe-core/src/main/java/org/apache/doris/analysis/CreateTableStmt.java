@@ -329,6 +329,13 @@ public class CreateTableStmt extends DdlStmt {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
             }
+            if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
+                throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
+            }
+            if (Objects.equals(columnDef.getType(), Type.DECIMALV2) && Config.disable_decimalv2) {
+                throw new AnalysisException("Disable to create table with `DECIMAL` type columns,"
+                                            + "please use `DECIMALV3`.");
+            }
         }
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
@@ -353,39 +360,42 @@ public class CreateTableStmt extends DdlStmt {
                     }
                     keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
                 } else {
-                    for (ColumnDef columnDef : columnDefs) {
-                        keyLength += columnDef.getType().getIndexSize();
-                        if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
-                                || keyLength > FeConstants.shortkey_maxsize_bytes) {
-                            if (keysColumnNames.size() == 0
-                                    && columnDef.getType().getPrimitiveType().isCharFamily()) {
-                                keysColumnNames.add(columnDef.getName());
+                    if (!Config.experimental_enable_duplicate_without_keys_by_default) {
+                        for (ColumnDef columnDef : columnDefs) {
+                            keyLength += columnDef.getType().getIndexSize();
+                            if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
+                                    || keyLength > FeConstants.shortkey_maxsize_bytes) {
+                                if (keysColumnNames.size() == 0
+                                        && columnDef.getType().getPrimitiveType().isCharFamily()) {
+                                    keysColumnNames.add(columnDef.getName());
+                                }
+                                break;
                             }
-                            break;
-                        }
-                        if (columnDef.getType().isFloatingPointType()) {
-                            break;
-                        }
-                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
-                            break;
-                        }
-                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
-                            break;
-                        }
-                        if (columnDef.getType().isComplexType()) {
-                            break;
-                        }
-                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                            if (columnDef.getType().isFloatingPointType()) {
+                                break;
+                            }
+                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                                break;
+                            }
+                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
+                                break;
+                            }
+                            if (columnDef.getType().isComplexType()) {
+                                break;
+                            }
+                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                                keysColumnNames.add(columnDef.getName());
+                                break;
+                            }
                             keysColumnNames.add(columnDef.getName());
-                            break;
                         }
-                        keysColumnNames.add(columnDef.getName());
-                    }
-                    // The OLAP table must have at least one short key and the float and double should not be short key.
-                    // So the float and double could not be the first column in OLAP table.
-                    if (keysColumnNames.isEmpty()) {
-                        throw new AnalysisException("The olap table first column could not be float, double, string"
-                                + " or array, struct, map, please use decimal or varchar instead.");
+                        // The OLAP table must have at least one short key,
+                        // and the float and double should not be short key,
+                        // so the float and double could not be the first column in OLAP table.
+                        if (keysColumnNames.isEmpty()) {
+                            throw new AnalysisException("The olap table first column could not be float, double, string"
+                                    + " or array, struct, map, please use decimal or varchar instead.");
+                        }
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }

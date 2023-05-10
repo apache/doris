@@ -25,6 +25,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
 
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.io.IOUtils;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -36,10 +37,12 @@ import org.apache.http.util.EntityUtils;
 import org.apache.parquet.Strings;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import javax.servlet.http.HttpServletRequest;
 
 /*
  * used to forward http requests from manager to be.
@@ -115,5 +118,9 @@ public class HttpUtils {
             throw new RuntimeException(responseEntity.getMsg());
         }
         return GsonUtils.GSON.toJson(responseEntity.getData());
+    }
+
+    public static String getBody(HttpServletRequest request) throws IOException {
+        return IOUtils.toString(request.getInputStream(), StandardCharsets.UTF_8);
     }
 }

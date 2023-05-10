@@ -127,7 +127,7 @@ WkbParseContext* WkbParse::read(std::istream& is, WkbParseContext* ctx) {
 
     ctx->dis = ByteOrderDataInStream(buf.data(), buf.size()); // will default to machine endian
 
-    ctx->shape = readGeometry(ctx);
+    ctx->shape = readGeometry(ctx).release();
 
     if (!ctx->shape) {
         ctx->parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
@@ -135,7 +135,7 @@ WkbParseContext* WkbParse::read(std::istream& is, WkbParseContext* ctx) {
     return ctx;
 }
 
-GeoShape* WkbParse::readGeometry(WkbParseContext* ctx) {
+std::unique_ptr<GeoShape> WkbParse::readGeometry(WkbParseContext* ctx) {
     // determine byte order
     unsigned char byteOrder = ctx->dis.readByte();
 
@@ -150,17 +150,17 @@ GeoShape* WkbParse::readGeometry(WkbParseContext* ctx) {
 
     uint32_t geometryType = (typeInt & 0xffff) % 1000;
 
-    GeoShape* shape;
+    std::unique_ptr<GeoShape> shape;
 
     switch (geometryType) {
     case wkbType::wkbPoint:
-        shape = readPoint(ctx);
+        shape.reset(readPoint(ctx).release());
         break;
     case wkbType::wkbLine:
-        shape = readLine(ctx);
+        shape.reset(readLine(ctx).release());
         break;
     case wkbType::wkbPolygon:
-        shape = readPolygon(ctx);
+        shape.reset(readPolygon(ctx).release());
         break;
     default:
         return nullptr;
@@ -168,9 +168,9 @@ GeoShape* WkbParse::readGeometry(WkbParseContext* ctx) {
     return shape;
 }
 
-GeoPoint* WkbParse::readPoint(WkbParseContext* ctx) {
+std::unique_ptr<GeoPoint> WkbParse::readPoint(WkbParseContext* ctx) {
     GeoCoordinateList coords = WkbParse::readCoordinateList(1, ctx);
-    GeoPoint* point = new GeoPoint();
+    std::unique_ptr<GeoPoint> point = GeoPoint::create_unique();
 
     if (point->from_coord(coords.list[0]) == GEO_PARSE_OK) {
         return point;
@@ -179,12 +179,12 @@ GeoPoint* WkbParse::readPoint(WkbParseContext* ctx) {
     }
 }
 
-GeoLine* WkbParse::readLine(WkbParseContext* ctx) {
+std::unique_ptr<GeoLine> WkbParse::readLine(WkbParseContext* ctx) {
     uint32_t size = ctx->dis.readUnsigned();
     minMemSize(wkbLine, size, ctx);
 
     GeoCoordinateList coords = WkbParse::readCoordinateList(size, ctx);
-    GeoLine* line = new GeoLine();
+    std::unique_ptr<GeoLine> line = GeoLine::create_unique();
 
     if (line->from_coords(coords) == GEO_PARSE_OK) {
         return line;
@@ -193,7 +193,7 @@ GeoLine* WkbParse::readLine(WkbParseContext* ctx) {
     }
 }
 
-GeoPolygon* WkbParse::readPolygon(WkbParseContext* ctx) {
+std::unique_ptr<GeoPolygon> WkbParse::readPolygon(WkbParseContext* ctx) {
     uint32_t num_loops = ctx->dis.readUnsigned();
     minMemSize(wkbPolygon, num_loops, ctx);
     GeoCoordinateListList coordss;
@@ -204,7 +204,7 @@ GeoPolygon* WkbParse::readPolygon(WkbParseContext* ctx) {
         coordss.add(coords);
     }
 
-    GeoPolygon* polygon = new GeoPolygon();
+    std::unique_ptr<GeoPolygon> polygon = GeoPolygon::create_unique();
 
     if (polygon->from_coords(coordss) == GEO_PARSE_OK) {
         return polygon;

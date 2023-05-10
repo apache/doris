@@ -33,8 +33,6 @@ import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
-import org.apache.commons.lang3.StringUtils;
-
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Locale;
@@ -137,45 +135,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
      */
     @Override
     public int compareTo(Literal other) {
-        if (isNullLiteral() && other.isNullLiteral()) {
-            return 0;
-        } else if (isNullLiteral() || other.isNullLiteral()) {
-            return isNullLiteral() ? -1 : 1;
-        }
-
-        DataType oType = other.getDataType();
-        DataType type = getDataType();
-
-        if (type.isVarcharType() && oType.isVarcharType()) {
-            // VarChar type can be different, e.g., VarChar(1) = VarChar(2)
-            return StringUtils.compare((String) getValue(), (String) other.getValue());
-        } else if (!type.equals(oType)) {
-            throw new RuntimeException("data type not equal!");
-        } else if (type.isBooleanType()) {
-            return Boolean.compare((boolean) getValue(), (boolean) other.getValue());
-        } else if (type.isTinyIntType()) {
-            return Byte.compare((byte) getValue(), (byte) other.getValue());
-        } else if (type.isSmallIntType()) {
-            return Short.compare((short) getValue(), (short) other.getValue());
-        } else if (type.isIntegerType()) {
-            return Integer.compare((int) getValue(), (int) other.getValue());
-        } else if (type.isBigIntType()) {
-            return Long.compare((long) getValue(), (long) other.getValue());
-        } else if (type.isLargeIntType()) {
-            return ((BigInteger) getValue()).compareTo((BigInteger) other.getValue());
-        } else if (type.isFloatType()) {
-            return Float.compare((float) getValue(), (float) other.getValue());
-        } else if (type.isDoubleType()) {
-            return Double.compare((double) getValue(), (double) other.getValue());
-        } else if (type.isDateLikeType()) {
-            return Long.compare((Long) getValue(), (Long) other.getValue());
-        } else if (type.isDecimalV2Type()) {
-            return ((BigDecimal) getValue()).compareTo((BigDecimal) other.getValue());
-        } else if (type.isStringLikeType()) {
-            return StringUtils.compare((String) getValue(), (String) other.getValue());
-        } else {
-            throw new RuntimeException(String.format("Literal {} is not supported!", type.toString()));
-        }
+        return toLegacyLiteral().compareLiteral(other.toLegacyLiteral());
     }
 
     /**
@@ -266,10 +226,6 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateTimeV2Literal((DateTimeV2Type) targetType, desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
-    }
-
-    public boolean isCharacterLiteral() {
-        return this instanceof StringLiteral || this instanceof CharLiteral || this instanceof VarcharLiteral;
     }
 
     /** fromLegacyLiteral */

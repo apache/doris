@@ -78,7 +78,7 @@ public class TopNScanOpt extends PlanPostProcessor {
         olapScan = (PhysicalOlapScan) child;
 
         if (olapScan.getTable().isDupKeysOrMergeOnWrite()) {
-            topN.setMutableState(PhysicalTopN.TOPN_OPT, true);
+            topN.setMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER, true);
         }
 
         return topN;

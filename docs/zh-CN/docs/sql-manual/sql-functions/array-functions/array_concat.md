@@ -36,9 +36,7 @@ array_concat
 
 #### Syntax
 
-```sql
-Array<T> array_concat(Array<T>, ...)
-```
+`Array<T> array_concat(Array<T>, ...)`
 
 #### Returned value
 

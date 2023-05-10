@@ -352,6 +352,9 @@ public:
     int64_t metadata() const { return _metadata; }
     void set_metadata(int64_t md) { _metadata = md; }
 
+    time_t timestamp() const { return _timestamp; }
+    void set_timestamp(time_t ss) { _timestamp = ss; }
+
     // Derived counter function: return measured throughput as input_value/second.
     static int64_t units_per_second(const Counter* total_counter, const Counter* timer);
 
@@ -409,6 +412,9 @@ private:
 
     // user-supplied, uninterpreted metadata.
     int64_t _metadata;
+
+    // The timestamp when the profile was modified, make sure the update is up to date.
+    time_t _timestamp;
 
     /// True if this profile is an average derived from other profiles.
     /// All counters in this profile must be of unit AveragedCounter.

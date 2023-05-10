@@ -35,6 +35,8 @@ class Decompressor;
 class Status;
 
 class NewPlainTextLineReader : public LineReader {
+    ENABLE_FACTORY_CREATOR(NewPlainTextLineReader);
+
 public:
     NewPlainTextLineReader(RuntimeProfile* profile, io::FileReaderSPtr file_reader,
                            Decompressor* decompressor, size_t length,

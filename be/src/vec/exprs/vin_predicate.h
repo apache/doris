@@ -37,6 +37,8 @@ class VExprContext;
 
 namespace doris::vectorized {
 class VInPredicate final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VInPredicate);
+
 public:
     VInPredicate(const TExprNode& node);
     ~VInPredicate() override = default;
@@ -49,7 +51,7 @@ public:
     void close(doris::RuntimeState* state, VExprContext* context,
                FunctionContext::FunctionStateScope scope) override;
     VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VInPredicate(*this));
+        return pool->add(VInPredicate::create_unique(*this).release());
     }
     const std::string& expr_name() const override;
 

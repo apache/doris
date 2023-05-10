@@ -228,11 +228,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 : Optional.of(prunedOutputs);
     }
 
-    private final <P extends Plan> P pruneChildren(P plan) {
+    private <P extends Plan> P pruneChildren(P plan) {
         return pruneChildren(plan, ImmutableSet.of());
     }
 
-    private final <P extends Plan> P pruneChildren(P plan, Set<Slot> parentRequiredSlots) {
+    private <P extends Plan> P pruneChildren(P plan, Set<Slot> parentRequiredSlots) {
         if (plan.arity() == 0) {
             // leaf
             return plan;
@@ -250,7 +250,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
             Set<Slot> childOutputSet = child.getOutputSet();
-            Set<Slot> childRequiredSlots = Sets.intersection(childrenRequiredSlots, childOutputSet);
+            Set<Slot> childRequiredSlots = childOutputSet.stream()
+                    .filter(childrenRequiredSlots::contains).collect(Collectors.toSet());
             Plan prunedChild = doPruneChild(plan, child, childRequiredSlots);
             if (prunedChild != child) {
                 hasNewChildren = true;

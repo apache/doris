@@ -173,7 +173,7 @@ public class CreateFunctionTest {
         Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
 
         // cast any type to char with fixed length
-        createFuncStr = "create alias function db1.char(all, int) with parameter(text, length) as "
+        createFuncStr = "create alias function db1.to_char(all, int) with parameter(text, length) as "
                 + "cast(text as char(length));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Env.getCurrentEnv().createFunction(createFunctionStmt);
@@ -181,7 +181,7 @@ public class CreateFunctionTest {
         functions = db.getFunctions();
         Assert.assertEquals(4, functions.size());
 
-        queryStr = "select db1.char(333, 4);";
+        queryStr = "select db1.to_char(333, 4);";
         ctx.getState().reset();
         stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
@@ -196,7 +196,7 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, constExprLists.get(0).size());
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
-        queryStr = "select db1.char(k1, 4) from db1.tbl1;";
+        queryStr = "select db1.to_char(k1, 4) from db1.tbl1;";
         Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
     }
 
@@ -270,7 +270,7 @@ public class CreateFunctionTest {
         Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
 
         // 6. cast any type to char with fixed length
-        createFuncStr = "create global alias function db2.char(all, int) with parameter(text, length) as "
+        createFuncStr = "create global alias function db2.to_char(all, int) with parameter(text, length) as "
                 + "cast(text as char(length));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Env.getCurrentEnv().createFunction(createFunctionStmt);
@@ -278,10 +278,10 @@ public class CreateFunctionTest {
         functions = Env.getCurrentEnv().getGlobalFunctionMgr().getFunctions();
         Assert.assertEquals(4, functions.size());
 
-        queryStr = "select char(333, 4);";
+        queryStr = "select to_char(333, 4);";
         testFunctionQuery(ctx, queryStr, true);
 
-        queryStr = "select char(k1, 4) from db2.tbl1;";
+        queryStr = "select to_char(k1, 4) from db2.tbl1;";
         Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
     }
 

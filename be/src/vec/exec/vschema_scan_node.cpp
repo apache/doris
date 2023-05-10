@@ -169,7 +169,7 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     _runtime_profile->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // new one scanner
-    _schema_scanner.reset(SchemaScanner::create(schema_table->schema_table_type()));
+    _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
     if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");

@@ -36,9 +36,7 @@ Calculating hash value for what your input and return a BITMAP which contain the
 
 #### Syntax
 
-```
-BITMAP BITMAP_HASH(<any_value>)
-```
+`BITMAP BITMAP_HASH(<any_value>)`
 
 #### Arguments
 

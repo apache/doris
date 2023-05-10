@@ -60,6 +60,9 @@
 -- !select_map2 --
 {1000:"k11", 2000:"k22"}
 
+-- !select_map3 --
+MAP{}
+
 -- !select_element1 --
 1000
 
@@ -82,6 +85,30 @@ k22
 \N
 
 -- !select_element8 --
+\N
+
+-- !select_element9 --
+1000
+
+-- !select_element10 --
+2000
+
+-- !select_element11 --
+\N
+
+-- !select_element12 --
+\N
+
+-- !select_element13 --
+k11
+
+-- !select_element14 --
+k22
+
+-- !select_element15 --
+\N
+
+-- !select_element16 --
 \N
 
 -- !select_element101 --

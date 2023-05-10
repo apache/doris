@@ -137,6 +137,7 @@ public class ScalarType extends Type {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+                return createDecimalV3Type(precision, scale);
             case DECIMALV2:
                 return createDecimalType(precision, scale);
             default:

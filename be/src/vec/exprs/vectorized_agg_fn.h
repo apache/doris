@@ -46,6 +46,8 @@ class IColumn;
 class VExprContext;
 
 class AggFnEvaluator {
+    ENABLE_FACTORY_CREATOR(AggFnEvaluator);
+
 public:
     static Status create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
                          AggFnEvaluator** result);

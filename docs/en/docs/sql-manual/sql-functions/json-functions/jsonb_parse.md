@@ -26,6 +26,13 @@ under the License.
 
 ## jsonb_parse
 ### description
+#### Syntax
+
+```sql
+JSONB jsonb_parse(VARCHAR json_str)
+JSONB jsonb_parse_error_to_null(VARCHAR json_str)
+JSONB jsonb_parse_error_to_value(VARCHAR json_str, VARCHAR default_json_str)
+```
 
 jsonb_parse functions parse JSON string to binary format. A series of functions are provided to satisfy different demand for exception handling.
 - all return NULL if json_str is NULL
@@ -33,13 +40,6 @@ jsonb_parse functions parse JSON string to binary format. A series of functions 
   - jsonb_parse will report error
   - jsonb_parse_error_to_null will return NULL
   - jsonb_parse_error_to_value will return the value specified by default_json_str
-
-#### Syntax
-
-`JSONB jsonb_parse(VARCHAR json_str)`
-`JSONB jsonb_parse_error_to_null(VARCHAR json_str)`
-`JSONB jsonb_parse_error_to_value(VARCHAR json_str, VARCHAR default_json_str)`
-
 
 ### example
 

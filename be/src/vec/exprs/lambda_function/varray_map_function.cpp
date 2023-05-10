@@ -48,6 +48,8 @@ class VExprContext;
 namespace doris::vectorized {
 
 class ArrayMapFunction : public LambdaFunction {
+    ENABLE_FACTORY_CREATOR(ArrayMapFunction);
+
 public:
     ~ArrayMapFunction() override = default;
 
@@ -58,7 +60,7 @@ public:
     std::string get_name() const override { return name; }
 
     doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id, DataTypePtr result_type,
+                          int* result_column_id, const DataTypePtr& result_type,
                           const std::vector<VExpr*>& children) override {
         ///* array_map(lambda,arg1,arg2,.....) *///
 
@@ -79,7 +81,7 @@ public:
         // offset column
         MutableColumnPtr array_column_offset;
         int nested_array_column_rows = 0;
-
+        const ColumnArray::Offsets64* array_offsets = nullptr;
         //2. get the result column from executed expr, and the needed is nested column of array
         Block lambda_block;
         for (int i = 0; i < arguments.size(); ++i) {
@@ -108,18 +110,25 @@ public:
             // here is the array column
             const ColumnArray& col_array = assert_cast<const ColumnArray&>(*column_array);
             const auto& col_type = assert_cast<const DataTypeArray&>(*type_array);
+
             if (i == 0) {
                 nested_array_column_rows = col_array.get_data_ptr()->size();
+                array_offsets = &col_array.get_offsets();
                 auto& off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
                         col_array.get_offsets_column());
                 array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
             } else {
                 // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
                 // c_array1: [0,1,2,3,4,5,6,7,8,9]
-                if (nested_array_column_rows != col_array.get_data_ptr()->size()) {
+                if (nested_array_column_rows != col_array.get_data_ptr()->size() ||
+                    (array_offsets->size() > 0 &&
+                     memcmp(array_offsets->data(), col_array.get_offsets().data(),
+                            sizeof((*array_offsets)[0]) * array_offsets->size()) != 0)) {
                     return Status::InternalError(
-                            "in array map function, the input column nested column data rows are "
-                            "not equal, the first size is {}, but with {}th size is {}.",
+                            "in array map function, the input column size "
+                            "are "
+                            "not equal completely, nested column data rows 1st size is {}, {}th "
+                            "size is {}.",
                             nested_array_column_rows, i + 1, col_array.get_data_ptr()->size());
                 }
             }
@@ -129,6 +138,12 @@ public:
                                                "R" + array_column_type_name.name};
             lambda_block.insert(std::move(data_column));
         }
+        //check nullable(array(nullable(nested)))
+        DCHECK(result_type->is_nullable() &&
+               is_array(((DataTypeNullable*)result_type.get())->get_nested_type()))
+                << "array_map result type is error, now must be nullable(array): "
+                << result_type->get_name()
+                << " ,and block structure is: " << block->dump_structure();
 
         //3. child[0]->execute(new_block)
         RETURN_IF_ERROR(children[0]->execute(context, &lambda_block, result_column_id));
@@ -147,6 +162,7 @@ public:
                           result_type, res_name};
 
         } else {
+            // deal with eg: select array_map(x -> x is null, [null, 1, 2]);
             // need to create the nested column null map for column array
             auto nested_null_map = ColumnUInt8::create(res_col->size(), 0);
             result_arr = {ColumnNullable::create(
@@ -158,6 +174,21 @@ public:
         }
         block->insert(std::move(result_arr));
         *result_column_id = block->columns() - 1;
+        //check nullable(nested)
+        DCHECK((assert_cast<const DataTypeArray*>(
+                        (((DataTypeNullable*)result_type.get())->get_nested_type().get())))
+                       ->get_nested_type()
+                       ->equals(*make_nullable(res_type)))
+                << " array_map function FE given result type is: " << result_type->get_name()
+                << " get nested is: "
+                << (assert_cast<const DataTypeArray*>(
+                            (((DataTypeNullable*)result_type.get())->get_nested_type().get())))
+                           ->get_nested_type()
+                           ->get_name()
+                << " and now actual nested type after calculate " << res_type->get_name()
+                << " ,and block structure is: " << block->dump_structure()
+                << " ,and lambda_block structure is: " << lambda_block.dump_structure();
+
         return Status::OK();
     }
 };

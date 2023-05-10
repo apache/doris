@@ -6,12 +6,16 @@
 //
 #pragma once
 
+#include <string.h>
 #include <string>
+#include <utility>
+
 using std::string;
 
 #include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/stringpiece.h"
+#include "gutil/stringprintf.h"
 
 // The AlphaNum type was designed to be used as the parameter type for StrCat().
 // I suppose that any routine accepting either a string or a number could accept

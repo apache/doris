@@ -17,9 +17,10 @@
 
 #include "olap/rowset/segment_v2/row_ranges.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <memory>
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 namespace segment_v2 {

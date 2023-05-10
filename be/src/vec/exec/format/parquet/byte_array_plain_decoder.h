@@ -51,15 +51,19 @@ public:
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter) override;
 
+    template <bool has_filter>
+    Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                          ColumnSelectVector& select_vector, bool is_dict_filter);
+
     Status skip_values(size_t num_values) override;
 
 protected:
-    template <typename DecimalPrimitiveType>
+    template <typename DecimalPrimitiveType, bool has_filter>
     Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                   ColumnSelectVector& select_vector);
 };
 
-template <typename DecimalPrimitiveType>
+template <typename DecimalPrimitiveType, bool has_filter>
 Status ByteArrayPlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
                                                      DataTypePtr& data_type,
                                                      ColumnSelectVector& select_vector) {
@@ -70,7 +74,7 @@ Status ByteArrayPlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_col
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {

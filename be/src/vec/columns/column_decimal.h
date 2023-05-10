@@ -247,7 +247,7 @@ public:
         return false;
     }
 
-    void insert(const T value) { data.push_back(value); }
+    void insert_value(const T value) { data.push_back(value); }
     Container& get_data() { return data; }
     const Container& get_data() const { return data; }
     const T& get_element(size_t n) const { return data[n]; }

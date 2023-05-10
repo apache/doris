@@ -44,6 +44,8 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
@@ -139,7 +141,9 @@ import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
-import org.apache.doris.planner.external.FileQueryScanNode;
+import org.apache.doris.planner.external.HiveScanNode;
+import org.apache.doris.planner.external.HudiScanNode;
+import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -600,24 +604,44 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ExternalTable table = fileScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
         tupleDescriptor.setTable(table);
+
         // TODO(cmy): determine the needCheckColumnPriv param
-        FileQueryScanNode fileScanNode = new FileQueryScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+        ScanNode scanNode = null;
+        if (table instanceof HMSExternalTable) {
+            switch (((HMSExternalTable) table).getDlaType()) {
+                case HUDI:
+                    scanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+                    break;
+                case ICEBERG:
+                    scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+                    break;
+                case HIVE:
+                    scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+                    break;
+                default:
+                    break;
+            }
+        } else if (table instanceof IcebergExternalTable) {
+            scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+        }
+        Preconditions.checkNotNull(scanNode);
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
         tupleDescriptor.setRef(tableRef);
 
-        Utils.execWithUncheckedException(fileScanNode::init);
-        context.addScanNode(fileScanNode);
+        Utils.execWithUncheckedException(scanNode::init);
+        context.addScanNode(scanNode);
+        ScanNode finalScanNode = scanNode;
         context.getRuntimeTranslator().ifPresent(
                 runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(fileScan.getId()).forEach(
-                    expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, fileScanNode, context)
+                    expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, finalScanNode, context)
             )
         );
-        Utils.execWithUncheckedException(fileScanNode::finalizeForNereids);
+        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         // Create PlanFragment
         DataPartition dataPartition = DataPartition.RANDOM;
-        PlanFragment planFragment = createPlanFragment(fileScanNode, dataPartition, fileScan);
+        PlanFragment planFragment = createPlanFragment(scanNode, dataPartition, fileScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), fileScan);
         return planFragment;
@@ -884,7 +908,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             SortNode sortNode = translateSortNode(topN, inputFragment.getPlanRoot(), context);
             sortNode.setOffset(topN.getOffset());
             sortNode.setLimit(topN.getLimit());
-            if (topN.getMutableState(PhysicalTopN.TOPN_OPT).isPresent()) {
+            if (topN.getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent()) {
                 sortNode.setUseTopnOpt(true);
                 PlanNode child = sortNode.getChild(0);
                 Preconditions.checkArgument(child instanceof OlapScanNode,
@@ -928,9 +952,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         });
         List<Expr> sortTupleOutputList = new ArrayList<>();
         List<Slot> outputList = sort.getOutput();
-        outputList.forEach(k -> {
-            sortTupleOutputList.add(ExpressionTranslator.translate(k, context));
-        });
+        outputList.forEach(k -> sortTupleOutputList.add(ExpressionTranslator.translate(k, context)));
         // 2. Generate new Tuple and get current slotRef for newOrderingExprList
         List<Expr> newOrderingExprList = Lists.newArrayList();
         TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, newOrderingExprList, context, null);
@@ -1456,24 +1478,44 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
         }
 
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
-        inputPlanNode.setProjectList(execExprList);
-        inputPlanNode.setOutputTupleDesc(tupleDescriptor);
-        // TODO: this is a temporary scheme to support two phase read when has project.
-        //  we need to refactor all topn opt into rbo stage.
-        if (inputPlanNode instanceof OlapScanNode) {
-            ArrayList<SlotDescriptor> slots = context.getTupleDesc(inputPlanNode.getTupleIds().get(0)).getSlots();
-            SlotDescriptor lastSlot = slots.get(slots.size() - 1);
-            if (lastSlot.getColumn() != null && lastSlot.getColumn().getName().equals(Column.ROWID_COL)) {
-                inputPlanNode.getProjectList().add(new SlotRef(lastSlot));
-                injectRowIdColumnSlot(tupleDescriptor);
-                requiredSlotIdSet.add(lastSlot.getId());
-            }
-        }
-
         if (inputPlanNode instanceof ScanNode) {
-            updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdSet, requiredByProjectSlotIdSet, context);
-            return inputFragment;
+            TupleDescriptor tupleDescriptor = null;
+            if (requiredByProjectSlotIdSet.size() != requiredSlotIdSet.size()
+                    || execExprList.stream().collect(Collectors.toSet()).size() != execExprList.size()
+                    || execExprList.stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
+                tupleDescriptor = generateTupleDesc(slotList, null, context);
+                inputPlanNode.setProjectList(execExprList);
+                inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+            } else {
+                for (int i = 0; i < slotList.size(); ++i) {
+                    context.addExprIdSlotRefPair(slotList.get(i).getExprId(),
+                            (SlotRef) execExprList.get(i));
+                }
+            }
+
+            // TODO: this is a temporary scheme to support two phase read when has project.
+            //  we need to refactor all topn opt into rbo stage.
+            if (inputPlanNode instanceof OlapScanNode) {
+                ArrayList<SlotDescriptor> slots =
+                        context.getTupleDesc(inputPlanNode.getTupleIds().get(0)).getSlots();
+                SlotDescriptor lastSlot = slots.get(slots.size() - 1);
+                if (lastSlot.getColumn() != null
+                        && lastSlot.getColumn().getName().equals(Column.ROWID_COL)) {
+                    if (tupleDescriptor != null) {
+                        injectRowIdColumnSlot(tupleDescriptor);
+                        SlotRef slotRef = new SlotRef(lastSlot);
+                        inputPlanNode.getProjectList().add(slotRef);
+                        requiredByProjectSlotIdSet.add(lastSlot.getId());
+                    }
+                    requiredSlotIdSet.add(lastSlot.getId());
+                }
+            }
+            updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdSet,
+                    requiredByProjectSlotIdSet, context);
+        } else {
+            TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
+            inputPlanNode.setProjectList(execExprList);
+            inputPlanNode.setOutputTupleDesc(tupleDescriptor);
         }
         return inputFragment;
     }
@@ -1560,13 +1602,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         PlanNode child = inputFragment.getPlanRoot();
-
-        // This case means GlobalLimit's child isn't gatherNode, which suggests the child is UNPARTITIONED
-        // When there is valid offset, exchangeNode should be added because other node don't support offset
-        if (physicalLimit.isGlobal() && physicalLimit.hasValidOffset()
-                && !(child instanceof ExchangeNode)) {
-            inputFragment = createParentFragment(inputFragment, DataPartition.UNPARTITIONED, context);
-            child = inputFragment.getPlanRoot();
+        if (physicalLimit.isGlobal()) {
+            if (child instanceof ExchangeNode) {
+                DataPartition outputPartition = DataPartition.UNPARTITIONED;
+                ExchangeNode exchangeNode = (ExchangeNode) inputFragment.getPlanRoot();
+                inputFragment.setOutputPartition(outputPartition);
+                inputFragment.setPlanRoot(exchangeNode.getChild(0));
+                inputFragment.setDestination(exchangeNode);
+                inputFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, DataPartition.UNPARTITIONED);
+                context.addPlanFragment(inputFragment);
+            } else if (physicalLimit.hasValidOffset()) {
+                // This case means GlobalLimit's child isn't gatherNode, which suggests the child is UNPARTITIONED
+                // When there is valid offset, exchangeNode should be added because other node don't support offset
+                inputFragment = createParentFragment(inputFragment, DataPartition.UNPARTITIONED, context);
+                child = inputFragment.getPlanRoot();
+            }
         }
         child.setOffset(physicalLimit.getOffset());
         child.setLimit(physicalLimit.getLimit());

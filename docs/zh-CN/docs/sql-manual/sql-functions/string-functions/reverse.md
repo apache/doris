@@ -28,8 +28,10 @@ under the License.
 ### description
 #### Syntax
 
-`VARCHAR reverse(VARCHAR str)`
-`ARRAY<T> reverse(ARRAY<T> arr)`
+```sql
+VARCHAR reverse(VARCHAR str)
+ARRAY<T> reverse(ARRAY<T> arr)
+```
 
 将字符串或数组反转，返回的字符串或者数组的顺序和原来的顺序相反。
 

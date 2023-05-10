@@ -17,11 +17,23 @@
 
 #include "olap/primary_key_index.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/stringprintf.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
+#include "olap/types.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {

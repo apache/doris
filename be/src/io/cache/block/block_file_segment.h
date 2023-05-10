@@ -71,10 +71,10 @@ public:
         SKIP_CACHE,
     };
 
-    FileBlock(size_t offset_, size_t size_, const Key& key_, IFileCache* cache_,
-              State download_state_, bool is_persistent);
+    FileBlock(size_t offset, size_t size, const Key& key, IFileCache* cache, State download_state,
+              CacheType cache_type);
 
-    ~FileBlock();
+    ~FileBlock() = default;
 
     State state() const;
 
@@ -85,7 +85,7 @@ public:
         size_t left;
         size_t right;
 
-        Range(size_t left_, size_t right_) : left(left_), right(right_) {}
+        Range(size_t left, size_t right) : left(left), right(right) {}
 
         bool operator==(const Range& other) const {
             return left == other.left && right == other.right;
@@ -126,7 +126,7 @@ public:
 
     bool is_downloaded() const { return _is_downloaded.load(); }
 
-    bool is_persistent() const { return _is_persistent; }
+    CacheType cache_type() const { return _cache_type; }
 
     static std::string get_caller_id();
 
@@ -137,6 +137,8 @@ public:
     std::string get_info_for_log() const;
 
     std::string get_path_in_local_cache() const;
+
+    State state_unlock(std::lock_guard<std::mutex>&) const;
 
     FileBlock& operator=(const FileBlock&) = delete;
     FileBlock(const FileBlock&) = delete;
@@ -149,13 +151,7 @@ private:
     Status set_downloaded(std::lock_guard<std::mutex>& segment_lock);
     bool is_downloader_impl(std::lock_guard<std::mutex>& segment_lock) const;
 
-    /// complete() without any completion state is called from destructor of
-    /// FileBlocksHolder. complete() might check if the caller of the method
-    /// is the last alive holder of the segment. Therefore, complete() and destruction
-    /// of the file segment pointer must be done under the same cache mutex.
-    void complete(std::lock_guard<std::mutex>& cache_lock);
-    void complete_unlocked(std::lock_guard<std::mutex>& cache_lock,
-                           std::lock_guard<std::mutex>& segment_lock);
+    void complete_unlocked(std::lock_guard<std::mutex>& segment_lock);
 
     void reset_downloader_impl(std::lock_guard<std::mutex>& segment_lock);
 
@@ -189,7 +185,7 @@ private:
     IFileCache* _cache;
 
     std::atomic<bool> _is_downloaded {false};
-    bool _is_persistent = false;
+    CacheType _cache_type;
 };
 
 struct FileBlocksHolder {

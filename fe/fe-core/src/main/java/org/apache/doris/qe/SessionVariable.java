@@ -28,6 +28,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.qe.VariableMgr.VarAttr;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -62,6 +63,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
@@ -171,6 +173,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
 
+    public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
+
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
 
     // If user set a very small value, use this value instead.
@@ -224,6 +228,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
     public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
 
+    public static final String ENABLE_DPHYP_TRACE = "enable_dphyp_trace";
+
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
 
@@ -255,6 +261,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
 
+    public static final String ENABLE_SAVE_STATISTICS_SYNC_JOB = "enable_save_statistics_sync_job";
+
     public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
 
     public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
@@ -285,6 +293,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
+    public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
+
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
@@ -303,6 +313,15 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    /**
+     * use insert stmt as the unified backend for all loads
+     */
+    public static final String ENABLE_UNIFIED_LOAD = "enable_unified_load";
+
+    public static final String ENABLE_PARQUET_LAZY_MAT = "enable_parquet_lazy_materialization";
+
+    public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -317,14 +336,15 @@ public class SessionVariable implements Serializable, Writable {
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
 
-
-
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
+
+    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT)
+    public long maxScanQueueMemByte = 2147483648L / 20;
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
@@ -532,6 +552,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
+    public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
     public boolean enablePipelineEngine = false;
@@ -608,7 +630,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean checkOverflowForDecimal = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
-    private boolean enableDPHypOptimizer = false;
+    public boolean enableDPHypOptimizer = false;
 
     /**
      * This variable is used to select n-th optimized plan in memo.
@@ -624,7 +646,8 @@ public class SessionVariable implements Serializable, Writable {
      * the new optimizer is fully developed. I hope that day
      * would be coming soon.
      */
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, expType = ExperimentalType.EXPERIMENTAL)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true,
+            fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
     private boolean enableNereidsPlanner = false;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
@@ -645,11 +668,14 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
     private boolean enableNereidsTrace = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_DPHYP_TRACE, needForward = true)
+    public boolean enableDpHypTrace = false;
+
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
     private double broadcastRightTableScaleFactor = 10.0;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
-    private double broadcastRowCountLimit = 15000000;
+    private double broadcastRowCountLimit = 30000000;
 
     @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE, needForward = true)
     private double broadcastHashtableMemLimitPercentage = 0.2;
@@ -727,6 +753,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
     public boolean enableCboStatistics = false;
 
+    /**
+     * If true, when synchronously collecting statistics, the information of
+     * the statistics job will be saved, currently mainly used for p0 test
+     */
+    @VariableMgr.VarAttr(name = ENABLE_SAVE_STATISTICS_SYNC_JOB)
+    public boolean enableSaveStatisticsSyncJob = false;
+
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
 
@@ -772,7 +805,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 8;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
-                checker = "checkExternalAggPartitionBits", fuzzy = true)
+            checker = "checkExternalAggPartitionBits", fuzzy = true)
     public int externalAggPartitionBits = 8; // means that the hash table will be partitioned into 256 blocks.
 
     // Whether enable two phase read optimization
@@ -789,8 +822,19 @@ public class SessionVariable implements Serializable, Writable {
     public boolean groupByAndHavingUseAliasFirst = false;
 
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
-    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
-    public boolean enableFileCache = true;
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = {
+            "是否启用file cache。该变量只有在be.conf中enable_file_cache=true时才有效，"
+                    + "如果be.conf中enable_file_cache=false，该BE节点的file cache处于禁用状态。",
+            "Set wether to use file cache. This variable takes effect only if the BE config enable_file_cache=true. "
+                    + "The cache is not used when BE config enable_file_cache=false."})
+    public boolean enableFileCache = false;
+
+    // Specify base path for file cache, or chose a random path.
+    @VariableMgr.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = {
+            "指定block file cache在BE上的存储路径，默认 'random'，随机选择BE配置的存储路径。",
+            "Specify the storage path of the block file cache on BE, default 'random', "
+                    + "and randomly select the storage path configured by BE."})
+    public String fileCacheBasePath = "random";
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -816,6 +860,28 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    /**
+     * determine should we enable unified load (use insert stmt as the backend for all load)
+     */
+    @VariableMgr.VarAttr(name = ENABLE_UNIFIED_LOAD, needForward = true)
+    public boolean enableUnifiedLoad = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_LAZY_MAT,
+            description = {"控制 parquet reader 是否启用延迟物化技术。默认为 true。",
+                    "Controls whether to use lazy materialization technology in parquet reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableParquetLazyMat = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_ORC_LAZY_MAT,
+            description = {"控制 orc reader 是否启用延迟物化技术。默认为 true。",
+                    "Controls whether to use lazy materialization technology in orc reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableOrcLazyMat = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -960,6 +1026,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
+    }
+
+    public long getMaxScanQueueExecMemByte() {
+        return maxScanQueueMemByte;
     }
 
     public int getQueryTimeoutS() {
@@ -1109,6 +1179,10 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void setMaxScanQueueMemByte(long scanQueueMemByte) {
+        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 20);
+    }
+
     public boolean isSqlQuoteShowCreate() {
         return sqlQuoteShowCreate;
     }
@@ -1162,7 +1236,12 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
-        return parallelExecInstanceNum;
+        if (enablePipelineEngine && parallelExecInstanceNum == 0) {
+            Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
+            return beinfoCollector.getParallelExecInstanceNum();
+        } else {
+            return parallelExecInstanceNum;
+        }
     }
 
     public int getExchangeInstanceParallel() {
@@ -1403,6 +1482,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableCboStatistics;
     }
 
+    public boolean isEnableSaveStatisticsSyncJob() {
+        return enableSaveStatisticsSyncJob;
+    }
+
     public long getFileSplitSize() {
         return fileSplitSize;
     }
@@ -1410,6 +1493,23 @@ public class SessionVariable implements Serializable, Writable {
     public void setFileSplitSize(long fileSplitSize) {
         this.fileSplitSize = fileSplitSize;
     }
+
+    public boolean isEnableParquetLazyMat() {
+        return enableParquetLazyMat;
+    }
+
+    public void setEnableParquetLazyMat(boolean enableParquetLazyMat) {
+        this.enableParquetLazyMat = enableParquetLazyMat;
+    }
+
+    public boolean isEnableOrcLazyMat() {
+        return enableOrcLazyMat;
+    }
+
+    public void setEnableOrcLazyMat(boolean enableOrcLazyMat) {
+        this.enableOrcLazyMat = enableOrcLazyMat;
+    }
+
 
     /**
      * getInsertVisibleTimeoutMs.
@@ -1542,16 +1642,8 @@ public class SessionVariable implements Serializable, Writable {
         this.enableNereidsPlanner = enableNereidsPlanner;
     }
 
-    public boolean isEnableDPHypOptimizer() {
-        return isEnableNereidsPlanner() && enableDPHypOptimizer;
-    }
-
     public int getNthOptimizedPlan() {
         return nthOptimizedPlan;
-    }
-
-    public void setEnableDphypOptimizer(boolean enableDPHypOptimizer) {
-        this.enableDPHypOptimizer = enableDPHypOptimizer;
     }
 
     public Set<String> getDisableNereidsRules() {
@@ -1650,6 +1742,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableFileCache = enableFileCache;
     }
 
+    public String getFileCacheBasePath() {
+        return fileCacheBasePath;
+    }
+
+    public void setFileCacheBasePath(String basePath) {
+        this.fileCacheBasePath = basePath;
+    }
+
     public int getMaxTableCountUseCascadesJoinReorder() {
         return this.maxTableCountUseCascadesJoinReorder;
     }
@@ -1672,6 +1772,7 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
+        tResult.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);
@@ -1684,7 +1785,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
-        tResult.setParallelInstance(parallelExecInstanceNum);
+        tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
@@ -1737,9 +1838,14 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableFileCache(enableFileCache);
 
+        tResult.setFileCacheBasePath(fileCacheBasePath);
+
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
         }
+
+        tResult.setEnableParquetLazyMat(enableParquetLazyMat);
+        tResult.setEnableOrcLazyMat(enableOrcLazyMat);
 
         return tResult;
     }
@@ -1920,6 +2026,7 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions getQueryOptionVariables() {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(maxExecMemByte);
+        queryOptions.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
         return queryOptions;
@@ -1989,5 +2096,9 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return num;
+    }
+
+    public boolean isEnableUnifiedLoad() {
+        return enableUnifiedLoad;
     }
 }

@@ -90,7 +90,7 @@ illustrate:
 5. catalogs : View the data catalogs that have been created currently, equivalent to [SHOW CATALOGS](./SHOW-CATALOGS.md)
 6. cluster_balance : To check the balance of the cluster, please refer to [Data Copy Management](../../../admin-manual/maint-monitor/tablet-repair-and-balance.md)
 7. cluster_health: Run <code>SHOW PROC '/cluster_health/tablet_health';</code> statement to view the replica status of the entire cluster.
-8. colocation_group : This command can view the existing Group information in the cluster. For details, please refer to the [Colocation Join](../../../advanced/join-optimization/colocation-join.md) chapter
+8. colocation_group : This command can view the existing Group information in the cluster. For details, please refer to the [Colocation Join](../../../query-acceleration/join-optimization/colocation-join.md) chapter
 9. current_backend_instances : Displays a list of be nodes that are currently executing jobs
 10. current_queries : View the list of queries being executed, the SQL statement currently running.
 11. current_query_stmts: Returns the currently executing query.

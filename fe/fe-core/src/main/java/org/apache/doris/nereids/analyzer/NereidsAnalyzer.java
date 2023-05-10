@@ -59,7 +59,7 @@ public class NereidsAnalyzer extends BatchRewriteJob {
             ),
             bottomUp(
                 new ProjectToGlobalAggregate(),
-                // this rule check's the logicalProject node's isDisinct property
+                // this rule check's the logicalProject node's isDistinct property
                 // and replace the logicalProject node with a LogicalAggregate node
                 // so any rule before this, if create a new logicalProject node
                 // should make sure isDistinct property is correctly passed around.

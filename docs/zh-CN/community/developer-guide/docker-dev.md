@@ -90,7 +90,7 @@ docker build -t doris .
 
 运行镜像
 
-此处按需注意 [挂载的问题](../../docs/install/source-install/compilation.md)
+此处按需注意 [挂载的问题](../../docs/install/source-install/compilation-general.md)
 
 > 见链接中：建议以挂载本地 Doris 源码目录的方式运行镜像 .....
 

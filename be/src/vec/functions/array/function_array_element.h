@@ -107,7 +107,8 @@ public:
             args = {col_left, block.get_by_position(arguments[1])};
         }
         ColumnPtr res_column = nullptr;
-        if (args[0].column->is_column_map()) {
+        if (args[0].column->is_column_map() ||
+            check_column_const<ColumnMap>(args[0].column.get())) {
             res_column = _execute_map(args, input_rows_count, src_null_map, dst_null_map);
         } else {
             res_column = _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);

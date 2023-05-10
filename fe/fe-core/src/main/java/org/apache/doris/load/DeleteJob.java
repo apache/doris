@@ -204,6 +204,6 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         }
         // timeout is between 30 seconds to 5 min
         long timeout = Math.max(totalTablets.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
-        return Math.min(timeout, Config.load_straggler_wait_second * 1000L);
+        return Math.min(timeout, Config.delete_job_max_timeout_second * 1000L);
     }
 }

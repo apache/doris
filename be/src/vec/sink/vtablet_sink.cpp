@@ -62,6 +62,7 @@
 #include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
@@ -320,6 +321,7 @@ void VNodeChannel::open() {
     request.set_is_high_priority(_parent->_is_high_priority);
     request.set_sender_ip(BackendOptions::get_localhost());
     request.set_is_vectorized(true);
+    request.set_backend_id(_node_id);
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -453,6 +455,18 @@ Status VNodeChannel::open_wait() {
             _add_batch_counter.add_batch_execution_time_us += result.execution_time_us();
             _add_batch_counter.add_batch_wait_execution_time_us += result.wait_execution_time_us();
             _add_batch_counter.add_batch_num++;
+        }
+        if (result.has_load_channel_profile()) {
+            TRuntimeProfileTree tprofile;
+            const uint8_t* buf = (const uint8_t*)result.load_channel_profile().data();
+            uint32_t len = result.load_channel_profile().size();
+            auto st = deserialize_thrift_msg(buf, &len, false, &tprofile);
+            if (st.ok()) {
+                _state->load_channel_profile()->update(tprofile);
+            } else {
+                LOG(WARNING) << "load channel TRuntimeProfileTree deserialize failed, errmsg="
+                             << st;
+            }
         }
     });
     return status;
@@ -1170,11 +1184,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     vectorized::Block block(input_block->get_columns_with_type_and_name());
     if (!_output_vexpr_ctxs.empty()) {
         // Do vectorized expr here to speed up load
-        block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-                _output_vexpr_ctxs, *input_block, status);
-        if (UNLIKELY(block.rows() == 0)) {
-            return status;
-        }
+        RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+                _output_vexpr_ctxs, *input_block, &block));
     }
 
     auto num_rows = block.rows();

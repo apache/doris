@@ -17,11 +17,15 @@
 
 #include "olap/tablet_meta.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <memory>
 #include <string>
+#include <utility>
 
+#include "gtest/gtest_pred_impl.h"
+#include "olap/rowset/rowset.h"
 #include "olap/tablet_schema.h"
 #include "testutil/mock_rowset.h"
 

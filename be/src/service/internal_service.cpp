@@ -89,6 +89,7 @@
 #include "util/doris_metrics.h"
 #include "util/md5.h"
 #include "util/metrics.h"
+#include "util/network_util.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
@@ -394,6 +395,13 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
 
 Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
                                                  PFragmentRequestVersion version, bool compact) {
+    // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
+    // If BE execute this fragment, it will core when it wants to get some property from master info.
+    if (ExecEnv::GetInstance()->master_info() == nullptr) {
+        return Status::InternalError(
+                "Have not receive the first heartbeat message from master, not ready to provide "
+                "service");
+    }
     if (version == PFragmentRequestVersion::VERSION_1) {
         // VERSION_1 should be removed in v1.2
         TExecPlanFragmentParams t_request;
@@ -512,8 +520,11 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
 
+        // make sure profile is desctructed after reader cause PrefetchBufferedReader
+        // might asynchronouslly access the profile
+        std::unique_ptr<RuntimeProfile> profile =
+                std::make_unique<RuntimeProfile>("FetchTableSchema");
         std::unique_ptr<vectorized::GenericReader> reader(nullptr);
-        std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
@@ -526,23 +537,23 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             // file_slots is no use
             std::vector<SlotDescriptor*> file_slots;
-            reader.reset(
-                    new vectorized::CsvReader(profile.get(), params, range, file_slots, &io_ctx));
+            reader = vectorized::CsvReader::create_unique(profile.get(), params, range, file_slots,
+                                                          &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader.reset(new vectorized::ParquetReader(params, range, &io_ctx, nullptr));
+            reader = vectorized::ParquetReader::create_unique(params, range, &io_ctx, nullptr);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
             std::vector<std::string> column_names;
-            reader.reset(new vectorized::OrcReader(params, range, column_names, "", &io_ctx));
+            reader = vectorized::OrcReader::create_unique(params, range, column_names, "", &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
             std::vector<SlotDescriptor*> file_slots;
-            reader.reset(new vectorized::NewJsonReader(profile.get(), params, range, file_slots,
-                                                       &io_ctx));
+            reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
+                                                              file_slots, &io_ctx);
             break;
         }
         default:
@@ -816,6 +827,30 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
         UniqueId unique_id(request->query_id());
         VLOG_NOTICE << "rpc apply_filter recv";
         Status st = _exec_env->fragment_mgr()->apply_filter(request, &zero_copy_input_stream);
+        if (!st.ok()) {
+            LOG(WARNING) << "apply filter meet error: " << st.to_string();
+        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
+void PInternalServiceImpl::apply_filterv2(::google::protobuf::RpcController* controller,
+                                          const ::doris::PPublishFilterRequestV2* request,
+                                          ::doris::PPublishFilterResponse* response,
+                                          ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
+        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
+        UniqueId unique_id(request->query_id());
+        VLOG_NOTICE << "rpc apply_filterv2 recv";
+        Status st = _exec_env->fragment_mgr()->apply_filterv2(request, &zero_copy_input_stream);
         if (!st.ok()) {
             LOG(WARNING) << "apply filter meet error: " << st.to_string();
         }
@@ -1186,9 +1221,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             }
 
             std::stringstream ss;
-            ss << "http://" << host << ":" << http_port << "/api/_tablet/_download?token=" << token
-               << "&file=" << rowset_path << "/" << remote_rowset_id << "_" << segment.first
-               << ".dat";
+            ss << "http://" << get_host_port(host, http_port)
+               << "/api/_single_replica/_download?token=" << token << "&file=" << rowset_path << "/"
+               << remote_rowset_id << "_" << segment.first << ".dat";
             std::string remote_file_url = ss.str();
             ss.str("");
             ss << tablet->tablet_path() << "/" << rowset_meta->rowset_id() << "_" << segment.first

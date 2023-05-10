@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.backup.HdfsStorage;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -47,6 +46,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -130,8 +130,8 @@ public class OutFileClause {
     public static final String PROP_LINE_DELIMITER = "line_delimiter";
     public static final String PROP_MAX_FILE_SIZE = "max_file_size";
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
+    public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
     private static final String PARQUET_PROP_PREFIX = "parquet.";
-    private static final String ORC_PROP_PREFIX = "orc.";
     private static final String SCHEMA = "schema";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
@@ -148,6 +148,7 @@ public class OutFileClause {
     private String lineDelimiter = "\n";
     private TFileFormatType fileFormatType;
     private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
+    private boolean deleteExistingFiles = false;
     private BrokerDesc brokerDesc = null;
     // True if result is written to local disk.
     // If set to true, the brokerDesc must be null.
@@ -597,6 +598,12 @@ public class OutFileClause {
             processedPropKeys.add(PROP_MAX_FILE_SIZE);
         }
 
+        if (properties.containsKey(PROP_DELETE_EXISTING_FILES)) {
+            deleteExistingFiles = Boolean.parseBoolean(properties.get(PROP_DELETE_EXISTING_FILES))
+                                    & Config.enable_delete_existing_files;
+            processedPropKeys.add(PROP_DELETE_EXISTING_FILES);
+        }
+
         if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
             successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
             FeNameFormat.checkCommonName("file name", successFileName);
@@ -667,11 +674,17 @@ public class OutFileClause {
             S3Properties.requiredS3Properties(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {
             if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
-                brokerProps.put(HdfsResource.HADOOP_FS_NAME, HdfsStorage.getFsName(filePath));
+                brokerProps.put(HdfsResource.HADOOP_FS_NAME, getFsName(filePath));
             }
         }
-
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
+    }
+
+    public static String getFsName(String path) {
+        Path hdfsPath = new Path(path);
+        String fullPath = hdfsPath.toUri().toString();
+        String filePath = hdfsPath.toUri().getPath();
+        return fullPath.replace(filePath, "");
     }
 
     void setParquetCompressionType(String propertyValue) {
@@ -827,6 +840,7 @@ public class OutFileClause {
             sinkOptions.setLineDelimiter(lineDelimiter);
         }
         sinkOptions.setMaxFileSizeBytes(maxFileSizeBytes);
+        sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getProperties());
             // broker_addresses of sinkOptions will be set in Coordinator.

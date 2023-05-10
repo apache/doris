@@ -99,8 +99,8 @@ public class MergeProjectsTest implements MemoPatternMatchSupported {
                 .matches(
                         logicalProject(
                                 logicalOlapScan()
-                        ).when(project -> Objects.equals(project.getProjects().toString(),
-                                "[((sid#0 + 1) + 1) AS `b`#4]"))
+                        ).when(project -> Objects.equals(project.getProjects().get(0).toSql(),
+                                "((sid + 1) + 1) AS `b`"))
                 );
     }
 }

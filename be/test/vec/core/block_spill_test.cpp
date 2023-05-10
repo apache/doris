@@ -15,30 +15,49 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
 
+#include <cmath>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/options.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "vec/columns/column_array.h"
+#include "util/bitmap_value.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
 #include "vec/core/block_spill_reader.h"
 #include "vec/core/block_spill_writer.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris {
+class RuntimeProfile;
+
 static const uint32_t MAX_PATH_LEN = 1024;
 
 static const std::string TMP_DATA_DIR = "block_spill_test";

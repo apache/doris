@@ -19,19 +19,25 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.FileQueryScanNode;
+import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
@@ -62,6 +68,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -310,7 +317,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new FileQueryScanNode(id, desc, false);
+        return new TVFScanNode(id, desc, false);
     }
 
     @Override
@@ -368,6 +375,43 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return columns;
     }
 
+    /**
+     * Convert PTypeDesc into doris column type
+     * @param typeNodes list PTypeNodes in PTypeDesc
+     * @param start the start index of typeNode to parse
+     * @return column type and the number of parsed PTypeNodes
+     */
+    private Pair<Type, Integer> getColumnType(List<PTypeNode> typeNodes, int start) {
+        PScalarType columnType = typeNodes.get(start).getScalarType();
+        TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(columnType.getType());
+        Type type;
+        int parsedNodes;
+        if (tPrimitiveType == TPrimitiveType.ARRAY) {
+            Pair<Type, Integer> itemType = getColumnType(typeNodes, start + 1);
+            type =  ArrayType.create(itemType.key(), true);
+            parsedNodes = 1 + itemType.value();
+        } else if (tPrimitiveType == TPrimitiveType.MAP) {
+            Pair<Type, Integer> keyType = getColumnType(typeNodes, start + 1);
+            Pair<Type, Integer> valueType = getColumnType(typeNodes, start + 1 + keyType.value());
+            type = new MapType(keyType.key(), valueType.key());
+            parsedNodes = 1 + keyType.value() + valueType.value();
+        } else if (tPrimitiveType == TPrimitiveType.STRUCT) {
+            parsedNodes = 1;
+            ArrayList<StructField> fields = new ArrayList<>();
+            for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
+                Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
+                fields.add(new StructField(typeNodes.get(start).getStructFields(i).getName(), fieldType.key()));
+                parsedNodes += fieldType.value();
+            }
+            type = new StructType(fields);
+        } else {
+            type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
+                    columnType.getLen(), columnType.getPrecision(), columnType.getScale());
+            parsedNodes = 1;
+        }
+        return Pair.of(type, parsedNodes);
+    }
+
     private void fillColumns(InternalService.PFetchTableSchemaResult result)
                             throws AnalysisException {
         if (result.getColumnNums() == 0) {
@@ -376,14 +420,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
             String colName = result.getColumnNames(idx);
-            for (PTypeNode typeNode : type.getTypesList()) {
-                // only support ScalarType.
-                PScalarType scalarType = typeNode.getScalarType();
-                TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(scalarType.getType());
-                columns.add(new Column(colName, PrimitiveType.fromThrift(tPrimitiveType),
-                        scalarType.getLen() <= 0 ? -1 : scalarType.getLen(), scalarType.getPrecision(),
-                        scalarType.getScale(), true));
-            }
+            columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
         }
     }
 

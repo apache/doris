@@ -87,7 +87,7 @@ public class IcebergExternalTable extends ExternalTable {
                 return ScalarType.createCharType(fixed.length());
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
-                return ScalarType.createDecimalType(decimal.precision(), decimal.scale());
+                return ScalarType.createDecimalV3Type(decimal.precision(), decimal.scale());
             case DATE:
                 return ScalarType.createDateV2Type();
             case TIMESTAMP:

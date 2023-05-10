@@ -38,6 +38,8 @@ class ColumnString;
 namespace doris::vectorized {
 
 class VExplodeSplitTableFunction final : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VExplodeSplitTableFunction);
+
 public:
     VExplodeSplitTableFunction();
     ~VExplodeSplitTableFunction() override = default;

@@ -31,6 +31,11 @@ DORIS_HOME=$(
 )
 export DORIS_HOME
 
-CLANG_FORMAT="${CLANG_FORMAT_BINARY:=$(which clang-format)}"
+if [[ -z $(command -v clang-format-16) ]]; then
+    echo "clang-format-16 not founded, please install clang-format-16 or upgrade your clang-format version to 16"
+    exit 1
+fi
+
+CLANG_FORMAT="${CLANG_FORMAT_BINARY:=$(command -v clang-format-16)}"
 
 python "${DORIS_HOME}/build-support/run_clang_format.py" "--clang-format-executable" "${CLANG_FORMAT}" "-r" "--style" "file" "--inplace" "false" "--extensions" "c,h,C,H,cpp,hpp,cc,hh,c++,h++,cxx,hxx" "--exclude" "none" "be/src be/test"

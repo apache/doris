@@ -28,7 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-`BOOLEAN STARTS_WITH (VARCHAR str, VARCHAR prefix)`
+`BOOLEAN STARTS_WITH(VARCHAR str, VARCHAR prefix)`
 
 It returns true if the string starts with the specified prefix, otherwise it returns false.
 If any parameter is NULL, it returns NULL.

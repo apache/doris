@@ -17,6 +17,40 @@
 
 #include "data_type_map_serde.h"
 
+#include "util/jsonb_document.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+
 namespace doris {
-namespace vectorized {}
+namespace vectorized {
+class Arena;
+
+void DataTypeMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    column.deserialize_and_insert_from_arena(blob->getBlob());
+}
+
+void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                               Arena* mem_pool, int32_t col_id, int row_num) const {
+    result.writeKey(col_id);
+    const char* begin = nullptr;
+    // maybe serialize_value_into_arena should move to here later.
+    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    result.writeStartBinary();
+    result.writeBinary(value.data, value.size);
+    result.writeEndBinary();
+}
+
+void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                                             arrow::ArrayBuilder* array_builder, int start,
+                                             int end) const {
+    LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";
+}
+
+void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                              int start, int end,
+                                              const cctz::time_zone& ctz) const {
+    LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
+}
+} // namespace vectorized
 } // namespace doris

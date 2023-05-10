@@ -44,7 +44,7 @@
 #include "gutil/strings/substitute.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -406,7 +406,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
 
-    auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
+    auto* memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
     runtime_profile()->add_child(memory_usage, false, nullptr);
     _build_blocks_memory_usage = ADD_COUNTER(memory_usage, "BuildBlocks", TUnit::BYTES);
     _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
@@ -428,6 +428,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             ADD_TIMER(_build_phase_profile, "BuildTableConvertToPartitionedTime");
     _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
     _build_side_compute_hash_timer = ADD_TIMER(_build_phase_profile, "BuildSideHashComputingTime");
+    _build_runtime_filter_timer = ADD_TIMER(_build_phase_profile, "BuildRuntimeFilterTime");
 
     // Probe phase
     auto probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
@@ -441,7 +442,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
 
-    _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
+    _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
     _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
@@ -452,7 +453,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
         if (state->enable_share_hash_table_for_broadcast_join()) {
             runtime_profile()->add_info_string("ShareHashTableEnabled", "true");
             _shared_hashtable_controller =
-                    state->get_query_fragments_ctx()->get_shared_hash_table_controller();
+                    state->get_query_ctx()->get_shared_hash_table_controller();
             _shared_hash_table_context = _shared_hashtable_controller->get_context(id());
             _should_build_hash_table = _shared_hashtable_controller->should_build_hash_table(
                     state->fragment_instance_id(), id());

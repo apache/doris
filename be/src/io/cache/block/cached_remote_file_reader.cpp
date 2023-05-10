@@ -46,7 +46,19 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         : _remote_file_reader(std::move(remote_file_reader)) {
     _cache_key = IFileCache::hash(cache_path);
     _cache = FileCacheFactory::instance().get_by_path(_cache_key);
-    _disposable_cache = FileCacheFactory::instance().get_disposable_cache(_cache_key);
+}
+
+CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
+                                               const std::string& cache_base_path,
+                                               const std::string& cache_path)
+        : _remote_file_reader(std::move(remote_file_reader)) {
+    _cache_key = IFileCache::hash(cache_path);
+    _cache = FileCacheFactory::instance().get_by_path(cache_base_path);
+    if (_cache == nullptr) {
+        LOG(WARNING) << "Can't get cache from base path: " << cache_base_path
+                     << ", using random instead.";
+        _cache = FileCacheFactory::instance().get_by_path(_cache_key);
+    }
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
@@ -59,7 +71,8 @@ Status CachedRemoteFileReader::close() {
 
 std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
                                                               size_t read_size) const {
-    size_t segment_size = std::min(std::max(read_size, (size_t)4096), // 4k
+    size_t min_size = 1024 * 1024; // 1MB;
+    size_t segment_size = std::min(std::max(read_size, min_size),
                                    (size_t)config::file_cache_max_file_segment_size);
     segment_size = BitUtil::next_power_of_two(segment_size);
     size_t left = offset;
@@ -86,24 +99,10 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         *bytes_read = 0;
         return Status::OK();
     }
-    CloudFileCachePtr cache = io_ctx->use_disposable_cache ? _disposable_cache : _cache;
-    // cache == nullptr since use_disposable_cache = true and don't set  disposable cache in conf
-    if (cache == nullptr) {
-        return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
-    }
     ReadStatistics stats;
-    // if state == nullptr, the method is called for read footer
-    // if state->read_segment_index, read all the end of file
-    size_t align_left = offset, align_size = size() - offset;
-    if (!io_ctx->read_segment_index) {
-        auto pair = _align_size(offset, bytes_req);
-        align_left = pair.first;
-        align_size = pair.second;
-    }
-    bool is_persistent = io_ctx->is_persistent;
-    TUniqueId query_id = io_ctx->query_id ? *(io_ctx->query_id) : TUniqueId();
-    FileBlocksHolder holder =
-            cache->get_or_set(_cache_key, align_left, align_size, is_persistent, query_id);
+    auto [align_left, align_size] = _align_size(offset, bytes_req);
+    CacheContext cache_context(io_ctx);
+    FileBlocksHolder holder = _cache->get_or_set(_cache_key, align_left, align_size, cache_context);
     std::vector<FileBlockSPtr> empty_segments;
     for (auto& segment : holder.file_segments) {
         switch (segment->state()) {

@@ -32,9 +32,9 @@ Table functions must be used in conjunction with Lateral View.
 
 Expand a json array. According to the array element type, there are three function names. Corresponding to integer, floating point and string arrays respectively.
 
-grammar:
+#### syntax
 
-```
+```sql
 explode_json_array_int(json_str)
 explode_json_array_double(json_str)
 explode_json_array_string(json_str)

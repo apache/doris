@@ -26,6 +26,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -48,6 +49,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -512,7 +514,6 @@ public class Backend implements Writable {
             long dataUsedCapacityB = tDisk.getDataUsedCapacity();
             long diskAvailableCapacityB = tDisk.getDiskAvailableCapacity();
             boolean isUsed = tDisk.isUsed();
-
             DiskInfo diskInfo = disks.get(rootPath);
             if (diskInfo == null) {
                 diskInfo = new DiskInfo(rootPath);
@@ -622,6 +623,7 @@ public class Backend implements Writable {
     @Override
     public String toString() {
         return "Backend [id=" + id + ", host=" + ip + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
+                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime)
                 + ", tags: " + tagMap + "]";
     }
 
@@ -696,12 +698,15 @@ public class Backend implements Writable {
             if (!isAlive.get()) {
                 isChanged = true;
                 this.lastStartTime = hbResponse.getBeStartTime();
-                LOG.info("{} is alive, last start time: {}", this.toString(), hbResponse.getBeStartTime());
+                LOG.info("{} is back to alive", this.toString());
                 this.isAlive.set(true);
-            } else if (this.lastStartTime <= 0) {
-                this.lastStartTime = hbResponse.getBeStartTime();
             }
 
+            if (this.lastStartTime != hbResponse.getBeStartTime() && hbResponse.getBeStartTime() > 0) {
+                LOG.info("{} update last start time to {}", this.toString(), hbResponse.getBeStartTime());
+                this.lastStartTime = hbResponse.getBeStartTime();
+                isChanged = true;
+            }
             heartbeatErrMsg = "";
             this.heartbeatFailureCounter = 0;
         } else {
@@ -793,5 +798,65 @@ public class Backend implements Writable {
 
     public String getTagMapString() {
         return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
+    }
+
+    public static BeInfoCollector getBeInfoCollector() {
+        return BeInfoCollector.get();
+    }
+
+    public static class BeInfoCollector {
+        private int numCores = 1;
+        private static volatile BeInfoCollector instance = null;
+        private static final Map<Long, BeInfoCollector> Info = new ConcurrentHashMap<>();
+
+        private BeInfoCollector(int numCores) {
+            this.numCores = numCores;
+        }
+
+        public static BeInfoCollector get() {
+            if (instance == null) {
+                synchronized (BeInfoCollector.class) {
+                    if (instance == null) {
+                        instance = new BeInfoCollector(Integer.MAX_VALUE);
+                    }
+                }
+            }
+            return instance;
+        }
+
+        public int getNumCores() {
+            return numCores;
+        }
+
+        public void clear() {
+            Info.clear();
+        }
+
+        public void addBeInfo(long beId, int numCores) {
+            Info.put(beId, new BeInfoCollector(numCores));
+        }
+
+        public void dropBeInfo(long beId) {
+            Info.remove(beId);
+        }
+
+        public int getMinNumCores() {
+            int minNumCores = Integer.MAX_VALUE;
+            for (BeInfoCollector beinfo : Info.values()) {
+                minNumCores = Math.min(minNumCores, beinfo.getNumCores());
+            }
+            return Math.max(1, minNumCores);
+        }
+
+        public int getParallelExecInstanceNum() {
+            if (getMinNumCores() == Integer.MAX_VALUE) {
+                return 1;
+            }
+            return (getMinNumCores() + 1) / 2;
+        }
+
+        public BeInfoCollector getBeInfoCollectorById(long beId) {
+            return Info.get(beId);
+        }
     }
 }

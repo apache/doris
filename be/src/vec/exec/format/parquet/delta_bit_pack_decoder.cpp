@@ -30,53 +30,6 @@
 
 namespace doris::vectorized {
 
-Status DeltaDecoder::decode_byte_array(const std::vector<Slice>& decoded_vals,
-                                       MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                       ColumnSelectVector& select_vector) {
-    TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
-    switch (logical_type) {
-    case TypeIndex::String:
-        [[fallthrough]];
-    case TypeIndex::FixedString: {
-        ColumnSelectVector::DataReadType read_type;
-        while (size_t run_length = select_vector.get_next_run(&read_type)) {
-            switch (read_type) {
-            case ColumnSelectVector::CONTENT: {
-                std::vector<StringRef> string_values;
-                string_values.reserve(run_length);
-                for (size_t i = 0; i < run_length; ++i) {
-                    size_t length = decoded_vals[_current_value_idx].size;
-                    string_values.emplace_back(decoded_vals[_current_value_idx].data, length);
-                    _current_value_idx++;
-                }
-                doris_column->insert_many_strings(&string_values[0], run_length);
-                break;
-            }
-            case ColumnSelectVector::NULL_DATA: {
-                doris_column->insert_many_defaults(run_length);
-                break;
-            }
-            case ColumnSelectVector::FILTERED_CONTENT: {
-                _current_value_idx += run_length;
-                break;
-            }
-            case ColumnSelectVector::FILTERED_NULL: {
-                // do nothing
-                break;
-            }
-            }
-        }
-        _current_value_idx = 0;
-        return Status::OK();
-    }
-    default:
-        break;
-    }
-    return Status::InvalidArgument(
-            "Can't decode parquet physical type BYTE_ARRAY to doris logical type {}",
-            getTypeName(logical_type));
-}
-
 template <typename T>
 Status DeltaBitPackDecoder<T>::_init_header() {
     if (!_bit_reader->GetVlqInt(&_values_per_block) ||

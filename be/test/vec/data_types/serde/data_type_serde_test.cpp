@@ -16,14 +16,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include "vec/data_types/serde/data_type_serde.h"
 
+#include <gen_cpp/types.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <math.h>
+#include <stdlib.h>
+#include <time.h>
+
+#include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "gtest/gtest_pred_impl.h"
+#include "olap/hll.h"
+#include "util/bitmap_value.h"
+#include "util/quantile_state.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"

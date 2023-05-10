@@ -18,12 +18,20 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -31,21 +39,28 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
+import org.apache.hadoop.fs.BlockLocation;
+import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Base class for External File Scan, including external query and load.
  */
 public class FileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(FileScanNode.class);
+
+    public static final long DEFAULT_SPLIT_SIZE = 128 * 1024 * 1024; // 128MB
 
     // For explain
     protected long inputSplitsNum = 0;
@@ -144,16 +159,105 @@ public class FileScanNode extends ExternalScanNode {
         return output.toString();
     }
 
-    // TODO: Keep 2 versions of createScanRangeLocations, will fix this while refactor split and assignment code.
+    // TODO: This api is for load job only. Will remove it later.
     protected void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
-                                            FileScanProviderIf scanProvider)
+                                            LoadScanProvider scanProvider)
             throws UserException {
         scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
     }
 
-    protected void createScanRangeLocations(List<Expr> conjuncts, TFileScanRangeParams params,
-                                            FileScanProviderIf scanProvider)
-            throws UserException {
-        scanProvider.createScanRangeLocations(conjuncts, params, backendPolicy, scanRangeLocations);
+    protected void setDefaultValueExprs(TableIf tbl,
+                                        Map<String, SlotDescriptor> slotDescByName,
+                                        TFileScanRangeParams params,
+                                        boolean useVarcharAsNull) throws UserException {
+        Preconditions.checkNotNull(tbl);
+        TExpr tExpr = new TExpr();
+        tExpr.setNodes(Lists.newArrayList());
+
+        for (Column column : tbl.getBaseSchema()) {
+            Expr expr;
+            if (column.getDefaultValue() != null) {
+                if (column.getDefaultValueExprDef() != null) {
+                    expr = column.getDefaultValueExpr();
+                } else {
+                    expr = new StringLiteral(column.getDefaultValue());
+                }
+            } else {
+                if (column.isAllowNull()) {
+                    // For load, use Varchar as Null, for query, use column type.
+                    if (useVarcharAsNull) {
+                        expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                    } else {
+                        expr = NullLiteral.create(column.getType());
+                    }
+                } else {
+                    expr = null;
+                }
+            }
+            SlotDescriptor slotDesc = slotDescByName.get(column.getName());
+            // if slot desc is null, which mean it is an unrelated slot, just skip.
+            // eg:
+            // (a, b, c) set (x=a, y=b, z=c)
+            // c does not exist in file, the z will be filled with null, even if z has default value.
+            // and if z is not nullable, the load will fail.
+            if (slotDesc != null) {
+                if (expr != null) {
+                    expr = castToSlot(slotDesc, expr);
+                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
+                } else {
+                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
+                }
+            }
+        }
+    }
+
+    protected List<Split> splitFile(Path path, long blockSize, BlockLocation[] blockLocations, long length,
+                                  boolean splittable, List<String> partitionValues) throws IOException {
+        if (blockLocations == null) {
+            blockLocations = new BlockLocation[0];
+        }
+        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
+        if (splitSize <= 0) {
+            splitSize = blockSize;
+        }
+        // Min split size is DEFAULT_SPLIT_SIZE(128MB).
+        splitSize = Math.max(splitSize, DEFAULT_SPLIT_SIZE);
+        List<Split> result = Lists.newArrayList();
+        if (!splittable) {
+            LOG.debug("Path {} is not splittable.", path);
+            String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
+            result.add(new FileSplit(path, 0, length, length, hosts, partitionValues));
+            return result;
+        }
+        long bytesRemaining;
+        for (bytesRemaining = length; (double) bytesRemaining / (double) splitSize > 1.1D;
+                bytesRemaining -= splitSize) {
+            int location = getBlockIndex(blockLocations, length - bytesRemaining);
+            String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
+            result.add(new FileSplit(path, length - bytesRemaining, splitSize, length, hosts, partitionValues));
+        }
+        if (bytesRemaining != 0L) {
+            int location = getBlockIndex(blockLocations, length - bytesRemaining);
+            String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
+            result.add(new FileSplit(path, length - bytesRemaining, bytesRemaining, length, hosts, partitionValues));
+        }
+
+        LOG.debug("Path {} includes {} splits.", path, result.size());
+        return result;
+    }
+
+    private int getBlockIndex(BlockLocation[] blkLocations, long offset) {
+        if (blkLocations == null || blkLocations.length == 0) {
+            return -1;
+        }
+        for (int i = 0; i < blkLocations.length; ++i) {
+            if (blkLocations[i].getOffset() <= offset
+                    && offset < blkLocations[i].getOffset() + blkLocations[i].getLength()) {
+                return i;
+            }
+        }
+        BlockLocation last = blkLocations[blkLocations.length - 1];
+        long fileLength = last.getOffset() + last.getLength() - 1L;
+        throw new IllegalArgumentException(String.format("Offset %d is outside of file (0..%d)", offset, fileLength));
     }
 }

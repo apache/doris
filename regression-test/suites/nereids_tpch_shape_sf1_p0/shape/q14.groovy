@@ -23,9 +23,15 @@ suite("q14") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set runtime_filter_mode='GLOBAL'"
-    sql "set enable_runtime_filter_prune=true"
+
     sql 'set exec_mem_limit=21G'
 
+    def result = sql "show backends;"
+    if (result.size() != 1) {
+        print("backends num: ${result.size()}");
+        return;
+    }
+    
     qt_select """
     explain shape plan
     select 

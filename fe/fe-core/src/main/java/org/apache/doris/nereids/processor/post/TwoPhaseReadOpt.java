@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -52,28 +53,45 @@ import java.util.Set;
 public class TwoPhaseReadOpt extends PlanPostProcessor {
 
     @Override
-    public PhysicalTopN visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
-        topN.child().accept(this, ctx);
-        Plan child = topN.child();
-        if (topN.getSortPhase() != SortPhase.LOCAL_SORT) {
-            return topN;
+    public Plan processRoot(Plan plan, CascadesContext ctx) {
+        if (plan instanceof PhysicalTopN) {
+            PhysicalTopN<Plan> physicalTopN = (PhysicalTopN<Plan>) plan;
+            if (physicalTopN.getSortPhase() == SortPhase.MERGE_SORT) {
+                return plan.accept(this, ctx);
+            }
         }
-        if (topN.getOrderKeys().isEmpty()) {
-            return topN;
+        return plan;
+    }
+
+    @Override
+    public PhysicalTopN visitPhysicalTopN(PhysicalTopN<? extends Plan> mergeTopN, CascadesContext ctx) {
+        mergeTopN.child().accept(this, ctx);
+        if (mergeTopN.getSortPhase() != SortPhase.MERGE_SORT || !(mergeTopN.child() instanceof PhysicalDistribute)) {
+            return mergeTopN;
+        }
+        PhysicalDistribute<Plan> distribute = (PhysicalDistribute<Plan>) mergeTopN.child();
+        if (!(distribute.child() instanceof PhysicalTopN)) {
+            return mergeTopN;
+        }
+        PhysicalTopN<Plan> localTopN = (PhysicalTopN<Plan>) distribute.child();
+
+        if (localTopN.getOrderKeys().isEmpty()) {
+            return mergeTopN;
         }
 
         // topn opt
         long topNOptLimitThreshold = getTopNOptLimitThreshold();
-        if (topNOptLimitThreshold < 0 || topN.getLimit() > topNOptLimitThreshold) {
-            return topN;
+        if (topNOptLimitThreshold < 0 || mergeTopN.getLimit() > topNOptLimitThreshold) {
+            return mergeTopN;
         }
-        if (!topN.getOrderKeys().stream().map(OrderKey::getExpr).allMatch(Expression::isColumnFromTable)) {
-            return topN;
+        if (!localTopN.getOrderKeys().stream().map(OrderKey::getExpr).allMatch(Expression::isColumnFromTable)) {
+            return mergeTopN;
         }
 
         PhysicalOlapScan olapScan;
         PhysicalProject<Plan> project = null;
         PhysicalFilter<Plan> filter = null;
+        Plan child = localTopN.child();
         while (child instanceof Project || child instanceof Filter) {
             if (child instanceof Filter) {
                 filter = (PhysicalFilter<Plan>) child;
@@ -81,18 +99,18 @@ public class TwoPhaseReadOpt extends PlanPostProcessor {
             if (child instanceof Project) {
                 project = (PhysicalProject<Plan>) child;
                 // TODO: remove this after fix two phase read on project core
-                return topN;
+                return mergeTopN;
             }
             child = child.child(0);
         }
         if (!(child instanceof PhysicalOlapScan)) {
-            return topN;
+            return mergeTopN;
         }
         olapScan = (PhysicalOlapScan) child;
 
         // all order key must column from table
         if (!olapScan.getTable().getEnableLightSchemaChange()) {
-            return topN;
+            return mergeTopN;
         }
 
         Map<ExprId, ExprId> projectRevertedMap = Maps.newHashMap();
@@ -114,22 +132,23 @@ public class TwoPhaseReadOpt extends PlanPostProcessor {
         if (filter != null) {
             filter.getConjuncts().forEach(e -> deferredMaterializedExprIds.removeAll(e.getInputSlotExprIds()));
         }
-        topN.getOrderKeys().stream()
+        localTopN.getOrderKeys().stream()
                 .map(OrderKey::getExpr)
                 .map(Slot.class::cast)
                 .map(NamedExpression::getExprId)
                 .map(projectRevertedMap::get)
                 .filter(Objects::nonNull)
                 .forEach(deferredMaterializedExprIds::remove);
-        topN.getOrderKeys().stream()
+        localTopN.getOrderKeys().stream()
                 .map(OrderKey::getExpr)
                 .map(Slot.class::cast)
                 .map(NamedExpression::getExprId)
                 .forEach(deferredMaterializedExprIds::remove);
-        topN.setMutableState(PhysicalTopN.TWO_PHASE_READ_OPT, true);
+        localTopN.setMutableState(PhysicalTopN.TWO_PHASE_READ_OPT, true);
+        mergeTopN.setMutableState(PhysicalTopN.TWO_PHASE_READ_OPT, true);
         olapScan.setMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS, deferredMaterializedExprIds);
 
-        return topN;
+        return mergeTopN;
     }
 
     private long getTopNOptLimitThreshold() {

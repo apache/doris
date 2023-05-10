@@ -36,9 +36,7 @@ Concat all arrays passed in the arguments
 
 #### Syntax
 
-```sql
-Array<T> array_concat(Array<T>, ...)
-```
+`Array<T> array_concat(Array<T>, ...)`
 
 #### Returned value
 

@@ -51,8 +51,8 @@ Status Rowset::load(bool use_cache) {
         // after lock, if rowset state is ROWSET_UNLOADING, it is ok to return
         if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
             // first do load, then change the state
-            RETURN_NOT_OK(do_load(use_cache));
-            RETURN_NOT_OK(_rowset_state_machine.on_load());
+            RETURN_IF_ERROR(do_load(use_cache));
+            RETURN_IF_ERROR(_rowset_state_machine.on_load());
         }
     }
     // load is done
@@ -81,6 +81,18 @@ void Rowset::make_visible(Version version) {
 bool Rowset::check_rowset_segment() {
     std::lock_guard load_lock(_lock);
     return check_current_rowset_segment();
+}
+
+void Rowset::merge_rowset_meta(const RowsetMetaSharedPtr& other) {
+    _rowset_meta->set_num_segments(num_segments() + other->num_segments());
+    _rowset_meta->set_num_rows(num_rows() + other->num_rows());
+    _rowset_meta->set_data_disk_size(data_disk_size() + other->data_disk_size());
+    _rowset_meta->set_index_disk_size(index_disk_size() + other->index_disk_size());
+    std::vector<KeyBoundsPB> key_bounds;
+    other->get_segments_key_bounds(&key_bounds);
+    for (auto key_bound : key_bounds) {
+        _rowset_meta->add_segment_key_bounds(key_bound);
+    }
 }
 
 } // namespace doris

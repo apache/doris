@@ -86,12 +86,10 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                    logicalProject(
-                        logicalFilter(
-                            logicalAggregate(
-                                logicalOlapScan()
-                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))
-                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(a1, new TinyIntLiteral((byte) 0)))))));
+                    logicalFilter(
+                        logicalAggregate(
+                            logicalOlapScan()
+                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))));
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
         a1 = new SlotReference(
@@ -113,12 +111,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
                 .matchesFromRoot(
-                    logicalProject(
                         logicalFilter(
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value)))
-                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0)))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
 
         sql = "SELECT SUM(a2) FROM t1 GROUP BY a1 HAVING a1 > 0";
         a1 = new SlotReference(
@@ -197,12 +194,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                    logicalProject(
                         logicalFilter(
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
-                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), Literal.of(0L)))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), Literal.of(0L))))));
 
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
         a1 = new SlotReference(

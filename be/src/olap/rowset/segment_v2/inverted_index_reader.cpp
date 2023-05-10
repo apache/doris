@@ -579,9 +579,9 @@ Status BkdIndexReader::get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_rea
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
     }
     CLuceneError err;
-    lucene::store::IndexInput* data_in;
-    lucene::store::IndexInput* meta_in;
-    lucene::store::IndexInput* index_in;
+    std::unique_ptr<lucene::store::IndexInput> data_in;
+    std::unique_ptr<lucene::store::IndexInput> meta_in;
+    std::unique_ptr<lucene::store::IndexInput> index_in;
 
     if (!compoundReader->openInput(
                 InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name().c_str(), data_in,
@@ -596,12 +596,12 @@ Status BkdIndexReader::get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_rea
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
     }
 
-    bkdReader = std::make_shared<lucene::util::bkd::bkd_reader>(data_in);
-    if (0 == bkdReader->read_meta(meta_in)) {
+    bkdReader = std::make_shared<lucene::util::bkd::bkd_reader>(data_in.release());
+    if (0 == bkdReader->read_meta(meta_in.get())) {
         return Status::EndOfFile("bkd index file is empty");
     }
 
-    bkdReader->read_index(index_in);
+    bkdReader->read_index(index_in.get());
 
     _type_info = get_scalar_type_info((FieldType)bkdReader->type);
     if (_type_info == nullptr) {

@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "util/threadpool.h"
+#include "vec/exec/scan/vscanner.h"
 
 namespace doris {
 class ExecEnv;
@@ -73,7 +74,7 @@ private:
     // schedule scanners in a certain ScannerContext
     void _schedule_scanners(ScannerContext* ctx);
     // execution thread function
-    void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScanner* scanner);
+    void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScannerSPtr scanner);
 
 private:
     // Scheduling queue number.

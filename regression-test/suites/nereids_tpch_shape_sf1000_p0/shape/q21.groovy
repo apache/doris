@@ -23,53 +23,59 @@ suite("q21") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set runtime_filter_mode='GLOBAL'"
-    sql "set enable_runtime_filter_prune=true"
+
     sql 'set exec_mem_limit=21G'
-    sql 'set enable_new_cost_model=false'
-    sql 'set global exec_mem_limit = 21G'
-    sql 'set global broadcast_row_count_limit = 30000000'
+
+
+
     
-    // qt_select """
-    // explain shape plan
-    //     select
-    //             s_name,
-    //             count(*) as numwait
-    //     from
-    //             supplier,
-    //             lineitem l1,
-    //             orders,
-    //             nation
-    //     where
-    //     s_suppkey = l1.l_suppkey
-    //     and o_orderkey = l1.l_orderkey
-    //     and o_orderstatus = 'F'
-    //     and l1.l_receiptdate > l1.l_commitdate
-    //     and exists (
-    //             select
-    //             *
-    //             from
-    //             lineitem l2
-    //             where
-    //             l2.l_orderkey = l1.l_orderkey
-    //             and l2.l_suppkey <> l1.l_suppkey
-    //     )
-    //     and not exists (
-    //             select
-    //             *
-    //             from
-    //             lineitem l3
-    //             where
-    //             l3.l_orderkey = l1.l_orderkey
-    //             and l3.l_suppkey <> l1.l_suppkey
-    //             and l3.l_receiptdate > l3.l_commitdate
-    //     )
-    //     and s_nationkey = n_nationkey
-    //     and n_name = 'SAUDI ARABIA'
-    //     group by
-    //     s_name
-    //     order by
-    //     numwait desc,
-    //     s_name
-    //     limit 100;
-    // """
+    def result = sql "show backends;"
+    if (result.size() != 1) {
+        print("backends num: ${result.size()}");
+        return;
+    }
+    
+    qt_select """
+    explain shape plan
+        select
+                s_name,
+                count(*) as numwait
+        from
+                supplier,
+                lineitem l1,
+                orders,
+                nation
+        where
+        s_suppkey = l1.l_suppkey
+        and o_orderkey = l1.l_orderkey
+        and o_orderstatus = 'F'
+        and l1.l_receiptdate > l1.l_commitdate
+        and exists (
+                select
+                *
+                from
+                lineitem l2
+                where
+                l2.l_orderkey = l1.l_orderkey
+                and l2.l_suppkey <> l1.l_suppkey
+        )
+        and not exists (
+                select
+                *
+                from
+                lineitem l3
+                where
+                l3.l_orderkey = l1.l_orderkey
+                and l3.l_suppkey <> l1.l_suppkey
+                and l3.l_receiptdate > l3.l_commitdate
+        )
+        and s_nationkey = n_nationkey
+        and n_name = 'SAUDI ARABIA'
+        group by
+        s_name
+        order by
+        numwait desc,
+        s_name
+        limit 100;
+    """
 }

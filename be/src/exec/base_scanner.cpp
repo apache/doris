@@ -77,7 +77,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _scanner_eof(false) {}
 
 Status BaseScanner::open() {
-    _full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
+    _full_base_schema_view = vectorized::schema_util::FullBaseSchemaView::create_unique();
     RETURN_IF_ERROR(init_expr_ctxes());
     if (_params.__isset.strict_mode) {
         _strict_mode = _params.strict_mode;
@@ -143,11 +143,10 @@ Status BaseScanner::init_expr_ctxes() {
     if (!_pre_filter_texprs.empty()) {
         // for vectorized, preceding filter exprs should be compounded to one passed from fe.
         DCHECK(_pre_filter_texprs.size() == 1);
-        _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
-                _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
+                _state->obj_pool(), _pre_filter_texprs[0], &_vpre_filter_ctx_ptr));
+        RETURN_IF_ERROR(_vpre_filter_ctx_ptr->prepare(_state, *_row_desc));
+        RETURN_IF_ERROR(_vpre_filter_ctx_ptr->open(_state));
     }
 
     // Construct dest slots information
@@ -365,7 +364,7 @@ Status BaseScanner::_fill_dest_block(vectorized::Block* dest_block, bool* eof) {
 
 void BaseScanner::close() {
     if (_vpre_filter_ctx_ptr) {
-        (*_vpre_filter_ctx_ptr)->close(_state);
+        _vpre_filter_ctx_ptr->close(_state);
     }
 }
 

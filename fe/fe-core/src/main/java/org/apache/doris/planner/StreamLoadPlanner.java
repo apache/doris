@@ -70,6 +70,7 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -137,8 +138,37 @@ public class StreamLoadPlanner {
         // construct tuple descriptor, used for scanNode
         scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         boolean negative = taskInfo.getNegative();
+        // get partial update related info
+        boolean isPartialUpdate = taskInfo.isPartialUpdate();
+        if (isPartialUpdate && !destTable.getEnableUniqueKeyMergeOnWrite()) {
+            throw new UserException("Only unique key merge on write support partial update");
+        }
+        HashSet<String> partialUpdateInputColumns = new HashSet<>();
+        if (isPartialUpdate) {
+            for (Column col : destTable.getFullSchema()) {
+                boolean existInExpr = false;
+                for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
+                    if (importColumnDesc.getColumnName() != null
+                            && importColumnDesc.getColumnName().equals(col.getName())) {
+                        if (!col.isVisible()) {
+                            throw new UserException("Partial update should not include invisible column: "
+                                + col.getName());
+                        }
+                        partialUpdateInputColumns.add(col.getName());
+                        existInExpr = true;
+                        break;
+                    }
+                }
+                if (col.isKey() && !existInExpr) {
+                    throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+                }
+            }
+        }
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
+            if (isPartialUpdate && !partialUpdateInputColumns.contains(col.getName())) {
+                continue;
+            }
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
@@ -201,7 +231,8 @@ public class StreamLoadPlanner {
         }
         // The load id will pass to csv reader to find the stream load context from new load stream manager
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
-                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns());
+                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
+                taskInfo.isPartialUpdate());
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);
@@ -222,6 +253,7 @@ public class StreamLoadPlanner {
                 Config.enable_single_replica_load);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
+        olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.

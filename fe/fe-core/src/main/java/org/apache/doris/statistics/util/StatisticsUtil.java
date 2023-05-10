@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -41,6 +42,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -57,18 +59,31 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.thrift.TException;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.StringJoiner;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class StatisticsUtil {
+
+    private static final String ID_DELIMITER = "-";
+    private static final String VALUES_DELIMITER = ",";
+
+    private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
     public static List<ResultRow> executeQuery(String template, Map<String, String> params) {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -99,9 +114,14 @@ public class StatisticsUtil {
         }
     }
 
-    // TODO: finish this.
-    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches) throws TException {
-        return new ArrayList<>();
+    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches)
+            throws TException {
+        if (CollectionUtils.isEmpty(resultBatches)) {
+            return Collections.emptyList();
+        }
+        return resultBatches.stream()
+                .map(AnalysisTaskInfo::fromResultRow)
+                .collect(Collectors.toList());
     }
 
     public static List<ColumnStatistic> deserializeToColumnStatistics(List<ResultRow> resultBatches)
@@ -229,6 +249,7 @@ public class StatisticsUtil {
                     return dateTimeLiteral.getDouble();
                 case CHAR:
                 case VARCHAR:
+                case STRING:
                     VarcharLiteral varchar = new VarcharLiteral(columnValue);
                     return varchar.getDouble();
                 case HLL:
@@ -291,14 +312,33 @@ public class StatisticsUtil {
         return tableIf.getColumn(columnName);
     }
 
+    /**
+     * Throw RuntimeException if table not exists.
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static TableIf findTable(String catalogName, String dbName, String tblName) throws Throwable {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(catalogName, c -> new RuntimeException("Catalog: " + c + " not exists"));
-        DatabaseIf db = catalog.getDbOrException(dbName,
-                d -> new RuntimeException("DB: " + d + " not exists"));
+        DatabaseIf db = findDatabase(catalogName, dbName);
         return db.getTableOrException(tblName,
                 t -> new RuntimeException("Table: " + t + " not exists"));
+    }
+
+    /**
+     * Throw RuntimeException if database not exists.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static DatabaseIf findDatabase(String catalogName, String dbName) throws Throwable {
+        CatalogIf catalog = findCatalog(catalogName);
+        return catalog.getDbOrException(dbName,
+                d -> new RuntimeException("DB: " + d + " not exists"));
+    }
+
+    /**
+     * Throw RuntimeException if catalog not exists.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static CatalogIf findCatalog(String catalogName) {
+        return Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(catalogName, c -> new RuntimeException("Catalog: " + c + " not exists"));
     }
 
     public static boolean isNullOrEmpty(String str) {
@@ -307,5 +347,113 @@ public class StatisticsUtil {
                 .map(String::toLowerCase)
                 .map(s -> "null".equalsIgnoreCase(s) || s.isEmpty())
                 .orElse(true);
+    }
+
+    public static boolean statsTblAvailable() {
+        String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+        List<OlapTable> statsTbls = new ArrayList<>();
+        try {
+            statsTbls.add(
+                    (OlapTable) StatisticsUtil
+                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    dbName,
+                                    StatisticConstants.STATISTIC_TBL_NAME));
+            statsTbls.add(
+                    (OlapTable) StatisticsUtil
+                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    dbName,
+                                    StatisticConstants.HISTOGRAM_TBL_NAME));
+            statsTbls.add((OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    dbName,
+                    StatisticConstants.ANALYSIS_JOB_TABLE));
+        } catch (Throwable t) {
+            return false;
+        }
+        for (OlapTable table : statsTbls) {
+            for (Partition partition : table.getPartitions()) {
+                if (partition.getBaseIndex().getTablets().stream()
+                        .anyMatch(t -> t.getNormalReplicaBackendIds().isEmpty())) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    public static Map<Long, Partition> getIdToPartition(TableIf table) {
+        return table.getPartitionNames().stream()
+                .map(table::getPartition)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toMap(
+                        Partition::getId,
+                        Function.identity()
+                ));
+    }
+
+    public static Map<Long, String> getPartitionIdToName(TableIf table) {
+        return table.getPartitionNames().stream()
+                .map(table::getPartition)
+                .collect(Collectors.toMap(
+                        Partition::getId,
+                        Partition::getName
+                ));
+    }
+
+    public static <T> String joinElementsToString(Collection<T> values, String delimiter) {
+        StringJoiner builder = new StringJoiner(delimiter);
+        values.forEach(v -> builder.add(String.valueOf(v)));
+        return builder.toString();
+    }
+
+    public static int convertStrToInt(String str) {
+        return StringUtils.isNumeric(str) ? Integer.parseInt(str) : 0;
+    }
+
+    public static long convertStrToLong(String str) {
+        return StringUtils.isNumeric(str) ? Long.parseLong(str) : 0;
+    }
+
+    public static String getReadableTime(long timeInMs) {
+        if (timeInMs <= 0) {
+            return "";
+        }
+        SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
+        return format.format(new Date(timeInMs));
+    }
+
+    @SafeVarargs
+    public static <T> String constructId(T... items) {
+        if (items == null || items.length == 0) {
+            return "";
+        }
+        List<String> idElements = Arrays.stream(items)
+                .map(String::valueOf)
+                .collect(Collectors.toList());
+        return StatisticsUtil.joinElementsToString(idElements, ID_DELIMITER);
+    }
+
+    public static String replaceParams(String template, Map<String, String> params) {
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        return stringSubstitutor.replace(template);
+    }
+
+
+    /**
+     * The health of the table indicates the health of the table statistics.
+     * When update_rows >= row_count, the health is 0;
+     * when update_rows < row_count, the health degree is 100 (1 - update_rows row_count).
+     *
+     * @param updatedRows The number of rows updated by the table
+     * @return Health, the value range is [0, 100], the larger the value,
+     * @param totalRows The current number of rows in the table
+     * the healthier the statistics of the table
+     */
+    public static int getTableHealth(long totalRows, long updatedRows) {
+        if (updatedRows >= totalRows) {
+            return 0;
+        } else {
+            double healthCoefficient = (double) (totalRows - updatedRows) / (double) totalRows;
+            return (int) (healthCoefficient * 100.0);
+        }
     }
 }

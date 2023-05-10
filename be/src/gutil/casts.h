@@ -9,8 +9,8 @@
 
 #pragma once
 
+#include "common/logging.h"
 #include <assert.h> // for use with down_cast<>
-#include <common/logging.h>
 #include <limits.h> // for enumeration casts and tests
 #include <string.h> // for memcpy
 

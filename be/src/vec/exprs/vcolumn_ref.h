@@ -24,6 +24,8 @@
 namespace doris {
 namespace vectorized {
 class VColumnRef final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VColumnRef);
+
 public:
     //this is different of slotref is using slot_id find a column_id
     //slotref: need to find the equal id in tuple, then return column_id, the plan of FE is very important
@@ -52,7 +54,7 @@ public:
     }
 
     VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VColumnRef(*this));
+        return pool->add(VColumnRef::create_unique(*this).release());
     }
 
     bool is_constant() const override { return false; }

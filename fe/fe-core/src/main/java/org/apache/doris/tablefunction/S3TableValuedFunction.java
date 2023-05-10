@@ -18,9 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -28,9 +26,9 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.thrift.TFileType;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
@@ -89,15 +87,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
         if (FeConstants.runningUnitTest) {
             // Just check
-            BlobStorage.create(null, StorageBackend.StorageType.S3, locationProperties);
+            FileSystemFactory.getS3FileSystem(locationProperties);
         } else {
             parseFile();
         }
-    }
-
-    @VisibleForTesting
-    public static Map<String, String> getParams(Map<String, String> params) throws AnalysisException {
-        return getValidParams(params);
     }
 
     private static Map<String, String> getValidParams(Map<String, String> params) throws AnalysisException {

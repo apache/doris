@@ -42,6 +42,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/string_search.hpp"
 #include "util/string_util.h"
+#include "util/utf8_check.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -100,36 +101,6 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-
-//TODO: these three functions could be merged.
-inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str_index) {
-    size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < str.length(); i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)str[i]];
-        str_index->push_back(i);
-        ++char_len;
-    }
-    return char_len;
-}
-
-inline size_t get_char_len(const StringRef& str, std::vector<size_t>* str_index) {
-    size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
-        str_index->push_back(i);
-        ++char_len;
-    }
-    return char_len;
-}
-
-inline size_t get_char_len(const StringRef& str, size_t end_pos) {
-    size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < std::min(str.size, end_pos); i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
-        ++char_len;
-    }
-    return char_len;
-}
 
 struct StringOP {
     static void push_empty_string(int index, ColumnString::Chars& chars,
@@ -1282,9 +1253,9 @@ public:
                         reinterpret_cast<const char*>(&padcol_chars[padcol_offsets[i - 1]]);
 
                 size_t str_char_size =
-                        get_char_len(std::string_view(str_data, str_len), &str_index);
+                        simd::VStringFunctions::get_char_len(str_data, str_len, str_index);
                 size_t pad_char_size =
-                        get_char_len(std::string_view(pad_data, pad_len), &pad_index);
+                        simd::VStringFunctions::get_char_len(pad_data, pad_len, pad_index);
 
                 if (col_len_data[i] <= str_char_size) {
                     // truncate the input string
@@ -2429,7 +2400,7 @@ private:
         // but throws an exception for *start_pos > str->len.
         // Since returning 0 seems to be Hive's error condition, return 0.
         std::vector<size_t> index;
-        size_t char_len = get_char_len(str, &index);
+        size_t char_len = simd::VStringFunctions::get_char_len(str.data, str.size, index);
         if (start_pos <= 0 || start_pos > str.size || start_pos > char_len) {
             return 0;
         }
@@ -2441,7 +2412,8 @@ private:
         int32_t match_pos = search_ptr->search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.
-            return start_pos + get_char_len(adjusted_str, match_pos);
+            size_t len = std::min(adjusted_str.size, (size_t)match_pos);
+            return start_pos + simd::VStringFunctions::get_char_len(adjusted_str.data, len);
         } else {
             return 0;
         }
@@ -2763,6 +2735,315 @@ public:
         }
 
         *out_len = dest - out;
+    }
+};
+
+// refer to https://dev.mysql.com/doc/refman/8.0/en/string-functions.html#function_char
+//      UTF8
+// 多	0xe5, 0xa4, 0x9a	0xb6, 0xe0
+// 睿	0xe7, 0x9d, 0xbf	0xee, 0xa3
+// 丝	0xe4, 0xb8, 0x9d	0xcb, 0xbf 14989469
+// MySQL behaviour:
+// mysql> select char(0xe4, 0xb8, 0x9d using utf8);
+// +-----------------------------------+
+// | char(0xe4, 0xb8, 0x9d using utf8) |
+// +-----------------------------------+
+// | 丝                                |
+// +-----------------------------------+
+// 1 row in set, 1 warning (0.00 sec)
+// mysql> select char(14989469 using utf8);
+// +---------------------------+
+// | char(14989469 using utf8) |
+// +---------------------------+
+// | 丝                        |
+// +---------------------------+
+// 1 row in set, 1 warning (0.00 sec)
+// mysql> select char(0xe5, 0xa4, 0x9a, 0xe7, 0x9d, 0xbf, 0xe4, 0xb8, 0x9d, 68, 111, 114, 105, 115 using utf8);
+// +---------------------------------------------------------------------------------------------+
+// | char(0xe5, 0xa4, 0x9a, 0xe7, 0x9d, 0xbf, 0xe4, 0xb8, 0x9d, 68, 111, 114, 105, 115 using utf8) |
+// +---------------------------------------------------------------------------------------------+
+// | 多睿丝Doris                                                                                 |
+// +---------------------------------------------------------------------------------------------+
+// mysql> select char(68, 111, 114, 0, 105, null, 115 using utf8);
+// +--------------------------------------------------+
+// | char(68, 111, 114, 0, 105, null, 115 using utf8) |
+// +--------------------------------------------------+
+// | Dor is                                           |
+// +--------------------------------------------------+
+
+// return null:
+// mysql>  select char(255 using utf8);
+// +----------------------+
+// | char(255 using utf8) |
+// +----------------------+
+// | NULL                 |
+// +----------------------+
+// 1 row in set, 2 warnings (0.00 sec)
+//
+// mysql> show warnings;
+// +---------+------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+// | Level   | Code | Message                                                                                                                                                                     |
+// +---------+------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+// | Warning | 3719 | 'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous. |
+// | Warning | 1300 | Invalid utf8mb3 character string: 'FF'                                                                                                                                      |
+// +---------+------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+// 2 rows in set (0.01 sec)
+
+// max int value:
+// mysql> select char(18446744073709551615);
+// +--------------------------------------------------------+
+// | char(18446744073709551615)                             |
+// +--------------------------------------------------------+
+// | 0xFFFFFFFF                                             |
+// +--------------------------------------------------------+
+// 1 row in set (0.00 sec)
+//
+// mysql> select char(18446744073709551616);
+// +--------------------------------------------------------+
+// | char(18446744073709551616)                             |
+// +--------------------------------------------------------+
+// | 0xFFFFFFFF                                             |
+// +--------------------------------------------------------+
+// 1 row in set, 1 warning (0.00 sec)
+//
+// mysql> show warnings;
+// +---------+------+-----------------------------------------------------------+
+// | Level   | Code | Message                                                   |
+// +---------+------+-----------------------------------------------------------+
+// | Warning | 1292 | Truncated incorrect DECIMAL value: '18446744073709551616' |
+// +---------+------+-----------------------------------------------------------+
+// 1 row in set (0.00 sec)
+
+// table columns:
+// mysql> select * from t;
+// +------+------+------+
+// | f1   | f2   | f3   |
+// +------+------+------+
+// |  228 |  184 |  157 |
+// |  228 |  184 |    0 |
+// |  228 |  184 |   99 |
+// |   99 |  228 |  184 |
+// +------+------+------+
+// 4 rows in set (0.00 sec)
+//
+// mysql> select char(f1, f2, f3 using utf8) from t;
+// +-----------------------------+
+// | char(f1, f2, f3 using utf8) |
+// +-----------------------------+
+// | 丝                          |
+// |                             |
+// |                             |
+// | c                           |
+// +-----------------------------+
+// 4 rows in set, 4 warnings (0.00 sec)
+//
+// mysql> show warnings;
+// +---------+------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+// | Level   | Code | Message                                                                                                                                                                     |
+// +---------+------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+// | Warning | 3719 | 'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous. |
+// | Warning | 1300 | Invalid utf8mb3 character string: 'E4B800'                                                                                                                                  |
+// | Warning | 1300 | Invalid utf8mb3 character string: 'E4B863'                                                                                                                                  |
+// | Warning | 1300 | Invalid utf8mb3 character string: 'E4B8'                                                                                                                                    |
+// +---------+------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+class FunctionIntToChar : public IFunction {
+public:
+    static constexpr auto name = "char";
+    static FunctionPtr create() { return std::make_shared<FunctionIntToChar>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        DCHECK_GE(arguments.size(), 2);
+
+        int argument_size = arguments.size();
+        std::vector<ColumnPtr> str_columns(argument_size - 1);
+        std::vector<const ColumnString::Offsets*> offsets_list(argument_size - 1);
+        std::vector<const ColumnString::Chars*> chars_list(argument_size - 1);
+
+        // convert each argument columns to column string and then concat the string columns
+        for (size_t i = 1; i < argument_size; ++i) {
+            if (auto const_column = check_and_get_column<const ColumnConst>(
+                        *block.get_by_position(arguments[i]).column)) {
+                // ignore null
+                if (const_column->only_null()) {
+                    str_columns[i - 1] = nullptr;
+                } else {
+                    auto str_column = ColumnString::create();
+                    auto& chars = str_column->get_chars();
+                    auto& offsets = str_column->get_offsets();
+                    offsets.resize(1);
+                    const ColumnVector<Int32>* int_column;
+                    if (auto* nullable = check_and_get_column<const ColumnNullable>(
+                                const_column->get_data_column())) {
+                        int_column = assert_cast<const ColumnVector<Int32>*>(
+                                nullable->get_nested_column_ptr().get());
+                    } else {
+                        int_column = assert_cast<const ColumnVector<Int32>*>(
+                                &const_column->get_data_column());
+                    }
+                    int int_val = int_column->get_int(0);
+                    integer_to_char_(0, &int_val, chars, offsets);
+                    str_columns[i - 1] =
+                            ColumnConst::create(std::move(str_column), input_rows_count);
+                }
+                offsets_list[i - 1] = nullptr;
+                chars_list[i - 1] = nullptr;
+            } else {
+                auto str_column = ColumnString::create();
+                auto& chars = str_column->get_chars();
+                auto& offsets = str_column->get_offsets();
+                // data.resize(input_rows_count);
+                offsets.resize(input_rows_count);
+
+                if (auto nullable = check_and_get_column<const ColumnNullable>(
+                            *block.get_by_position(arguments[i]).column)) {
+                    const auto* int_data = assert_cast<const ColumnVector<Int32>*>(
+                                                   nullable->get_nested_column_ptr().get())
+                                                   ->get_data()
+                                                   .data();
+                    const auto* null_map_data = nullable->get_null_map_data().data();
+                    for (size_t j = 0; j < input_rows_count; ++j) {
+                        // ignore null
+                        if (null_map_data[j]) {
+                            offsets[j] = offsets[j - 1];
+                        } else {
+                            integer_to_char_(j, int_data + j, chars, offsets);
+                        }
+                    }
+                } else {
+                    const auto* int_data = assert_cast<const ColumnVector<Int32>*>(
+                                                   block.get_by_position(arguments[i]).column.get())
+                                                   ->get_data()
+                                                   .data();
+                    for (size_t j = 0; j < input_rows_count; ++j) {
+                        integer_to_char_(j, int_data + j, chars, offsets);
+                    }
+                }
+                offsets_list[i - 1] = &str_column->get_offsets();
+                chars_list[i - 1] = &str_column->get_chars();
+                str_columns[i - 1] = std::move(str_column);
+            }
+        }
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto res = ColumnString::create();
+        auto& res_data = res->get_chars();
+        auto& res_offset = res->get_offsets();
+
+        size_t res_reserve_size = 0;
+        for (size_t i = 0; i < argument_size - 1; ++i) {
+            if (!str_columns[i]) {
+                continue;
+            }
+            if (auto const_column = check_and_get_column<const ColumnConst>(*str_columns[i])) {
+                auto str_column =
+                        assert_cast<const ColumnString*>(&(const_column->get_data_column()));
+                auto& offsets = str_column->get_offsets();
+                res_reserve_size += (offsets[0] - offsets[-1]) * input_rows_count;
+            } else {
+                for (size_t j = 0; j < input_rows_count; ++j) {
+                    size_t append = (*offsets_list[i])[j] - (*offsets_list[i])[j - 1];
+                    // check whether the output might overflow(unlikely)
+                    if (UNLIKELY(UINT_MAX - append < res_reserve_size)) {
+                        return Status::BufferAllocFailed(
+                                "function char output is too large to allocate");
+                    }
+                    res_reserve_size += append;
+                }
+            }
+        }
+        if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
+            return Status::BufferAllocFailed("function char output is too large to allocate");
+        }
+
+        res_data.resize(res_reserve_size);
+        res_offset.resize(input_rows_count);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            int current_length = 0;
+            for (size_t j = 0; j < argument_size - 1; ++j) {
+                if (!str_columns[j]) {
+                    continue;
+                }
+                if (auto const_column = check_and_get_column<const ColumnConst>(*str_columns[j])) {
+                    auto str_column =
+                            assert_cast<const ColumnString*>(&(const_column->get_data_column()));
+                    auto data_item = str_column->get_data_at(0);
+                    memcpy_small_allow_read_write_overflow15(
+                            &res_data[res_offset[i - 1]] + current_length, data_item.data,
+                            data_item.size);
+                    current_length += data_item.size;
+                } else {
+                    auto& current_offsets = *offsets_list[j];
+                    auto& current_chars = *chars_list[j];
+
+                    int size = current_offsets[i] - current_offsets[i - 1];
+                    if (size > 0) {
+                        memcpy_small_allow_read_write_overflow15(
+                                &res_data[res_offset[i - 1]] + current_length,
+                                &current_chars[current_offsets[i - 1]], size);
+                        current_length += size;
+                    }
+                }
+            }
+            res_offset[i] = res_offset[i - 1] + current_length;
+        }
+
+        // validate utf8
+        auto* null_map_data = null_map->get_data().data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (!validate_utf8((const char*)(&res_data[res_offset[i - 1]]),
+                               res_offset[i] - res_offset[i - 1])) {
+                null_map_data[i] = 1;
+            }
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+
+private:
+    void integer_to_char_(int line_num, const int* num, ColumnString::Chars& chars,
+                          IColumn::Offsets& offsets) {
+        if (0 == *num) {
+            chars.push_back(' ');
+            offsets[line_num] = offsets[line_num - 1] + 1;
+            return;
+        }
+        const char* bytes = (const char*)(num);
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+        int k = 3;
+        for (; k >= 0; --k) {
+            if (bytes[k]) {
+                break;
+            }
+        }
+        offsets[line_num] = offsets[line_num - 1] + k + 1;
+        for (; k >= 0; --k) {
+            chars.push_back(bytes[k] ? bytes[k] : ' ');
+        }
+#else
+        int k = 0;
+        for (; k < 4; ++k) {
+            if (bytes[k]) {
+                break;
+            }
+        }
+        offsets[line_num] = offsets[line_num - 1] + 4 - k;
+        for (; k < 4; ++k) {
+            chars.push_back(bytes[k] ? bytes[k] : ' ');
+        }
+#endif
     }
 };
 } // namespace doris::vectorized

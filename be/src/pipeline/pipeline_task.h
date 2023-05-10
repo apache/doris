@@ -31,7 +31,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
-class QueryFragmentsCtx;
+class QueryContext;
 class RuntimeState;
 namespace pipeline {
 class PipelineFragmentContext;
@@ -171,7 +171,7 @@ public:
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
-    QueryFragmentsCtx* query_fragments_context();
+    QueryContext* query_context();
 
     int get_previous_core_id() const {
         return _previous_schedule_id != -1 ? _previous_schedule_id

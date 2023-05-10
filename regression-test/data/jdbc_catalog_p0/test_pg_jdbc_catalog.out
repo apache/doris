@@ -2152,11 +2152,20 @@ doris2	19
 doris3	20
 doris3	20
 
--- !specified_database --
+-- !specified_database_1 --
 doris_test
 
--- !specified_database --
+-- !specified_database_2 --
 doris_test
+
+-- !specified_database_3 --
+catalog_pg_test
+information_schema
+pg_catalog
+pg_toast
+public
+
+-- !specified_database_4 --
 
 -- !test_old --
 123	abc

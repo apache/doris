@@ -17,10 +17,24 @@
 
 #include "vec/function/function_test_util.h"
 
+#include <glog/logging.h>
+#include <opentelemetry/common/threadlocal.h>
+
+#include <iostream>
+
 #include "runtime/jsonb_value.h"
+#include "util/binary_cast.hpp"
+#include "util/bitmap_value.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time_v2.h"
+#include "vec/exprs/table_function/table_function.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 int64_t str_to_date_time(std::string datetime_str, bool data_time) {

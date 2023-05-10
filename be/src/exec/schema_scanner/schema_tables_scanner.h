@@ -32,6 +32,8 @@ class Block;
 } // namespace vectorized
 
 class SchemaTablesScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaTablesScanner);
+
 public:
     SchemaTablesScanner();
     ~SchemaTablesScanner() override;

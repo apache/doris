@@ -48,7 +48,7 @@
 #include "olap/schema.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "vec/common/arena.h"
@@ -553,7 +553,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
 
     if (read_params.use_topn_opt) {
         auto& runtime_predicate =
-                read_params.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+                read_params.runtime_state->get_query_ctx()->get_runtime_predicate();
         runtime_predicate.set_tablet_schema(_tablet_schema);
     }
 }
@@ -632,7 +632,7 @@ Status TabletReader::init_reader_params_and_create_block(
 
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
+        RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
         reader_params->rs_readers.push_back(std::move(rs_reader));
     }
 

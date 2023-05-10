@@ -86,11 +86,12 @@ const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
 const std::string ICEBERG_ROW_POS = "pos";
 const std::string ICEBERG_FILE_PATH = "file_path";
 
-IcebergTableReader::IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
-                                       RuntimeState* state, const TFileScanRangeParams& params,
+IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader,
+                                       RuntimeProfile* profile, RuntimeState* state,
+                                       const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range, ShardedKVCache* kv_cache,
                                        io::IOContext* io_ctx)
-        : TableFormatReader(file_format_reader),
+        : TableFormatReader(std::move(file_format_reader)),
           _profile(profile),
           _state(state),
           _params(params),

@@ -42,38 +42,40 @@ FileCacheFactory& FileCacheFactory::instance() {
     return ret;
 }
 
+size_t FileCacheFactory::try_release() {
+    int elements = 0;
+    for (auto& cache : _caches) {
+        elements += cache->try_release();
+    }
+    return elements;
+}
+
+size_t FileCacheFactory::try_release(const std::string& base_path) {
+    auto iter = _path_to_cache.find(base_path);
+    if (iter != _path_to_cache.end()) {
+        return iter->second->try_release();
+    }
+    return 0;
+}
+
 Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
-                                           const FileCacheSettings& file_cache_settings,
-                                           FileCacheType type) {
+                                           const FileCacheSettings& file_cache_settings) {
     if (config::clear_file_cache) {
         auto fs = global_local_filesystem();
         bool res = false;
         fs->exists(cache_base_path, &res);
         if (res) {
             fs->delete_directory(cache_base_path);
-            fs->create_directory(cache_base_path);
         }
     }
 
     std::unique_ptr<IFileCache> cache =
             std::make_unique<LRUFileCache>(cache_base_path, file_cache_settings);
     RETURN_IF_ERROR(cache->initialize());
-    std::string file_cache_type;
-    switch (type) {
-    case NORMAL:
-        _caches.push_back(std::move(cache));
-        file_cache_type = "NORMAL";
-        break;
-    case DISPOSABLE:
-        _disposable_cache.push_back(std::move(cache));
-        file_cache_type = "DISPOSABLE";
-        break;
-    }
-    LOG(INFO) << "[FileCache] path: " << cache_base_path << " type: " << file_cache_type
-              << " normal_size: " << file_cache_settings.max_size
-              << " normal_element_size: " << file_cache_settings.max_elements
-              << " persistent_size: " << file_cache_settings.persistent_max_size
-              << " persistent_element_size: " << file_cache_settings.persistent_max_elements;
+    _path_to_cache[cache_base_path] = cache.get();
+    _caches.push_back(std::move(cache));
+    LOG(INFO) << "[FileCache] path: " << cache_base_path
+              << " total_size: " << file_cache_settings.total_size;
     return Status::OK();
 }
 
@@ -81,11 +83,13 @@ CloudFileCachePtr FileCacheFactory::get_by_path(const IFileCache::Key& key) {
     return _caches[KeyHash()(key) % _caches.size()].get();
 }
 
-CloudFileCachePtr FileCacheFactory::get_disposable_cache(const IFileCache::Key& key) {
-    if (_disposable_cache.empty()) {
+CloudFileCachePtr FileCacheFactory::get_by_path(const std::string& cache_base_path) {
+    auto iter = _path_to_cache.find(cache_base_path);
+    if (iter == _path_to_cache.end()) {
         return nullptr;
+    } else {
+        return iter->second;
     }
-    return _disposable_cache[KeyHash()(key) % _caches.size()].get();
 }
 
 std::vector<IFileCache::QueryFileCacheContextHolderPtr> FileCacheFactory::get_query_context_holders(

@@ -28,9 +28,10 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR concat_ws (VARCHAR sep, VARCHAR str,...)`
-`VARCHAR concat_ws(VARCHAR sep, ARRAY array)`
-
+```sql
+VARCHAR concat_ws(VARCHAR sep, VARCHAR str,...)
+VARCHAR concat_ws(VARCHAR sep, ARRAY array)
+```
 
 Using the first parameter SEP as a connector, the second parameter and all subsequent parameters(or all string in an ARRAY) are spliced into a string.
 If the separator is NULL, return NULL.

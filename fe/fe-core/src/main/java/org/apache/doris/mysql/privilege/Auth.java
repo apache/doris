@@ -38,6 +38,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.AuthorizationException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -170,8 +171,9 @@ public class Auth implements Writable {
      */
     public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
             List<UserIdentity> currentUser) throws AuthenticationException {
-        if ((remoteUser.equals(ROOT_USER) || remoteUser.equals(ADMIN_USER)) && remoteHost.equals("127.0.0.1")) {
-            // root and admin user is allowed to login from 127.0.0.1, in case user forget password.
+        if ((ROOT_USER.equals(remoteUser) || ADMIN_USER.equals(remoteUser)) && Config.skip_localhost_auth_check
+                && "127.0.0.1".equals(remoteHost)) {
+            // in case user forget password.
             if (remoteUser.equals(ROOT_USER)) {
                 currentUser.add(UserIdentity.ROOT);
             } else {

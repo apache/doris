@@ -33,9 +33,8 @@ under the License.
 将 array 列展开成多行。当 array 为NULL或者为空时，`explode_outer` 返回NULL。
 `explode` 和 `explode_outer` 均会返回 array 内部的NULL元素。
 
-语法：
-
-```
+#### syntax
+```sql
 explode(expr)
 explode_outer(expr)
 ```

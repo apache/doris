@@ -18,10 +18,13 @@
 #include "util/block_compression.h"
 
 #include <gen_cpp/segment_v2.pb.h>
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdlib.h>
 
-#include <iostream>
+#include <string>
 
+#include "gtest/gtest_pred_impl.h"
 #include "util/faststring.h"
 
 namespace doris {

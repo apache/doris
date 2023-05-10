@@ -433,7 +433,12 @@ public:
         if (_first_created) {
             new (place) Data(argument_types.size());
             Status status = Status::OK();
-            RETURN_IF_STATUS_ERROR(status, this->data(place).init_udaf(_fn, _local_location));
+            SAFE_CREATE(RETURN_IF_STATUS_ERROR(status,
+                                               this->data(place).init_udaf(_fn, _local_location)),
+                        {
+                            this->data(place).destroy();
+                            this->data(place).~Data();
+                        });
             _first_created = false;
             _exec_place = place;
         }

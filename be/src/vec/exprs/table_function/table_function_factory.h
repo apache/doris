@@ -18,6 +18,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -34,7 +35,8 @@ public:
     TableFunctionFactory() = delete;
     static Status get_fn(const std::string& fn_name_raw, ObjectPool* pool, TableFunction** fn);
 
-    const static std::unordered_map<std::string, std::function<TableFunction*()>> _function_map;
+    const static std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
+            _function_map;
 };
 } // namespace vectorized
 } // namespace doris

@@ -28,7 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-`INT UNIX_TIMESTAMP(), UNIX_TIMESTAMP(DATETIME date)`
+`INT UNIX_TIMESTAMP([DATETIME date[, STRING fmt]])`
 
 Converting a Date or Datetime type to a UNIX timestamp.
 

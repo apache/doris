@@ -17,30 +17,42 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmapSubsetIterator;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.AbstractReceiver;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * This class enumerate all subgraph of HyperGraph. CSG means connected subgraph
- * and CMP means complement subgraph. More details are in Dynamic Programming
- * Strikes Back and Build Query Optimizer.
+ * and CMP means complement subgraph.
+ * More details are in Paper: Dynamic Programming Strikes Back and Build Query Optimizer.
  */
 public class SubgraphEnumerator {
-    //The receiver receives the csg and cmp and record them, named DPTable in paper
+    public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
+
+    // The receiver receives the csg and cmp and record them, named DPTable in paper
     AbstractReceiver receiver;
-    //The enumerated hyperGraph
+    // The enumerated hyperGraph
     HyperGraph hyperGraph;
     EdgeCalculator edgeCalculator;
     NeighborhoodCalculator neighborhoodCalculator;
     // These caches are used to avoid repetitive computation
+
+    // trace enumerate
+    private final boolean enableTrace = ConnectContext.get().getSessionVariable().enableDpHypTrace;
+    private final StringBuilder traceBuilder = new StringBuilder();
 
     public SubgraphEnumerator(AbstractReceiver receiver, HyperGraph hyperGraph) {
         this.receiver = receiver;
@@ -53,6 +65,9 @@ public class SubgraphEnumerator {
      * @return whether the hyperGraph is enumerated successfully
      */
     public boolean enumerate() {
+        if (enableTrace) {
+            traceBuilder.append("Query Graph Graphviz: ").append(hyperGraph.toDottyHyperGraph()).append("\n");
+        }
         receiver.reset();
         List<Node> nodes = hyperGraph.getNodes();
         // Init all nodes in Receiver
@@ -73,11 +88,17 @@ public class SubgraphEnumerator {
         // We skip the last element because it can't generate valid csg-cmp pair
         long forbiddenNodes = LongBitmap.newBitmapBetween(0, size - 1);
         for (int i = size - 2; i >= 0; i--) {
+            if (enableTrace) {
+                traceBuilder.append("Starting main iteration at node[").append(i).append("]\n");
+            }
             long csg = LongBitmap.newBitmap(i);
             forbiddenNodes = LongBitmap.unset(forbiddenNodes, i);
             if (!emitCsg(csg) || !enumerateCsgRec(csg, LongBitmap.clone(forbiddenNodes))) {
                 return false;
             }
+        }
+        if (enableTrace) {
+            LOG.info(traceBuilder.toString());
         }
         return true;
     }
@@ -87,6 +108,11 @@ public class SubgraphEnumerator {
     private boolean enumerateCsgRec(long csg, long forbiddenNodes) {
         long neighborhood = neighborhoodCalculator.calcNeighborhood(csg, forbiddenNodes, edgeCalculator);
         LongBitmapSubsetIterator subsetIterator = LongBitmap.getSubsetIterator(neighborhood);
+        if (enableTrace) {
+            traceBuilder.append("Expanding connected subgraph, subgraph=[").append(LongBitmap.toString(csg))
+                    .append("], neighborhood=[").append(LongBitmap.toString(neighborhood)).append("], forbidden=[")
+                    .append(LongBitmap.toString(forbiddenNodes)).append("]\n");
+        }
         for (long subset : subsetIterator) {
             long newCsg = LongBitmap.newBitmapUnion(csg, subset);
             edgeCalculator.unionEdges(csg, subset);
@@ -110,6 +136,11 @@ public class SubgraphEnumerator {
     private boolean enumerateCmpRec(long csg, long cmp, long forbiddenNodes) {
         long neighborhood = neighborhoodCalculator.calcNeighborhood(cmp, forbiddenNodes, edgeCalculator);
         LongBitmapSubsetIterator subsetIterator = new LongBitmapSubsetIterator(neighborhood);
+        if (enableTrace) {
+            traceBuilder.append("Expanding complement subgraph, subgraph=[").append(LongBitmap.toString(cmp))
+                    .append("], neighborhood=[").append(LongBitmap.toString(neighborhood)).append("], forbidden=[")
+                    .append(LongBitmap.toString(forbiddenNodes)).append("]\n");
+        }
         for (long subset : subsetIterator) {
             long newCmp = LongBitmap.newBitmapUnion(cmp, subset);
             // We need to check whether Cmp is connected and then try to find hyper edge
@@ -144,11 +175,15 @@ public class SubgraphEnumerator {
         forbiddenNodes = LongBitmap.or(forbiddenNodes, csg);
         long neighborhoods = neighborhoodCalculator.calcNeighborhood(csg, LongBitmap.clone(forbiddenNodes),
                 edgeCalculator);
+        if (enableTrace && LongBitmap.getCardinality(csg) == 1) {
+            traceBuilder.append("Emitting connected subgraph, subgraph=[").append(LongBitmap.toString(csg))
+                    .append("], neighborhood=[").append(LongBitmap.toString(neighborhoods)).append("], forbidden=[")
+                    .append(LongBitmap.toString(forbiddenNodes)).append("]\n");
+        }
         for (int nodeIndex : LongBitmap.getReverseIterator(neighborhoods)) {
             long cmp = LongBitmap.newBitmap(nodeIndex);
             // whether there is an edge between csg and cmp
             List<Edge> edges = edgeCalculator.connectCsgCmp(csg, cmp);
-
             if (!edges.isEmpty()) {
                 if (!receiver.emitCsgCmp(csg, cmp, edges)) {
                     return false;
@@ -174,7 +209,7 @@ public class SubgraphEnumerator {
         return true;
     }
 
-    class NeighborhoodCalculator {
+    static class NeighborhoodCalculator {
         // This function is used to calculate neighborhoods of given subgraph.
         // Though a direct way is to add all nodes u that satisfies:
         //              <u, v> \in E && v \in subgraph && v \intersect X = empty
@@ -203,7 +238,7 @@ public class SubgraphEnumerator {
         }
     }
 
-    class EdgeCalculator {
+    static class EdgeCalculator {
         final List<Edge> edges;
         // It cached all edges that contained by this subgraph, Note we always
         // use bitset store edge map because the number of edges can be very large
@@ -305,37 +340,26 @@ public class SubgraphEnumerator {
         }
 
         public List<Edge> foundEdgesContain(long subgraph) {
-            Preconditions.checkArgument(containSimpleEdges.containsKey(subgraph));
             BitSet edgeMap = containSimpleEdges.get(subgraph);
+            Preconditions.checkState(edgeMap != null);
             edgeMap.or(containComplexEdges.get(subgraph));
-            List<Edge> foundEdges = new ArrayList<>();
-            edgeMap.stream().forEach(index -> foundEdges.add(edges.get(index)));
-            return foundEdges;
+            return edgeMap.stream().mapToObj(edges::get).collect(Collectors.toList());
         }
 
         public List<Edge> foundSimpleEdgesContain(long subgraph) {
-            List<Edge> foundEdges = new ArrayList<>();
             if (!containSimpleEdges.containsKey(subgraph)) {
-                return foundEdges;
+                return Collections.emptyList();
             }
             BitSet edgeMap = containSimpleEdges.get(subgraph);
-            edgeMap.stream().forEach(index -> foundEdges.add(edges.get(index)));
-            return foundEdges;
+            return edgeMap.stream().mapToObj(edges::get).collect(Collectors.toList());
         }
 
         public List<Edge> foundComplexEdgesContain(long subgraph) {
-            List<Edge> foundEdges = new ArrayList<>();
             if (!containComplexEdges.containsKey(subgraph)) {
-                return foundEdges;
+                return Collections.emptyList();
             }
             BitSet edgeMap = containComplexEdges.get(subgraph);
-            edgeMap.stream().forEach(index -> foundEdges.add(edges.get(index)));
-            return foundEdges;
-        }
-
-        public int getEdgeSizeContain(long subgraph) {
-            Preconditions.checkArgument(containSimpleEdges.containsKey(subgraph));
-            return containSimpleEdges.get(subgraph).cardinality() + containSimpleEdges.get(subgraph).cardinality();
+            return edgeMap.stream().mapToObj(edges::get).collect(Collectors.toList());
         }
 
         private boolean isContainEdge(long subgraph, Edge edge) {

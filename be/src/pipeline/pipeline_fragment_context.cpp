@@ -120,7 +120,7 @@ namespace doris::pipeline {
 
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
-        int backend_num, std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
+        int backend_num, std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
         const std::function<void(RuntimeState*, Status*)>& call_back,
         const report_status_callback& report_status_cb)
         : _query_id(query_id),
@@ -208,9 +208,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     // 1. init _runtime_state
     _runtime_state =
-            std::make_unique<RuntimeState>(local_params, request.query_id, request.query_options,
-                                           _query_ctx->query_globals, _exec_env);
-    _runtime_state->set_query_fragments_ctx(_query_ctx.get());
+            RuntimeState::create_unique(local_params, request.query_id, request.query_options,
+                                        _query_ctx->query_globals, _exec_env);
+    _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 
@@ -278,18 +278,19 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 #endif
         ) {
             auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
-            const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
-                    local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
+                                                 no_scan_ranges);
             const bool shared_scan =
                     find_with_default(local_params.per_node_shared_scans, scan_node->id(), false);
             scan_node->set_scan_ranges(scan_ranges);
             scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
             ScanNode* scan_node = static_cast<ScanNode*>(node);
-            const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
-                    local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
+                                                 no_scan_ranges);
             scan_node->set_scan_ranges(scan_ranges);
-            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
+            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
+                          << " size=" << scan_ranges.get().size();
         }
     }
 
@@ -394,6 +395,10 @@ void PipelineFragmentContext::report_profile() {
             std::stringstream ss;
             _runtime_state->runtime_profile()->compute_time_in_profile();
             _runtime_state->runtime_profile()->pretty_print(&ss);
+            if (_runtime_state->load_channel_profile()) {
+                // _runtime_state->load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
+                _runtime_state->load_channel_profile()->pretty_print(&ss);
+            }
             VLOG_FILE << ss.str();
         }
 
@@ -650,6 +655,7 @@ Status PipelineFragmentContext::submit() {
     for (auto& task : _tasks) {
         st = scheduler->schedule_task(task.get());
         if (!st) {
+            std::lock_guard<std::mutex> l(_status_lock);
             cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             _total_tasks = submit_tasks;
             break;
@@ -657,6 +663,7 @@ Status PipelineFragmentContext::submit() {
         submit_tasks++;
     }
     if (!st.ok()) {
+        std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks == _total_tasks) {
             std::call_once(_close_once_flag, [this] { _close_action(); });
         }
@@ -723,6 +730,7 @@ void PipelineFragmentContext::_close_action() {
 }
 
 void PipelineFragmentContext::close_a_pipeline() {
+    std::lock_guard<std::mutex> l(_task_mutex);
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
         std::call_once(_close_once_flag, [this] { _close_action(); });
@@ -752,6 +760,7 @@ void PipelineFragmentContext::send_report(bool done) {
 
     _report_status_cb(
             {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
+             _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
              done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
              _fragment_instance_id, _backend_num, _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),

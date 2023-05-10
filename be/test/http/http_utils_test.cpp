@@ -15,13 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <event2/http.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include "common/logging.h"
+#include <string>
+
+#include "gtest/gtest_pred_impl.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/utils.h"
+#include "util/string_util.h"
 #include "util/url_coding.h"
+
+struct evhttp_request;
 
 namespace doris {
 

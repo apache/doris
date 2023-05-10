@@ -75,6 +75,11 @@ public class InlineViewRef extends TableRef {
     // Map inline view's output slots to the corresponding baseTblResultExpr of queryStmt.
     protected final ExprSubstitutionMap baseTblSmap;
 
+    // When parsing a ddl of hive view, it does not contains any catalog info,
+    // so we need to record it in Analyzer
+    // otherwise some error will occurs when resolving TableRef later.
+    protected String externalCtl;
+
     // END: Members that need to be reset()
     // ///////////////////////////////////////
 
@@ -446,6 +451,14 @@ public class InlineViewRef extends TableRef {
 
     public QueryStmt getQueryStmt() {
         return queryStmt;
+    }
+
+    public void setExternalCtl(String externalCtl) {
+        this.externalCtl = externalCtl;
+    }
+
+    public String getExternalCtl() {
+        return this.externalCtl;
     }
 
     @Override

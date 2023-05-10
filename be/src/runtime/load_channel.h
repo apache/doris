@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
 #include <stdint.h>
 #include <time.h>
 
@@ -36,7 +37,9 @@
 #include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
+#include "util/runtime_profile.h"
 #include "util/spinlock.h"
+#include "util/thrift_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -48,15 +51,15 @@ class PTabletWriterOpenRequest;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker, int64_t timeout_s,
-                bool is_high_priority, const std::string& sender_ip);
+                bool is_high_priority, const std::string& sender_ip, int64_t backend_id);
     ~LoadChannel();
 
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
     // this batch must belong to a index in one transaction
-    template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-    Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
+    Status add_batch(const PTabletWriterAddBlockRequest& request,
+                     PTabletWriterAddBlockResult* response);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
@@ -114,9 +117,9 @@ protected:
     Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished,
                                 const int64_t index_id);
 
-    template <typename Request, typename Response>
-    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel, const Request& request,
-                       Response* response) {
+    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel,
+                       const PTabletWriterAddBlockRequest& request,
+                       PTabletWriterAddBlockResult* response) {
         bool finished = false;
         auto index_id = request.index_id();
         RETURN_IF_ERROR(channel->close(
@@ -135,10 +138,19 @@ protected:
         return Status::OK();
     }
 
+    void _init_profile();
+    // thread safety
+    void _report_profile(PTabletWriterAddBlockResult* response);
+
 private:
     UniqueId _load_id;
     // Tracks the total memory consumed by current load job on this BE
     std::unique_ptr<MemTracker> _mem_tracker;
+
+    std::unique_ptr<RuntimeProfile> _profile;
+    RuntimeProfile* _self_profile;
+    RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
     // lock protect the tablets channel map
     std::mutex _lock;
@@ -160,36 +172,10 @@ private:
     bool _is_high_priority = false;
 
     // the ip where tablet sink locate
-    std::string _sender_ip = "";
+    std::string _sender_ip;
+
+    int64_t _backend_id;
 };
-
-template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
-                              TabletWriterAddResult* response) {
-    int64_t index_id = request.index_id();
-    // 1. get tablets channel
-    std::shared_ptr<TabletsChannel> channel;
-    bool is_finished;
-    Status st = _get_tablets_channel(channel, is_finished, index_id);
-    if (!st.ok() || is_finished) {
-        return st;
-    }
-
-    // 2. add block to tablets channel
-    if (request.has_block()) {
-        RETURN_IF_ERROR(channel->add_batch(request, response));
-    }
-
-    // 3. handle eos
-    if (request.has_eos() && request.eos()) {
-        st = _handle_eos(channel, request, response);
-        if (!st.ok()) {
-            return st;
-        }
-    }
-    _last_updated_time.store(time(nullptr));
-    return st;
-}
 
 inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {
     os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()

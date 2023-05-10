@@ -280,6 +280,7 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
             error.set(CL_ERR_IO, "Could not open file");
         }
     }
+    delete h->_shared_lock;
     _CLDECDELETE(h)
     return false;
 }

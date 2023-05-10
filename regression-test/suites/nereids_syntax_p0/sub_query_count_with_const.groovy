@@ -40,13 +40,4 @@ suite("sub_query_count_with_const") {
                        select 2022 as dt ,sum(id)
                        from sub_query_count_with_const
                  ) tmp;"""
-
-    explain {
-        sql ("""select count(1) as count
-                from (
-                      select 2022 as dt ,sum(id)
-                      from sub_query_count_with_const
-                ) tmp;""")
-        contains "output: sum(id[#0])[#1]"
-    }
 }

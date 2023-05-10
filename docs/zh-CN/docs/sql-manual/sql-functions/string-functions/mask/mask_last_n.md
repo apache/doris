@@ -28,7 +28,7 @@ under the License.
 ### description
 #### syntax
 
-`VARCHAR mask_last_n(VARCHAR str, [, INT n])`
+`VARCHAR mask_last_n(VARCHAR str[, INT n])`
 
 返回 str 的掩码版本，其中最后 n 个字符被转换为掩码。 大写字母转换为“X”，小写字母转换为“x”，数字转换为“n”。 例如，mask_last_n("1234-5678-8765-4321", 4) 结果为 1234-5678-8765-nnnn。
 

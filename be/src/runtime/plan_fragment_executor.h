@@ -39,7 +39,7 @@
 
 namespace doris {
 
-class QueryFragmentsCtx;
+class QueryContext;
 class ExecNode;
 class RowDescriptor;
 class DataSink;
@@ -79,7 +79,8 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    using report_status_callback = std::function<void(const Status&, RuntimeProfile*, bool)>;
+    using report_status_callback =
+            std::function<void(const Status&, RuntimeProfile*, RuntimeProfile*, bool)>;
 
     // report_status_cb, if !empty(), is used to report the accumulated profile
     // information periodically during execution (open() or get_next()).
@@ -98,9 +99,8 @@ public:
     // If request.query_options.mem_limit > 0, it is used as an approximate limit on the
     // number of bytes this query can consume at runtime.
     // The query will be aborted (MEM_LIMIT_EXCEEDED) if it goes over that limit.
-    // If fragments_ctx is not null, some components will be got from fragments_ctx.
-    Status prepare(const TExecPlanFragmentParams& request,
-                   QueryFragmentsCtx* fragments_ctx = nullptr);
+    // If query_ctx is not null, some components will be got from query_ctx.
+    Status prepare(const TExecPlanFragmentParams& request, QueryContext* query_ctx = nullptr);
 
     // Start execution. Call this prior to get_next().
     // If this fragment has a sink, open() will send all rows produced
@@ -127,6 +127,7 @@ public:
 
     // Profile information for plan and output sink.
     RuntimeProfile* profile();
+    RuntimeProfile* load_channel_profile();
 
     const Status& status() const { return _status; }
 

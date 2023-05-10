@@ -26,7 +26,6 @@
 #include <utility>
 
 #include "runtime/define_primitive_type.h"
-#include "runtime/types.h"
 #include "schema_desc.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
@@ -194,8 +193,13 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, siz
                                   ? chunk_meta.dictionary_page_offset
                                   : chunk_meta.data_page_offset;
     size_t chunk_len = chunk_meta.total_compressed_size;
-    _stream_reader = std::make_unique<io::BufferedFileStreamReader>(
-            file, chunk_start, chunk_len, std::min(chunk_len, max_buf_size));
+    size_t prefetch_buffer_size = std::min(chunk_len, max_buf_size);
+    if (typeid_cast<io::MergeRangeFileReader*>(file.get())) {
+        // turn off prefetch data when using MergeRangeFileReader
+        prefetch_buffer_size = 0;
+    }
+    _stream_reader = std::make_unique<io::BufferedFileStreamReader>(file, chunk_start, chunk_len,
+                                                                    prefetch_buffer_size);
     _chunk_reader = std::make_unique<ColumnChunkReader>(_stream_reader.get(), &_chunk_meta, field,
                                                         _ctz, _io_ctx);
     RETURN_IF_ERROR(_chunk_reader->init());
@@ -393,7 +397,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     }
 
     size_t num_values = parsed_values - ancestor_nulls;
-    if (num_values > 0) {
+    {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         select_vector.set_run_length_null_map(null_map, num_values, map_data_column);
     }

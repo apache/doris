@@ -35,9 +35,10 @@ element_at
 
 #### Syntax
 
-`T element_at(ARRAY<T> arr, BIGINT position)`
-
-`T arr[position]`
+```sql
+T element_at(ARRAY<T> arr, BIGINT position)
+T arr[position]
+```
 
 Returns an element of an array located at the input position. If there is no element at the position, return NULL.
 

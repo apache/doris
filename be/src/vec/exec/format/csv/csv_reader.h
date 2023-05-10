@@ -55,6 +55,8 @@ struct ScannerCounter;
 class Block;
 
 class CsvReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(CsvReader);
+
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,

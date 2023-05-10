@@ -36,6 +36,8 @@ class IOContext;
 // only used for FORMAT_PROTO type, which used for insert
 // transaction(begin/insert into/commit)
 class NewPlainBinaryLineReader : public LineReader {
+    ENABLE_FACTORY_CREATOR(NewPlainBinaryLineReader);
+
 public:
     NewPlainBinaryLineReader(io::FileReaderSPtr file_reader);
 

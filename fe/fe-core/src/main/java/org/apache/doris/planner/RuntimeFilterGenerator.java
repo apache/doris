@@ -190,12 +190,6 @@ public final class RuntimeFilterGenerator {
         int numBloomFilters = 0;
         for (RuntimeFilter filter : filters) {
             filter.extractTargetsPosition();
-            // Number of parallel instances are large for pipeline engine, so we prefer bloom filter.
-            if (filter.hasRemoteTargets() && filter.getType() == TRuntimeFilterType.IN_OR_BLOOM
-                    && ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
-                filter.setType(TRuntimeFilterType.BLOOM);
-            }
             if (filter.getType() == TRuntimeFilterType.BLOOM) {
                 if (numBloomFilters >= maxNumBloomFilters) {
                     continue;

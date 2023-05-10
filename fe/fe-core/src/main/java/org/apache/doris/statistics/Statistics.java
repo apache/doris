@@ -154,6 +154,15 @@ public class Statistics {
 
     @Override
     public String toString() {
+        if (Double.isNaN(rowCount)) {
+            return "NaN";
+        }
+        if (Double.POSITIVE_INFINITY == rowCount) {
+            return "Infinite";
+        }
+        if (Double.NEGATIVE_INFINITY == rowCount) {
+            return "-Infinite";
+        }
         DecimalFormat format = new DecimalFormat("#,###.##");
         return format.format(rowCount);
     }

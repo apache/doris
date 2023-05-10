@@ -35,6 +35,22 @@
 #include "runtime/threadlocal.h"
 #include "util/defer_op.h" // IWYU pragma: keep
 
+#define RETURN_IF_CATCH_EXCEPTION(stmt)                                                      \
+    do {                                                                                     \
+        try {                                                                                \
+            doris::enable_thread_catch_bad_alloc++;                                          \
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                 \
+            { stmt; }                                                                        \
+        } catch (const doris::Exception& e) {                                                \
+            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                            \
+                return Status::MemoryLimitExceeded(                                          \
+                        fmt::format("PreCatch error code:{}, {}", e.code(), e.to_string())); \
+            } else {                                                                         \
+                return Status::Error(e.code(), e.to_string());                               \
+            }                                                                                \
+        }                                                                                    \
+    } while (0)
+
 // Used to observe the memory usage of the specified code segment
 #ifdef USE_MEM_TRACKER
 // Count a code segment memory (memory malloc - memory free) to int64_t
@@ -73,6 +89,13 @@
 #define SCOPED_ATTACH_TASK(arg1, ...) (void)0
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_limiter) (void)0
 #endif
+
+#define SKIP_MEMORY_CHECK(...)                  \
+    do {                                        \
+        doris::skip_memory_check++;             \
+        DEFER({ doris::skip_memory_check--; }); \
+        __VA_ARGS__;                            \
+    } while (0)
 
 namespace doris {
 
@@ -118,6 +141,7 @@ public:
 
 inline thread_local ThreadContextPtr thread_context_ptr;
 inline thread_local int enable_thread_catch_bad_alloc = 0;
+inline thread_local int skip_memory_check = 0;
 
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
 // in tcmalloc hook, cache the key and value of bthread TLS in pthread TLS.
@@ -299,24 +323,6 @@ private:
     tracker->transfer_to(                               \
             size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_raw())
 
-#define RETURN_IF_CATCH_EXCEPTION(stmt)                                                        \
-    do {                                                                                       \
-        try {                                                                                  \
-            doris::thread_context()->thread_mem_tracker_mgr->clear_exceed_mem_limit_msg();     \
-            doris::enable_thread_catch_bad_alloc++;                                            \
-            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                   \
-            { stmt; }                                                                          \
-        } catch (std::bad_alloc const& e) {                                                    \
-            doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
-                    doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
-            return Status::MemoryLimitExceeded(fmt::format(                                    \
-                    "PreCatch {}, {}", e.what(),                                               \
-                    doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
-        } catch (const doris::Exception& e) {                                                  \
-            return Status::Error(e.code(), e.to_string());                                     \
-        }                                                                                      \
-    } while (0)
-
 // Mem Hook to consume thread mem tracker
 // TODO: In the original design, the MemTracker consume method is called before the memory is allocated.
 // If the consume succeeds, the memory is actually allocated, otherwise an exception is thrown.
@@ -346,7 +352,5 @@ private:
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
 #define CONSUME_MEM_TRACKER(size) (void)0
 #define RELEASE_MEM_TRACKER(size) (void)0
-#define RETURN_IF_CATCH_EXCEPTION(stmt) \
-    { stmt; }
 #endif
 } // namespace doris

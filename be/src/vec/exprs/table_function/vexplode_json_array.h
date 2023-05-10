@@ -102,6 +102,8 @@ struct ParsedData {
 };
 
 class VExplodeJsonArrayTableFunction final : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VExplodeJsonArrayTableFunction);
+
 public:
     VExplodeJsonArrayTableFunction(ExplodeJsonArrayType type);
     ~VExplodeJsonArrayTableFunction() override = default;

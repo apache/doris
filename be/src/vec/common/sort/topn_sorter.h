@@ -40,6 +40,8 @@ class VSortExecExprs;
 namespace doris::vectorized {
 
 class TopNSorter final : public Sorter {
+    ENABLE_FACTORY_CREATOR(TopNSorter);
+
 public:
     TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,

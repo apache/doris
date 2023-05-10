@@ -32,9 +32,7 @@ Constructs equi-width histograms, in which the histogram range is divided into i
 
 #### Syntax
 
-```sql
-width_bucket(expr, min_value, max_value, num_buckets)
-```
+`INT width_bucket(Expr expr, T min_value, T max_value, INT num_buckets)`
 
 #### Arguments
 `expr` -

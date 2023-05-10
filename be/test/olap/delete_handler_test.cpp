@@ -17,26 +17,35 @@
 
 #include "olap/delete_handler.h"
 
+#include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Descriptors_types.h>
-#include <gtest/gtest.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 #include <unistd.h>
 
-#include <algorithm>
-#include <boost/assign.hpp>
+#include <cstdlib>
 #include <iostream>
-#include <regex>
 #include <string>
 #include <vector>
 
+#include "common/config.h"
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/olap_tuple.h"
 #include "olap/options.h"
-#include "olap/push_handler.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
-#include "olap/utils.h"
 #include "util/cpu_info.h"
 
 using namespace std;

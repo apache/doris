@@ -200,8 +200,9 @@ public:
         destroy_elements();
         free();
 
+        const auto new_size = rhs.size();
         std::swap(buf, rhs.buf);
-        this->set_size(rhs.size());
+        this->set_size(new_size);
 
         Allocator::operator=(std::move(rhs));
         Cell::State::operator=(std::move(rhs));

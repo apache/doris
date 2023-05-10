@@ -28,7 +28,7 @@
 #include "pipeline/pipeline.h"
 #include "pipeline_fragment_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "task_queue.h"
 #include "util/defer_op.h"
@@ -118,7 +118,7 @@ bool PipelineTask::has_dependency() {
         return true;
     }
 
-    if (!query_fragments_context()->is_ready_to_execute()) {
+    if (!query_context()->is_ready_to_execute()) {
         return true;
     }
 
@@ -266,7 +266,7 @@ Status PipelineTask::close() {
     return s;
 }
 
-QueryFragmentsCtx* PipelineTask::query_fragments_context() {
+QueryContext* PipelineTask::query_context() {
     return _fragment_context->get_query_context();
 }
 

@@ -512,6 +512,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         RecyclePartitionInfo partitionInfo = idToPartition.remove(partitionId);
         idToRecycleTime.remove(partitionId);
 
+        if (partitionInfo == null) {
+            LOG.error("replayErasePartition: partitionInfo is null for partitionId[{}]", partitionId);
+        }
+
         Partition partition = partitionInfo.getPartition();
         if (!Env.isCheckpointThread()) {
             Env.getCurrentEnv().onErasePartition(partition);

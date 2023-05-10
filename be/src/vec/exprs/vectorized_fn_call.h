@@ -41,6 +41,8 @@ class VExprContext;
 
 namespace doris::vectorized {
 class VectorizedFnCall : public VExpr {
+    ENABLE_FACTORY_CREATOR(VectorizedFnCall);
+
 public:
     VectorizedFnCall(const TExprNode& node);
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
@@ -49,7 +51,9 @@ public:
                 FunctionContext::FunctionStateScope scope) override;
     void close(RuntimeState* state, VExprContext* context,
                FunctionContext::FunctionStateScope scope) override;
-    VExpr* clone(ObjectPool* pool) const override { return pool->add(new VectorizedFnCall(*this)); }
+    VExpr* clone(ObjectPool* pool) const override {
+        return pool->add(VectorizedFnCall::create_unique(*this).release());
+    }
     const std::string& expr_name() const override;
     std::string debug_string() const override;
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);

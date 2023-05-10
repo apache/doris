@@ -374,3 +374,6 @@ TESTING	AGAIN
 -- !aggregate --
 9	9	10	8	7	7	7	2
 
+-- !select_quantile_percent --
+5000.0
+

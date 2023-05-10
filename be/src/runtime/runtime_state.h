@@ -37,6 +37,7 @@
 #include "cctz/time_zone.h"
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
@@ -48,11 +49,13 @@ class ObjectPool;
 class ExecEnv;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
-class QueryFragmentsCtx;
+class QueryContext;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
 class RuntimeState {
+    ENABLE_FACTORY_CREATOR(RuntimeState);
+
 public:
     // for ut only
     RuntimeState(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
@@ -83,6 +86,10 @@ public:
     Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
 
     const TQueryOptions& query_options() const { return _query_options; }
+    int64_t scan_queue_mem_limit() const {
+        return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
+                                                           : _query_options.mem_limit / 20;
+    }
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
@@ -113,6 +120,7 @@ public:
 
     // Returns runtime state profile
     RuntimeProfile* runtime_profile() { return &_profile; }
+    RuntimeProfile* load_channel_profile() { return &_load_channel_profile; }
 
     bool enable_function_pushdown() const {
         return _query_options.__isset.enable_function_pushdown &&
@@ -217,6 +225,8 @@ public:
 
     int64_t num_bytes_load_total() { return _num_bytes_load_total.load(); }
 
+    int64_t num_finished_range() { return _num_finished_scan_range.load(); }
+
     int64_t num_rows_load_total() { return _num_rows_load_total.load(); }
 
     int64_t num_rows_load_filtered() { return _num_rows_load_filtered.load(); }
@@ -233,6 +243,10 @@ public:
 
     void update_num_bytes_load_total(int64_t bytes_load) {
         _num_bytes_load_total.fetch_add(bytes_load);
+    }
+
+    void update_num_finished_scan_range(int64_t finished_range) {
+        _num_finished_scan_range.fetch_add(finished_range);
     }
 
     void update_num_rows_load_filtered(int64_t num_rows) {
@@ -340,9 +354,9 @@ public:
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
-    void set_query_fragments_ctx(QueryFragmentsCtx* ctx) { _query_ctx = ctx; }
+    void set_query_ctx(QueryContext* ctx) { _query_ctx = ctx; }
 
-    QueryFragmentsCtx* get_query_fragments_ctx() { return _query_ctx; }
+    QueryContext* get_query_ctx() { return _query_ctx; }
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
@@ -395,6 +409,7 @@ private:
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
+    RuntimeProfile _load_channel_profile;
 
     const DescriptorTbl* _desc_tbl;
     std::shared_ptr<ObjectPool> _obj_pool;
@@ -461,6 +476,7 @@ private:
     std::atomic<int64_t> _num_print_error_rows;
 
     std::atomic<int64_t> _num_bytes_load_total; // total bytes read from source
+    std::atomic<int64_t> _num_finished_scan_range;
 
     std::vector<std::string> _export_output_files;
     std::string _import_label;
@@ -476,7 +492,7 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
-    QueryFragmentsCtx* _query_ctx;
+    QueryContext* _query_ctx;
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;

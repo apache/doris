@@ -171,6 +171,9 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_zip(k10, k10) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_zip(k11, k11, k11, k11) FROM ${tableName} ORDER BY k1"
 
+    qt_select "SELECT k1, array_cum_sum(k2), array_cum_sum(k4) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_cum_sum(k12), array_cum_sum(k13) FROM ${tableName} ORDER BY k1"
+
     def tableName2 = "tbl_test_array_range"
     sql """DROP TABLE IF EXISTS ${tableName2}"""
     sql """
