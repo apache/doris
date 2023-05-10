@@ -54,12 +54,13 @@ private:
      * @brief recycle when TabletSchemaSPtr use_count equals 1.
      */
     void _recycle();
+
 private:
     static inline TabletSchemaCache* _s_instance = nullptr;
     std::mutex _mtx;
     std::unordered_map<std::string, TabletSchemaSPtr> _cache;
-    std::atomic_bool _should_stop = { false };
-    std::atomic_bool _is_stopped = { false };
+    std::atomic_bool _should_stop = {false};
+    std::atomic_bool _is_stopped = {false};
 };
 
 } // namespace doris
