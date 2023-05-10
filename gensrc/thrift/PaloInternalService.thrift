@@ -228,16 +228,6 @@ struct TScanRangeParams {
   2: optional i32 volume_id = -1
 }
 
-// Specification of one output destination of a plan fragment
-struct TPlanFragmentDestination {
-  // the globally unique fragment instance id
-  1: required Types.TUniqueId fragment_instance_id
-
-  // ... which is being executed on this server
-  2: required Types.TNetworkAddress server
-  3: optional Types.TNetworkAddress brpc_server
-}
-
 struct TRuntimeFilterTargetParams {
   1: required Types.TUniqueId target_fragment_instance_id
   // The address of the instance where the fragment is expected to run
@@ -288,7 +278,7 @@ struct TPlanFragmentExecParams {
   // The partitioning of the output is specified by
   // TPlanFragment.output_sink.output_partition.
   // The number of output partitions is destinations.size().
-  5: list<TPlanFragmentDestination> destinations
+  5: list<DataSinks.TPlanFragmentDestination> destinations
 
   // Debug options: perform some action in a particular phase of a particular node
   // 6: optional Types.TPlanNodeId debug_node_id // Never used
@@ -613,7 +603,7 @@ struct TPipelineFragmentParams {
   5: optional Descriptors.TDescriptorTable desc_tbl
   // Deprecated
   6: optional Types.TResourceInfo resource_info
-  7: list<TPlanFragmentDestination> destinations
+  7: list<DataSinks.TPlanFragmentDestination> destinations
   8: optional i32 num_senders
   9: optional bool send_query_statistics_with_every_batch
   10: optional Types.TNetworkAddress coord
