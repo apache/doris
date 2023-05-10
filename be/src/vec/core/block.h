@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
