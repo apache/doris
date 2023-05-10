@@ -33,7 +33,6 @@ suite("test_all_types", "types") {
 
     dataTypes.each { row ->
         def dataType = row[0]
-        println(dataType)
         index++
         if (dataType == "ARRAY" || dataType == "MAP") {
             return
@@ -76,8 +75,6 @@ suite("test_all_types", "types") {
 
     createTBSQL += """AGGREGATE KEY(${keyCols})
     DISTRIBUTED BY HASH(k2) BUCKETS 5 properties("replication_num" = "1");"""
-    
-    println "${createTBSQL}"
 
     sql "${createTBSQL}"
 
@@ -211,7 +208,6 @@ suite("test_all_types", "types") {
         } else {
             keyCols += "k${index}, "
             createTBSQL += "k${index} ${dataType}, "
-            println(dataType)
         }
     }
     valueCols = valueCols.substring(0, valueCols.length() - 2)
@@ -223,7 +219,6 @@ suite("test_all_types", "types") {
     createTBSQL += """UNIQUE KEY(${keyCols})
     DISTRIBUTED BY HASH(k2) BUCKETS 5 properties("replication_num" = "1");"""
 
-    println "${createTBSQL}"
     sql "${createTBSQL}"
 
     // uniModel_read insert load
@@ -315,7 +310,6 @@ suite("test_all_types", "types") {
     // uniModel_write start 
 
     TableName = "data_types_uni_write"
-    sql "DROP TABLE IF EXISTS ${TableName}"
     createTBSQL = "CREATE TABLE IF NOT EXISTS ${TableName} ("
     valueCols = ""
     index = 0
@@ -347,7 +341,6 @@ suite("test_all_types", "types") {
         } else {
             keyCols += "k${index}, "
             createTBSQL += "k${index} ${dataType}, "
-            println(dataType)
         }
     }
     valueCols = valueCols.substring(0, valueCols.length() - 2)
@@ -359,7 +352,6 @@ suite("test_all_types", "types") {
     createTBSQL += """UNIQUE KEY(${keyCols})
     DISTRIBUTED BY HASH(k2) BUCKETS 5 properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");"""
 
-    println "${createTBSQL}"
     sql "${createTBSQL}"
 
     // uniModel_write insert load
@@ -449,7 +441,6 @@ suite("test_all_types", "types") {
     sql "DROP TABLE IF EXISTS ${TableName}"
 
 
-
     // DupModel start
     TableName = "data_types_dup"
 
@@ -484,7 +475,6 @@ suite("test_all_types", "types") {
         } else {
             keyCols += "k${index}, "
             createTBSQL += "k${index} ${dataType}, "
-            println(dataType)
         }
     }
     valueCols = valueCols.substring(0, valueCols.length() - 2)
@@ -495,8 +485,6 @@ suite("test_all_types", "types") {
 
     createTBSQL += """DUPLICATE KEY(${keyCols})
     DISTRIBUTED BY HASH(k2) BUCKETS 5 properties("replication_num" = "1");"""
-
-    println "${createTBSQL}"
 
     sql "${createTBSQL}"
 
