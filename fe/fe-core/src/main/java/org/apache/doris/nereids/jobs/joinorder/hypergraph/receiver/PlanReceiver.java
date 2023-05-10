@@ -102,11 +102,7 @@ public class PlanReceiver implements AbstractReceiver {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
 
-        // check if the missed edges can be correctly connected by add it to edges
-        // if not, the plan is invalid because of the missed edges, just return and seek for another valid plan
-        if (!processMissedEdges(left, right, edges)) {
-            return true;
-        }
+        processMissedEdges(left, right, edges);
 
         Memo memo = jobContext.getCascadesContext().getMemo();
         emitCount += 1;
@@ -165,37 +161,27 @@ public class PlanReceiver implements AbstractReceiver {
         return outputSlots;
     }
 
-    // check if the missed edges can be used to connect left and right together with edges
-    // return true if no missed edge or the missed edge can be used to connect left and right
-    // the returned edges includes missed edges if there is any.
-    private boolean processMissedEdges(long left, long right, List<Edge> edges) {
-        boolean canAddMisssedEdges = true;
-
-        // find all reference nodes assume left and right sub graph is connected
+    // add any missed edge into edges to connect left and right
+    private void processMissedEdges(long left, long right, List<Edge> edges) {
+        // find all used edges
         BitSet usedEdgesBitmap = new BitSet();
         usedEdgesBitmap.or(usdEdges.get(left));
         usedEdgesBitmap.or(usdEdges.get(right));
         edges.forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
-        long allReferenceNodes = getAllReferenceNodes(usedEdgesBitmap);
 
-        // check all edges
-        // the edge is a missed edge if the edge is not used and its reference nodes is a subset of allReferenceNodes
+        // find all referenced nodes
+        long allReferenceNodes = LongBitmap.or(left, right);
+
+        // find the edge which is not in usedEdgesBitmap and its referenced nodes is subset of allReferenceNodes
         for (Edge edge : hyperGraph.getEdges()) {
-            if (LongBitmap.isSubset(edge.getReferenceNodes(), allReferenceNodes) && !usedEdgesBitmap.get(
-                    edge.getIndex())) {
-                // check the missed edge can be used to connect left and right together with edges
-                // if the missed edge meet the 2 conditions, it is a valid edge
-                // 1. the edge's left child's referenced nodes is subset of the left
-                // 2. the edge's original right node is subset of right
-                canAddMisssedEdges = canAddMisssedEdges && LongBitmap.isSubset(edge.getLeft(),
-                        left) && LongBitmap.isSubset(edge.getOriginalRight(), right);
-
-                // always add the missed edge to edges
-                // because the caller will return immediately if canAddMisssedEdges is false
+            long referenceNodes =
+                    LongBitmap.newBitmapUnion(edge.getOriginalLeft(), edge.getOriginalRight());
+            if (LongBitmap.isSubset(referenceNodes, allReferenceNodes)
+                    && !usedEdgesBitmap.get(edge.getIndex())) {
+                // add the missed edge to edges
                 edges.add(edge);
             }
         }
-        return canAddMisssedEdges;
     }
 
     private long getAllReferenceNodes(BitSet edgesBitmap) {
