@@ -35,6 +35,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildCTEAnchorAndCTEProducer;
+import org.apache.doris.nereids.rules.rewrite.logical.CTEProducerRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
@@ -75,6 +76,8 @@ import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspo
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
+import org.apache.doris.nereids.trees.plans.logical.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.trees.plans.logical.CollectProjectAboveConsumer;
 
 import com.google.common.collect.ImmutableList;
 
@@ -85,8 +88,6 @@ import java.util.List;
  */
 public class NereidsRewriter extends BatchRewriteJob {
     private static final List<RewriteJob> REWRITE_JOBS = jobs(
-
-            topic("CTE", topDown(new BuildCTEAnchorAndCTEProducer())),
 
             topic("Normalization",
                 topDown(
@@ -268,7 +269,13 @@ public class NereidsRewriter extends BatchRewriteJob {
                 new AdjustNullable(),
                 new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                 new CheckAfterRewrite()
-            ))
+            )),
+
+            topic("CTE", topDown(
+                    new CollectFilterAboveConsumer(),
+                    new CollectProjectAboveConsumer(),
+                    new BuildCTEAnchorAndCTEProducer()),
+                    topDown(new CTEProducerRewrite()))
     );
 
     public NereidsRewriter(CascadesContext cascadesContext) {

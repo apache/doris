@@ -41,13 +41,16 @@ public class CTEContext {
     private LogicalPlan analyzedPlanCacheOnce;
     private Function<Plan, LogicalPlan> analyzePlanBuilder;
 
+    private int uniqueId;
+
     /* build head CTEContext */
     public CTEContext() {
-        this(null, null);
+        this(null, null, Integer.MIN_VALUE);
     }
 
     /** CTEContext */
-    public CTEContext(@Nullable LogicalSubQueryAlias<Plan> parsedPlan, @Nullable CTEContext previousCteContext) {
+    public CTEContext(@Nullable LogicalSubQueryAlias<Plan> parsedPlan, @Nullable CTEContext previousCteContext,
+            int uniqueId) {
         if ((parsedPlan == null && previousCteContext != null) || (parsedPlan != null && previousCteContext == null)) {
             throw new AnalysisException("Only first CteContext can contains null cte plan or previousCteContext");
         }
@@ -59,6 +62,7 @@ public class CTEContext {
                         .putAll(previousCteContext.cteContextMap)
                         .put(name, this)
                         .build();
+        this.uniqueId = uniqueId;
     }
 
     public void setAnalyzedPlanCacheOnce(LogicalPlan analyzedPlan) {
@@ -101,5 +105,9 @@ public class CTEContext {
             return analyzedPlan;
         }
         return analyzePlanBuilder.apply(parsedPlan);
+    }
+
+    public int getUniqueId() {
+        return uniqueId;
     }
 }

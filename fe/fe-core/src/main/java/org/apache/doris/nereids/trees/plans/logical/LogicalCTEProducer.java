@@ -28,23 +28,26 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * LogicalCTEProducer
+ */
 public class LogicalCTEProducer<CHILD_TYPE extends Plan>
         extends LogicalUnary<CHILD_TYPE> {
 
-    private final long cteId;
+    private final int cteId;
 
-    public LogicalCTEProducer(CHILD_TYPE child, long cteId) {
+    public LogicalCTEProducer(CHILD_TYPE child, int cteId) {
         super(PlanType.LOGICAL_CTE_PRODUCER, child);
         this.cteId = cteId;
     }
 
     public LogicalCTEProducer(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, long cteId) {
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, int cteId) {
         super(type, groupExpression, logicalProperties, child);
         this.cteId = cteId;
     }
 
-    public long getCteId() {
+    public int getCteId() {
         return cteId;
     }
 
@@ -77,5 +80,10 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan>
     @Override
     public List<Slot> computeOutput() {
         return child().computeOutput();
+    }
+
+    @Override
+    public String toString() {
+        return String.format("LOGICAL_CTE_PRODUCER#%d", cteId);
     }
 }

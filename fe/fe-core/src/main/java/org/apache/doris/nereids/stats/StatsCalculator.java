@@ -746,7 +746,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, Void context) {
-        return Statistics.zero()
+        return null;
     }
 
     @Override

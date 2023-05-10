@@ -30,6 +30,9 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * LogicalCTEAnchor
+ */
 public class LogicalCTEAnchor<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan> extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
@@ -80,5 +83,10 @@ public class LogicalCTEAnchor<
 
     public long getCteId() {
         return cteId;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("LOGICAL_CTE_ANCHOR#%d", cteId);
     }
 }

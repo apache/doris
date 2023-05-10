@@ -42,9 +42,11 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -97,9 +99,15 @@ public class CascadesContext implements ScheduleContext, PlanSource {
 
     private Optional<Scope> outerScope = Optional.empty();
 
-    private Map<Integer, Long> cteIdToProducerId = new HashMap<>();
+    private Map<Integer, Integer> cteIdToConsumerId = new HashMap<>();
 
     private Map<Integer, LogicalSubQueryAlias> cteIdToCTE = new HashMap<>();
+
+    private Map<Integer, Set<Expression>> cteIdToFilter = new HashMap<>();
+
+    private Map<Integer, Set<Expression>> cteIdToProject = new HashMap<>();
+
+    private boolean rewriteCTEProducer;
 
     public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
             PhysicalProperties requestProperties) {
@@ -436,7 +444,38 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         }
     }
 
-    public void putCteIDToCTE(LogicalSubQueryAlias logicalSubQueryAlias) {
+    public void putCteIDToCTE(LogicalSubQueryAlias<? extends Plan> logicalSubQueryAlias) {
         this.cteIdToCTE.put(logicalSubQueryAlias.hashCode(), logicalSubQueryAlias);
+    }
+
+    public void putCTEIdToConsumer(LogicalCTEConsumer cteConsumer) {
+        this.cteIdToConsumerId.put(cteConsumer.getCteId(), cteConsumer.getConsumerId());
+    }
+
+    public void putCTEIdToFilter(int cteId, Expression f) {
+        Set<Expression> filters = this.cteIdToFilter.computeIfAbsent(cteId, k -> new HashSet<>());
+        filters.add(f);
+    }
+
+    public void putCTEIdToProject(int cteId, Expression p) {
+        Set<Expression> projects = this.cteIdToProject.computeIfAbsent(cteId, k -> new HashSet<>());
+        projects.add(p);
+    }
+
+    public Set<Expression> findProjectForProducer(int cteId) {
+        return this.cteIdToProject.get(cteId);
+    }
+
+    public Set<Expression> findFilterForProducer(int cteId) {
+        return this.cteIdToFilter.get(cteId);
+    }
+
+    public CascadesContext forkForCTEProducer(Plan plan) {
+        CascadesContext cascadesContext = new CascadesContext(plan, memo, statementContext, PhysicalProperties.ANY);
+        cascadesContext.cteIdToConsumerId = cteIdToConsumerId;
+        cascadesContext.cteIdToFilter = cteIdToFilter;
+        cascadesContext.cteIdToProject = cteIdToProject;
+        cascadesContext.cteContext = cteContext;
+        return cascadesContext;
     }
 }

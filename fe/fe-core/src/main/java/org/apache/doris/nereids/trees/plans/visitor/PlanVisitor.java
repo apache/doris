@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTERelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
@@ -393,7 +392,7 @@ public abstract class PlanVisitor<R, C> {
         return visit(cteAnchor, context);
     }
 
-    public R visitLogicalCTERelation(LogicalCTERelation cteRelation, C context) {
+    public R visitLogicalCTERelation(LogicalCTEConsumer cteRelation, C context) {
         throw new RuntimeException("Unexpected CTERelation node here");
     }
 

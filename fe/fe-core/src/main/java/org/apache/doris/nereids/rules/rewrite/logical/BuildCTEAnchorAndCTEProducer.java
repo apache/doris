@@ -24,10 +24,12 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTERelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
+/**
+ * BuildCTEAnchorAndCTEProducer.
+ */
 public class BuildCTEAnchorAndCTEProducer extends OneRewriteRuleFactory {
 
     @Override
@@ -46,10 +48,10 @@ public class BuildCTEAnchorAndCTEProducer extends OneRewriteRuleFactory {
         LogicalPlan child = (LogicalPlan) logicalCTE.child();
         for (int i = logicalCTE.getAliasQueries().size() - 1; i >= 0; i--) {
             LogicalSubQueryAlias s = (LogicalSubQueryAlias) logicalCTE.getAliasQueries().get(i);
+            int id = logicalCTE.findUniqueId(s.getAlias());
             LogicalCTEProducer logicalCTEProducer = new LogicalCTEProducer(
-                    s.child() instanceof LogicalCTERelation ? rewrite((LogicalCTERelation) s.child(), cascadesContext)
-                            : (LogicalPlan) s.child(), s.uniqueId());
-            child = new LogicalCTEAnchor(logicalCTEProducer, child, s.uniqueId());
+                    rewrite((LogicalPlan) s.child(), cascadesContext), id);
+            child = new LogicalCTEAnchor(logicalCTEProducer, child, id);
         }
         return child;
     }

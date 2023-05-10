@@ -48,17 +48,19 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
     public Rule build() {
         return logicalCTE().whenNot(LogicalCTE::isRegistered).thenApply(ctx -> {
             LogicalCTE<Plan> logicalCTE = ctx.root;
-            List<LogicalSubQueryAlias<Plan>> analyzedCTE = register(logicalCTE.getAliasQueries(), ctx.cascadesContext);
-            return new LogicalCTE<>(analyzedCTE, logicalCTE.child(), true);
+            List<LogicalSubQueryAlias<Plan>> analyzedCTE = register(logicalCTE, ctx.cascadesContext);
+            return new LogicalCTE<>(analyzedCTE, logicalCTE.child(), true,
+                    logicalCTE.getSubQueryAliasToUniqueId());
         }).toRule(RuleType.REGISTER_CTE);
     }
 
     /**
      * register and store CTEs in CTEContext
      */
-    private List<LogicalSubQueryAlias<Plan>> register(List<LogicalSubQueryAlias<Plan>> aliasQueryList,
+    private List<LogicalSubQueryAlias<Plan>> register(LogicalCTE<Plan> logicalCTE,
             CascadesContext cascadesContext) {
         CTEContext cteCtx = cascadesContext.getCteContext();
+        List<LogicalSubQueryAlias<Plan>> aliasQueryList = logicalCTE.getAliasQueries();
         List<LogicalSubQueryAlias<Plan>> analyzedCTE = new ArrayList<>();
         for (LogicalSubQueryAlias<Plan> aliasQuery : aliasQueryList) {
             String cteName = aliasQuery.getAlias();
@@ -81,7 +83,7 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
                 checkColumnAlias(aliasQuery, analyzedCteBody.getOutput());
             }
 
-            cteCtx = new CTEContext(aliasQuery, localCteContext);
+            cteCtx = new CTEContext(aliasQuery, localCteContext, logicalCTE.findUniqueId(aliasQuery.getAlias()));
 
             LogicalSubQueryAlias<Plan> logicalSubQueryAlias =
                     aliasQuery.withChildren(ImmutableList.of(analyzedCteBody));
