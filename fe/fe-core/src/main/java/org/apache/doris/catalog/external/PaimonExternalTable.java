@@ -26,6 +26,8 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.Table;
@@ -37,7 +39,10 @@ import java.util.List;
 
 public class PaimonExternalTable extends ExternalTable {
 
+    private static final Logger LOG = LogManager.getLogger(PaimonExternalTable.class);
+
     public static final int PAIMON_DATETIME_SCALE_MS = 3;
+    private Table originTable = null;
 
     public PaimonExternalTable(long id, String name, String dbName, PaimonExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.PAIMON_EXTERNAL_TABLE);
@@ -54,9 +59,16 @@ public class PaimonExternalTable extends ExternalTable {
         }
     }
 
+    public Table getOriginTable() {
+        if (originTable == null) {
+            originTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
+        }
+        return originTable;
+    }
+
     @Override
     public List<Column> initSchema() {
-        Table table = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
+        Table table = getOriginTable();
         TableSchema schema = ((AbstractFileStoreTable) table).schema();
         List<DataField> columns = schema.fields();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());

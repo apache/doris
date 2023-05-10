@@ -18,9 +18,5 @@
 package org.apache.doris.datasource.property.constants;
 
 public class PaimonProperties {
-    public static final String PAIMON_WAREHOUSE = "paimon.warehouse";
-    public static final String URI = "uri";
-    public static final String METASTORE = "metastore";
-    public static final String METASTORE_HIVE = "hive";
     public static final String WAREHOUSE = "warehouse";
 }

@@ -49,6 +49,9 @@ import javax.annotation.Nullable;
 
 public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
 
+    public static final String METASTORE = "metastore";
+    public static final String METASTORE_HIVE = "hive";
+    public static final String URI = "uri";
     private static final ConfigOption<String> METASTORE_CLIENT_CLASS =
             ConfigOptions.key("metastore.client.class")
             .stringType()
@@ -68,18 +71,17 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
     protected void initLocalObjectsImpl() {
         paimonCatalogType = PAIMON_HMS;
         String metastoreUris = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
-        String warehouse = catalogProperty.getOrDefault(PaimonProperties.PAIMON_WAREHOUSE, "");
+        String warehouse = catalogProperty.getOrDefault(PaimonProperties.WAREHOUSE, "");
         Options options = new Options();
         options.set(PaimonProperties.WAREHOUSE, warehouse);
         // Currently, only supports hive
-        options.set(PaimonProperties.METASTORE, PaimonProperties.METASTORE_HIVE);
-        options.set(PaimonProperties.URI, metastoreUris);
+        options.set(METASTORE, METASTORE_HIVE);
+        options.set(URI, metastoreUris);
         CatalogContext context = CatalogContext.create(options, getConfiguration());
         try {
             catalog = create(context);
         } catch (IOException e) {
             e.printStackTrace();
-
         }
     }
 

@@ -17,26 +17,20 @@
 
 package org.apache.doris.catalog.external;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable> implements GsonPostProcessable {
@@ -48,7 +42,12 @@ public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable
     private Map<Long, PaimonExternalTable> idToTbl = Maps.newConcurrentMap();
 
     public PaimonExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
-        super(extCatalog, id, name);
+        super(extCatalog, id, name, InitDatabaseLog.Type.PAIMON);
+    }
+
+    @Override
+    protected PaimonExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+        return new PaimonExternalTable(tblId, tableName, name, (PaimonExternalCatalog) extCatalog);
     }
 
     public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
@@ -77,85 +76,9 @@ public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable
     }
 
     @Override
-    protected void init() {
-        InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
-        initDatabaseLog.setType(InitDatabaseLog.Type.HMS);
-        initDatabaseLog.setCatalogId(extCatalog.getId());
-        initDatabaseLog.setDbId(id);
-        List<String> tableNames = extCatalog.listTableNames(null, name);
-        if (tableNames != null) {
-            Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
-            Map<Long, PaimonExternalTable> tmpIdToTbl = Maps.newHashMap();
-            for (String tableName : tableNames) {
-                long tblId;
-                if (tableNameToId != null && tableNameToId.containsKey(tableName)) {
-                    tblId = tableNameToId.get(tableName);
-                    tmpTableNameToId.put(tableName, tblId);
-                    PaimonExternalTable table = idToTbl.get(tblId);
-                    table.unsetObjectCreated();
-                    tmpIdToTbl.put(tblId, table);
-                    initDatabaseLog.addRefreshTable(tblId);
-                } else {
-                    tblId = Env.getCurrentEnv().getNextId();
-                    tmpTableNameToId.put(tableName, tblId);
-                    PaimonExternalTable table = new PaimonExternalTable(tblId, tableName, name,
-                            (PaimonExternalCatalog) extCatalog);
-                    tmpIdToTbl.put(tblId, table);
-                    initDatabaseLog.addCreateTable(tblId, tableName);
-                }
-            }
-            tableNameToId = tmpTableNameToId;
-            idToTbl = tmpIdToTbl;
-        }
-        initialized = true;
-        Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
-    }
-
-    @Override
-    public List<PaimonExternalTable> getTables() {
-        makeSureInitialized();
-        return Lists.newArrayList(idToTbl.values());
-    }
-
-    @Override
     public List<PaimonExternalTable> getTablesOnIdOrder() {
         // Sort the name instead, because the id may change.
         return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
-    }
-
-    @Override
-    public Set<String> getTableNamesWithLock() {
-        makeSureInitialized();
-        return Sets.newHashSet(tableNameToId.keySet());
-    }
-
-    @Override
-    public PaimonExternalTable getTableNullable(String tableName) {
-        makeSureInitialized();
-        if (!tableNameToId.containsKey(tableName)) {
-            return null;
-        }
-        return idToTbl.get(tableNameToId.get(tableName));
-    }
-
-    @Override
-    public PaimonExternalTable getTableNullable(long tableId) {
-        makeSureInitialized();
-        return idToTbl.get(tableId);
-    }
-
-    @Override
-    public PaimonExternalTable getTableForReplay(long tableId) {
-        return idToTbl.get(tableId);
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        tableNameToId = Maps.newConcurrentMap();
-        for (PaimonExternalTable tbl : idToTbl.values()) {
-            tableNameToId.put(tbl.getName(), tbl.getId());
-        }
-        rwLock = new ReentrantReadWriteLock(true);
     }
 
     @Override
