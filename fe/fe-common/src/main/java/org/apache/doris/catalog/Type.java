@@ -730,7 +730,7 @@ public abstract class Type {
      */
     public static Type getAssignmentCompatibleType(Type t1, Type t2, boolean strict) {
         if (t1.isScalarType() && t2.isScalarType()) {
-            return ScalarType.getAssignmentCompatibleType((ScalarType) t1, (ScalarType) t2, strict);
+            return ScalarType.getAssignm entCompatibleType((ScalarType) t1, (ScalarType) t2, strict);
         }
 
         if (t1.isArrayType() && t2.isArrayType()) {
