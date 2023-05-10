@@ -18,5 +18,6 @@
 suite("test_md5") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    qt_select "select md5(k6) from test_query_db.test order by k6"
+    sql "use nereids_p0_test_db"
+    qt_select "select md5(k6) from test order by k6"
 }

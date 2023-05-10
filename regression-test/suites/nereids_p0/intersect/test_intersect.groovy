@@ -18,8 +18,9 @@
 suite("test_intersect") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "use nereids_p0_test_db"
     qt_select """
-                SELECT * FROM (SELECT k1 FROM test_query_db.baseall
-                    INTERSECT SELECT k1 FROM test_query_db.test) a ORDER BY k1
+                SELECT * FROM (SELECT k1 FROM baseall
+                    INTERSECT SELECT k1 FROM test) a ORDER BY k1
               """
 }
