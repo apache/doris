@@ -369,25 +369,20 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         if (value.isNullLiteral()) {
             return new NullLiteral(BooleanType.INSTANCE);
         }
+        List<Expression> newOptions = Lists.newArrayList();
 
-        boolean valueIsLiteral = value.isLiteral();
-        if (!valueIsLiteral) {
-            return inPredicate;
-        }
-
-        boolean hasNull = false;
         for (Expression item : inPredicate.getOptions()) {
-            if (item.isNullLiteral()) {
-                hasNull = true;
-            }
-            if (valueIsLiteral && value.equals(item)) {
+            if (value.isLiteral() && value.equals(item)) {
                 return BooleanLiteral.TRUE;
             }
+            if (!item.isNullLiteral()) {
+                newOptions.add(item);
+            }
         }
-        if (hasNull) {
-            return NullLiteral.INSTANCE;
+        if (newOptions.isEmpty()) {
+            return BooleanLiteral.FALSE;
         }
-        return BooleanLiteral.FALSE;
+        return inPredicate.withOptions(newOptions);
     }
 
     @Override

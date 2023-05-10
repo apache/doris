@@ -22,6 +22,8 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -55,10 +57,12 @@ public class InPredicateToEqualToRule extends AbstractExpressionRewriteRule {
         if (options.size() > 2) {
             return new InPredicate(cmpExpr.accept(this, context), options);
         }
+        // NOTICE: k1 in (1, null) should be transformed to k1 = 1, k1 in (null, null) should be transformed to false
         Expression newCmpExpr = cmpExpr.accept(this, context);
         List<Expression> disjunction = options.stream()
+                .filter(option -> !(ExpressionUtils.checkTypeSkipCast(option, NullLiteral.class)))
                 .map(option -> new EqualTo(newCmpExpr, option.accept(this, context)))
                 .collect(Collectors.toList());
-        return ExpressionUtils.or(disjunction);
+        return disjunction.isEmpty() ? BooleanLiteral.FALSE : ExpressionUtils.or(disjunction);
     }
 }
