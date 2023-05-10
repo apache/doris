@@ -83,6 +83,8 @@ S3FileWriter::~S3FileWriter() {
         close();
     }
     CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
+    // in case there are task which might run after this object is destroyed
+    _wait_until_finish("dtor");
 }
 
 Status S3FileWriter::_create_multi_upload_request() {
@@ -263,6 +265,7 @@ void S3FileWriter::_upload_one_part(int64_t part_num, S3FileBuffer& buf) {
 Status S3FileWriter::_complete() {
     SCOPED_RAW_TIMER(_upload_cost_ms.get());
     if (_failed) {
+        _wait_until_finish("early quit");
         return _st;
     }
     // upload id is empty means there was no multipart upload

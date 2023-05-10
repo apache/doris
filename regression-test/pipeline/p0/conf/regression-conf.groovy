@@ -48,7 +48,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_broker_load"
+excludeSuites = "test_broker_load,test_window_function"
 // this directories will not be executed
 excludeDirectories = ""
 

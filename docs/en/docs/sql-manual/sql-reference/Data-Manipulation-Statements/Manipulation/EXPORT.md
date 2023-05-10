@@ -39,9 +39,10 @@ This is an asynchronous operation that returns if the task is submitted successf
 ```sql
 EXPORT TABLE table_name
 [PARTITION (p1[,p2])]
+[WHERE]
 TO export_path
 [opt_properties]
-WITH BROKER
+WITH BROKER/S3/HDFS
 [broker_properties];
 ```
 
@@ -57,7 +58,7 @@ illustrate:
 
 - `export_path`
 
-  The exported path must be a directory.
+  The exported file path can be a directory or a file directory with a file prefix, for example: `hdfs://path/to/my_file_`
 
 - `opt_properties`
 
@@ -69,115 +70,173 @@ illustrate:
 
   The following parameters can be specified:
 
+  - `label`: This parameter is optional, specifies the label of the export task. If this parameter is not specified, the system randomly assigns a label to the export task.
   - `column_separator`: Specifies the exported column separator, default is \t. Only single byte is supported.
   - `line_delimiter`: Specifies the line delimiter for export, the default is \n. Only single byte is supported.
-  - `exec_mem_limit`: Export the upper limit of the memory usage of a single BE node, the default is 2GB, and the unit is bytes.
   - `timeout`: The timeout period of the export job, the default is 2 hours, the unit is seconds.
-  - `tablet_num_per_task`: The maximum number of tablets each subtask can allocate to scan.
+  - `columns`: Specifies certain columns of the export job table
+  - `format`: Specifies the file format, support: parquet, orc, csv, csv_with_names, csv_with_names_and_types.The default is csv format.
+  - `delete_existing_files`: default `false`. If it is specified as true, you will first delete all files specified in the directory specified by the file_path, and then export the data to the directory.For example: "file_path" = "/user/tmp", then delete all files and directory under "/user/"; "file_path" = "/user/tmp/", then delete all files and directory under "/user/tmp/"
+
+  > Note that to use the `delete_existing_files` parameter, you also need to add the configuration `enable_delete_existing_files = true` to the fe.conf file and restart the FE. Only then will the `delete_existing_files` parameter take effect. Setting `delete_existing_files = true` is a dangerous operation and it is recommended to only use it in a testing environment.
 
 - `WITH BROKER`
 
   The export function needs to write data to the remote storage through the Broker process. Here you need to define the relevant connection information for the broker to use.
 
   ```sql
-  WITH BROKER hdfs|s3 ("key"="value"[,...])
+  WITH BROKER "broker_name"
+  ("key"="value"[,...])
+
+  Broker related properties:
+        username: user name
+        password: password
+        hadoop.security.authentication: specify the authentication method as kerberos
+        kerberos_principal: specifies the principal of kerberos
+        kerberos_keytab: specifies the path to the keytab file of kerberos. The file must be the absolute path to the file on the server where the broker process is located. and can be accessed by the Broker process
   ````
 
- 1. If the export is to Amazon S3, you need to provide the following properties
+- `WITH HDFS`
 
-````
-fs.s3a.access.key: AmazonS3 access key
-fs.s3a.secret.key: AmazonS3 secret key
-fs.s3a.endpoint: AmazonS3 endpoint
-````
+  You can directly write data to the remote HDFS.
 
- 2. If you use the S3 protocol to directly connect to the remote storage, you need to specify the following properties
 
-    (
-        "AWS_ENDPOINT" = "",
-        "AWS_ACCESS_KEY" = "",
-        "AWS_SECRET_KEY"="",
-        "AWS_REGION" = ""
-    )
+  ```sql
+  WITH HDFS ("key"="value"[,...])
+
+  HDFS related properties:
+        fs.defaultFS: namenode address and port
+        hadoop.username: hdfs username
+        dfs.nameservices: if hadoop enable HA, please set fs nameservice. See hdfs-site.xml
+        dfs.ha.namenodes.[nameservice ID]：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
+        dfs.namenode.rpc-address.[nameservice ID].[name node ID]: the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
+        dfs.client.failover.proxy.provider.[nameservice ID]：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+
+        For a kerberos-authentication enabled Hadoop cluster, additional properties need to be set:
+        dfs.namenode.kerberos.principal: HDFS namenode service principal
+        hadoop.security.authentication: kerberos
+        hadoop.kerberos.principal: the Kerberos pincipal that Doris will use when connectiong to HDFS.
+        hadoop.kerberos.keytab: HDFS client keytab location.
+  ```
+
+- `WITH S3`
+
+  You can directly write data to a remote S3 object store
+
+  ```sql
+  WITH S3 ("key"="value"[,...])
+
+  S3 related properties:
+    AWS_ENDPOINT
+    AWS_ACCESS_KEY
+    AWS_SECRET_KEY
+    AWS_REGION
+    use_path_stype: (optional) default false . The S3 SDK uses the virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the use_path_style parameter to force the use of path style access method.
+  ```
 
 ### Example
 
-1. Export all data in the test table to hdfs
+#### export to local
+
+Export data to the local file system needs to add `enable_outfile_to_local = true` to the fe.conf and restart the Fe.
+
+1. You can export the `test` table to a local store. Export csv format file by default.
 
 ```sql
-EXPORT TABLE test TO "hdfs://hdfs_host:port/a/b/c" 
-WITH BROKER "broker_name" 
-(
-  "username"="xxx",
-  "password"="yyy"
-);
+EXPORT TABLE test TO "file:///home/user/tmp/";
 ```
 
-2. Export partitions p1, p2 in the testTbl table to hdfs
+2. You can export the k1 and k2 columns in `test` table to a local store, and set export label. Export csv format file by default.
 
 ```sql
-EXPORT TABLE testTbl PARTITION (p1,p2) TO "hdfs://hdfs_host:port/a/b/c" 
-WITH BROKER "broker_name" 
-(
-  "username"="xxx",
-  "password"="yyy"
-);
-```
-
-3. Export all data in the testTbl table to hdfs, with "," as the column separator, and specify the label
-
-```sql
-EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" 
-PROPERTIES ("label" = "mylabel", "column_separator"=",") 
-WITH BROKER "broker_name" 
-(
-  "username"="xxx",
-  "password"="yyy"
-);
-```
-
-4. Export the row with k1 = 1 in the testTbl table to hdfs.
-
-```sql
-EXPORT TABLE testTbl WHERE k1=1 TO "hdfs://hdfs_host:port/a/b/c" 
-WITH BROKER "broker_name" 
-(
-  "username"="xxx",
-  "password"="yyy"
-);
-```
-
-5. Export all data in the testTbl table to local.
-
-```sql
-EXPORT TABLE testTbl TO "file:///home/data/a";
-```
-
-6. Export all data in the testTbl table to hdfs with invisible character "\x07" as column or row separator.
-
-```sql
-EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" 
+EXPORT TABLE test TO "file:///home/user/tmp/"
 PROPERTIES (
-  "column_separator"="\\x07", 
-  "line_delimiter" = "\\x07"
-) 
-WITH BROKER "broker_name" 
-(
-  "username"="xxx", 
-  "password"="yyy"
+  "label" = "label1",
+  "columns" = "k1,k2"
+);
+```
+
+3. You can export the rows where `k1 < 50` in `test` table to a local store, and set column_separator to `,`. Export csv format file by default.
+
+```sql
+EXPORT TABLE test WHERE k1 < 50 TO "file:///home/user/tmp/"
+PROPERTIES (
+  "columns" = "k1,k2",
+  "column_separator"=","
+);
+```
+
+4. Export partitions p1 and p2 from the test table to local storage, with the default exported file format being csv.
+
+```sql
+EXPORT TABLE test PARTITION (p1,p2) TO "file:///home/user/tmp/" 
+PROPERTIES ("columns" = "k1,k2");
+  ```
+
+5. Export all data in the test table to local storage with a non-default file format.
+
+```sql
+// parquet file format
+EXPORT TABLE test TO "file:///home/user/tmp/"
+PROPERTIES (
+  "columns" = "k1,k2",
+  "format" = "parquet"
+);
+
+// orc file format
+EXPORT TABLE test TO "file:///home/user/tmp/"
+PROPERTIES (
+  "columns" = "k1,k2",
+  "format" = "orc"
+);
+
+// csv_with_names file format. Using 'AA' as the column delimiter and 'zz' as the line delimiter.
+EXPORT TABLE test TO "file:///home/user/tmp/"
+PROPERTIES (
+  "format" = "csv_with_names",
+  "column_separator"="AA",
+  "line_delimiter" = "zz"
+);
+
+// csv_with_names_and_types file format
+EXPORT TABLE test TO "file:///home/user/tmp/"
+PROPERTIES (
+  "format" = "csv_with_names_and_types"
+);
+
+```
+
+6. set max_file_sizes
+
+```sql
+EXPORT TABLE test TO "file:///home/user/tmp/"
+PROPERTIES (
+  "format" = "parquet",
+  "max_file_size" = "5MB"
+);
+```
+
+When the exported file size is larger than 5MB, the data will be split into multiple files, with each file containing a maximum of 5MB.
+
+7. set delete_existing_files
+
+```sql
+EXPORT TABLE test TO "file:///home/user/tmp"
+PROPERTIES (
+  "format" = "parquet",
+  "max_file_size" = "5MB",
+  "delete_existing_files" = "true"
 )
 ```
 
-7. Export the k1, v1 columns of the testTbl table to the local.
+Before exporting data, all files and directories in the `/home/user/` directory will be deleted, and then the data will be exported to that directory.
+
+#### export with S3
+
+8. Export all data from the `testTbl` table to S3 using invisible character '\x07' as a delimiter for columns and rows.
 
 ```sql
-EXPORT TABLE testTbl TO "file:///home/data/a" PROPERTIES ("columns" = "k1,v1");
-```
-
-8. Export all data in the testTbl table to s3 with invisible characters "\x07" as column or row separators.
-
-```sql
-EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" 
+EXPORT TABLE testTbl TO "s3://hdfs_host:port/a/b/c" 
 PROPERTIES (
   "column_separator"="\\x07", 
   "line_delimiter" = "\\x07"
@@ -189,18 +248,60 @@ PROPERTIES (
 )
 ```
 
-9. Export all data in the testTbl table to cos(Tencent Cloud Object Storage).
+#### export with HDFS
 
 ```sql
-EXPORT TABLE testTbl TO "cosn://my_bucket/export/a/b/c"
-PROPERTIES (
-  "column_separator"=",",
-  "line_delimiter" = "\n"
-) WITH BROKER "broker_name"
+EXPORT TABLE test TO "hdfs://hdfs_host:port/a/b/c/" 
+PROPERTIES(
+    "format" = "parquet",
+    "max_file_size" = "1024MB",
+    "delete_existing_files" = "false"
+)
+with HDFS (
+"fs.defaultFS"="hdfs://hdfs_host:port",
+"hadoop.username" = "hadoop"
+);
+```
+
+#### export with Broker
+You need to first start the broker process and add it to the FE before proceeding.
+1. Export the `test` table to hdfs
+```sql
+EXPORT TABLE test TO "hdfs://hdfs_host:port/a/b/c" 
+WITH BROKER "broker_name" 
 (
-  "fs.cosn.userinfo.secretId" = "xxx",
-  "fs.cosn.userinfo.secretKey" = "xxxx",
-  "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+  "username"="xxx",
+  "password"="yyy"
+);
+```
+
+2. Export partitions 'p1' and 'p2' from the 'testTbl' table to HDFS using ',' as the column delimiter and specifying a label.
+
+```sql
+EXPORT TABLE testTbl PARTITION (p1,p2) TO "hdfs://hdfs_host:port/a/b/c" 
+PROPERTIES (
+  "label" = "mylabel",
+  "column_separator"=","
+) 
+WITH BROKER "broker_name" 
+(
+  "username"="xxx",
+  "password"="yyy"
+);
+```
+
+3. Export all data from the 'testTbl' table to HDFS using the non-visible character '\x07' as the column and row delimiter.
+
+```sql
+EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" 
+PROPERTIES (
+  "column_separator"="\\x07", 
+  "line_delimiter" = "\\x07"
+) 
+WITH BROKER "broker_name" 
+(
+  "username"="xxx", 
+  "password"="yyy"
 )
 ```
 

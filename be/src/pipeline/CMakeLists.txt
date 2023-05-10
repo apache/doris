@@ -68,4 +68,6 @@ endif ()
 
 add_library(Pipeline STATIC
         ${PIPELINE_FILES}
-        )
+)
+
+pch_reuse(Pipeline)
