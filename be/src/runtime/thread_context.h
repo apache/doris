@@ -41,8 +41,6 @@
             doris::enable_thread_catch_bad_alloc++;                                          \
             Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                 \
             { stmt; }                                                                        \
-        } catch (std::bad_alloc const& e) {                                                  \
-            return Status::MemoryLimitExceeded(fmt::format("PreCatch {}", e.what()));        \
         } catch (const doris::Exception& e) {                                                \
             if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                            \
                 return Status::MemoryLimitExceeded(                                          \
