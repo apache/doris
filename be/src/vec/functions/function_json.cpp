@@ -23,6 +23,11 @@
 #include <vector>
 
 #include "exprs/json_functions.h"
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/columns/column.h"

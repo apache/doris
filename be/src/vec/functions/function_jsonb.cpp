@@ -18,7 +18,11 @@
 #include <boost/token_functions.hpp>
 #include <vector>
 
-// #include "util/jsonb_parser_simd.h"
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
@@ -48,7 +52,7 @@ enum class JsonbParseErrorMode { FAIL = 0, RETURN_NULL, RETURN_VALUE, RETURN_INV
 template <NullalbeMode nullable_mode, JsonbParseErrorMode parse_error_handle_mode>
 class FunctionJsonbParseBase : public IFunction {
 private:
-    JsonbParserSIMD default_value_parser;
+    JsonbParser default_value_parser;
     bool has_const_default_value = false;
 
 public:
@@ -195,7 +199,7 @@ public:
         col_to->reserve(size);
 
         // parser can be reused for performance
-        JsonbParserSIMD parser;
+        JsonbParser parser;
         JsonbErrType error = JsonbErrType::E_NONE;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
