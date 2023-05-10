@@ -16,11 +16,12 @@
 // under the License.
 
 suite("test_dytable_alter_default_value") {
-    def test_alter_default_value = { database_name, table_name, column_name, src_type, src_value, dst_type, dst_value -> 
-        sql "USE ${database_name}"
-        sql "DROP TABLE IF EXISTS ${table_name}"
+    def test_alter_default_value = { table_name, column_name, src_type, src_value, dst_type, dst_value -> 
+        sql "CREATE DATABASDE test IF NOT EXISTS"
+        sql "USE test"
+        sql "DROP TABLE ${table_name} IF EXISTS"
         sql """
-            CREATE TABLE IF NOT EXISTS ${table_name} (
+            CREATE TABLE ${table_name} (
                 id BIGINT
             )
             DUPLICATE KEY(`id`)
@@ -65,14 +66,15 @@ suite("test_dytable_alter_default_value") {
         assertEquals(result4[0][0], 10)
         def result5 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${dst_value}'"
         assertEquals(result5[0][0], 0)
-        sql "DROP TABLE IF EXISTS ${table_name}"
+        sql "DROP TABLE ${table_name}"
+        sql "DROP DATABASE test"
     }
 
     // column type isn't modified
-    test_alter_default_value("demo", "t1", "col", "BIGINT", "123", "BIGINT", "456")
-    test_alter_default_value("demo", "t2", "col", "VARCHAR(10)", "abc", "VARCHAR(10)", "def")
+    test_alter_default_value("t1", "col", "BIGINT", "123", "BIGINT", "456")
+    test_alter_default_value("t2", "col", "VARCHAR(10)", "abc", "VARCHAR(10)", "def")
     // column type is modified
-    test_alter_default_value("demo", "t3", "col", "VARCHAR(10)", "abc", "VARCHAR(20)", "abcdef")
-    test_alter_default_value("demo", "t4", "col", "BIGINT", "123", "TEXT", "abcdef")
+    test_alter_default_value("t3", "col", "VARCHAR(10)", "abc", "VARCHAR(20)", "abcdef")
+    test_alter_default_value("t4", "col", "BIGINT", "123", "TEXT", "abcdef")
 
 }
