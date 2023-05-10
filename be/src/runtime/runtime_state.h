@@ -85,6 +85,10 @@ public:
     Status create_load_dir();
 
     const TQueryOptions& query_options() const { return _query_options; }
+    int64_t scan_queue_mem_limit() const {
+        return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
+                                                           : _query_options.mem_limit / 20;
+    }
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     std::shared_ptr<ObjectPool> obj_pool_ptr() const { return _obj_pool; }

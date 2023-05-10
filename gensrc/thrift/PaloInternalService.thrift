@@ -188,6 +188,8 @@ struct TQueryOptions {
 
   // For debug purpose, skip delete bitmap when reading data
   56: optional bool skip_delete_bitmap = false
+
+  57: optional i64 scan_queue_mem_limit
 }
     
 
