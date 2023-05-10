@@ -165,11 +165,11 @@ public class MetadataGenerator {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setLongVal(backendId));
             trow.addToColumnValue(new TCell().setStringVal(backend.getOwnerClusterName()));
-            trow.addToColumnValue(new TCell().setStringVal(backend.getIp()));
-            if (backend.getHostName() != null) {
-                trow.addToColumnValue(new TCell().setStringVal(backend.getHostName()));
+            trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
+            if (backend.getHost() != null) {
+                trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
             } else {
-                trow.addToColumnValue(new TCell().setStringVal(backend.getIp()));
+                trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
             }
             if (Strings.isNullOrEmpty(backendsParam.cluster_name)) {
                 trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
