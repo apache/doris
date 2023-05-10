@@ -271,6 +271,23 @@ suite("test_array_load", "load_p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+        // test unified load
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            sql """ set enable_unified_load=true; """
+
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs.call(testTable, test_load_label, hdfs_json_file_path, "json",
+                    brokerName, hdfsUser, hdfsPasswd)
+
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+            sql """ set enable_unified_load=false; """
+        }
 
         // case7: import array data by hdfs in csv format and enable vectorized
         try {
@@ -286,6 +303,23 @@ suite("test_array_load", "load_p0") {
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+        // test unified load
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            sql """ set enable_unified_load=true; """
+
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
+                    brokerName, hdfsUser, hdfsPasswd)
+
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+            sql """ set enable_unified_load=false; """
         }
 
         // case9: import array data by hdfs in orc format and enable vectorized
@@ -303,6 +337,23 @@ suite("test_array_load", "load_p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+        // test unified load
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            sql """ set enable_unified_load=true; """
+
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
+                    brokerName, hdfsUser, hdfsPasswd)
+
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+            sql """ set enable_unified_load=false; """
+        }
 
         // case11: import array data by hdfs in parquet format and enable vectorized
         try {
@@ -319,6 +370,23 @@ suite("test_array_load", "load_p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+        // test unified load
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            sql """ set enable_unified_load=true; """
+
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
+                    brokerName, hdfsUser, hdfsPasswd)
+
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+            sql """ set enable_unified_load=false; """
+        }
 
         // case13: import array data by hdfs in orc format(with array type) and enable vectorized
         try {
@@ -334,6 +402,23 @@ suite("test_array_load", "load_p0") {
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+        // test unified load
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            sql """ set enable_unified_load=true; """
+
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path2, "orc",
+                    brokerName, hdfsUser, hdfsPasswd)
+
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+            sql """ set enable_unified_load=false; """
         }
     }
 }

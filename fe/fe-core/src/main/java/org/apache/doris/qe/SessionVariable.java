@@ -313,6 +313,11 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    /**
+     * use insert stmt as the unified backend for all loads
+     */
+    public static final String ENABLE_UNIFIED_LOAD = "enable_unified_load";
+
     public static final String ENABLE_PARQUET_LAZY_MAT = "enable_parquet_lazy_materialization";
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
@@ -800,7 +805,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 8;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
-                checker = "checkExternalAggPartitionBits", fuzzy = true)
+            checker = "checkExternalAggPartitionBits", fuzzy = true)
     public int externalAggPartitionBits = 8; // means that the hash table will be partitioned into 256 blocks.
 
     // Whether enable two phase read optimization
@@ -855,6 +860,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    /**
+     * determine should we enable unified load (use insert stmt as the backend for all load)
+     */
+    @VariableMgr.VarAttr(name = ENABLE_UNIFIED_LOAD, needForward = true)
+    public boolean enableUnifiedLoad = false;
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -2085,5 +2096,9 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return num;
+    }
+
+    public boolean isEnableUnifiedLoad() {
+        return enableUnifiedLoad;
     }
 }

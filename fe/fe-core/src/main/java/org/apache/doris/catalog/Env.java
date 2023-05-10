@@ -150,6 +150,7 @@ import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.loadv2.LoadManagerAdapter;
 import org.apache.doris.load.loadv2.ProgressManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
@@ -439,6 +440,11 @@ public class Env {
 
     private StatisticsCleaner statisticsCleaner;
 
+    /**
+     * TODO(tsy): to be removed after load refactor
+     */
+    private final LoadManagerAdapter loadManagerAdapter;
+
     private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
@@ -645,6 +651,7 @@ public class Env {
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.resourceGroupMgr = new ResourceGroupMgr();
+        this.loadManagerAdapter = new LoadManagerAdapter();
     }
 
     public static void destroyCheckpoint() {
@@ -1038,7 +1045,8 @@ public class Env {
                 clusterId = storage.getClusterID();
                 token = storage.getToken();
                 try {
-                    URL idURL = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(rightHelperNode.getIp(), Config.http_port) + "/check");
+                    URL idURL = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(rightHelperNode.getIp(),
+                            Config.http_port) + "/check");
                     HttpURLConnection conn = null;
                     conn = (HttpURLConnection) idURL.openConnection();
                     conn.setConnectTimeout(2 * 1000);
@@ -1110,7 +1118,8 @@ public class Env {
             try {
                 // For upgrade compatibility, the host parameter name remains the same
                 // and the new hostname parameter is added
-                URL url = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getIp(), Config.http_port)
+                URL url = new URL(
+                        "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getIp(), Config.http_port)
                         + "/role?host=" + selfNode.getIp() + "&hostname=" + selfNode.getHostName()
                         + "&port=" + selfNode.getPort());
                 HttpURLConnection conn = null;
@@ -5259,6 +5268,10 @@ public class Env {
 
     public StatisticsCleaner getStatisticsCleaner() {
         return statisticsCleaner;
+    }
+
+    public LoadManagerAdapter getLoadManagerAdapter() {
+        return loadManagerAdapter;
     }
 
     public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
