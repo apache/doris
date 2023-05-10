@@ -324,6 +324,7 @@ public class HiveMetaStoreCache {
                     // Convert the hadoop split to Doris Split.
                     for (int i = 0; i < splits.length; i++) {
                         org.apache.hadoop.mapred.FileSplit fs = ((org.apache.hadoop.mapred.FileSplit) splits[i]);
+                        // todo: get modification time
                         result.addSplit(new FileSplit(fs.getPath(), fs.getStart(), fs.getLength(), -1, null, null));
                     }
                 }
@@ -802,6 +803,7 @@ public class HiveMetaStoreCache {
             status.setPath(file.getPath());
             status.length = file.getSize();
             status.blockSize = file.getBlockSize();
+            status.modificationTime = file.getModificationTime();
             files.add(status);
         }
 
@@ -823,6 +825,7 @@ public class HiveMetaStoreCache {
         Path path;
         long length;
         long blockSize;
+        long modificationTime;
     }
 
     @Data

@@ -209,6 +209,8 @@ Status ParquetReader::_open_file() {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
+        reader_options.modification_time =
+                _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, &_file_system, &_file_reader,
                 io::DelegateReader::AccessMode::RANDOM, reader_options, _io_ctx));

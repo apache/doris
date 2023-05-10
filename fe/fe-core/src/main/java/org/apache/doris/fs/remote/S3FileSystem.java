@@ -79,7 +79,7 @@ public class S3FileSystem extends ObjFileSystem {
                 RemoteFile remoteFile = new RemoteFile(
                         fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
                         !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen(),
-                        fileStatus.getBlockSize());
+                        fileStatus.getBlockSize(), fileStatus.getModificationTime());
                 result.add(remoteFile);
             }
         } catch (FileNotFoundException e) {
