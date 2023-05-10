@@ -268,6 +268,40 @@ Status Merger::vertical_compact_one_group(
     return Status::OK();
 }
 
+// compact all segments for mow
+Status Merger::vertical_compact_one_group(TabletSharedPtr tablet, ReaderType reader_type,
+                                          TabletSchemaSPtr tablet_schema, bool is_key,
+                                          const std::vector<uint32_t>& column_group,
+                                          vectorized::RowSourcesBuffer* row_source_buf,
+                                          vectorized::VerticalBlockReader& src_block_reader,
+                                          segment_v2::SegmentWriter& dst_segment_writer,
+                                          int64_t max_rows_per_segment, bool& eof) {
+    // build tablet reader
+    VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
+    // TODO: record_rowids
+    vectorized::Block block = tablet_schema->create_block(column_group);
+    size_t output_rows = 0;
+    while (!eof) {
+        // Read one block from block reader
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                src_block_reader.next_block_with_aggregation(&block, &eof),
+                "failed to read next block when merging rowsets of tablet " + tablet->full_name());
+        if (!block.rows()) {
+            break;
+        }
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                dst_segment_writer.append_block(&block, 0, block.rows()),
+                "failed to write block when merging rowsets of tablet " + tablet->full_name());
+
+        output_rows += block.rows();
+        block.clear_column_data();
+        if (output_rows >= max_rows_per_segment) {
+            return Status::OK();
+        }
+    }
+
+    return Status::OK();
+}
 // for segcompaction
 Status Merger::vertical_compact_one_group(TabletSharedPtr tablet, ReaderType reader_type,
                                           TabletSchemaSPtr tablet_schema, bool is_key,

@@ -113,6 +113,7 @@ public:
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
     uint32_t get_segment_id() { return _segment_id; }
+    void set_segment_id(uint32_t id) { _segment_id = id; }
 
     Status finalize_columns_data();
     Status finalize_columns_index(uint64_t* index_size);

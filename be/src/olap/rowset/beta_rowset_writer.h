@@ -127,7 +127,7 @@ private:
                       std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
     Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                     bool is_segcompaction, int64_t begin, int64_t end,
+                                     bool is_segcompaction, int64_t begin, int64_t end, int64_t idx,
                                      const vectorized::Block* block = nullptr);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                   const vectorized::Block* block = nullptr);
@@ -136,8 +136,8 @@ private:
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
-    Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
-                                       size_t num);
+    Status _load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments, size_t start_id,
+                          size_t end_id);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
     Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments, bool is_last);
     bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
@@ -148,9 +148,15 @@ private:
                                             const RowsetMetaSharedPtr& spec_rowset_meta);
     bool _is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds);
     void _clear_statistics_for_deleting_segments_unsafe(uint64_t begin, uint64_t end);
-    Status _rename_compacted_segments(int64_t begin, int64_t end);
+    Status _rename_compacted_segments(int64_t begin, int64_t end, int64_t idx);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
+
+    Status _segcompaction_all();
+    void _clear_seg_compacted_info();
+    void _add_segment_stat_info(const std::unique_ptr<segment_v2::SegmentWriter>& segment_writers,
+                                uint64_t index_size, uint64_t segment_size,
+                                const KeyBoundsPB& key_bound);
 
     void set_segment_start_id(int32_t start_id) override { _segment_start_id = start_id; }
 
@@ -215,6 +221,8 @@ protected:
     fmt::memory_buffer vlog_buffer;
 
     std::shared_ptr<MowContext> _mow_context;
+
+    size_t _row_avg_size_in_bytes;
 };
 
 } // namespace doris

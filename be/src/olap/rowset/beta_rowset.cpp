@@ -90,9 +90,9 @@ std::string BetaRowset::remote_segment_path(int64_t tablet_id, const std::string
 
 std::string BetaRowset::local_segment_path_segcompacted(const std::string& tablet_path,
                                                         const RowsetId& rowset_id, int64_t begin,
-                                                        int64_t end) {
+                                                        int64_t end, int64_t idx) {
     // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{begin_seg}-{end_seg}.dat
-    return fmt::format("{}/{}_{}-{}.dat", tablet_path, rowset_id.to_string(), begin, end);
+    return fmt::format("{}/{}_{}-{}-{}.dat", tablet_path, rowset_id.to_string(), begin, end, idx);
 }
 
 BetaRowset::BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,

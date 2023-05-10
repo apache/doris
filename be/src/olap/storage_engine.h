@@ -190,7 +190,8 @@ public:
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
     Status submit_seg_compaction_task(BetaRowsetWriter* writer,
-                                      SegCompactionCandidatesSharedPtr segments);
+                                      SegCompactionCandidatesSharedPtr segments,
+                                      bool compact_all = false);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
         return _tablet_publish_txn_thread_pool;
@@ -282,7 +283,7 @@ private:
     void _cache_file_cleaner_tasks_producer_callback();
 
     Status _handle_seg_compaction(BetaRowsetWriter* writer,
-                                  SegCompactionCandidatesSharedPtr segments);
+                                  SegCompactionCandidatesSharedPtr segments, bool compact_all);
 
 private:
     struct CompactionCandidate {

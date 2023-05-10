@@ -723,16 +723,18 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
 }
 
 Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,
-                                             SegCompactionCandidatesSharedPtr segments) {
-    writer->get_segcompaction_worker().compact_segments(segments);
+                                             SegCompactionCandidatesSharedPtr segments,
+                                             bool compact_all) {
+    writer->get_segcompaction_worker().compact_segments(segments, compact_all);
     // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
     return Status::OK();
 }
 
 Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
-                                                 SegCompactionCandidatesSharedPtr segments) {
-    return _seg_compaction_thread_pool->submit_func(
-            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, writer, segments));
+                                                 SegCompactionCandidatesSharedPtr segments,
+                                                 bool compact_all) {
+    return _seg_compaction_thread_pool->submit_func(std::bind<void>(
+            &StorageEngine::_handle_seg_compaction, this, writer, segments, compact_all));
 }
 
 void StorageEngine::_cooldown_tasks_producer_callback() {

@@ -50,13 +50,18 @@ class SegcompactionWorker {
 public:
     SegcompactionWorker(BetaRowsetWriter* writer) { _writer = writer; }
 
-    void compact_segments(SegCompactionCandidatesSharedPtr segments);
+    void compact_segments(SegCompactionCandidatesSharedPtr segments, bool compact_all);
 
-    io::FileWriterPtr& get_file_writer() { return _file_writer; }
+    void add_file_writer(io::FileWriterPtr* file_writer) {
+        _file_writers.push_back(std::move(*file_writer));
+    }
+
+    void close_file_writers();
 
 private:
     Status _create_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end);
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end,
+            uint64_t idx);
     Status _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
                                      TabletSharedPtr tablet, std::shared_ptr<Schema> schema,
                                      OlapReaderStatistics* stat,
@@ -64,15 +69,17 @@ private:
                                      std::vector<uint32_t>& return_columns,
                                      std::unique_ptr<vectorized::VerticalBlockReader>* reader);
     std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint64_t begin,
-                                                                            uint64_t end);
+                                                                            uint64_t end,
+                                                                            uint64_t idx);
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _check_correctness(OlapReaderStatistics& reader_stat, Merger::Statistics& merger_stat,
                               uint64_t begin, uint64_t end);
     Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
+    Status _do_compact_all_segments(SegCompactionCandidatesSharedPtr segments);
 
 private:
     //TODO(zhengyu): current impl depends heavily on the access to feilds of BetaRowsetWriter
     BetaRowsetWriter* _writer;
-    io::FileWriterPtr _file_writer;
+    std::vector<io::FileWriterPtr> _file_writers;
 };
 } // namespace doris

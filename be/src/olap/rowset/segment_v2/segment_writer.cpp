@@ -143,7 +143,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
     _column_writers.reserve(_tablet_schema->columns().size());
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
-    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
+    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto{
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 

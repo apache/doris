@@ -424,7 +424,6 @@ public:
                               const std::vector<segment_v2::SegmentSharedPtr>& segments,
                               const RowsetIdUnorderedSet* specified_rowset_ids,
                               DeleteBitmapPtr delete_bitmap, int64_t version,
-                              bool check_pre_segments = false,
                               RowsetWriter* rowset_writer = nullptr);
     Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                                 const std::vector<uint32_t> cids_to_read,

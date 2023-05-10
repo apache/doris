@@ -392,16 +392,6 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         return res;
     }
     if (_tablet->enable_unique_key_merge_on_write()) {
-        auto beta_rowset = reinterpret_cast<BetaRowset*>(_cur_rowset.get());
-        std::vector<segment_v2::SegmentSharedPtr> segments;
-        RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
-        // tablet is under alter process. The delete bitmap will be calculated after conversion.
-        if (_tablet->tablet_state() == TABLET_NOTREADY &&
-            SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
-            return Status::OK();
-        }
-        RETURN_IF_ERROR(_tablet->calc_delete_bitmap(_cur_rowset, segments, nullptr, _delete_bitmap,
-                                                    _cur_max_version, true));
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
                 _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids,

@@ -102,10 +102,10 @@ Status SegcompactionWorker::_get_segcompaction_reader(
 }
 
 std::unique_ptr<segment_v2::SegmentWriter> SegcompactionWorker::_create_segcompaction_writer(
-        uint64_t begin, uint64_t end) {
+        uint64_t begin, uint64_t end, uint64_t idx) {
     Status status;
     std::unique_ptr<segment_v2::SegmentWriter> writer = nullptr;
-    status = _create_segment_writer_for_segcompaction(&writer, begin, end);
+    status = _create_segment_writer_for_segcompaction(&writer, begin, end, idx);
     if (status != Status::OK() || writer == nullptr) {
         LOG(ERROR) << "failed to create segment writer for begin:" << begin << " end:" << end
                    << " path:" << writer->get_data_dir()->path() << " status:" << status;
@@ -184,8 +184,165 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
 }
 
 Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end) {
-    return _writer->_do_create_segment_writer(writer, true, begin, end);
+        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end,
+        uint64_t idx) {
+    return _writer->_do_create_segment_writer(writer, true, begin, end, idx);
+}
+
+void SegcompactionWorker::close_file_writers() {
+    for (auto& file_writer : _file_writers) {
+        file_writer->close();
+    }
+}
+
+// compact all segments in this rowset and generate multi segment
+Status SegcompactionWorker::_do_compact_all_segments(SegCompactionCandidatesSharedPtr segments) {
+    CHECK(segments->size() > 0);
+    SCOPED_CONSUME_MEM_TRACKER(StorageEngine::instance()->segcompaction_mem_tracker());
+    /* throttle segcompaction task if memory depleted */
+    if (MemTrackerLimiter::sys_mem_exceed_limit_check(GB_EXCHANGE_BYTE)) {
+        LOG(WARNING) << "skip segcompaction due to memory shortage";
+        return Status::Error<FETCH_MEMORY_EXCEEDED>();
+    }
+    // clear ori seg compacted info
+    _writer->_clear_seg_compacted_info();
+
+    uint64_t begin = (*(segments->begin()))->id();
+    uint64_t end = (*(segments->end() - 1))->id();
+    uint64_t begin_time = GetCurrentTimeMicros();
+    // get avg rowset num rows
+    uint64_t max_row_per_segment =
+            config::vertical_compaction_max_segment_size / _writer->_row_avg_size_in_bytes;
+    LOG(INFO) << "begin to compact all segments, begin: " << begin << ", end: " << end
+              << ", max_row_per_segment: " << max_row_per_segment;
+
+    auto ctx = _writer->_context;
+    DCHECK(ctx.tablet);
+    auto tablet = ctx.tablet;
+
+    std::vector<std::vector<uint32_t>> column_groups;
+    Merger::vertical_split_columns(ctx.tablet_schema, &column_groups);
+    vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
+                                                 READER_SEGMENT_COMPACTION);
+
+    Merger::Statistics key_merger_stats;
+    OlapReaderStatistics key_reader_stats;
+    uint64_t total_rows = 0;
+    std::vector<std::unique_ptr<segment_v2::SegmentWriter>> segment_writers;
+    std::vector<uint64_t> index_sizes;
+    size_t cur_writer_idx = 0;
+    /* compact group one by one */
+    for (auto i = 0; i < column_groups.size(); ++i) {
+        VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();
+        bool is_key = (i == 0);
+        cur_writer_idx = 0;
+        std::vector<uint32_t> column_ids = column_groups[i];
+
+        auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), column_ids);
+        std::unique_ptr<vectorized::VerticalBlockReader> reader;
+        OlapReaderStatistics reader_stats;
+        auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
+                                           is_key, column_ids, &reader);
+        if (UNLIKELY(reader == nullptr || !s.ok())) {
+            LOG(WARNING) << "failed to get segcompaction reader";
+            return Status::Error<SEGCOMPACTION_INIT_READER>();
+        }
+
+        bool eof = false;
+        while (!eof) {
+            if (is_key) {
+                auto writer = _create_segcompaction_writer(begin, end, cur_writer_idx);
+                if (UNLIKELY(writer == nullptr)) {
+                    LOG(WARNING) << "failed to get segcompaction writer";
+                    return Status::Error<SEGCOMPACTION_INIT_WRITER>();
+                }
+                writer->clear();
+                writer->init(column_ids, is_key);
+                writer->set_segment_id(cur_writer_idx);
+                segment_writers.emplace_back(std::move(writer));
+            } else {
+                segment_writers[cur_writer_idx]->init(column_ids, is_key);
+            }
+            RETURN_IF_ERROR(Merger::vertical_compact_one_group(
+                    tablet, READER_SEGMENT_COMPACTION, ctx.tablet_schema, is_key, column_ids,
+                    &row_sources_buf, *reader, *segment_writers[cur_writer_idx],
+                    max_row_per_segment, eof));
+            RETURN_IF_ERROR(segment_writers[cur_writer_idx]->finalize_columns_data());
+            uint64_t index_size;
+            RETURN_IF_ERROR(segment_writers[cur_writer_idx]->finalize_columns_index(&index_size));
+            index_sizes.emplace_back(index_size);
+            if (is_key) {
+                total_rows += segment_writers[cur_writer_idx]->row_count();
+            }
+            ++cur_writer_idx;
+        }
+        if (is_key) {
+            row_sources_buf.flush();
+            // stat
+            key_reader_stats = reader_stats;
+            key_merger_stats.output_rows += total_rows;
+            key_merger_stats.merged_rows += reader->merged_rows();
+            key_merger_stats.filtered_rows += reader->filtered_rows();
+        }
+        row_sources_buf.seek_to_begin();
+    }
+
+    // check correctness and clear stats
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_correctness(key_reader_stats, key_merger_stats, begin, end),
+                      "check correctness failed");
+    {
+        std::lock_guard<std::mutex> lock(_writer->_segid_statistics_map_mutex);
+        _writer->_clear_statistics_for_deleting_segments_unsafe(begin, end);
+    }
+
+    // flush footer
+    for (auto i = 0; i < segment_writers.size(); ++i) {
+        uint64_t segment_size = 0;
+        auto st = segment_writers[i]->finalize_footer(&segment_size);
+        if (!st.ok()) {
+            LOG(WARNING) << "Fail to finalize segment footer, " << st;
+            return st;
+        }
+        KeyBoundsPB key_bound;
+        Slice min_key = segment_writers[i]->min_encoded_key();
+        Slice max_key = segment_writers[i]->max_encoded_key();
+        DCHECK_LE(min_key.compare(max_key), 0);
+        key_bound.set_min_key(min_key.to_string());
+        key_bound.set_max_key(max_key.to_string());
+
+        _writer->_add_segment_stat_info(segment_writers[i], index_sizes[i], segment_size,
+                                        key_bound);
+        segment_writers[i].reset();
+    }
+
+    close_file_writers();
+
+    RETURN_IF_ERROR(_delete_original_segments(begin, end));
+
+    // rename segment
+    for (auto i = 0; i < segment_writers.size(); ++i) {
+        RETURN_IF_ERROR(_writer->_rename_compacted_segments(begin, end, i));
+    }
+
+    if (VLOG_DEBUG_IS_ON) {
+        _writer->vlog_buffer.clear();
+        for (const auto& entry : std::filesystem::directory_iterator(ctx.rowset_dir)) {
+            fmt::format_to(_writer->vlog_buffer, "[{}]", string(entry.path()));
+        }
+        VLOG_DEBUG << "tablet_id:" << ctx.tablet_id << " rowset_id:" << ctx.rowset_id
+                   << "_segcompacted_point:" << _writer->_segcompacted_point
+                   << " _num_segment:" << _writer->_num_segment
+                   << " _num_segcompacted:" << _writer->_num_segcompacted
+                   << " list directory:" << fmt::to_string(_writer->vlog_buffer);
+    }
+
+    uint64_t elapsed = GetCurrentTimeMicros() - begin_time;
+    LOG(INFO) << "segcompaction completed. tablet_id:" << ctx.tablet_id
+              << " rowset_id:" << ctx.rowset_id << " elapsed time:" << elapsed
+              << "us. update segcompacted_point:" << _writer->_segcompacted_point
+              << " segment num:" << segments->size() << " begin:" << begin << " end:" << end;
+
+    return Status::OK();
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
@@ -203,7 +360,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     uint64_t total_index_size = 0;
     auto ctx = _writer->_context;
 
-    auto writer = _create_segcompaction_writer(begin, end);
+    auto writer = _create_segcompaction_writer(begin, end, 0);
     if (UNLIKELY(writer == nullptr)) {
         LOG(WARNING) << "failed to get segcompaction writer";
         return Status::Error<SEGCOMPACTION_INIT_WRITER>();
@@ -263,12 +420,12 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     RETURN_IF_ERROR(
             _writer->flush_segment_writer_for_segcompaction(&writer, total_index_size, key_bounds));
 
-    if (_file_writer != nullptr) {
-        _file_writer->close();
+    for (auto& file_writer : _file_writers) {
+        file_writer->close();
     }
 
     RETURN_IF_ERROR(_delete_original_segments(begin, end));
-    RETURN_IF_ERROR(_writer->_rename_compacted_segments(begin, end));
+    RETURN_IF_ERROR(_writer->_rename_compacted_segments(begin, end, 0));
 
     if (VLOG_DEBUG_IS_ON) {
         _writer->vlog_buffer.clear();
@@ -293,21 +450,27 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     return Status::OK();
 }
 
-void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    Status status = _do_compact_segments(segments);
-    if (!status.ok()) {
-        int16_t errcode = status.code();
+void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segments,
+                                           bool compact_all) {
+    Status st;
+    if (compact_all) {
+        st = _do_compact_all_segments(segments);
+    } else {
+        st = _do_compact_segments(segments);
+    }
+    if (!st.ok()) {
+        int16_t errcode = st.code();
         switch (errcode) {
         case FETCH_MEMORY_EXCEEDED:
         case SEGCOMPACTION_INIT_READER:
         case SEGCOMPACTION_INIT_WRITER:
-            LOG(WARNING) << "segcompaction failed, try next time:" << status;
+            LOG(WARNING) << "segcompaction failed, try next time:" << st;
             return;
         default:
             auto ctx = _writer->_context;
             LOG(WARNING) << "segcompaction fatal, terminating the write job."
                          << " tablet_id:" << ctx.tablet_id << " rowset_id:" << ctx.rowset_id
-                         << " status:" << status;
+                         << " status:" << st;
             // status will be checked by the next trigger of segcompaction or the final wait
             _writer->_segcompaction_status.store(ErrorCode::INTERNAL_ERROR);
         }
