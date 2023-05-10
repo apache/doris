@@ -33,6 +33,7 @@
 
 namespace doris {
 
+inline thread_local int enable_thread_catch_bad_alloc = 0;
 class Exception : public std::exception {
 public:
     Exception() : _code(ErrorCode::OK) {}

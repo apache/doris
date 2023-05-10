@@ -125,7 +125,6 @@ public:
 };
 
 inline thread_local ThreadContextPtr thread_context_ptr;
-inline thread_local int enable_thread_catch_bad_alloc = 0;
 inline thread_local int skip_memory_check = 0;
 
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
