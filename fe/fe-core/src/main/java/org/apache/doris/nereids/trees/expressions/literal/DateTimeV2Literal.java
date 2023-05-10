@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
@@ -82,60 +82,59 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     @Override
-    public DateTimeV2Literal plusYears(int years) {
+    public Expression plusYears(int years) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusYears(years));
+                .plusYears(years), getDataType().getScale());
     }
 
     @Override
-    public DateTimeV2Literal plusMonths(int months) {
+    public Expression plusMonths(int months) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusMonths(months));
+                .plusMonths(months), getDataType().getScale());
     }
 
     @Override
-    public DateTimeV2Literal plusDays(int days) {
+    public Expression plusDays(int days) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusDays(days));
+                .plusDays(days), getDataType().getScale());
     }
 
     @Override
-    public DateTimeV2Literal plusHours(int hours) {
+    public Expression plusHours(int hours) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusHours(hours));
+                .plusHours(hours), getDataType().getScale());
     }
 
     @Override
-    public DateTimeV2Literal plusMinutes(int minutes) {
+    public Expression plusMinutes(int minutes) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusMinutes(minutes));
+                .plusMinutes(minutes), getDataType().getScale());
     }
 
     @Override
-    public DateTimeV2Literal plusSeconds(long seconds) {
+    public Expression plusSeconds(long seconds) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusSeconds(seconds));
+                .plusSeconds(seconds), getDataType().getScale());
     }
 
-    public DateTimeV2Literal plusMicroSeconds(int microSeconds) {
+    public Expression plusMicroSeconds(int microSeconds) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusNanos(microSeconds * 1000L));
+                .plusNanos(microSeconds * 1000L), getDataType().getScale());
     }
 
-    public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime) {
+    public static Expression fromJavaDateType(LocalDateTime dateTime) {
         return fromJavaDateType(dateTime, 0);
     }
 
     /**
      * convert java LocalDateTime object to DateTimeV2Literal object.
      */
-    public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int precision) {
-        if (isDateOutOfRange(dateTime)) {
-            throw new AnalysisException(String.format("datetime: %s is out of range", dateTime));
-        }
-        return new DateTimeV2Literal(DateTimeV2Type.of(precision),
-                dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
-                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
-                dateTime.getNano() / (long) Math.pow(10, 9 - precision));
+    public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
+        return isDateOutOfRange(dateTime)
+                ? new NullLiteral(DateTimeV2Type.of(precision))
+                : new DateTimeV2Literal(DateTimeV2Type.of(precision),
+                        dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                        dateTime.getNano() / (long) Math.pow(10, 9 - precision));
     }
 }

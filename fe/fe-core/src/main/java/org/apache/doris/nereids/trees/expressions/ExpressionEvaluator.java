@@ -87,8 +87,7 @@ public enum ExpressionEvaluator {
             }
         }
 
-        Expression res = invoke(expression, fnName, args);
-        return res == null ? new NullLiteral() : res;
+        return invoke(expression, fnName, args);
     }
 
     private Expression invoke(Expression expression, String fnName, DataType[] args) {

@@ -1453,7 +1453,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     + " to target type=" + targetType);
 
         }
-        return uncheckedCastTo(targetType);
+        return uncheckedCastTo(Type.convertDateLikeTypeToV2(targetType));
     }
 
     /**

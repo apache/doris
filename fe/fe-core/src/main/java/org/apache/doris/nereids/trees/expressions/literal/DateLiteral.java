@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
@@ -200,29 +201,25 @@ public class DateLiteral extends Literal {
         return day;
     }
 
-    public DateLiteral plusDays(int days) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days);
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public Expression plusDays(int days) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(days));
     }
 
-    public DateLiteral plusMonths(int months) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months);
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public Expression plusMonths(int months) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months));
     }
 
-    public DateLiteral plusYears(int years) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years);
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public Expression plusYears(int years) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(years));
     }
 
     public LocalDateTime toJavaDateType() {
         return LocalDateTime.of(((int) getYear()), ((int) getMonth()), ((int) getDay()), 0, 0, 0);
     }
 
-    public static DateLiteral fromJavaDateType(LocalDateTime dateTime) {
-        if (isDateOutOfRange(dateTime)) {
-            throw new AnalysisException(String.format("datetime: %s is out of range", dateTime));
-        }
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public static Expression fromJavaDateType(LocalDateTime dateTime) {
+        return isDateOutOfRange(dateTime)
+                ? new NullLiteral(DateType.INSTANCE)
+                : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }

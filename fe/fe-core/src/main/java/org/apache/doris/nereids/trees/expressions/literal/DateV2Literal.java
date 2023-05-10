@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.LocalDateTime;
 
@@ -49,25 +49,9 @@ public class DateV2Literal extends DateLiteral {
         return visitor.visitDateV2Literal(this, context);
     }
 
-    public DateV2Literal plusDays(int days) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days);
-        return new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
-    }
-
-    public DateV2Literal plusMonths(int months) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months);
-        return new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
-    }
-
-    public DateV2Literal plusYears(int years) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years);
-        return new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
-    }
-
-    public static DateV2Literal fromJavaDateType(LocalDateTime dateTime) {
-        if (isDateOutOfRange(dateTime)) {
-            throw new AnalysisException(String.format("datetime: %s is out of range", dateTime));
-        }
-        return new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public static Expression fromJavaDateType(LocalDateTime dateTime) {
+        return isDateOutOfRange(dateTime)
+                ? new NullLiteral(DateV2Type.INSTANCE)
+                : new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }

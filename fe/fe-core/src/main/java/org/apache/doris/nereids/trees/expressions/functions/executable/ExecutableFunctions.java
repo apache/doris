@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
@@ -43,57 +44,57 @@ public class ExecutableFunctions {
      * other scalar function
      */
     @ExecFunction(name = "abs", argTypes = {"TINYINT"}, returnType = "TINYINT")
-    public static TinyIntLiteral abs(TinyIntLiteral literal) {
+    public static Expression abs(TinyIntLiteral literal) {
         return new TinyIntLiteral((byte) Math.abs(literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"SMALLINT"}, returnType = "SMALLINT")
-    public static SmallIntLiteral abs(SmallIntLiteral literal) {
+    public static Expression abs(SmallIntLiteral literal) {
         return new SmallIntLiteral((short) Math.abs(literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"INT"}, returnType = "INT")
-    public static IntegerLiteral abs(IntegerLiteral literal) {
+    public static Expression abs(IntegerLiteral literal) {
         return new IntegerLiteral(Math.abs(literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"BIGINT"}, returnType = "BIGINT")
-    public static BigIntLiteral abs(BigIntLiteral literal) {
+    public static Expression abs(BigIntLiteral literal) {
         return new BigIntLiteral(Math.abs(literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"LARGEINT"}, returnType = "LARGEINT")
-    public static LargeIntLiteral abs(LargeIntLiteral literal) {
+    public static Expression abs(LargeIntLiteral literal) {
         return new LargeIntLiteral(literal.getValue().abs());
     }
 
     @ExecFunction(name = "abs", argTypes = {"FLOAT"}, returnType = "FLOAT")
-    public static FloatLiteral abs(FloatLiteral literal) {
+    public static Expression abs(FloatLiteral literal) {
         return new FloatLiteral(Math.abs(literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"DOUBLE"}, returnType = "DOUBLE")
-    public static DoubleLiteral abs(DoubleLiteral literal) {
+    public static Expression abs(DoubleLiteral literal) {
         return new DoubleLiteral(Math.abs(literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"DECIMAL"}, returnType = "DECIMAL")
-    public static DecimalLiteral abs(DecimalLiteral literal) {
+    public static Expression abs(DecimalLiteral literal) {
         return new DecimalLiteral(literal.getValue().abs());
     }
 
     @ExecFunction(name = "abs", argTypes = {"DECIMALV3"}, returnType = "DECIMALV3")
-    public static DecimalV3Literal abs(DecimalV3Literal literal) {
+    public static Expression abs(DecimalV3Literal literal) {
         return new DecimalV3Literal(literal.getValue().abs());
     }
 
     @ExecFunction(name = "acos", argTypes = {"DOUBLE"}, returnType = "DOUBLE")
-    public static DoubleLiteral acos(DoubleLiteral literal) {
+    public static Expression acos(DoubleLiteral literal) {
         return new DoubleLiteral(Math.acos(literal.getValue()));
     }
 
     @ExecFunction(name = "append_trailing_if_char_absent", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
-    public static VarcharLiteral appendTrailingIfCharAbsent(VarcharLiteral literal, VarcharLiteral chr) {
+    public static Expression appendTrailingIfCharAbsent(VarcharLiteral literal, VarcharLiteral chr) {
         if (literal.getValue().length() != 1) {
             return null;
         }
@@ -102,27 +103,27 @@ public class ExecutableFunctions {
     }
 
     @ExecFunction(name = "e", argTypes = {}, returnType = "DOUBLE")
-    public static DoubleLiteral e() { // CHECKSTYLE IGNORE THIS LINE
+    public static Expression e() { // CHECKSTYLE IGNORE THIS LINE
         return new DoubleLiteral(Math.E);
     }
 
     @ExecFunction(name = "p1", argTypes = {}, returnType = "DOUBLE")
-    public static DoubleLiteral pi() {
+    public static Expression pi() {
         return new DoubleLiteral(Math.PI);
     }
 
     @ExecFunction(name = "uuid", argTypes = {}, returnType = "VARCHAR")
-    public static VarcharLiteral uuid() {
+    public static Expression uuid() {
         return new VarcharLiteral(UUID.randomUUID().toString());
     }
 
     @ExecFunction(name = "rand", argTypes = {}, returnType = "DOUBLE")
-    public static DoubleLiteral rand() {
+    public static Expression rand() {
         return new DoubleLiteral(RANDOM.nextDouble());
     }
 
     @ExecFunction(name = "random", argTypes = {}, returnType = "DOUBLE")
-    public static DoubleLiteral random() {
+    public static Expression random() {
         return new DoubleLiteral(RANDOM.nextDouble());
     }
 }

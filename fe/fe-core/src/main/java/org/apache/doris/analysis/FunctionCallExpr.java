@@ -1340,8 +1340,7 @@ public class FunctionCallExpr extends Expr {
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
-            Type assignmentCompatibleType = Type.convertDateLikeTypeToV2(
-                    ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true));
+            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
             if (assignmentCompatibleType.isDecimalV3()) {
                 if (childTypes[1].isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
                     uncheckedCastChild(assignmentCompatibleType, 1);

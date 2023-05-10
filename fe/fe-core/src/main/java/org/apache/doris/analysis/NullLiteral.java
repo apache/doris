@@ -132,7 +132,7 @@ public class NullLiteral extends LiteralExpr {
         Preconditions.checkState(targetType.isValid());
         if (!type.equals(targetType)) {
             NullLiteral nullLiteral = new NullLiteral(this);
-            nullLiteral.setType(Type.convertDateLikeTypeToV2(targetType));
+            nullLiteral.setType(targetType);
             return nullLiteral;
         }
         return this;

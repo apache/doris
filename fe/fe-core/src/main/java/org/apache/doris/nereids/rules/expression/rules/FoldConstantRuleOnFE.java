@@ -110,7 +110,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitEqualTo(EqualTo equalTo, ExpressionRewriteContext context) {
         equalTo = rewriteChildren(equalTo, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(equalTo);
+        Optional<Expression> checkedExpr = preProcess(equalTo);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -120,7 +120,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitGreaterThan(GreaterThan greaterThan, ExpressionRewriteContext context) {
         greaterThan = rewriteChildren(greaterThan, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(greaterThan);
+        Optional<Expression> checkedExpr = preProcess(greaterThan);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -130,7 +130,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, ExpressionRewriteContext context) {
         greaterThanEqual = rewriteChildren(greaterThanEqual, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(greaterThanEqual);
+        Optional<Expression> checkedExpr = preProcess(greaterThanEqual);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -141,7 +141,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitLessThan(LessThan lessThan, ExpressionRewriteContext context) {
         lessThan = rewriteChildren(lessThan, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(lessThan);
+        Optional<Expression> checkedExpr = preProcess(lessThan);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -151,7 +151,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitLessThanEqual(LessThanEqual lessThanEqual, ExpressionRewriteContext context) {
         lessThanEqual = rewriteChildren(lessThanEqual, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(lessThanEqual);
+        Optional<Expression> checkedExpr = preProcess(lessThanEqual);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -161,7 +161,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitNullSafeEqual(NullSafeEqual nullSafeEqual, ExpressionRewriteContext context) {
         nullSafeEqual = rewriteChildren(nullSafeEqual, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(nullSafeEqual);
+        Optional<Expression> checkedExpr = preProcess(nullSafeEqual);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -179,7 +179,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitNot(Not not, ExpressionRewriteContext context) {
         not = rewriteChildren(not, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(not);
+        Optional<Expression> checkedExpr = preProcess(not);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -273,7 +273,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = rewriteChildren(cast, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(cast);
+        Optional<Expression> checkedExpr = preProcess(cast);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -300,7 +300,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         if (boundFunction.getArguments().isEmpty()) {
             return boundFunction;
         }
-        Optional<Expression> checkedExpr = checkNeedCalculate(boundFunction);
+        Optional<Expression> checkedExpr = preProcess(boundFunction);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -310,7 +310,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, ExpressionRewriteContext context) {
         binaryArithmetic = rewriteChildren(binaryArithmetic, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(binaryArithmetic);
+        Optional<Expression> checkedExpr = preProcess(binaryArithmetic);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -393,7 +393,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitIsNull(IsNull isNull, ExpressionRewriteContext context) {
         isNull = rewriteChildren(isNull, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(isNull);
+        Optional<Expression> checkedExpr = preProcess(isNull);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -409,7 +409,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitArray(Array array, ExpressionRewriteContext context) {
         array = rewriteChildren(array, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(array);
+        Optional<Expression> checkedExpr = preProcess(array);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -420,7 +420,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitDate(Date date, ExpressionRewriteContext context) {
         date = rewriteChildren(date, context);
-        Optional<Expression> checkedExpr = checkNeedCalculate(date);
+        Optional<Expression> checkedExpr = preProcess(date);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
@@ -456,7 +456,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         return ExpressionUtils.hasNullLiteral(expression.getArguments());
     }
 
-    private Optional<Expression> checkNeedCalculate(Expression expression) {
+    private Optional<Expression> preProcess(Expression expression) {
         if (expression instanceof PropagateNullable && !(expression instanceof NullableAggregateFunction)
                 && argsHasNullLiteral(expression)) {
             return Optional.of(new NullLiteral(expression.getDataType()));
