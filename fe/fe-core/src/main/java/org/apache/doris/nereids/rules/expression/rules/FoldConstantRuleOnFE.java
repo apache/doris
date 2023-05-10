@@ -181,6 +181,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         not = rewriteChildren(not, context);
         Optional<Expression> checkedExpr = preProcess(not);
         if (checkedExpr.isPresent()) {
+            // handle expr not in (value1, value2, null) => false.
             if (not.child() instanceof InPredicate) {
                 InPredicate inPredicate = ((InPredicate) not.child());
                 if (inPredicate.getOptions().stream().anyMatch(Expression::isNullLiteral)) {
