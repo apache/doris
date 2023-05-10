@@ -32,7 +32,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.FileNotFoundException;
-import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
@@ -58,7 +57,7 @@ public class S3FileSystem extends ObjFileSystem {
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
             PropertyConverter.convertToHadoopFSProperties(properties).forEach(conf::set);
             try {
-                dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
+                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
             } catch (Exception e) {
                 throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
             }
