@@ -202,7 +202,9 @@ Status JdbcConnector::query() {
     }
 
     LOG(INFO) << "JdbcConnector::query has exec success: " << _sql_str;
-    RETURN_IF_ERROR(_check_column_type());
+    if (_conn_param.table_type != TOdbcTableType::NEBULA) {
+        RETURN_IF_ERROR(_check_column_type());
+    }
     return Status::OK();
 }
 
@@ -277,7 +279,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_BIGINT:
     case TYPE_LARGEINT: {
         if (type_str != "java.lang.Long" && type_str != "java.math.BigDecimal" &&
-            type_str != "java.math.BigInteger" &&
+            type_str != "java.math.BigInteger" && type_str != "java.lang.String" &&
             type_str != "com.clickhouse.data.value.UnsignedInteger" &&
             type_str != "com.clickhouse.data.value.UnsignedLong") {
             return Status::InternalError(error_msg);

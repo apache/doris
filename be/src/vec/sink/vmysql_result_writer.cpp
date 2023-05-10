@@ -34,6 +34,7 @@
 #include "olap/hll.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
@@ -709,7 +710,8 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
         case TYPE_STRING:
         case TYPE_CHAR:
-        case TYPE_VARCHAR: {
+        case TYPE_VARCHAR:
+        case TYPE_AGG_STATE: {
             if (type_ptr->is_nullable()) {
                 status = _add_one_column<PrimitiveType::TYPE_VARCHAR, true>(column_ptr, result,
                                                                             rows_buffer);

@@ -87,6 +87,17 @@ public:
 
     DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDate64SerDe>(); }
 
+    Field get_field(const TExprNode& node) const override {
+        VecDateTimeValue value;
+        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
+            value.to_datetime();
+            return Int64(*reinterpret_cast<__int64_t*>(&value));
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid value: {} for type DateTime", node.date_literal.value);
+        }
+    }
+
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
     Status from_string(ReadBuffer& rb, IColumn* column) const override;

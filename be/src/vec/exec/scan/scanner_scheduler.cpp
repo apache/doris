@@ -261,15 +261,12 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScannerSPtr scanner) {
-    auto tracker_config = [&] {
-        SCOPED_ATTACH_TASK(scanner->runtime_state());
-        Thread::set_self_name("_scanner_scan");
-    };
+    SCOPED_ATTACH_TASK(scanner->runtime_state());
 #if !defined(USE_BTHREAD_SCANNER)
-    tracker_config();
+    Thread::set_self_name("_scanner_scan");
 #else
     if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr) {
-        tracker_config();
+        Thread::set_self_name("_scanner_scan");
     }
 #endif
     scanner->update_wait_worker_timer();

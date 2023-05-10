@@ -151,6 +151,7 @@ import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.loadv2.LoadManagerAdapter;
 import org.apache.doris.load.loadv2.ProgressManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
@@ -437,6 +438,11 @@ public class Env {
 
     private StatisticsCleaner statisticsCleaner;
 
+    /**
+     * TODO(tsy): to be removed after load refactor
+     */
+    private final LoadManagerAdapter loadManagerAdapter;
+
     private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
@@ -642,6 +648,7 @@ public class Env {
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.resourceGroupMgr = new ResourceGroupMgr();
+        this.loadManagerAdapter = new LoadManagerAdapter();
     }
 
     public static void destroyCheckpoint() {
@@ -1111,9 +1118,8 @@ public class Env {
                 // For upgrade compatibility, the host parameter name remains the same
                 // and the new hostname parameter is added
                 String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
-                        + "/role?host=" + selfNode.getHost() + "&hostname=" + selfNode.getHost()
+                        + "/role?host=" + selfNode.getHost()
                         + "&port=" + selfNode.getPort();
-
                 HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                 if (conn.getResponseCode() != 200) {
                     LOG.warn("failed to get fe node type from helper node: {}. response code: {}", helperNode,
@@ -5213,6 +5219,10 @@ public class Env {
 
     public StatisticsCleaner getStatisticsCleaner() {
         return statisticsCleaner;
+    }
+
+    public LoadManagerAdapter getLoadManagerAdapter() {
+        return loadManagerAdapter;
     }
 
     public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {

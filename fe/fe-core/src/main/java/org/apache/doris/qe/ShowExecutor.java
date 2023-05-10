@@ -89,6 +89,7 @@ import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
+import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
@@ -185,6 +186,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
+import org.apache.doris.statistics.TableStatistic;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -371,6 +373,8 @@ public class ShowExecutor {
             handleShowSyncJobs();
         } else if (stmt instanceof ShowSqlBlockRuleStmt) {
             handleShowSqlBlockRule();
+        } else if (stmt instanceof ShowTableStatsStmt) {
+            handleShowTableStats();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
         } else if (stmt instanceof ShowColumnHistStmt) {
@@ -2253,6 +2257,24 @@ public class ShowExecutor {
             throw new AnalysisException(e.getMessage());
         }
 
+    }
+
+    private void handleShowTableStats() {
+        ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
+        TableIf tableIf = showTableStatsStmt.getTable();
+        long partitionId = showTableStatsStmt.getPartitionId();
+        try {
+            if (partitionId > 0) {
+                TableStatistic partStats = StatisticsRepository.fetchTableLevelOfPartStats(partitionId);
+                resultSet = showTableStatsStmt.constructResultSet(partStats);
+            } else {
+                TableStatistic tableStats = StatisticsRepository.fetchTableLevelStats(tableIf.getId());
+                resultSet = showTableStatsStmt.constructResultSet(tableStats);
+            }
+        } catch (DdlException e) {
+            LOG.warn("Table statistics do not exist: {}", tableIf.getName());
+            resultSet = showTableStatsStmt.constructResultSet(TableStatistic.UNKNOWN);
+        }
     }
 
     private void handleShowColumnStats() throws AnalysisException {

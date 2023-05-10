@@ -77,7 +77,8 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_STRING ||
                _type == FieldType::OLAP_FIELD_TYPE_HLL ||
                _type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
-               _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
+               _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
+               _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
@@ -88,8 +89,8 @@ public:
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_has_default_value(bool has) { _has_default_value = has; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
-    vectorized::AggregateFunctionPtr get_aggregate_function(vectorized::DataTypes argument_types,
-                                                            std::string suffix) const;
+    vectorized::AggregateFunctionPtr get_aggregate_function_merge() const;
+    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
@@ -120,6 +121,7 @@ private:
     FieldType _type;
     bool _is_key = false;
     FieldAggregationMethod _aggregation;
+    std::string _aggregation_name;
     bool _is_nullable = false;
 
     bool _has_default_value = false;
@@ -299,7 +301,6 @@ private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
-private:
     KeysType _keys_type = DUP_KEYS;
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;

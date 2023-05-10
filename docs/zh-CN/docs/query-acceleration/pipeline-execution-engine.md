@@ -76,3 +76,5 @@ set enable_pipeline_engine = true;
 ```
 set parallel_fragment_exec_instance_num = 16;
 ```
+
+特别的，如果设置为0， 则在Pipeline 执行引擎中的并发数会自动的设置为cpu核心数目的一半。并且parallel_fragment_exec_instance_num不能设置超过fe.conf中的max_instance_num(默认128)

@@ -36,6 +36,7 @@
 #include "gen_cpp/Types_types.h"
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/descriptors.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/runtime_state.h"
@@ -225,14 +226,39 @@ struct literal_traits<TYPE_DOUBLE> {
 
 template <>
 struct literal_traits<TYPE_DATETIME> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::DATETIME;
+    const static TExprNodeType::type tnode_type = TExprNodeType::DATE_LITERAL;
+    using CXXType = std::string;
+};
+template <>
+struct literal_traits<TYPE_DATETIMEV2> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::DATETIMEV2;
+    const static TExprNodeType::type tnode_type = TExprNodeType::DATE_LITERAL;
+    using CXXType = std::string;
+};
+template <>
+struct literal_traits<TYPE_DATE> {
     const static TPrimitiveType::type ttype = TPrimitiveType::DATE;
-    const static TExprNodeType::type tnode_type = TExprNodeType::STRING_LITERAL;
+    const static TExprNodeType::type tnode_type = TExprNodeType::DATE_LITERAL;
+    using CXXType = std::string;
+};
+template <>
+struct literal_traits<TYPE_DATEV2> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::DATEV2;
+    const static TExprNodeType::type tnode_type = TExprNodeType::DATE_LITERAL;
     using CXXType = std::string;
 };
 
 template <>
-struct literal_traits<TYPE_DATEV2> {
-    const static TPrimitiveType::type ttype = TPrimitiveType::DATEV2;
+struct literal_traits<TYPE_JSONB> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::JSONB;
+    const static TExprNodeType::type tnode_type = TExprNodeType::JSON_LITERAL;
+    using CXXType = std::string;
+};
+
+template <>
+struct literal_traits<TYPE_STRING> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::STRING;
     const static TExprNodeType::type tnode_type = TExprNodeType::STRING_LITERAL;
     using CXXType = std::string;
 };
@@ -244,6 +270,7 @@ struct literal_traits<TYPE_DECIMALV2> {
     using CXXType = std::string;
 };
 
+//======================== set literal ===================================
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
           std::enable_if_t<std::is_integral<U>::value, bool> = true>
 void set_literal(TExprNode& node, const U& value) {
@@ -275,11 +302,43 @@ void set_literal(TExprNode& node, const U& value) {
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
+          std::enable_if_t<T == TYPE_DATETIMEV2, bool> = true>
+void set_literal(TExprNode& node, const U& value) {
+    TDateLiteral date_literal;
+    date_literal.__set_value(value);
+    node.__set_date_literal(date_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
+          std::enable_if_t<T == TYPE_DATE, bool> = true>
+void set_literal(TExprNode& node, const U& value) {
+    TDateLiteral date_literal;
+    date_literal.__set_value(value);
+    node.__set_date_literal(date_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
           std::enable_if_t<T == TYPE_DATEV2, bool> = true>
 void set_literal(TExprNode& node, const U& value) {
     TDateLiteral date_literal;
     date_literal.__set_value(value);
     node.__set_date_literal(date_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
+          std::enable_if_t<T == TYPE_JSONB, bool> = true>
+void set_literal(TExprNode& node, const U& value) {
+    TJsonLiteral jsonb_literal;
+    jsonb_literal.__set_value(value);
+    node.__set_json_literal(jsonb_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
+          std::enable_if_t<T == TYPE_STRING, bool> = true>
+void set_literal(TExprNode& node, const U& value) {
+    TStringLiteral string_literal;
+    string_literal.__set_value(value);
+    node.__set_string_literal(string_literal);
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
@@ -299,7 +358,7 @@ void set_literal(TExprNode& node, const U& value) {
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
-doris::TExprNode create_literal(const U& value) {
+doris::TExprNode create_literal(const U& value, int scale = 9) {
     TExprNode node;
     TTypeDesc type_desc;
     TTypeNode type_node;
@@ -307,7 +366,7 @@ doris::TExprNode create_literal(const U& value) {
     type_nodes.emplace_back();
     TScalarType scalar_type;
     scalar_type.__set_precision(27);
-    scalar_type.__set_scale(9);
+    scalar_type.__set_scale(scale);
     scalar_type.__set_len(20);
     scalar_type.__set_type(literal_traits<T>::ttype);
     type_nodes[0].__set_scalar_type(scalar_type);
@@ -322,15 +381,19 @@ doris::TExprNode create_literal(const U& value) {
 TEST(TEST_VEXPR, LITERALTEST) {
     using namespace doris;
     using namespace doris::vectorized;
+    // bool
     {
         VLiteral literal(create_literal<TYPE_BOOLEAN>(true));
+        std::cout << "data type: " << literal.data_type().get()->get_name() << std::endl;
         Block block;
         int ret = -1;
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         bool v = ctn.column->get_bool(0);
         EXPECT_EQ(v, true);
+        EXPECT_EQ("1", literal.value());
     }
+    // smallint
     {
         VLiteral literal(create_literal<TYPE_SMALLINT>(1024));
         Block block;
@@ -339,7 +402,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
+    // int
     {
         VLiteral literal(create_literal<TYPE_INT>(1024));
         Block block;
@@ -348,7 +413,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
+    // bigint
     {
         VLiteral literal(create_literal<TYPE_BIGINT>(1024));
         Block block;
@@ -357,7 +424,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
+    // large int
     {
         VLiteral literal(create_literal<TYPE_LARGEINT, __int128_t>(1024));
         Block block;
@@ -366,7 +435,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int128_t>();
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
+    // float
     {
         VLiteral literal(create_literal<TYPE_FLOAT, float>(1024.0f));
         Block block;
@@ -375,7 +446,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
         EXPECT_FLOAT_EQ(v, 1024.0f);
+        EXPECT_EQ("1024", literal.value());
     }
+    // double
     {
         VLiteral literal(create_literal<TYPE_DOUBLE, double>(1024.0));
         Block block;
@@ -384,11 +457,14 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
         EXPECT_FLOAT_EQ(v, 1024.0);
+        EXPECT_EQ("1024", literal.value());
     }
+    // datetime
     {
         vectorized::VecDateTimeValue data_time_value;
-        const char* date = "20210407";
+        const char* date = "20210407000000";
         data_time_value.from_date_str(date, strlen(date));
+        std::cout << data_time_value.type() << std::endl;
         __int64_t dt;
         memcpy(&dt, &data_time_value, sizeof(__int64_t));
         VLiteral literal(create_literal<TYPE_DATETIME, std::string>(std::string(date)));
@@ -398,7 +474,49 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int64_t>();
         EXPECT_EQ(v, dt);
+        EXPECT_EQ("2021-04-07 00:00:00", literal.value());
     }
+    // datetimev2
+    {
+        uint16_t year = 1997;
+        uint8_t month = 11;
+        uint8_t day = 18;
+        uint8_t hour = 9;
+        uint8_t minute = 12;
+        uint8_t second = 46;
+        uint32_t microsecond = 999999;
+        DateV2Value<DateTimeV2ValueType> datetime_v2;
+        datetime_v2.set_time(year, month, day, hour, minute, second, microsecond);
+        std::string date = datetime_v2.debug_string();
+
+        __uint64_t dt;
+        memcpy(&dt, &datetime_v2, sizeof(__uint64_t));
+        VLiteral literal(create_literal<TYPE_DATETIMEV2, std::string>(date, 4));
+        Block block;
+        int ret = -1;
+        literal.execute(nullptr, &block, &ret);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<__uint64_t>();
+        EXPECT_EQ(v, dt);
+        EXPECT_EQ("1997-11-18 09:12:46.9999", literal.value());
+    }
+    // date
+    {
+        vectorized::VecDateTimeValue data_time_value;
+        const char* date = "20210407";
+        data_time_value.from_date_str(date, strlen(date));
+        __int64_t dt;
+        memcpy(&dt, &data_time_value, sizeof(__int64_t));
+        VLiteral literal(create_literal<TYPE_DATE, std::string>(std::string(date)));
+        Block block;
+        int ret = -1;
+        literal.execute(nullptr, &block, &ret);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<__int64_t>();
+        EXPECT_EQ(v, dt);
+        EXPECT_EQ("2021-04-07", literal.value());
+    }
+    // datev2
     {
         vectorized::DateV2Value<doris::vectorized::DateV2ValueType> data_time_value;
         const char* date = "20210407";
@@ -412,7 +530,31 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<uint32_t>();
         EXPECT_EQ(v, dt);
+        EXPECT_EQ("2021-04-07", literal.value());
     }
+    // jsonb
+    {
+        std::string j = R"([null,true,false,100,6.18,"abc"])";
+        VLiteral literal(create_literal<TYPE_JSONB, std::string>(j));
+        Block block;
+        int ret = -1;
+        literal.execute(nullptr, &block, &ret);
+        auto ctn = block.safe_get_by_position(ret);
+        EXPECT_EQ(j, literal.value());
+    }
+    // string
+    {
+        std::string s = "I am Amory, 24";
+        VLiteral literal(create_literal<TYPE_STRING, std::string>(std::string("I am Amory, 24")));
+        Block block;
+        int ret = -1;
+        literal.execute(nullptr, &block, &ret);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<String>();
+        EXPECT_EQ(v, s);
+        EXPECT_EQ(s, literal.value());
+    }
+    // decimalv2
     {
         VLiteral literal(create_literal<TYPE_DECIMALV2, std::string>(std::string("1234.56")));
         Block block;
@@ -421,5 +563,6 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<DecimalField<Decimal128>>();
         EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
+        EXPECT_EQ("1234.560000000", literal.value());
     }
 }
