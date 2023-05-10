@@ -219,6 +219,8 @@ struct TQueryOptions {
   71: optional bool enable_parquet_lazy_mat = true
 
   72: optional bool enable_orc_lazy_mat = true
+
+  73: optional i64 scan_queue_mem_limit
 }
     
 
