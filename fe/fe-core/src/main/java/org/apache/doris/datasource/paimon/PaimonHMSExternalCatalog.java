@@ -79,7 +79,6 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
             catalog = create(context);
         } catch (IOException e) {
             e.printStackTrace();
-
         }
     }
 

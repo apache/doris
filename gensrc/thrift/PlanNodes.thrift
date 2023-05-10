@@ -113,6 +113,7 @@ enum TFileFormatType {
     FORMAT_ORC,
     FORMAT_JSON,
     FORMAT_PROTO,
+    FORMAT_JNI,
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -286,9 +287,22 @@ struct TIcebergFileDesc {
     5: optional Exprs.TExpr file_select_conjunct;
 }
 
+struct TPaimonFileDesc {
+    1: optional binary paimon_split
+    2: optional string paimon_column_ids
+    3: optional string paimon_column_types
+    4: optional string paimon_column_names
+    5: optional string hive_metastore_uris
+    6: optional string warehouse
+    7: optional string db_name
+    8: optional string table_name
+}
+
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
+    3: optional TPaimonFileDesc paimon_params
 }
 
 struct TFileScanRangeParams {

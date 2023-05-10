@@ -60,6 +60,7 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/scan/paimon_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
@@ -639,6 +640,14 @@ Status VFileScanner::_get_next_reader() {
                                                        _file_slot_descs, &_scanner_eof,
                                                        _io_ctx.get(), _is_dynamic_schema);
             init_status = ((NewJsonReader*)(_cur_reader.get()))->init_reader();
+            break;
+        }
+        case TFileFormatType::FORMAT_JNI: {
+            // test
+            LOG(INFO) << "FORMAT_JNI ";
+            _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
+            init_status =
+                    ((PaimonJniReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;
         }
         default:

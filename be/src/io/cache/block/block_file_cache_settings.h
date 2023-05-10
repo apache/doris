@@ -24,6 +24,8 @@
 
 #include "io/cache/block/block_file_cache_fwd.h"
 
+#include <array>
+
 namespace doris {
 namespace io {
 
