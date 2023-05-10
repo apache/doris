@@ -43,7 +43,7 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
     
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2}; }
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeInt64>();
