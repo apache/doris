@@ -91,7 +91,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         } else if (expr instanceof AggregateExpression && ((AggregateExpression) expr).getFunction().isDistinct()) {
             return expr;
         }
-        return expr.accept(this, ctx);
+        return ExpressionUtils.toDateLikeV2Literal(expr.accept(this, ctx));
     }
 
     /**
@@ -403,6 +403,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, ExpressionRewriteContext context) {
         arithmetic = rewriteChildren(arithmetic, context);
+        Optional<Expression> checkedExpr = preProcess(arithmetic);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
         return ExpressionEvaluator.INSTANCE.eval(arithmetic);
     }
 

@@ -631,7 +631,8 @@ public class TypeCoercionUtils {
         if (leftType.isDateV2Type() && timestampArithmetic.getTimeUnit().isDateTimeUnit()) {
             leftType = DateTimeV2Type.SYSTEM_DEFAULT;
         }
-        if (!left.getDataType().isDateLikeType() && !left.getDataType().isNullType()) {
+        leftType = convertDateLikeTypeToV2(leftType);
+        if (!left.getDataType().isNullType()) {
             checkCanCastTo(left.getDataType(), leftType);
             left = castIfNotSameType(left, leftType);
         }
@@ -1182,5 +1183,19 @@ public class TypeCoercionUtils {
         } catch (Throwable t) {
             throw new AnalysisException(t.getMessage());
         }
+    }
+
+    /**
+     * convert date type and datetime type to datelikev2 type if enable date_conversion.
+     */
+    public static DataType convertDateLikeTypeToV2(DataType dataType) {
+        if (Config.enable_date_conversion) {
+            if (dataType.isDateType()) {
+                return DateV2Type.INSTANCE;
+            } else if (dataType.isDateTimeType()) {
+                return DateTimeV2Type.of(0);
+            }
+        }
+        return dataType;
     }
 }

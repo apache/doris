@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -260,7 +261,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewrite(e7, e8);
 
         // a + interval 1 day
-        Slot a = SlotReference.of("a", DateTimeType.INSTANCE);
+        Slot a = SlotReference.of("a", DateTimeV2Type.SYSTEM_DEFAULT);
         TimestampArithmetic arithmetic = new TimestampArithmetic(Operator.ADD, a, Literal.of(1), TimeUnit.DAY, false);
         Expression process = process(arithmetic);
         assertRewrite(process, process);
