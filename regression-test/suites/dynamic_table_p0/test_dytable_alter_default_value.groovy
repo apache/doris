@@ -56,14 +56,26 @@ suite("test_dytable_alter_default_value") {
         for (i = 40; i < 50; i++) {
             sql "INSERT INTO ${table_name} VALUES (${i}, DEFAULT)"
         }
-        def result2 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${src_value}'"
-        assertEquals(result2[0][0], 10)
-        def result3 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${dst_value}'"
-        assertEquals(result3[0][0], 10)
+        List<List<Object>> result2 = sql "SELECT * FROM ${table_name} WHERE ${column_name} = '${src_value}'"
+        assertEquals(result2.size(), 10)
+        for (i = 0; i < 10; i++) {
+            assertEquals(result2[i][0], 30 + i)
+            assertEquals(result2[i][1], "${src_value}")
+        }
+        List<List<Object>> result3 = sql "SELECT * FROM ${table_name} WHERE ${column_name} = '${dst_value}'"
+        assertEquals(result3.size(), 10)
+        for (i = 0; i < 10; i++) {
+            assertEquals(result2[i][0], 40 + i)
+            assertEquals(result2[i][1], "${dst_value}")
+        }
         // step8: delete where column == dst_value
         sql "DELETE FROM ${table_name} WHERE ${column_name} = '${dst_value}'"
-        def result4 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${src_value}'"
-        assertEquals(result4[0][0], 10)
+        List<List<Object>> result4 = sql "SELECT * FROM ${table_name} WHERE ${column_name} = '${src_value}'"
+        assertEquals(result4.size(), 10)
+        for (i = 0; i < 10; i++) {
+            assertEquals(result4[i][0], 30 + i)
+            assertEquals(result4[i][1], "${src_value}")
+        }
         def result5 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${dst_value}'"
         assertEquals(result5[0][0], 0)
         sql "DROP TABLE ${table_name}"
