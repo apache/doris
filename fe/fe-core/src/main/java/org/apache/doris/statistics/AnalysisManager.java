@@ -124,6 +124,7 @@ public class AnalysisManager {
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
         createTaskForMVIdx(jobInfo, analysisTaskInfos, isSync);
+        createTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
 
         ConnectContext ctx = ConnectContext.get();
         if (!isSync || ctx.getSessionVariable().enableSaveStatisticsSyncJob) {
@@ -422,6 +423,31 @@ public class AnalysisManager {
             } catch (Exception e) {
                 throw new DdlException("Failed to create analysis task", e);
             }
+        }
+    }
+
+    private void createTaskForExternalTable(AnalysisTaskInfo jobInfo,
+                                            Map<Long, BaseAnalysisTask> analysisTasks,
+                                            boolean isSync) throws DdlException {
+        TableIf table;
+        try {
+            table = StatisticsUtil.findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
+        } catch (Throwable e) {
+            LOG.warn(e.getMessage());
+            return;
+        }
+        if (jobInfo.analysisType == AnalysisType.HISTOGRAM || table.getType() != TableType.HMS_EXTERNAL_TABLE) {
+            return;
+        }
+        AnalysisTaskInfoBuilder colTaskInfoBuilder = new AnalysisTaskInfoBuilder(jobInfo);
+        long taskId = Env.getCurrentEnv().getNextId();
+        AnalysisTaskInfo analysisTaskInfo = colTaskInfoBuilder.setIndexId(-1L)
+                .setTaskId(taskId).setExternalTableLevelTask(true).build();
+        analysisTasks.put(taskId, createTask(analysisTaskInfo));
+        try {
+            StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
+        } catch (Exception e) {
+            throw new DdlException("Failed to create analysis task", e);
         }
     }
 
