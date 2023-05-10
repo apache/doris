@@ -1311,7 +1311,9 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_used(root_path_info.is_used);
             request.disks[root_path_info.path] = disk;
         }
-
+        int num_cores = config::pipeline_executor_size > 0 ? config::pipeline_executor_size
+                                                           : CpuInfo::num_cores();
+        request.__set_num_cores(num_cores);
         _handle_report(request, ReportType::DISK);
     }
     StorageEngine::instance()->deregister_report_listener(this);
