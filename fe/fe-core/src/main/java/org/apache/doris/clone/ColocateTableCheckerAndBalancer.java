@@ -445,7 +445,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     List<Long> backendsSet = backendsPerBucketSeq.get(bucketIndex);
                     List<String> hostsSet = hostsPerBucketSeq.get(bucketIndex);
                     // the replicas of a tablet can not locate in same Backend or same host
-                    if (!backendsSet.contains(destBeId) && !hostsSet.contains(destBe.getIp())) {
+                    if (!backendsSet.contains(destBeId) && !hostsSet.contains(destBe.getHost())) {
                         Preconditions.checkState(backendsSet.contains(srcBeId), srcBeId);
                         flatBackendsPerBucketSeq.set(seqIndex, destBeId);
                         LOG.info("replace backend {} with backend {} in colocate group {}, idx: {}",
@@ -497,7 +497,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     // And the following logic will handle the non-exist host.
                     hosts.add(Backend.DUMMY_IP);
                 } else {
-                    hosts.add(be.getIp());
+                    hosts.add(be.getHost());
                 }
             }
             hostsPerBucketSeq.add(hosts);

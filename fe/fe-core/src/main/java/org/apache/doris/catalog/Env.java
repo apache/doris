@@ -109,6 +109,7 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
@@ -209,7 +210,6 @@ import org.apache.doris.statistics.StatisticsAutoAnalyzer;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.FQDNManager;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
@@ -250,9 +250,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
-import java.net.InetAddress;
-import java.net.URL;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -261,6 +258,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -282,6 +280,8 @@ public class Env {
     private static final int REPLAY_INTERVAL_MS = 1;
     private static final String BDB_DIR = "/bdb";
     public static final String IMAGE_DIR = "/image";
+    public static final String CLIENT_NODE_HOST_KEY = "CLIENT_NODE_HOST";
+    public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
 
     private String metaDir;
     private String bdbDir;
@@ -431,8 +431,6 @@ public class Env {
     private AnalysisManager analysisManager;
 
     private ExternalMetaCacheMgr extMetaCacheMgr;
-
-    private FQDNManager fqdnManager;
 
     private AtomicLong stmtIdCounter;
 
@@ -643,7 +641,6 @@ public class Env {
         this.policyMgr = new PolicyMgr();
         this.mtmvJobManager = new MTMVJobManager();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
-        this.fqdnManager = new FQDNManager(systemInfo);
         if (Config.enable_stats && !isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
             this.statisticsCleaner = new StatisticsCleaner();
@@ -936,7 +933,7 @@ public class Env {
                 // For compatibility. Because this is the very first time to start, so we arbitrarily choose
                 // a new name for this node
                 role = FrontendNodeType.FOLLOWER;
-                nodeName = genFeNodeName(Config.enable_fqdn_mode ? selfNode.getIdent() : selfNode.getIp(),
+                nodeName = genFeNodeName(selfNode.getIdent(),
                         selfNode.getPort(), false /* new style */);
                 storage.writeFrontendRoleAndNodeName(role, nodeName);
                 LOG.info("very first time to start this node. role: {}, node name: {}", role.name(), nodeName);
@@ -953,7 +950,7 @@ public class Env {
                     // But we will get a empty nodeName after upgrading.
                     // So for forward compatibility, we use the "old-style" way of naming: "ip_port",
                     // and update the ROLE file.
-                    nodeName = genFeNodeName(selfNode.getIp(), selfNode.getPort(), true/* old style */);
+                    nodeName = genFeNodeName(selfNode.getHost(), selfNode.getPort(), true/* old style */);
                     storage.writeFrontendRoleAndNodeName(role, nodeName);
                     LOG.info("forward compatibility. role: {}, node name: {}", role.name(), nodeName);
                 }
@@ -972,12 +969,16 @@ public class Env {
                 storage.writeClusterIdAndToken();
 
                 isFirstTimeStartUp = true;
-                Frontend self = new Frontend(role, nodeName, selfNode.getIp(), selfNode.getHostName(),
+                Frontend self = new Frontend(role, nodeName, selfNode.getHost(),
                         selfNode.getPort());
+                // Set self alive to true, the BDBEnvironment.getReplicationGroupAdmin() will rely on this to get
+                // helper node, before the heartbeat thread is started.
+                self.setIsAlive(true);
                 // We don't need to check if frontends already contains self.
                 // frontends must be empty cause no image is loaded and no journal is replayed yet.
                 // And this frontend will be persisted later after opening bdbje environment.
                 frontends.put(nodeName, self);
+                LOG.info("add self frontend: {}", self);
             } else {
                 clusterId = storage.getClusterID();
                 if (storage.getToken() == null) {
@@ -1028,7 +1029,7 @@ public class Env {
                 // If the version file doesn't exist, download it from helper node
                 if (!getVersionFileFromHelper(rightHelperNode)) {
                     throw new IOException("fail to download version file from "
-                            + rightHelperNode.getIp() + " will exit.");
+                            + rightHelperNode.getHost() + " will exit.");
                 }
 
                 // NOTE: cluster_id will be init when Storage object is constructed,
@@ -1045,20 +1046,19 @@ public class Env {
                 clusterId = storage.getClusterID();
                 token = storage.getToken();
                 try {
-                    URL idURL = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(rightHelperNode.getIp(),
-                            Config.http_port) + "/check");
-                    HttpURLConnection conn = null;
-                    conn = (HttpURLConnection) idURL.openConnection();
+                    String url = "http://" + NetUtils
+                            .getHostPortInAccessibleFormat(rightHelperNode.getHost(), Config.http_port) + "/check";
+                    HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                     conn.setConnectTimeout(2 * 1000);
                     conn.setReadTimeout(2 * 1000);
                     String clusterIdString = conn.getHeaderField(MetaBaseAction.CLUSTER_ID);
                     int remoteClusterId = Integer.parseInt(clusterIdString);
                     if (remoteClusterId != clusterId) {
                         LOG.error("cluster id is not equal with helper node {}. will exit.",
-                                rightHelperNode.getIp());
+                                rightHelperNode.getHost());
                         throw new IOException(
                                 "cluster id is not equal with helper node "
-                                        + rightHelperNode.getIp() + ". will exit.");
+                                        + rightHelperNode.getHost() + ". will exit.");
                     }
                     String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
                     if (token == null && remoteToken != null) {
@@ -1073,7 +1073,7 @@ public class Env {
                         if (!token.equals(remoteToken)) {
                             throw new IOException(
                                     "token is not equal with helper node "
-                                            + rightHelperNode.getIp() + ". will exit.");
+                                            + rightHelperNode.getHost() + ". will exit.");
                         }
                     }
                 } catch (Exception e) {
@@ -1100,11 +1100,10 @@ public class Env {
     }
 
     public static String genFeNodeName(String host, int port, boolean isOldStyle) {
-        String name = host + "_" + port;
         if (isOldStyle) {
-            return name;
+            return host + "_" + port;
         } else {
-            return name + "_" + System.currentTimeMillis();
+            return "fe_" + UUID.randomUUID().toString().replace("-", "_");
         }
     }
 
@@ -1118,12 +1117,10 @@ public class Env {
             try {
                 // For upgrade compatibility, the host parameter name remains the same
                 // and the new hostname parameter is added
-                URL url = new URL(
-                        "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getIp(), Config.http_port)
-                        + "/role?host=" + selfNode.getIp() + "&hostname=" + selfNode.getHostName()
-                        + "&port=" + selfNode.getPort());
-                HttpURLConnection conn = null;
-                conn = (HttpURLConnection) url.openConnection();
+                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
+                        + "/role?host=" + selfNode.getHost()
+                        + "&port=" + selfNode.getPort();
+                HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                 if (conn.getResponseCode() != 200) {
                     LOG.warn("failed to get fe node type from helper node: {}. response code: {}", helperNode,
                             conn.getResponseCode());
@@ -1148,7 +1145,7 @@ public class Env {
 
                 if (Strings.isNullOrEmpty(nodeName)) {
                     // For forward compatibility, we use old-style name: "ip_port"
-                    nodeName = genFeNodeName(selfNode.getIp(), selfNode.getPort(), true /* old style */);
+                    nodeName = genFeNodeName(selfNode.getHost(), selfNode.getPort(), true /* old style */);
                 }
             } catch (Exception e) {
                 LOG.warn("failed to get fe node type from helper node: {}.", helperNode, e);
@@ -1156,7 +1153,7 @@ public class Env {
             }
 
             LOG.info("get fe node type {}, name {} from {}:{}:{}", role, nodeName,
-                    helperNode.getHostName(), helperNode.getIp(), Config.http_port);
+                    helperNode.getHost(), helperNode.getHost(), Config.http_port);
             rightHelperNode = helperNode;
             break;
         }
@@ -1171,10 +1168,9 @@ public class Env {
     }
 
     private void getSelfHostPort() {
-        String hostName = Strings.nullToEmpty(FrontendOptions.getHostName());
-        selfNode = new HostInfo(FrontendOptions.getLocalHostAddress(), hostName,
-                Config.edit_log_port);
-        LOG.debug("get self node: {}", selfNode);
+        String host = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
+        selfNode = new HostInfo(host, Config.edit_log_port);
+        LOG.info("get self node: {}", selfNode);
     }
 
     private void getHelperNodes(String[] args) throws Exception {
@@ -1206,7 +1202,7 @@ public class Env {
             if (helpers != null) {
                 String[] splittedHelpers = helpers.split(",");
                 for (String helper : splittedHelpers) {
-                    HostInfo helperHostPort = SystemInfoService.getIpHostAndPort(helper, true);
+                    HostInfo helperHostPort = SystemInfoService.getHostAndPort(helper);
                     if (helperHostPort.isSame(selfNode)) {
                         /**
                          * If user specified the helper node to this FE itself,
@@ -1224,7 +1220,7 @@ public class Env {
                 }
             } else {
                 // If helper node is not designated, use local node as helper node.
-                helperNodes.add(new HostInfo(selfNode.getIp(), selfNode.getHostName(), Config.edit_log_port));
+                helperNodes.add(new HostInfo(selfNode.getHost(), Config.edit_log_port));
             }
         }
 
@@ -1247,7 +1243,7 @@ public class Env {
             // This is not the first time this node start up.
             // It should already added to FE group, just set helper node as it self.
             LOG.info("role file exist. this is not the first time to start up");
-            helperNodes = Lists.newArrayList(new HostInfo(selfNode.getIp(), selfNode.getHostName(),
+            helperNodes = Lists.newArrayList(new HostInfo(selfNode.getHost(),
                     Config.edit_log_port));
             return;
         }
@@ -1320,8 +1316,7 @@ public class Env {
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
 
-        this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getIp(),
-                Env.getCurrentEnv().getSelfNode().getHostName(),
+        this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getHost(),
                 Config.http_port,
                 Config.rpc_port);
         editLog.logMasterInfo(masterInfo);
@@ -1443,9 +1438,6 @@ public class Env {
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
-        if (Config.enable_fqdn_mode) {
-            fqdnManager.start();
-        }
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
         }
@@ -1544,11 +1536,11 @@ public class Env {
             return;
         }
 
-        Frontend fe = checkFeExist(selfNode.getIp(), selfNode.getHostName(), selfNode.getPort());
+        Frontend fe = checkFeExist(selfNode.getHost(), selfNode.getPort());
         if (fe == null) {
-            LOG.error("current node {}:{}:{} is not added to the cluster, will exit."
+            LOG.error("current node {}:{} is not added to the cluster, will exit."
                             + " Your FE IP maybe changed, please set 'priority_networks' config in fe.conf properly.",
-                    selfNode.getHostName(), selfNode.getIp(), selfNode.getPort());
+                    selfNode.getHost(), selfNode.getPort());
             System.exit(-1);
         } else if (fe.getRole() != role) {
             LOG.error("current node role is {} not match with frontend recorded role {}. will exit", role,
@@ -1568,7 +1560,8 @@ public class Env {
 
     private boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
         try {
-            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getIp(), Config.http_port) + "/version";
+            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
+                    + "/version";
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getOutputStream(Storage.VERSION_FILE, dir));
@@ -1587,8 +1580,8 @@ public class Env {
         localImageVersion = storage.getLatestImageSeq();
 
         try {
-            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getIp(), Config.http_port);
-            URL infoUrl = new URL("http://" + hostPort + "/info");
+            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port);
+            String infoUrl = "http://" + hostPort + "/info";
             StorageInfo info = getStorageInfo(infoUrl);
             long version = info.getImageSeq();
             if (version > localImageVersion) {
@@ -1627,12 +1620,12 @@ public class Env {
         return containSelf;
     }
 
-    private StorageInfo getStorageInfo(URL url) throws IOException {
+    private StorageInfo getStorageInfo(String url) throws IOException {
         ObjectMapper mapper = new ObjectMapper();
 
         HttpURLConnection connection = null;
         try {
-            connection = (HttpURLConnection) url.openConnection();
+            connection = HttpURLUtil.getConnectionWithNodeIdent(url);
             connection.setConnectTimeout(HTTP_TIMEOUT_SECOND * 1000);
             connection.setReadTimeout(HTTP_TIMEOUT_SECOND * 1000);
 
@@ -2489,52 +2482,47 @@ public class Env {
         };
     }
 
-    public void addFrontend(FrontendNodeType role, String ip, String hostname, int editLogPort) throws DdlException {
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
         try {
-            Frontend fe = checkFeExist(ip, hostname, editLogPort);
+            Frontend fe = checkFeExist(host, editLogPort);
             if (fe != null) {
                 throw new DdlException("frontend already exists " + fe);
             }
-            if (Config.enable_fqdn_mode && StringUtils.isEmpty(hostname)) {
+            if (Config.enable_fqdn_mode && StringUtils.isEmpty(host)) {
                 throw new DdlException("frontend's hostName should not be empty while enable_fqdn_mode is true");
             }
-            String host = hostname != null && Config.enable_fqdn_mode ? hostname : ip;
             String nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
 
             if (removedFrontends.contains(nodeName)) {
                 throw new DdlException("frontend name already exists " + nodeName + ". Try again");
             }
 
-            fe = new Frontend(role, nodeName, ip, hostname, editLogPort);
+            fe = new Frontend(role, nodeName, host, editLogPort);
             frontends.put(nodeName, fe);
             BDBHA bdbha = (BDBHA) haProtocol;
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
-                helperNodes.add(new HostInfo(ip, hostname, editLogPort));
+                helperNodes.add(new HostInfo(host, editLogPort));
                 bdbha.addUnReadyElectableNode(nodeName, getFollowerCount());
             }
-            bdbha.removeConflictNodeIfExist(ip, editLogPort);
+            bdbha.removeConflictNodeIfExist(host, editLogPort);
             editLog.logAddFrontend(fe);
         } finally {
             unlock();
         }
     }
 
-    public void modifyFrontendIp(String nodeName, String destIp) throws DdlException {
-        modifyFrontendHost(nodeName, destIp, "");
-    }
-
-    public void modifyFrontendHostName(String srcIp, String destHostName) throws DdlException {
-        Frontend fe = getFeByIp(srcIp);
+    public void modifyFrontendHostName(String srcHost, int srcPort, String destHost) throws DdlException {
+        Frontend fe = checkFeExist(srcHost, srcPort);
         if (fe == null) {
-            throw new DdlException("frontend does not exist, ip:" + srcIp);
+            throw new DdlException("frontend does not exist, host:" + srcHost);
         }
-        modifyFrontendHost(fe.getNodeName(), "", destHostName);
+        modifyFrontendHost(fe.getNodeName(), destHost);
     }
 
-    public void modifyFrontendHost(String nodeName, String destIp, String destHostName) throws DdlException {
+    public void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
@@ -2545,14 +2533,10 @@ public class Env {
             }
             boolean needLog = false;
             // we use hostname as address of bdbha, so we don't need to update node address when ip changed
-            if (!Strings.isNullOrEmpty(destIp) && !destIp.equals(fe.getIp())) {
-                fe.setIp(destIp);
-                needLog = true;
-            }
-            if (!Strings.isNullOrEmpty(destHostName) && !destHostName.equals(fe.getHostName())) {
-                fe.setHostName(destHostName);
+            if (!Strings.isNullOrEmpty(destHost) && !destHost.equals(fe.getHost())) {
+                fe.setHost(destHost);
                 BDBHA bdbha = (BDBHA) haProtocol;
-                bdbha.updateNodeAddress(fe.getNodeName(), destHostName, fe.getEditLogPort());
+                bdbha.updateNodeAddress(fe.getNodeName(), destHost, fe.getEditLogPort());
                 needLog = true;
             }
             if (needLog) {
@@ -2563,29 +2547,28 @@ public class Env {
         }
     }
 
-    public void dropFrontend(FrontendNodeType role, String ip, String hostname, int port) throws DdlException {
+    public void dropFrontend(FrontendNodeType role, String host, int port) throws DdlException {
         if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
-                && ((!Strings.isNullOrEmpty(selfNode.getHostName()) && selfNode.getHostName().equals(hostname))
-                        || ip.equals(selfNode.getIp()))) {
+                && selfNode.getHost().equals(host)) {
             throw new DdlException("can not drop current master node.");
         }
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
         try {
-            Frontend fe = checkFeExist(ip, hostname, port);
+            Frontend fe = checkFeExist(host, port);
             if (fe == null) {
-                throw new DdlException("frontend does not exist[" + ip + ":" + port + "]");
+                throw new DdlException("frontend does not exist[" + host + ":" + port + "]");
             }
             if (fe.getRole() != role) {
-                throw new DdlException(role.toString() + " does not exist[" + ip + ":" + port + "]");
+                throw new DdlException(role.toString() + " does not exist[" + host + ":" + port + "]");
             }
             frontends.remove(fe.getNodeName());
             removedFrontends.add(fe.getNodeName());
 
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 haProtocol.removeElectableNode(fe.getNodeName());
-                removeHelperNode(ip, hostname, port);
+                removeHelperNode(host, port);
                 BDBHA ha = (BDBHA) haProtocol;
                 ha.removeUnReadyElectableNode(fe.getNodeName(), getFollowerCount());
             }
@@ -2595,38 +2578,18 @@ public class Env {
         }
     }
 
-    private void removeHelperNode(String ip, String hostName, int port) {
+    private void removeHelperNode(String host, int port) {
         // ip may be changed, so we need use both ip and hostname to check.
         // use node.getIdent() for simplicity here.
-        helperNodes.removeIf(node -> (node.getIp().equals(ip)
-                || node.getIdent().equals(hostName)) && node.getPort() == port);
+        helperNodes.removeIf(node -> node.getHost().equals(host) && node.getPort() == port);
     }
 
-    public Frontend checkFeExist(String ip, String hostName, int port) {
+    public Frontend checkFeExist(String host, int port) {
         for (Frontend fe : frontends.values()) {
             if (fe.getEditLogPort() != port) {
                 continue;
             }
-            if (fe.getIp().equals(ip)
-                    || (!Strings.isNullOrEmpty(fe.getHostName()) && fe.getHostName().equals(hostName))) {
-                return fe;
-            }
-        }
-        return null;
-    }
-
-    public Frontend getFeByIp(String ip) {
-        for (Frontend fe : frontends.values()) {
-            InetAddress hostAddr = null;
-            InetAddress feAddr = null;
-            try {
-                hostAddr = InetAddress.getByName(ip);
-                feAddr = InetAddress.getByName(fe.getIp());
-            } catch (UnknownHostException e) {
-                LOG.warn("get address failed: {}", e.getMessage());
-                return null;
-            }
-            if (feAddr.equals(hostAddr)) {
+            if (fe.getHost().equals(host)) {
                 return fe;
             }
         }
@@ -3265,12 +3228,12 @@ public class Env {
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-                                      Long recycleTime) {
+            Long recycleTime) {
         return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
-                                Long recycleTime) throws MetaNotFoundException {
+            Long recycleTime) throws MetaNotFoundException {
         getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
     }
 
@@ -3301,7 +3264,7 @@ public class Env {
     public void replayAddFrontend(Frontend fe) {
         tryLock(true);
         try {
-            Frontend existFe = checkFeExist(fe.getIp(), fe.getHostName(), fe.getEditLogPort());
+            Frontend existFe = checkFeExist(fe.getHost(), fe.getEditLogPort());
             if (existFe != null) {
                 LOG.warn("fe {} already exist.", existFe);
                 if (existFe.getRole() != fe.getRole()) {
@@ -3324,7 +3287,7 @@ public class Env {
                 // DO NOT add helper sockets here, cause BDBHA is not instantiated yet.
                 // helper sockets will be added after start BDBHA
                 // But add to helperNodes, just for show
-                helperNodes.add(new HostInfo(fe.getIp(), fe.getHostName(), fe.getEditLogPort()));
+                helperNodes.add(new HostInfo(fe.getHost(), fe.getEditLogPort()));
             }
         } finally {
             unlock();
@@ -3341,12 +3304,7 @@ public class Env {
                 return;
             }
             // modify fe in frontends
-            existFe.setIp(fe.getIp());
-            existFe.setHostName(fe.getHostName());
-            // modify fe in helperNodes
-            helperNodes.stream().filter(n -> !Strings.isNullOrEmpty(n.getHostName())
-                            && n.getHostName().equals(fe.getHostName()))
-                    .forEach(n -> n.ip = fe.getIp());
+            existFe.setHost(fe.getHost());
         } finally {
             unlock();
         }
@@ -3361,7 +3319,7 @@ public class Env {
                 return;
             }
             if (removedFe.getRole() == FrontendNodeType.FOLLOWER || removedFe.getRole() == FrontendNodeType.REPLICA) {
-                removeHelperNode(removedFe.getIp(), removedFe.getHostName(), removedFe.getEditLogPort());
+                removeHelperNode(removedFe.getHost(), removedFe.getEditLogPort());
             }
 
             removedFrontends.add(removedFe.getNodeName());
@@ -3657,18 +3615,11 @@ public class Env {
         return this.masterInfo.getHttpPort();
     }
 
-    public String getMasterIp() {
+    public String getMasterHost() {
         if (!isReady()) {
             return "";
         }
-        return this.masterInfo.getIp();
-    }
-
-    public String getMasterHostName() {
-        if (!isReady()) {
-            return "";
-        }
-        return this.masterInfo.getHostName();
+        return this.masterInfo.getHost();
     }
 
     public EsRepository getEsRepository() {
@@ -5166,7 +5117,7 @@ public class Env {
             TNetworkAddress address = null;
             boolean ok = false;
             try {
-                address = new TNetworkAddress(backend.getIp(), backend.getBePort());
+                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 client.cleanTrash(); // async
                 ok = true;

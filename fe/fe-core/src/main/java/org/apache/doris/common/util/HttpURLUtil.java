@@ -15,38 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.common.util;
 
-#include <butil/macros.h>
 
-#include <string>
-#include <vector>
+import org.apache.doris.catalog.Env;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
-#include "gen_cpp/Types_types.h"
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
-namespace doris {
+public class HttpURLUtil {
 
-class CIDR;
 
-class BackendOptions {
-public:
-    static bool init();
-    static const std::string& get_localhost();
-    static TBackend get_local_backend();
-    static void set_localhost(const std::string& host);
-    static bool is_bind_ipv6();
-    static const char* get_service_bind_address();
-
-private:
-    static bool analyze_priority_cidrs();
-    static bool is_in_prior_network(const std::string& ip);
-
-    static std::string _s_localhost;
-    static TBackend _backend;
-    static std::vector<CIDR> _s_priority_cidrs;
-    static bool _bind_ipv6;
-
-    DISALLOW_COPY_AND_ASSIGN(BackendOptions);
-};
-
-} // namespace doris
+    public static HttpURLConnection getConnectionWithNodeIdent(String request) throws IOException {
+        URL url = new URL(request);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
+        conn.setRequestProperty(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
+        conn.setRequestProperty(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
+        return conn;
+    }
+}

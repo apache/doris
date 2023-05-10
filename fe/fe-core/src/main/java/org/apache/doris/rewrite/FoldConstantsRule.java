@@ -354,7 +354,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            brpcAddress = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(DATE_FORMAT.format(new Date()));

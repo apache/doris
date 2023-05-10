@@ -72,9 +72,7 @@ public class Backend implements Writable {
     @SerializedName("id")
     private long id;
     @SerializedName("host")
-    private volatile String ip;
-    @SerializedName("hostName")
-    private String hostName;
+    private volatile String host;
     private String version;
 
     @SerializedName("heartbeatPort")
@@ -146,7 +144,7 @@ public class Backend implements Writable {
     private int heartbeatFailureCounter = 0;
 
     public Backend() {
-        this.ip = "";
+        this.host = "";
         this.version = "";
         this.lastUpdateMs = 0;
         this.lastStartTime = 0;
@@ -164,14 +162,9 @@ public class Backend implements Writable {
         this.tagMap.put(locationTag.type, locationTag.value);
     }
 
-    public Backend(long id, String ip, int heartbeatPort) {
-        this(id, ip, null, heartbeatPort);
-    }
-
-    public Backend(long id, String ip, String hostName, int heartbeatPort) {
+    public Backend(long id, String host, int heartbeatPort) {
         this.id = id;
-        this.ip = ip;
-        this.hostName = hostName;
+        this.host = host;
         this.version = "";
         this.heartbeatPort = heartbeatPort;
         this.bePort = -1;
@@ -194,12 +187,8 @@ public class Backend implements Writable {
         return id;
     }
 
-    public String getIp() {
-        return ip;
-    }
-
-    public String getHostName() {
-        return hostName;
+    public String getHost() {
+        return host;
     }
 
     public String getVersion() {
@@ -291,8 +280,8 @@ public class Backend implements Writable {
         this.backendState = state.ordinal();
     }
 
-    public void setIp(String ip) {
-        this.ip = ip;
+    public void setHost(String host) {
+        this.host = host;
     }
 
     public void setAlive(boolean isAlive) {
@@ -305,10 +294,6 @@ public class Backend implements Writable {
 
     public void setHttpPort(int httpPort) {
         this.httpPort = httpPort;
-    }
-
-    public void setHostName(String hostName) {
-        this.hostName = hostName;
     }
 
     public void setBeRpcPort(int beRpcPort) {
@@ -602,7 +587,7 @@ public class Backend implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, ip, heartbeatPort, bePort, isAlive);
+        return Objects.hash(id, host, heartbeatPort, bePort, isAlive);
     }
 
     @Override
@@ -616,13 +601,13 @@ public class Backend implements Writable {
 
         Backend backend = (Backend) obj;
 
-        return (id == backend.id) && (ip.equals(backend.ip)) && (heartbeatPort == backend.heartbeatPort)
+        return (id == backend.id) && (host.equals(backend.host)) && (heartbeatPort == backend.heartbeatPort)
                 && (bePort == backend.bePort) && (isAlive.get() == backend.isAlive.get());
     }
 
     @Override
     public String toString() {
-        return "Backend [id=" + id + ", host=" + ip + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
+        return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
                 + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime)
                 + ", tags: " + tagMap + "]";
     }
@@ -793,7 +778,7 @@ public class Backend implements Writable {
     }
 
     public TNetworkAddress getBrpcAdress() {
-        return new TNetworkAddress(getIp(), getBrpcPort());
+        return new TNetworkAddress(getHost(), getBrpcPort());
     }
 
     public String getTagMapString() {
