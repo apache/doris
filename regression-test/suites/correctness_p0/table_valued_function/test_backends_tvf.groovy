@@ -45,5 +45,9 @@ suite("test_backends_tvf") {
     assertTrue(table[0].size == 4) // column should be 26
     assertEquals(true, table[0][2])
 
+    def res = sql """ select count(*) from backends() where alive = 1; """
+    assertTrue(res[0][0] > 0)
 
+    res = sql """ select count(*) from backends() where alive = true; """
+    assertTrue(res[0][0] > 0)
 }
