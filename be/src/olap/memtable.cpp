@@ -275,7 +275,8 @@ void MemTable::_collect_vskiplist_results() {
         vectorized::MutableBlock mutable_block =
                 vectorized::MutableBlock::build_mutable_block(&in_block);
         _vec_row_comparator->set_block(&mutable_block);
-        std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
+        if (_schema->num_key_columns() > 0) {
+            std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
                   [this](const RowInBlock* l, const RowInBlock* r) -> bool {
                       auto value = (*(this->_vec_row_comparator))(l, r);
                       if (value == 0) {
@@ -284,6 +285,7 @@ void MemTable::_collect_vskiplist_results() {
                           return value < 0;
                       }
                   });
+        }
         std::vector<int> row_pos_vec;
         DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
         row_pos_vec.reserve(in_block.rows());
