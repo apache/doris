@@ -65,7 +65,9 @@ public class DateV2Literal extends DateLiteral {
     }
 
     public static DateV2Literal fromJavaDateType(LocalDateTime dateTime) {
-        return isDateOutOfRange(dateTime) ? null
-                : new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+        if (isDateOutOfRange(dateTime)) {
+            throw new AnalysisException(String.format("datetime: %s is out of range", dateTime));
+        }
+        return new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }

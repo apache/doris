@@ -324,8 +324,10 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     public static DateTimeLiteral fromJavaDateType(LocalDateTime dateTime) {
-        return isDateOutOfRange(dateTime) ? null
-                : new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
-                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
+        if (isDateOutOfRange(dateTime)) {
+            throw new AnalysisException(String.format("datetime: %s is out of range", dateTime));
+        }
+        return new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
     }
 }

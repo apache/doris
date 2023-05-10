@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -125,11 +126,16 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(dateTime, 0);
     }
 
+    /**
+     * convert java LocalDateTime object to DateTimeV2Literal object.
+     */
     public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int precision) {
-        return isDateOutOfRange(dateTime) ? null
-                : new DateTimeV2Literal(DateTimeV2Type.of(precision),
-                        dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
-                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
-                        dateTime.getNano() / (long) Math.pow(10, 9 - precision));
+        if (isDateOutOfRange(dateTime)) {
+            throw new AnalysisException(String.format("datetime: %s is out of range", dateTime));
+        }
+        return new DateTimeV2Literal(DateTimeV2Type.of(precision),
+                dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                dateTime.getNano() / (long) Math.pow(10, 9 - precision));
     }
 }

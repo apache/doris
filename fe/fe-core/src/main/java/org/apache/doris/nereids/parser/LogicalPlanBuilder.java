@@ -1121,7 +1121,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String type = ctx.type.getText().toUpperCase();
         switch (type) {
             case "DATE":
-                return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
+                return new DateLiteral(value);
             case "TIMESTAMP":
                 return new DateTimeLiteral(value);
             case "DATEV2":
