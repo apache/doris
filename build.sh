@@ -642,7 +642,7 @@ if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     cd "${DORIS_HOME}"
 fi
 
-if [[ "${BUILD_JAVA_UDF}" -eq 1 ]]; then
+if [[ "${BUILD_JAVA_UDF}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 ]]; then
     install -d "${DORIS_OUTPUT}/be/lib"
 
     rm -rf "${DORIS_OUTPUT}/be/lib/java-udf-jar-with-dependencies.jar"
