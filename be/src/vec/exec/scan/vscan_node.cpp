@@ -855,6 +855,12 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
             InState* state = reinterpret_cast<InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+
+            // xx in (col, xx, xx) should not be push down
+            if (!state->use_set) {
+                return Status::OK();
+            }
+
             iter = state->hybrid_set->begin();
         }
 
@@ -930,6 +936,12 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
         InState* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(pred->fn_context_index())
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+
+        // xx in (col, xx, xx) should not be push down
+        if (!state->use_set) {
+            return Status::OK();
+        }
+
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
         if (!is_fixed_range && state->null_in_set) {
