@@ -53,7 +53,8 @@ public class PooledHiveMetaStoreClient {
     private static final Logger LOG = LogManager.getLogger(PooledHiveMetaStoreClient.class);
 
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = t -> null;
-    private static final short MAX_LIST_PARTITION_NUM = 10000;
+    // -1 means no limit on the partitions returned.
+    private static final short MAX_LIST_PARTITION_NUM = Config.max_hive_list_partition_num;
 
     private Queue<CachedClient> clientPool = new LinkedList<>();
     private final int poolSize;
