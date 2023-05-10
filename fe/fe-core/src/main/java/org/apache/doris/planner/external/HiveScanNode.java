@@ -38,6 +38,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
@@ -196,7 +197,7 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType(FileSplit inputSplit) throws UserException {
+    public TFileFormatType getFileFormatType() throws UserException {
         TFileFormatType type = null;
         String inputFormatName = hmsTable.getRemoteTable().getSd().getInputFormat();
         String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
@@ -206,12 +207,13 @@ public class HiveScanNode extends FileQueryScanNode {
             type = TFileFormatType.FORMAT_ORC;
         } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
             type = TFileFormatType.FORMAT_CSV_PLAIN;
-            TFileFormatType typeFromFilePath = Util.getFileFormatType(inputSplit.getPath().toUri().getPath());
-            if (Util.isCsvFormat(typeFromFilePath)) {
-                type = typeFromFilePath;
-            }
         }
         return type;
+    }
+
+    @Override
+    public TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        return Util.getFileCompressType(fileSplit.getPath().toString());
     }
 
     @Override

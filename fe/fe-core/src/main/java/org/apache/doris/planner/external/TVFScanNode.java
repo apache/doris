@@ -29,6 +29,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
@@ -79,8 +80,13 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType(FileSplit inputSplit) throws DdlException, MetaNotFoundException {
+    public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
         return tableValuedFunction.getTFileFormatType();
+    }
+
+    @Override
+    public TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        return null;
     }
 
     @Override

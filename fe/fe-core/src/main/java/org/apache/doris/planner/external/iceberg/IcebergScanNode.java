@@ -38,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
@@ -251,7 +252,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType(FileSplit inputSplit) throws UserException {
+    public TFileFormatType getFileFormatType() throws UserException {
         TFileFormatType type;
         String icebergFormat = source.getFileFormat();
         if (icebergFormat.equalsIgnoreCase("parquet")) {
@@ -262,6 +263,11 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", icebergFormat));
         }
         return type;
+    }
+
+    @Override
+    public TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        return null;
     }
 
     @Override

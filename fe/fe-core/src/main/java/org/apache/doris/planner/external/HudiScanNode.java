@@ -18,8 +18,10 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 
 import java.util.Collections;
@@ -37,8 +39,13 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType(FileSplit inputSplit) {
+    public TFileFormatType getFileFormatType() {
         return TFileFormatType.FORMAT_PARQUET;
+    }
+
+    @Override
+    public TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        return null;
     }
 
     @Override

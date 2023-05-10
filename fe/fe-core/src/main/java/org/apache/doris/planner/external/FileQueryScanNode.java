@@ -42,6 +42,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
@@ -212,8 +213,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         FileSplit inputSplit = (FileSplit) inputSplits.get(0);
         TFileType locationType = getLocationType();
         params.setFileType(locationType);
-        TFileFormatType fileFormatType = getFileFormatType(inputSplit);
+        TFileFormatType fileFormatType = getFileFormatType();
         params.setFormatType(fileFormatType);
+        TFileCompressType fileCompressType = getFileCompressType(inputSplit);
+        params.setCompressType(fileCompressType);
         if (Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON) {
             params.setFileAttributes(getFileAttributes());
         }
@@ -314,7 +317,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         throw new NotImplementedException("");
     }
 
-    protected TFileFormatType getFileFormatType(FileSplit inputSplit) throws UserException {
+    protected TFileFormatType getFileFormatType() throws UserException {
+        throw new NotImplementedException("");
+    }
+
+    protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
         throw new NotImplementedException("");
     }
 
