@@ -181,6 +181,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         not = rewriteChildren(not, context);
         Optional<Expression> checkedExpr = preProcess(not);
         if (checkedExpr.isPresent()) {
+            if (not.child() instanceof InPredicate) {
+                InPredicate inPredicate = ((InPredicate) not.child());
+                if (inPredicate.getOptions().stream().anyMatch(Expression::isNullLiteral)) {
+                    return BooleanLiteral.FALSE;
+                }
+            }
             return checkedExpr.get();
         }
         return BooleanLiteral.of(!((BooleanLiteral) not.child()).getValue());
@@ -369,20 +375,20 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         if (value.isNullLiteral()) {
             return new NullLiteral(BooleanType.INSTANCE);
         }
-        List<Expression> newOptions = Lists.newArrayList();
 
+        int notNullCounter = 0;
         for (Expression item : inPredicate.getOptions()) {
             if (value.isLiteral() && value.equals(item)) {
                 return BooleanLiteral.TRUE;
             }
             if (!item.isNullLiteral()) {
-                newOptions.add(item);
+                notNullCounter++;
             }
         }
-        if (newOptions.isEmpty()) {
+        if (notNullCounter == 0) {
             return BooleanLiteral.FALSE;
         }
-        return inPredicate.withOptions(newOptions);
+        return inPredicate;
     }
 
     @Override

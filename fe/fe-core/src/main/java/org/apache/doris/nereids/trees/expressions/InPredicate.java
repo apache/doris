@@ -62,10 +62,6 @@ public class InPredicate extends Expression {
         return new InPredicate(children.get(0), ImmutableList.copyOf(children).subList(1, children.size()));
     }
 
-    public InPredicate withOptions(List<Expression> options) {
-        return new InPredicate(children.get(0), ImmutableList.copyOf(options));
-    }
-
     @Override
     public boolean nullable() throws UnboundException {
         return children().stream().anyMatch(Expression::nullable);
