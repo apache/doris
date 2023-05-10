@@ -2114,6 +2114,10 @@ public class SessionVariable implements Serializable, Writable {
         this.dumpNereidsMemo = dumpNereidsMemo;
     }
 
+    public void setEnableDefaultOrder(boolean enableDefaultOrder) {
+        this.enableDefaultOrder = enableDefaultOrder;
+    }
+
     public boolean isEnableDefaultOrder() {
         return enableDefaultOrder;
     }

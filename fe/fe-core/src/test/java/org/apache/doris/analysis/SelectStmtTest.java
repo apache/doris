@@ -952,6 +952,8 @@ public class SelectStmtTest {
 
     @Test
     public void testAddDefaultOrderBy() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        ctx.getSessionVariable().setEnableDefaultOrder(true);
         String sql;
         String explainString;
         sql = "select * from db1.baseall limit 10 offset 5";
