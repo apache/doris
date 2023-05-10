@@ -26,6 +26,7 @@
 #include <list>
 #include <map>
 #include <mutex>
+#include <numeric>
 #include <ostream>
 #include <set>
 #include <shared_mutex>
@@ -337,6 +338,28 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << ", output_version=" << _output_version;
         return Status::Error<ROWSET_BUILDER_INIT>();
+    }
+    // now we support delete in cumu compaction, to make all data in rowsets whose version
+    // is below output_version to be delete in the future base compaction, we should carry
+    // all delete predicate in the output rowset.
+    // how to handle multiple delete predicate?
+    // output start version > 2 means we must set the delete predicate in the output rowset
+    if (_output_rowset->version().first > 2) {
+        DeletePredicatePB delete_predicate;
+        std::accumulate(
+                _input_rs_readers.begin(), _input_rs_readers.end(), &delete_predicate,
+                [](DeletePredicatePB* delete_predicate, const RowsetReaderSharedPtr& reader) {
+                    if (reader->rowset()->rowset_meta()->has_delete_predicate()) {
+                        delete_predicate->MergeFrom(
+                                reader->rowset()->rowset_meta()->delete_predicate());
+                    }
+                    return delete_predicate;
+                });
+        // now version in delete_predicate is deprecated
+        if (!delete_predicate.in_predicates().empty() ||
+            !delete_predicate.sub_predicates().empty()) {
+            _output_rowset->rowset_meta()->set_delete_predicate(std::move(delete_predicate));
+        }
     }
 
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());

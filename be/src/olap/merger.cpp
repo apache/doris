@@ -76,14 +76,15 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
             });
     {
         std::shared_lock rdlock(tablet->get_header_lock());
-        std::for_each(reader_params.delete_predicates.begin(), reader_params.delete_predicates.end(),
-                    [&merge_tablet_schema, &tablet](const auto& del_pred_rs) {
-                        merge_tablet_schema->merge_dropped_columns(
-                                tablet->tablet_schema(del_pred_rs->version()));
-                    });
+        std::for_each(reader_params.delete_predicates.begin(),
+                      reader_params.delete_predicates.end(),
+                      [&merge_tablet_schema, &tablet](const auto& del_pred_rs) {
+                          merge_tablet_schema->merge_dropped_columns(
+                                  tablet->tablet_schema(del_pred_rs->version()));
+                      });
     }
     // {
-    //     
+    //
     //     auto delete_preds = tablet->delete_predicates();// TODO: no need for scan for the whole tablet,retrive them from src_rowset_readers
     //     std::copy(delete_preds.cbegin(), delete_preds.cend(),
     //               std::inserter(reader_params.delete_predicates,

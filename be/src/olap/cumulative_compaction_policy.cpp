@@ -241,20 +241,20 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     int64_t total_size = 0;
     for (auto& rowset : candidate_rowsets) {
         // check whether this rowset is delete version
-        if (rowset->rowset_meta()->has_delete_predicate()) {
-            *last_delete_version = rowset->version();
-            if (!input_rowsets->empty()) {
-                // we meet a delete version, and there were other versions before.
-                // we should compact those version before handling them over to base compaction
-                break;
-            } else {
-                // we meet a delete version, and no other versions before, skip it and continue
-                input_rowsets->clear();
-                *compaction_score = 0;
-                transient_size = 0;
-                continue;
-            }
-        }
+        // if (rowset->rowset_meta()->has_delete_predicate()) {
+        //     *last_delete_version = rowset->version();
+        //     if (!input_rowsets->empty()) {
+        //         // we meet a delete version, and there were other versions before.
+        //         // we should compact those version before handling them over to base compaction
+        //         break;
+        //     } else {
+        //         // we meet a delete version, and no other versions before, skip it and continue
+        //         input_rowsets->clear();
+        //         *compaction_score = 0;
+        //         transient_size = 0;
+        //         continue;
+        //     }
+        // }
         if (tablet->tablet_state() == TABLET_NOTREADY) {
             // If tablet under alter, keep latest 10 version so that base tablet max version
             // not merged in new tablet, and then we can copy data from base tablet
