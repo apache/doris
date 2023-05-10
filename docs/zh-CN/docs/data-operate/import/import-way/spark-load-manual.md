@@ -255,6 +255,9 @@ PROPERTIES
 
 如果是 Spark Load 访问带有 Kerberos 认证的 Hadoop 集群资源，我们只需要在创建 Spark resource 的时候指定以下参数即可：
 
+- `spark.hadoop.hadoop.security.authentication` 指定 Yarn 认证方式为 Kerberos。
+- `spark.hadoop.yarn.resourcemanager.principal` 指定 Yarn 的 Kerberos Principal。
+- `spark.hadoop.yarn.resourcemanager.keytab` 指定 Yarn 的 Kerberos Keytab 文件路径。该文件必须为 FE 进程所在服务器上的文件的绝对路径。并且可以被 FE 进程访问。
 - `broker.hadoop.security.authentication`：指定认证方式为 Kerberos。
 - `broker.kerberos_principal`：指定 Kerberos 的 Principal。
 - `broker.kerberos_keytab`：指定 Kerberos 的 Keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
@@ -275,6 +278,9 @@ PROPERTIES
   "spark.yarn.queue" = "queue0",
   "spark.hadoop.yarn.resourcemanager.address" = "127.0.0.1:9999",
   "spark.hadoop.fs.defaultFS" = "hdfs://127.0.0.1:10000",
+  "spark.hadoop.hadoop.security.authentication" = "kerberos",
+  "spark.hadoop.yarn.resourcemanager.principal" = "doris@YOUR.YARN.COM",
+  "spark.hadoop.yarn.resourcemanager.keytab" = "/home/doris/yarn.keytab",
   "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
   "broker" = "broker0",
   "broker.hadoop.security.authentication" = "kerberos",
