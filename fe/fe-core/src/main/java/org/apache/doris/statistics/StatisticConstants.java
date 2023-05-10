@@ -20,6 +20,8 @@ package org.apache.doris.statistics;
 import java.util.concurrent.TimeUnit;
 
 public class StatisticConstants {
+    public static final String ANALYSIS_TBL_NAME = "table_statistics";
+
     public static final String STATISTIC_TBL_NAME = "column_statistics";
 
     public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
@@ -68,5 +70,11 @@ public class StatisticConstants {
     public static final int FETCH_INTERVAL_IN_MS = 500;
 
     public static final int HISTOGRAM_MAX_BUCKET_NUM = 128;
+
+    /**
+     * The health of the table indicates the health of the table statistics, rang in [0, 100].
+     * Below this threshold will automatically re-collect statistics. TODO make it in fe.conf
+     */
+    public static final int TABLE_STATS_HEALTH_THRESHOLD = 80;
 
 }
