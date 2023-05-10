@@ -470,4 +470,9 @@ public class ColumnDef {
     public void setAllowNull(boolean allowNull) {
         isAllowNull = allowNull;
     }
+
+    public ColumnDef setTypeDef(TypeDef typeDef) {
+        this.typeDef = typeDef;
+        return this;
+    }
 }

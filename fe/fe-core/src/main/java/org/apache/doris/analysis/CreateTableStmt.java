@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -325,18 +326,26 @@ public class CreateTableStmt extends DdlStmt {
             enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
         }
         //pre-block creation with column type ALL
+        List<ColumnDef> typeReplacedColumnDefs = Lists.newArrayList();
         for (ColumnDef columnDef : columnDefs) {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
-            }
-            if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
-                throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
-            }
-            if (Objects.equals(columnDef.getType(), Type.DECIMALV2) && Config.disable_decimalv2) {
-                throw new AnalysisException("Disable to create table with `DECIMAL` type columns,"
-                                            + "please use `DECIMALV3`.");
+            } else if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
+                LOG.debug("Replace column {} type: DATE to DATEV2", columnDef.getName());
+                typeReplacedColumnDefs.add(columnDef.setTypeDef(TypeDef.create(PrimitiveType.DATEV2)));
+            } else if (Objects.equals(columnDef.getType(), Type.DATETIME) && Config.disable_datev1) {
+                LOG.debug("Replace column {} type: DATETIME to DATETIMEV2", columnDef.getName());
+                typeReplacedColumnDefs.add(columnDef.setTypeDef(TypeDef.createDatetimeV2(0)));
+            } else if (Objects.equals(columnDef.getType(), Type.DECIMALV2) && Config.disable_decimalv2) {
+                LOG.debug("Replace column {} type: DECIMALV2 to DECIMALV3", columnDef.getName());
+                Type type = columnDef.getType();
+                typeReplacedColumnDefs.add(columnDef.setTypeDef(new TypeDef(
+                        ScalarType.createDecimalV3Type(type.getPrecision(), type.getDecimalDigits()))));
+            } else {
+                typeReplacedColumnDefs.add(columnDef);
             }
         }
+        columnDefs = typeReplacedColumnDefs;
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
             // olap table
