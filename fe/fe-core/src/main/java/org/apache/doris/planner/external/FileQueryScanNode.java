@@ -323,7 +323,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
-        return Util.getFileCompressType(fileSplit.getPath().toString());
+        return Util.inferFileCompressTypeByPath(fileSplit.getPath().toString());
     }
 
     protected TFileAttributes getFileAttributes() throws UserException {

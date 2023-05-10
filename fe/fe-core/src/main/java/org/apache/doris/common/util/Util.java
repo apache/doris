@@ -536,8 +536,13 @@ public class Util {
         }
     }
 
+    /**
+     * Infer {@link TFileCompressType} from file name.
+     *
+     * @param path of file to be inferred.
+     */
     @NotNull
-    public static TFileCompressType getFileCompressType(String path) {
+    public static TFileCompressType inferFileCompressTypeByPath(String path) {
         String lowerCasePath = path.toLowerCase();
         if (lowerCasePath.endsWith(".gz")) {
             return TFileCompressType.GZ;
@@ -554,6 +559,20 @@ public class Util {
         } else {
             return TFileCompressType.PLAIN;
         }
+    }
+
+    public static TFileCompressType getFileCompressType(String compressType) {
+        final String lowerCaseType = compressType.toUpperCase();
+        return TFileCompressType.valueOf(lowerCaseType);
+    }
+
+    /**
+     * Pass through the compressType if it is not {@link TFileCompressType#UNKNOWN}. Otherwise, return the
+     * inferred type from path.
+     */
+    public static TFileCompressType getOrInferCompressType(TFileCompressType compressType, String path) {
+        return compressType == TFileCompressType.UNKNOWN
+                ? inferFileCompressTypeByPath(path.toLowerCase()) : compressType;
     }
 
     public static boolean isCsvFormat(TFileFormatType fileFormatType) {
