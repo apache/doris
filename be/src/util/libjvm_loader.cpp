@@ -24,6 +24,8 @@
 #include <mutex>
 
 #include "common/status.h"
+#include "jni.h"
+#include "jni_md.h"
 
 _JNI_IMPORT_OR_EXPORT_ jint JNICALL JNI_GetCreatedJavaVMs(JavaVM** vm_buf, jsize bufLen,
                                                           jsize* numVMs) {

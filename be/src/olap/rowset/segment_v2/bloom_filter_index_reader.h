@@ -17,26 +17,25 @@
 
 #pragma once
 
-#include <map>
+#include <stddef.h>
+
 #include <memory>
+#include <utility>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
-#include "olap/rowset/segment_v2/row_ranges.h"
+#include "olap/types.h"
 
 namespace doris {
-
-class TypeInfo;
 
 namespace segment_v2 {
 
 class BloomFilterIndexIterator;
-class IndexedColumnReader;
-class IndexedColumnIterator;
 class BloomFilter;
+class BloomFilterIndexPB;
 
 class BloomFilterIndexReader {
 public:

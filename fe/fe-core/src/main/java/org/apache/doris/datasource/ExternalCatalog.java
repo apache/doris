@@ -41,7 +41,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -82,6 +82,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected boolean invalidCacheInInit = true;
 
     private ExternalSchemaCache schemaCache;
+    private String comment;
 
     public ExternalCatalog(long catalogId, String name) {
         this.id = catalogId;
@@ -116,7 +117,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
      * @return true if table exists, false otherwise
      */
     public boolean tableExistInLocal(String dbName, String tblName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("tableExistInLocal not implemented");
     }
 
     /**
@@ -148,6 +149,10 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
             initLocalObjectsImpl();
             objectCreated = true;
         }
+    }
+
+    public boolean isInitialized() {
+        return this.initialized;
     }
 
     // init some local objects such as:
@@ -248,6 +253,15 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     }
 
     @Override
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
+    }
+
+    @Override
     public List<String> getDbNames() {
         return listDatabaseNames(null);
     }
@@ -317,8 +331,14 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
+        modifyComment(props);
         catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
+    }
+
+    private void modifyComment(Map<String, String> props) {
+        setComment(props.getOrDefault("comment", comment));
+        props.remove("comment");
     }
 
     @Override
@@ -422,15 +442,23 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     }
 
     public void dropDatabase(String dbName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("dropDatabase not implemented");
     }
 
     public void createDatabase(long dbId, String dbName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("createDatabase not implemented");
     }
 
-    public Map getSpecifiedDatabaseMap() {
-        String specifiedDatabaseList = catalogProperty.getOrDefault(Resource.SPECIFIED_DATABASE_LIST, "");
+    public Map getIncludeDatabaseMap() {
+        return getSpecifiedDatabaseMap(Resource.INCLUDE_DATABASE_LIST);
+    }
+
+    public Map getExcludeDatabaseMap() {
+        return getSpecifiedDatabaseMap(Resource.EXCLUDE_DATABASE_LIST);
+    }
+
+    public Map getSpecifiedDatabaseMap(String catalogPropertyKey) {
+        String specifiedDatabaseList = catalogProperty.getOrDefault(catalogPropertyKey, "");
         Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
         specifiedDatabaseList = specifiedDatabaseList.trim();
         if (specifiedDatabaseList.isEmpty()) {
@@ -444,5 +472,15 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
             }
         }
         return specifiedDatabaseMap;
+    }
+
+    public boolean useSelfSplitter() {
+        Map<String, String> properties = catalogProperty.getProperties();
+        boolean ret = true;
+        if (properties.containsKey(HMSExternalCatalog.ENABLE_SELF_SPLITTER)
+                && properties.get(HMSExternalCatalog.ENABLE_SELF_SPLITTER).equalsIgnoreCase("false")) {
+            ret = false;
+        }
+        return ret;
     }
 }

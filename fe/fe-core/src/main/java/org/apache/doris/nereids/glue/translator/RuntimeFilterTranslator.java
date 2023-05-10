@@ -127,14 +127,6 @@ public class RuntimeFilterTranslator {
             targetExpr = new CastExpr(src.getType(), targetExpr);
         }
         FilterSizeLimits filterSizeLimits = context.getLimits();
-        if (node instanceof HashJoinNode
-                && !(((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST)
-                && ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().enablePipelineEngine()
-                && ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() > 0) {
-            filterSizeLimits = filterSizeLimits.adjustForParallel(
-                    ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
-        }
         org.apache.doris.planner.RuntimeFilter origFilter
                 = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
                 filter.getId(), node, src, filter.getExprOrder(), targetExpr,

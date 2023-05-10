@@ -17,17 +17,26 @@
 
 #pragma once
 
+#include <bthread/bthread.h>
+#include <butil/macros.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <filesystem>
+#include <functional>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "gutil/macros.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
-#include "io/io_common.h"
 
 namespace doris {
 namespace io {
+class FileSystem;
 
 #ifndef FILESYSTEM_M
 #define FILESYSTEM_M(stmt)                    \

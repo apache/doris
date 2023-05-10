@@ -18,11 +18,8 @@
 #pragma once
 
 #include <stdint.h>
-#include <time.h>
 
 #include <string>
-
-#include "olap/field.h"
 
 namespace doris {
 

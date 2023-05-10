@@ -17,14 +17,13 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "operator.h"
+#include "vec/exec/vset_operation_node.h"
 
 namespace doris {
-
-namespace vectorized {
-template <bool is_intersect>
-class VSetOperationNode;
-}
+class ExecNode;
 
 namespace pipeline {
 

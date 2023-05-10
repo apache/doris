@@ -17,19 +17,31 @@
 
 #pragma once
 
-#include <memory>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/exec_node.h"
-#include "exec/tablet_info.h" // DorisNodesInfo
 #include "runtime/descriptors.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
 
 namespace doris {
+class DorisNodesInfo;
+class ObjectPool;
+class QueryStatistics;
+class QueryStatisticsRecvr;
+class RuntimeState;
+class TPlanNode;
+
 namespace pipeline {
 class ExchangeSourceOperator;
 }
 namespace vectorized {
 class VDataStreamRecvr;
+class Block;
 
 class VExchangeNode : public ExecNode {
 public:

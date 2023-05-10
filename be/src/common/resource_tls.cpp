@@ -17,10 +17,12 @@
 
 #include "common/resource_tls.h"
 
+#include <gen_cpp/Types_types.h>
 #include <pthread.h>
 
+#include <ostream>
+
 #include "common/logging.h"
-#include "gen_cpp/Types_types.h"
 
 namespace doris {
 

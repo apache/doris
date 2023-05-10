@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -53,8 +52,6 @@ public class DeriveStatsJobTest {
 
     @Mocked
     ConnectContext context;
-    @Mocked
-    Env env;
 
     SlotReference slot1;
 

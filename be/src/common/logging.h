@@ -24,7 +24,7 @@
 #undef _XOPEN_SOURCE
 // This is including a glog internal file.  We want this to expose the
 // function to get the stack trace.
-#include <glog/logging.h>
+#include <glog/logging.h> // IWYU pragma: export
 #undef MutexLock
 
 // Define VLOG levels.  We want display per-row info less than per-file which

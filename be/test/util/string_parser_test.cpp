@@ -17,12 +17,15 @@
 
 #include "util/string_parser.hpp"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <boost/lexical_cast.hpp>
 #include <cstdint>
 #include <cstdio>
 #include <string>
+
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 

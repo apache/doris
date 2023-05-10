@@ -136,6 +136,13 @@ class RegressionTest {
             canRun(config, suiteName, groupName)
         }
         def file = source.getFile()
+        int failureLimit = Integer.valueOf(config.otherConfigs.getOrDefault("max_failure_num", "-1").toString());
+        if (Recorder.isFailureExceedLimit(failureLimit)) {
+            // too much failure, skip all following suits
+            log.warn("too much failure ${Recorder.getFailureOrFatalNum()}, limit ${failureLimit}, skip following suits: ${file}")
+            recorder.onSkip(file.absolutePath);
+            return;
+        }
         def eventListeners = getEventListeners(config, recorder)
         new ScriptContext(file, suiteExecutors, actionExecutors,
                 config, eventListeners, suiteFilter).start { scriptContext ->
@@ -255,10 +262,10 @@ class RegressionTest {
     }
 
     static boolean printResult(Config config, Recorder recorder) {
-        int allSuiteNum = recorder.successList.size() + recorder.failureList.size()
+        int allSuiteNum = recorder.successList.size() + recorder.failureList.size() + recorder.skippedList.size()
         int failedSuiteNum = recorder.failureList.size()
         int fatalScriptNum = recorder.fatalScriptList.size()
-        log.info("Test ${allSuiteNum} suites, failed ${failedSuiteNum} suites, fatal ${fatalScriptNum} scripts".toString())
+        int skippedNum = recorder.skippedList.size()
 
         // print success list
         if (!recorder.successList.isEmpty()) {
@@ -268,6 +275,13 @@ class RegressionTest {
             log.info("Success suites:\n${successList}".toString())
         }
 
+        // print skipped list
+        if (!recorder.skippedList.isEmpty()) {
+            String skippedList = recorder.skippedList.collect { info -> "${info}" }.join('\n')
+            log.info("Skipped suites:\n${skippedList}".toString())
+        }
+
+        boolean pass = false;
         // print failure list
         if (!recorder.failureList.isEmpty() || !recorder.fatalScriptList.isEmpty()) {
             if (!recorder.failureList.isEmpty()) {
@@ -283,11 +297,13 @@ class RegressionTest {
                 log.info("Fatal scripts:\n${failureList}".toString())
             }
             printFailed()
-            return false
         } else {
             printPassed()
-            return true
+            pass = true;
         }
+
+        log.info("Test ${allSuiteNum} suites, failed ${failedSuiteNum} suites, fatal ${fatalScriptNum} scripts, skipped ${skippedNum} scripts".toString())
+        return pass;
     }
 
     static void loadPlugins(Config config) {

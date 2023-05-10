@@ -36,6 +36,7 @@ public class SetPassVar extends SetVar {
     public SetPassVar(UserIdentity userIdent, PassVar passVar) {
         this.userIdent = userIdent;
         this.passVar = passVar;
+        this.varType = SetVarType.SET_PASS_VAR;
     }
 
     public UserIdentity getUserIdent() {

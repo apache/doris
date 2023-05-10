@@ -34,6 +34,7 @@ set(IO_FILES
     fs/s3_file_system.cpp
     fs/s3_file_reader.cpp
     fs/s3_file_writer.cpp
+    fs/s3_file_write_bufferpool.cpp
     fs/hdfs_file_system.cpp
     fs/hdfs_file_reader.cpp
     fs/hdfs_file_writer.cpp
@@ -60,3 +61,5 @@ set(IO_FILES
 add_library(IO STATIC
     ${IO_FILES}
 )
+
+pch_reuse(IO)

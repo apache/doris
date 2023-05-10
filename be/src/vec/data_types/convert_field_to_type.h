@@ -19,7 +19,9 @@
 // and modified by Doris
 
 #pragma once
-#include <vec/core/field.h>
+#include "common/status.h"
+#include "vec/core/field.h"
+
 namespace doris::vectorized {
 
 class IDataType;

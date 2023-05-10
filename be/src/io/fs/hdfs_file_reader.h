@@ -17,11 +17,23 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <atomic>
+#include <memory>
+#include <string>
+
+#include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/hdfs.h"
 #include "io/fs/hdfs_file_system.h"
+#include "io/fs/path.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 class HdfsFileReader : public FileReader {
 public:

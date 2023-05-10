@@ -17,11 +17,15 @@
 
 #pragma once
 
-#include <gen_cpp/FrontendService.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <map>
+#include <memory>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
-#include "common/config.h"
 #include "common/status.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
@@ -36,12 +40,8 @@ class TaskScheduler;
 }
 class BfdParser;
 class BrokerMgr;
-
 template <class T>
 class BrpcClientCache;
-
-class DataStreamMgr;
-class EvHttpServer;
 class ExternalScanContextMgr;
 class FragmentMgr;
 class ResultCache;
@@ -50,28 +50,22 @@ class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
 class StorageEngine;
-class PriorityThreadPool;
-class PriorityWorkStealingThreadPool;
 class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
-class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
-class StoragePolicyMgr;
 class BlockSpillManager;
-
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
 class PBackendService_Stub;
 class PFunctionService_Stub;
-
 template <class T>
 class ClientCache;
-
 class HeartbeatFlags;
+class FrontendServiceClient;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -162,7 +156,7 @@ public:
         return _function_client_cache;
     }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
-    NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr; }
+    std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
 
@@ -171,17 +165,17 @@ public:
     StorageEngine* storage_engine() { return _storage_engine; }
     void set_storage_engine(StorageEngine* storage_engine) { _storage_engine = storage_engine; }
 
-    StreamLoadExecutor* stream_load_executor() { return _stream_load_executor; }
+    std::shared_ptr<StreamLoadExecutor> stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
-    void set_new_load_stream_mgr(NewLoadStreamMgr* new_load_stream_mgr) {
+    void set_new_load_stream_mgr(std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr) {
         this->_new_load_stream_mgr = new_load_stream_mgr;
     }
-    void set_stream_load_executor(StreamLoadExecutor* stream_load_executor) {
+    void set_stream_load_executor(std::shared_ptr<StreamLoadExecutor> stream_load_executor) {
         this->_stream_load_executor = stream_load_executor;
     }
 
@@ -243,13 +237,13 @@ private:
     BfdParser* _bfd_parser = nullptr;
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
-    NewLoadStreamMgr* _new_load_stream_mgr = nullptr;
+    std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
     StorageEngine* _storage_engine = nullptr;
 
-    StreamLoadExecutor* _stream_load_executor = nullptr;
+    std::shared_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;

@@ -27,22 +27,11 @@ under the License.
 ## CAST
 ### Description
 
+#### Syntax
 
-```
-cast (input as type)
-```
-
-#### BIGINT type
-
-#### Syntax (BIGINT)
-
-``` cast (input as BIGINT) ```
-
+`T cast (input as Type)`
 
 Converts input to the specified type
-
-
-Converting the current column input to BIGINT type
 
 ### example
 

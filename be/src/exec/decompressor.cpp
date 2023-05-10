@@ -17,6 +17,10 @@
 
 #include "exec/decompressor.h"
 
+#include <strings.h>
+
+#include <ostream>
+
 #include "common/logging.h"
 
 namespace doris {

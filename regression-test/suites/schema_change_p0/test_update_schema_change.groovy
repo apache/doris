@@ -38,7 +38,7 @@ suite ("test_update_schema_change") {
             `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
             `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
         UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "true");
+        PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "false");
         """
 
     sql """ 
@@ -52,6 +52,9 @@ suite ("test_update_schema_change") {
         """
 
     qt_sc """ SELECT * FROM ${tableName} order by user_id ASC, last_visit_date; """
+
+    // alter and test light schema change
+    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
     sql """
         ALTER table ${tableName} ADD COLUMN new_column INT default "1";

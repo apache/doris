@@ -107,6 +107,7 @@ public class SlotRef extends Expr {
         col = other.col;
         label = other.label;
         desc = other.desc;
+        tupleId = other.tupleId;
     }
 
     @Override
@@ -369,6 +370,10 @@ public class SlotRef extends Expr {
         this.tupleId = tupleId;
     }
 
+    TupleId getTupleId() {
+        return tupleId;
+    }
+
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
         Preconditions.checkState(desc != null || tupleId != null);
@@ -544,13 +549,16 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public boolean haveMvSlot() {
+    public boolean haveMvSlot(TupleId tid) {
+        if (!isBound(tid)) {
+            return false;
+        }
         String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
         return CreateMaterializedViewStmt.isMVColumn(name);
     }
 
     @Override
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
+    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple)
             throws AnalysisException {
         Expr originExpr = stmt.getExprFromAliasSMap(this);
         if (!(originExpr instanceof SlotRef)) {
@@ -561,7 +569,7 @@ public class SlotRef extends Expr {
         if (aliasExpr.getColumnName() == null) {
             if (desc.getSourceExprs() != null) {
                 for (Expr expr : desc.getSourceExprs()) {
-                    if (!expr.matchExprs(exprs, stmt, ignoreAlias, tableName)) {
+                    if (!expr.matchExprs(exprs, stmt, ignoreAlias, tuple)) {
                         return false;
                     }
                 }
@@ -569,9 +577,9 @@ public class SlotRef extends Expr {
             return true; // means this is alias of other expr.
         }
 
+        String name = MaterializedIndexMeta.normalizeName(aliasExpr.toSqlWithoutTbl());
         if (aliasExpr.desc != null) {
-            TableIf table = aliasExpr.desc.getParent().getTable();
-            if (table != null && table.getName() != tableName) {
+            if (!isBound(tuple.getId()) && !tuple.getColumnNames().contains(name)) {
                 return true; // means this from other scan node.
             }
 
@@ -580,7 +588,6 @@ public class SlotRef extends Expr {
             }
         }
 
-        String name = MaterializedIndexMeta.normalizeName(aliasExpr.toSqlWithoutTbl());
         for (Expr expr : exprs) {
             if (CreateMaterializedViewStmt.isMVColumnNormal(name)
                     && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt

@@ -36,9 +36,7 @@ Combines all all arrays into a single array. The resulting array contains the co
 
 #### Syntax
 
-```sql
-Array<Struct<T1, T2,...>> array_zip(Array<T1>, Array<T2>, ...)
-```
+`Array<Struct<T1, T2,...>> array_zip(Array<T1>, Array<T2>, ...)`
 
 #### Returned value
 

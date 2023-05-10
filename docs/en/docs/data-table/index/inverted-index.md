@@ -1,6 +1,6 @@
 ---
 {
-    "title": "inverted index",
+    "title": "Inverted index",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Inverted Index
+# [Experimental] Inverted Index
 
 <version since="2.0.0">
  

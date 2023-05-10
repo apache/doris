@@ -17,10 +17,12 @@
 
 #include "vec/runtime/vdatetime_value.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <any>
 #include <string>
+
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris::vectorized {
 

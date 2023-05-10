@@ -17,8 +17,33 @@
 
 #include "vec/olap/vcollect_iterator.h"
 
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <iterator>
+#include <ostream>
+#include <set>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "util/defer_op.h"
+#include "io/io_common.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/tablet.h"
+#include "olap/tablet_schema.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_predicate.h"
+#include "runtime/runtime_state.h"
+#include "vec/columns/column.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -254,7 +279,7 @@ Status VCollectIterator::_topn_next(Block* block) {
 
     for (auto rs_reader : _rs_readers) {
         // init will prune segment by _reader_context.conditions and _reader_context.runtime_conditions
-        RETURN_NOT_OK(rs_reader->init(&_reader->_reader_context));
+        RETURN_IF_ERROR(rs_reader->init(&_reader->_reader_context));
 
         // read _topn_limit rows from this rs
         size_t read_rows = 0;
@@ -366,7 +391,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                 col_ptr->get(last_sorted_row, new_top);
 
                 // update orderby_extrems in query global context
-                auto query_ctx = _reader->_reader_context.runtime_state->get_query_fragments_ctx();
+                auto query_ctx = _reader->_reader_context.runtime_state->get_query_ctx();
                 RETURN_IF_ERROR(
                         query_ctx->get_runtime_predicate().update(new_top, col_name, _is_reverse));
             }
@@ -456,7 +481,7 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
             }
 
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-                RETURN_NOT_OK(_rs_reader->current_block_row_locations(&_block_row_locations));
+                RETURN_IF_ERROR(_rs_reader->current_block_row_locations(&_block_row_locations));
             }
         }
     } while (!_is_empty());
@@ -472,7 +497,7 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
         _ref.row_pos++;
     }
 
-    RETURN_NOT_OK(_refresh_current_row());
+    RETURN_IF_ERROR(_refresh_current_row());
 
     if (_get_data_by_ref) {
         _ref = _block_view[_current];
@@ -497,7 +522,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
             return Status::Error<END_OF_FILE>();
         }
         if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-            RETURN_NOT_OK(_rs_reader->current_block_row_locations(&_block_row_locations));
+            RETURN_IF_ERROR(_rs_reader->current_block_row_locations(&_block_row_locations));
         }
         return Status::OK();
     }

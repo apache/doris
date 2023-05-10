@@ -34,6 +34,18 @@ jsonb_extract
 
 ### description
 
+#### Syntax
+
+```sql
+JSONB jsonb_extract(JSONB j, VARCHAR json_path)
+BOOLEAN jsonb_extract_isnull(JSONB j, VARCHAR json_path)
+BOOLEAN jsonb_extract_bool(JSONB j, VARCHAR json_path)
+INT jsonb_extract_int(JSONB j, VARCHAR json_path)
+BIGINT jsonb_extract_bigint(JSONB j, VARCHAR json_path)
+DOUBLE jsonb_extract_double(JSONB j, VARCHAR json_path)
+STRING jsonb_extract_string(JSONB j, VARCHAR json_path)
+```
+
 jsonb_extract functions extract field specified by json_path from JSONB. A series of functions are provided for different datatype.
 - jsonb_extract extract and return JSONB datatype
 - jsonb_extract_isnull check if the field is json null and return BOOLEAN datatype
@@ -47,25 +59,16 @@ Exception handling is as follows:
 - if the field specified by json_path does not exist, return NULL
 - if datatype of the field specified by json_path is not the same with type of jsonb_extract_t, return t if it can be cast to t else NULL
 
-#### Syntax
-
-`JSONB jsonb_extract(JSONB j, VARCHAR json_path)`
-
-`BOOLEAN jsonb_extract_isnull(JSONB j, VARCHAR json_path)`
-
-`BOOLEAN jsonb_extract_bool(JSONB j, VARCHAR json_path)`
-
-`INT jsonb_extract_int(JSONB j, VARCHAR json_path)`
-
-`BIGINT jsonb_extract_bigint(JSONB j, VARCHAR json_path)`
-
-`DOUBLE jsonb_extract_double(JSONB j, VARCHAR json_path)`
-
-`STRING jsonb_extract_string(JSONB j, VARCHAR json_path)`
-
 
 ## jsonb_exists_path and jsonb_type
 ### description
+
+#### Syntax
+
+```sql
+BOOLEAN jsonb_exists_path(JSONB j, VARCHAR json_path)
+STRING jsonb_type(JSONB j, VARCHAR json_path)
+```
 
 There are two extra functions to check field existence and type
 - jsonb_exists_path check the existence of the field specified by json_path, return TRUE or FALS
@@ -78,11 +81,6 @@ There are two extra functions to check field existence and type
   - bigint
   - double
   - string
-
-`BOOLEAN jsonb_exists_path(JSONB j, VARCHAR json_path)`
-
-`STRING jsonb_type(JSONB j, VARCHAR json_path)`
-
 
 ### example
 

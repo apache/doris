@@ -17,17 +17,29 @@
 
 #include "olap/tablet_meta.h"
 
-#include <sstream>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <json2pb/pb_to_json.h>
+#include <time.h>
 
-#include "common/consts.h"
+#include <set>
+#include <utility>
+
+#include "common/config.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
+#include "olap/data_dir.h"
 #include "olap/file_header.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/utils.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
-#include "util/url_coding.h"
 
 using std::string;
 using std::unordered_map;
@@ -108,25 +120,25 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     // compression_type used to compress segment page
     switch (compression_type) {
     case TCompressionType::NO_COMPRESSION:
-        schema->set_compression_type(NO_COMPRESSION);
+        schema->set_compression_type(segment_v2::NO_COMPRESSION);
         break;
     case TCompressionType::SNAPPY:
-        schema->set_compression_type(SNAPPY);
+        schema->set_compression_type(segment_v2::SNAPPY);
         break;
     case TCompressionType::LZ4:
-        schema->set_compression_type(LZ4);
+        schema->set_compression_type(segment_v2::LZ4);
         break;
     case TCompressionType::LZ4F:
-        schema->set_compression_type(LZ4F);
+        schema->set_compression_type(segment_v2::LZ4F);
         break;
     case TCompressionType::ZLIB:
-        schema->set_compression_type(ZLIB);
+        schema->set_compression_type(segment_v2::ZLIB);
         break;
     case TCompressionType::ZSTD:
-        schema->set_compression_type(ZSTD);
+        schema->set_compression_type(segment_v2::ZSTD);
         break;
     default:
-        schema->set_compression_type(LZ4F);
+        schema->set_compression_type(segment_v2::LZ4F);
         break;
     }
 
@@ -291,9 +303,13 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
     if (!tcolumn.is_key) {
         column->set_is_key(false);
-        string aggregation_type;
-        EnumToString(TAggregationType, tcolumn.aggregation_type, aggregation_type);
-        column->set_aggregation(aggregation_type);
+        if (tcolumn.__isset.aggregation) {
+            column->set_aggregation(tcolumn.aggregation);
+        } else {
+            string aggregation_type;
+            EnumToString(TAggregationType, tcolumn.aggregation_type, aggregation_type);
+            column->set_aggregation(aggregation_type);
+        }
     } else {
         column->set_is_key(true);
         column->set_aggregation("NONE");
@@ -305,19 +321,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
     }
-    if (tcolumn.column_type.type == TPrimitiveType::STRUCT) {
-        for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
-            ColumnPB* children_column = column->add_children_columns();
-            init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
-        }
-    } else if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
+    for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
         ColumnPB* children_column = column->add_children_columns();
-        init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
-    } else if (tcolumn.column_type.type == TPrimitiveType::MAP) {
-        ColumnPB* key_column = column->add_children_columns();
-        init_column_from_tcolumn(0, tcolumn.children_column[0], key_column);
-        ColumnPB* val_column = column->add_children_columns();
-        init_column_from_tcolumn(0, tcolumn.children_column[1], val_column);
+        init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
     }
 }
 
@@ -335,26 +341,6 @@ Status TabletMeta::create_from_file(const string& file_path) {
 
     init_from_pb(tablet_meta_pb);
     return Status::OK();
-}
-
-Status TabletMeta::reset_tablet_uid(const string& header_file) {
-    Status res = Status::OK();
-    TabletMeta tmp_tablet_meta;
-    if ((res = tmp_tablet_meta.create_from_file(header_file)) != Status::OK()) {
-        LOG(WARNING) << "fail to load tablet meta from file"
-                     << ", meta_file=" << header_file;
-        return res;
-    }
-    TabletMetaPB tmp_tablet_meta_pb;
-    tmp_tablet_meta.to_meta_pb(&tmp_tablet_meta_pb);
-    *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid::gen_uid().to_proto();
-    res = save(header_file, tmp_tablet_meta_pb);
-    if (!res.ok()) {
-        LOG(FATAL) << "fail to save tablet meta pb to "
-                   << " meta_file=" << header_file;
-        return res;
-    }
-    return res;
 }
 
 std::string TabletMeta::construct_header_file_path(const string& schema_hash_path,
@@ -410,7 +396,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
                    << " tablet=" << full_name() << " _tablet_uid=" << _tablet_uid.to_string();
     }
     string meta_binary;
-    RETURN_NOT_OK(serialize(&meta_binary));
+    RETURN_IF_ERROR(serialize(&meta_binary));
     Status status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (!status.ok()) {
         LOG(FATAL) << "fail to save tablet_meta. status=" << status << ", tablet_id=" << tablet_id()

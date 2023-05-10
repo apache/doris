@@ -20,25 +20,33 @@
 
 #pragma once
 
-#include <boost/noncopyable.hpp>
-#include <memory>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "gen_cpp/data.pb.h"
+#include <boost/core/noncopyable.hpp>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
-#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
-class PBlock;
-class PColumn;
+class PColumnMeta;
+enum PGenericType_TypeId : int;
 
 namespace vectorized {
 
 class IDataType;
-
 class IColumn;
+class BufferWritable;
+class ReadBuffer;
+
 using ColumnPtr = COW<IColumn>::Ptr;
 using MutableColumnPtr = COW<IColumn>::MutablePtr;
 
@@ -75,6 +83,9 @@ public:
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
 
+    // get specific serializer or deserializer
+    virtual DataTypeSerDeSPtr get_serde() const = 0;
+
 protected:
     virtual String do_get_name() const;
 
@@ -93,6 +104,7 @@ public:
       */
     virtual Field get_default() const = 0;
 
+    virtual Field get_field(const TExprNode& node) const = 0;
     /** The data type can be promoted in order to try to avoid overflows.
       * Data types which can be promoted are typically Number or Decimal data types.
       */

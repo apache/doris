@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -82,7 +84,14 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child, boolean isDistinct) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        Preconditions.checkArgument(projects != null, "projects can not be null");
+        // only ColumnPrune rule may produce empty projects, this happens in rewrite phase
+        // so if projects is empty, all plans have been bound already.
+        Preconditions.checkArgument(!projects.isEmpty() || !(child instanceof Unbound),
+                "projects can not be empty when child plan is unbound");
+        this.projects = projects.isEmpty()
+                ? ImmutableList.of(ExpressionUtils.selectMinimumColumn(child.getOutput()))
+                : projects;
         this.excepts = ImmutableList.copyOf(excepts);
         this.canEliminate = canEliminate;
         this.isDistinct = isDistinct;
@@ -100,6 +109,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     public List<NamedExpression> getExcepts() {
         return excepts;
+    }
+
+    public boolean isAllSlots() {
+        return projects.stream().allMatch(NamedExpression::isSlot);
     }
 
     @Override

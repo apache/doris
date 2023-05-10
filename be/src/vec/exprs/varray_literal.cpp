@@ -17,6 +17,27 @@
 
 #include "vec/exprs/varray_literal.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <glog/logging.h>
+
+#include <memory>
+#include <ostream>
+#include <vector>
+
+#include "runtime/types.h"
+#include "vec/columns/column.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 Status VArrayLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,

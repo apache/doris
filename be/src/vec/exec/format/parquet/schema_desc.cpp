@@ -17,7 +17,14 @@
 
 #include "schema_desc.h"
 
+#include <ctype.h>
+
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
 #include "common/logging.h"
+#include "runtime/define_primitive_type.h"
 #include "util/slice.h"
 
 namespace doris::vectorized {
@@ -170,7 +177,7 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
     if (physical_schema.__isset.logicalType) {
         type = convert_to_doris_type(physical_schema.logicalType);
     } else if (physical_schema.__isset.converted_type) {
-        type = convert_to_doris_type(physical_schema.converted_type);
+        type = convert_to_doris_type(physical_schema);
     }
     // use physical type instead
     if (type.type == INVALID_TYPE) {
@@ -211,7 +218,8 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
     if (logicalType.__isset.STRING) {
         type = TypeDescriptor(TYPE_STRING);
     } else if (logicalType.__isset.DECIMAL) {
-        type = TypeDescriptor(TYPE_DECIMALV2);
+        type = TypeDescriptor::create_decimalv3_type(logicalType.DECIMAL.precision,
+                                                     logicalType.DECIMAL.scale);
     } else if (logicalType.__isset.DATE) {
         type = TypeDescriptor(TYPE_DATEV2);
     } else if (logicalType.__isset.INTEGER) {
@@ -238,14 +246,16 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
     return type;
 }
 
-TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::ConvertedType::type convertedType) {
+TypeDescriptor FieldDescriptor::convert_to_doris_type(
+        const tparquet::SchemaElement& physical_schema) {
     TypeDescriptor type;
-    switch (convertedType) {
+    switch (physical_schema.converted_type) {
     case tparquet::ConvertedType::type::UTF8:
         type = TypeDescriptor(TYPE_STRING);
         break;
     case tparquet::ConvertedType::type::DECIMAL:
-        type = TypeDescriptor(TYPE_DECIMALV2);
+        type = TypeDescriptor::create_decimalv3_type(physical_schema.precision,
+                                                     physical_schema.scale);
         break;
     case tparquet::ConvertedType::type::DATE:
         type = TypeDescriptor(TYPE_DATEV2);
@@ -281,7 +291,7 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::ConvertedType::t
         type = TypeDescriptor(TYPE_BIGINT);
         break;
     default:
-        LOG(WARNING) << "Not supported parquet ConvertedType: " << convertedType;
+        LOG(WARNING) << "Not supported parquet ConvertedType: " << physical_schema.converted_type;
         type = TypeDescriptor(INVALID_TYPE);
         break;
     }
@@ -457,7 +467,8 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
 
     map_field->name = map_schema.name;
     map_field->type.type = TYPE_MAP;
-    map_field->type.add_sub_type(map_kv_field->type);
+    map_field->type.add_sub_type(map_kv_field->type.children[0]);
+    map_field->type.add_sub_type(map_kv_field->type.children[1]);
     map_field->is_nullable = is_optional;
 
     return Status::OK();
@@ -482,7 +493,8 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     struct_field->is_nullable = is_optional;
     struct_field->type.type = TYPE_STRUCT;
     for (int i = 0; i < num_children; ++i) {
-        struct_field->type.add_sub_type(struct_field->children[i].type);
+        struct_field->type.add_sub_type(struct_field->children[i].type,
+                                        struct_field->children[0].name);
     }
     return Status::OK();
 }

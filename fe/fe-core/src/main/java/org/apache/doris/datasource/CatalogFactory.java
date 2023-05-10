@@ -48,12 +48,17 @@ public class CatalogFactory {
             log.setCatalogId(catalogId);
             log.setCatalogName(((CreateCatalogStmt) stmt).getCatalogName());
             log.setResource(((CreateCatalogStmt) stmt).getResource());
+            log.setComment(((CreateCatalogStmt) stmt).getComment());
             log.setProps(((CreateCatalogStmt) stmt).getProperties());
         } else if (stmt instanceof DropCatalogStmt) {
             log.setCatalogId(catalogId);
         } else if (stmt instanceof AlterCatalogPropertyStmt) {
             log.setCatalogId(catalogId);
             log.setNewProps(((AlterCatalogPropertyStmt) stmt).getNewProperties());
+            String newComment = ((AlterCatalogPropertyStmt) stmt).getComment();
+            if (!Strings.isNullOrEmpty(newComment)) {
+                log.setComment(newComment);
+            }
         } else if (stmt instanceof AlterCatalogNameStmt) {
             log.setCatalogId(catalogId);
             log.setNewCatalogName(((AlterCatalogNameStmt) stmt).getNewCatalogName());
@@ -70,11 +75,12 @@ public class CatalogFactory {
      * create the catalog instance from catalog log.
      */
     public static CatalogIf constructorFromLog(CatalogLog log) throws DdlException {
-        return constructorCatalog(log.getCatalogId(), log.getCatalogName(), log.getResource(), log.getProps());
+        return constructorCatalog(log.getCatalogId(), log.getCatalogName(), log.getResource(),
+                    log.getComment(), log.getProps());
     }
 
-    private static CatalogIf constructorCatalog(
-            long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
+    private static CatalogIf constructorCatalog(long catalogId, String name, String resource, String comment,
+                                                Map<String, String> props) throws DdlException {
         // get catalog type from resource or properties
         String catalogType;
         if (!Strings.isNullOrEmpty(resource)) {
@@ -115,6 +121,9 @@ public class CatalogFactory {
                 break;
             default:
                 throw new DdlException("Unknown catalog type: " + catalogType);
+        }
+        if (catalog instanceof ExternalCatalog && !Strings.isNullOrEmpty(comment)) {
+            ((ExternalCatalog) catalog).setComment(comment);
         }
         return catalog;
     }

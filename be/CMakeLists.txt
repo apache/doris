@@ -301,9 +301,6 @@ set_target_properties(roaring PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(fmt STATIC IMPORTED)
 set_target_properties(fmt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libfmt.a)
 
-add_library(orc STATIC IMPORTED)
-set_target_properties(orc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liborc.a)
-
 add_library(cctz STATIC IMPORTED)
 set_target_properties(cctz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcctz.a)
 
@@ -437,6 +434,21 @@ if (OS_MACOSX)
     set_target_properties(intl PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libintl.a")
 endif()
 
+option(BUILD_JAVA OFF)
+option(BUILD_CPP_TESTS OFF)
+option(STOP_BUILD_ON_WARNING OFF)
+option(BUILD_LIBHDFSPP OFF)
+SET(PROTOBUF_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(SNAPPY_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(LZ4_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(LZ4_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/lz4")
+SET(ZLIB_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
+
+add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
+target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
+
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
 # You can check funcion here which depends on platform. Don't forget add this
@@ -483,12 +495,19 @@ if (COMPILER_GCC)
         message(FATAL_ERROR "Need GCC version at least 11.1")
     endif()
 
-    add_compile_options(-fdiagnostics-color=always)
+    add_compile_options(-fdiagnostics-color=always
+                        -Wno-nonnull
+                        -Wno-stringop-overread
+                        -Wno-stringop-overflow)
 endif ()
 
 if (COMPILER_CLANG)
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13")
         message(FATAL_ERROR "Need Clang version at least 13")
+    endif()
+
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16")
+        message(WARNING "Doris recommended to use Clang-16 to build backend")
     endif()
 
     add_compile_options(-fcolor-diagnostics 
@@ -622,6 +641,11 @@ set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
 # Set include dirs
 include_directories(
+    ${SRC_DIR}/apache-orc/c++/include
+    ${CMAKE_CURRENT_BINARY_DIR}/src/apache-orc/c++/include
+)
+
+include_directories(
     ${SRC_DIR}/
     ${TEST_DIR}/
 )
@@ -632,11 +656,16 @@ include_directories(
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
-include_directories($ENV{JAVA_HOME}/include)
+
+if ("${DORIS_JAVA_HOME}" STREQUAL "") 
+    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}/include")
+endif()
+
+include_directories(${DORIS_JAVA_HOME}/include)
 if (NOT OS_MACOSX)
-    include_directories($ENV{JAVA_HOME}/include/linux)
+    include_directories(${DORIS_JAVA_HOME}/include/linux)
 else()
-    include_directories($ENV{JAVA_HOME}/include/darwin)
+    include_directories(${DORIS_JAVA_HOME}/include/darwin)
 endif()
 
 if (NOT OS_MACOSX)
@@ -744,7 +773,6 @@ set(COMMON_THIRDPARTY
     zstd
     arrow
     parquet
-    orc
     odbc
     cctz
     minizip
@@ -829,6 +857,8 @@ if (WITH_MYSQL)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
 endif()
 
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} orc)
+
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
 # Add all external dependencies. They should come after the palo libs.
@@ -850,6 +880,7 @@ else()
         -liconv
     )
 endif()
+
 
 if (USE_JEMALLOC)
     set(MALLOCLIB jemalloc)
@@ -954,6 +985,26 @@ else()
     message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
 endif()
 
+if (ENABLE_PCH) 
+add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
+    target_precompile_headers(
+        pch
+        PUBLIC
+            ${SRC_DIR}pch/pch.h
+    )
+    if (COMPILER_CLANG)
+        add_compile_options(-Xclang -fno-pch-timestamp)
+    else()
+        add_compile_options(-fpch-preprocess)
+    endif()
+endif()
+
+function(pch_reuse target)
+    if (ENABLE_PCH)
+        target_precompile_headers(${target} REUSE_FROM pch)
+    endif()
+endfunction(pch_reuse target)
+
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/exec)
@@ -997,6 +1048,7 @@ install(FILES
     ${BASE_DIR}/../conf/be.conf
     ${BASE_DIR}/../conf/odbcinst.ini
     ${BASE_DIR}/../conf/asan_suppr.conf
+    ${BASE_DIR}/../conf/lsan_suppr.conf
     ${BASE_DIR}/../conf/hdfs-site.xml
     DESTINATION ${OUTPUT_DIR}/conf)
 
@@ -1004,3 +1056,4 @@ get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTO
 foreach(dir ${dirs})
     message(STATUS "dir='${dir}'")
 endforeach()
+

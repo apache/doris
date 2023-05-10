@@ -17,18 +17,33 @@
 
 #include "io/fs/local_file_system.h"
 
+#include <fcntl.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
 #include <openssl/md5.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
+#include <filesystem>
+#include <iomanip>
+#include <istream>
+#include <system_error>
+#include <utility>
+
+#include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
 #include "runtime/thread_context.h"
-#include "util/async_io.h"
+#include "util/async_io.h" // IWYU pragma: keep
+#include "util/defer_op.h"
 
 namespace doris {
 namespace io {
+class FileReaderOptions;
 
 std::shared_ptr<LocalFileSystem> LocalFileSystem::create(Path path, std::string id) {
     return std::shared_ptr<LocalFileSystem>(new LocalFileSystem(std::move(path), std::move(id)));

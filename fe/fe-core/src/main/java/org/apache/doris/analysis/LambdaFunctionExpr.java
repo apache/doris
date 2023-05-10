@@ -82,11 +82,14 @@ public class LambdaFunctionExpr extends Expr {
                 nameSet.add(names.get(i));
             }
             Expr param = params.get(i);
+            if (!param.isAnalyzed()) {
+                param.analyze(analyzer);
+            }
             Type paramType = param.getType();
             if (!paramType.isArrayType()) {
                 throw new AnalysisException(
-                        "The lambda function of params must be array type, now " + (i + 1) + "th is "
-                                + paramType.toString());
+                        "The lambda function of params must be array type, now the param of "
+                                + param.toColumnLabel() + " is " + paramType.toString());
             }
             // this ColumnRefExpr record the unique columnId, which is used for BE
             // so could insert nested column by order.

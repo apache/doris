@@ -17,12 +17,30 @@
 
 #include "beta_rowset_reader.h"
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <ostream>
+#include <roaring/roaring.hh>
+#include <set>
+#include <string>
+#include <unordered_map>
 #include <utility>
 
+#include "common/logging.h"
+#include "io/io_common.h"
+#include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
+#include "olap/olap_define.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
 
@@ -57,7 +75,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                                                std::vector<RowwiseIteratorUPtr>* out_iters,
                                                const std::pair<int, int>& segment_offset,
                                                bool use_cache) {
-    RETURN_NOT_OK(_rowset->load());
+    RETURN_IF_ERROR(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
         // schema change/compaction should use owned_stats
@@ -175,8 +193,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // load segments
     // use cache is true when do vertica compaction
     bool should_use_cache = use_cache || read_context->reader_type == ReaderType::READER_QUERY;
-    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle,
-                                                           should_use_cache));
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle,
+                                                             should_use_cache));
 
     // create iterator for each segment
     auto& segments = _segment_cache_handle.get_segments();
@@ -197,11 +215,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         if (iter->empty()) {
             continue;
         }
-        auto st = iter->init(_read_options);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to init iterator: " << st.to_string();
-            return Status::Error<ROWSET_READER_INIT>();
-        }
         out_iters->push_back(std::move(iter));
     }
 
@@ -212,7 +225,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context,
                               const std::pair<int, int>& segment_offset) {
     _context = read_context;
     std::vector<RowwiseIteratorUPtr> iterators;
-    RETURN_NOT_OK(get_segment_iterators(_context, &iterators, segment_offset));
+    RETURN_IF_ERROR(get_segment_iterators(_context, &iterators, segment_offset));
 
     // merge or union segment iterator
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {

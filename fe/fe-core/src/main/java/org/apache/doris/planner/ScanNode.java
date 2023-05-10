@@ -37,8 +37,10 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -102,6 +104,10 @@ public abstract class ScanNode extends PlanNode {
 
     public void setSortColumn(String column) {
         sortColumn = column;
+    }
+
+    protected List<Split> getSplits() throws UserException {
+        throw new NotImplementedException("Scan node sub class need to implement getSplits interface.");
     }
 
     /**
@@ -516,7 +522,7 @@ public abstract class ScanNode extends PlanNode {
             // create a tmpSmap for the later setOutputSmap call
             ExprSubstitutionMap tmpSmap = new ExprSubstitutionMap(
                     Lists.newArrayList(outputTupleDesc.getSlots().stream().map(slot -> new SlotRef(slot)).collect(
-                            Collectors.toList())), Lists.newArrayList(projectList));
+                    Collectors.toList())), Lists.newArrayList(projectList));
             Set<SlotId> allOutputSlotIds = outputTupleDesc.getSlots().stream().map(slot -> slot.getId())
                     .collect(Collectors.toSet());
             List<Expr> newRhs = Lists.newArrayList();
@@ -530,10 +536,14 @@ public abstract class ScanNode extends PlanNode {
                         slotDesc.initFromExpr(rhsExpr);
                         if (rhsExpr instanceof SlotRef) {
                             slotDesc.setSrcColumn(((SlotRef) rhsExpr).getColumn());
+                            slotDesc.setIsMaterialized(((SlotRef) rhsExpr).getDesc().isMaterialized());
+                        } else {
+                            slotDesc.setIsMaterialized(true);
                         }
-                        slotDesc.setIsMaterialized(true);
-                        slotDesc.materializeSrcExpr();
-                        projectList.add(rhsExpr);
+                        if (slotDesc.isMaterialized()) {
+                            slotDesc.materializeSrcExpr();
+                            projectList.add(rhsExpr);
+                        }
                         newRhs.add(new SlotRef(slotDesc));
                         allOutputSlotIds.add(slotDesc.getId());
                     } else {

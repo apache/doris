@@ -33,6 +33,7 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
+import org.apache.doris.analysis.LoadType;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
@@ -271,6 +272,7 @@ terminal String
     KW_NGRAM_BF,
     KW_BLOB,
     KW_BOOLEAN,
+    KW_BRIEF,
     KW_BROKER,
     KW_BUCKETS,
     KW_BUILD,
@@ -355,6 +357,7 @@ terminal String
     KW_EXCEPT,
     KW_EXCLUDE,
     KW_EXISTS,
+    KW_EXPIRED,
     KW_EXPORT,
     KW_EXTENDED,
     KW_EXTERNAL,
@@ -386,6 +389,7 @@ terminal String
     KW_GRAPH,
     KW_GROUP,
     KW_GROUPING,
+    KW_GROUPS,
     KW_HASH,
     KW_HAVING,
     KW_HDFS,
@@ -490,6 +494,7 @@ terminal String
     KW_PASSWORD_REUSE,
     KW_PATH,
     KW_PAUSE,
+    KW_PERIOD,
     KW_PIPE,
     KW_PLUGIN,
     KW_PLUGINS,
@@ -538,6 +543,7 @@ terminal String
     KW_ROW,
     KW_ROWS,
     KW_S3,
+    KW_SAMPLE,
     KW_SCHEMA,
     KW_SCHEMAS,
     KW_SECOND,
@@ -645,12 +651,12 @@ terminal String COMMENTED_PLAN_HINTS;
 nonterminal List<StatementBase> stmts;
 nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
-    show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt,
+    show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
-    link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
+    switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt;
 
 nonterminal FromClause opt_using_clause;
 
@@ -671,7 +677,7 @@ nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_o
             transaction_access_mode, isolation_types;
 
 // String
-nonterminal String user, opt_user;
+nonterminal String user, opt_user, opt_using_charset;
 nonterminal UserIdentity user_identity;
 nonterminal String quantity;
 
@@ -716,8 +722,6 @@ nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
 nonterminal TableSnapshot opt_table_snapshot, table_snapshot;
-nonterminal ClusterName cluster_name;
-nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name, opt_table_name;
 nonterminal FunctionName function_name;
 nonterminal EncryptKeyName encryptkey_name;
@@ -743,7 +747,7 @@ nonterminal LiteralExpr literal;
 nonterminal CaseExpr case_expr;
 nonterminal ArrayList<CaseWhenClause> case_when_clause_list;
 nonterminal FunctionParams function_params;
-nonterminal Expr function_call_expr, array_expr;
+nonterminal Expr function_call_expr, array_expr, map_expr;
 nonterminal ArrayLiteral array_literal;
 nonterminal MapLiteral map_literal;
 nonterminal StructField struct_field;
@@ -888,6 +892,10 @@ nonterminal PauseSyncJobStmt pause_sync_job_stmt;
 nonterminal StopSyncJobStmt stop_sync_job_stmt;
 nonterminal JobName job_name;
 
+// analyze
+nonterminal Map<String, String> with_analysis_properties;
+nonterminal List<Map<String, String>> opt_with_analysis_properties;
+
 nonterminal String opt_db, procedure_or_function, opt_comment, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
@@ -917,6 +925,8 @@ nonterminal MVRefreshInfo.RefreshMethod opt_refresh_method;
 nonterminal MVRefreshTriggerInfo opt_refresh_trigger;
 nonterminal MVRefreshInfo opt_mv_refersh_info;
 nonterminal PartitionDesc opt_mv_partition;
+nonterminal Boolean opt_sync;
+
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -955,7 +965,7 @@ precedence right LBRACE;
 precedence left KW_ENGINE;
 
 // unused
-// nonterminal Expr where_clause_without_null, List<String> col_list, opt_charset_name, AlterClause alter_cluster_clause;
+// nonterminal Expr where_clause_without_null, List<String> col_list, opt_charset_name;
 
 start with stmts;
 
@@ -1054,14 +1064,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | create_stmt:query
     {: RESULT = query; :}
-    | link_stmt:query
-    {: RESULT = query; :}
-    | migrate_stmt:query
-    {: RESULT = query; :}
     | switch_stmt:stmt
     {: RESULT = stmt; :}
-    | enter_stmt:enter
-    {: RESULT = enter; :}
     | query_stmt:query
     {: RESULT = query; :}
     | drop_stmt:stmt
@@ -1074,6 +1078,8 @@ stmt ::=
     {: RESULT = set; :}
     | kill_stmt:kill
     {: RESULT = kill; :}
+    | kill_analysis_job_stmt: k
+    {: RESULT = k; :}
     | describe_stmt:describe
     {: RESULT = describe; :}
     | show_stmt:show
@@ -1107,6 +1113,8 @@ stmt ::=
     | show_create_routine_load_stmt : stmt
     {: RESULT = stmt; :}
     | show_create_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | show_create_reporitory_stmt : stmt
     {: RESULT = stmt; :}
     | cancel_stmt : stmt
     {: RESULT = stmt; :}
@@ -1155,28 +1163,6 @@ stmt ::=
     | /* empty: query only has comments */
     {:
         RESULT = new EmptyStmt();
-    :}
-    ;
-
-cluster_name ::=
-    ident:cluster
-    {:
-        RESULT = new ClusterName(cluster, "");
-    :}
-    | ident:cluster DOT ident:db
-    {:
-        RESULT = new ClusterName(cluster, db);
-    :}
-    ;
-
-des_cluster_name ::=
-    ident:cluster
-    {:
-        RESULT = new ClusterName(cluster, "");
-    :}
-    | ident:cluster DOT ident:db
-    {:
-        RESULT = new ClusterName(cluster, db);
     :}
     ;
 
@@ -1237,22 +1223,6 @@ uninstall_plugin_stmt ::=
     :}
     ;
 
-// link statement
-link_stmt ::=
-    KW_LINK KW_DATABASE cluster_name:src_name des_cluster_name:des_name
-    {:
-        RESULT = new LinkDbStmt(src_name, des_name);
-    :}
-    ;
-
-// migrate statement
-migrate_stmt ::=
-    KW_MIGRATE KW_DATABASE cluster_name:src_name des_cluster_name:des_name
-    {:
-        RESULT = new MigrateDbStmt(src_name, des_name);
-    :}
-    ;
-
 // Alter Statement
 alter_stmt ::=
     KW_ALTER KW_TABLE table_name:tbl
@@ -1276,10 +1246,6 @@ alter_stmt ::=
     | KW_ALTER KW_SYSTEM alter_system_clause:clause
     {:
         RESULT = new AlterSystemStmt(clause);
-    :}
-    | KW_ALTER KW_CLUSTER ident:name opt_properties:properties
-    {:
-        RESULT = new AlterClusterStmt(name, properties);
     :}
     | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_DATA KW_QUOTA quantity:quota_quantity
     {:
@@ -1313,6 +1279,10 @@ alter_stmt ::=
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
+    :}
+    | KW_ALTER KW_RESOURCE KW_GROUP ident_or_text:resourceGroupName opt_properties:properties
+    {:
+        RESULT = new AlterResourceGroupStmt(resourceGroupName, properties);
     :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
@@ -1511,6 +1481,10 @@ alter_table_clause ::=
     {:
         RESULT = new DropPartitionClause(ifExists, partitionName, isTempPartition, force ? force : isTempPartition);
     :}
+    | KW_DROP opt_tmp:isTempPartition KW_PARTITION opt_if_exists:ifExists ident:partitionName opt_force:force KW_FROM KW_INDEX ident:indexName
+    {:
+        RESULT = new DropPartitionFromIndexClause(ifExists, partitionName, isTempPartition, force ? force : isTempPartition, indexName);
+    :}
     | KW_MODIFY opt_tmp:isTempPartition KW_PARTITION ident:partitionName KW_SET LPAREN key_value_map:properties RPAREN
     {:
         ArrayList<String> partitions = new ArrayList<String>();
@@ -1592,15 +1566,7 @@ opt_enable_feature_properties ::=
 alter_system_clause ::=
     KW_ADD KW_BACKEND string_list:hostPorts opt_properties:properties
     {:
-        RESULT = new AddBackendClause(hostPorts, false, properties);
-    :}
-    | KW_ADD KW_FREE KW_BACKEND string_list:hostPorts
-    {:
-        RESULT = new AddBackendClause(hostPorts, true, Maps.newHashMap());
-    :}
-    | KW_ADD KW_BACKEND KW_TO ident:clusterName string_list:hostPorts
-    {:
-        RESULT = new AddBackendClause(hostPorts, clusterName);
+        RESULT = new AddBackendClause(hostPorts, properties);
     :}
     | KW_DROP KW_BACKEND string_list:hostPorts
     {:
@@ -1783,19 +1749,14 @@ create_stmt ::=
         RESULT = new CreateDbStmt(ifNotExists, db, null);
     :}
     /* Catalog */
-    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_properties:properties
+    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_comment:comment opt_properties:properties
     {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, null, properties);
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, null, properties, comment);
     :}
-    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName opt_properties:properties
+    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName opt_comment:comment opt_properties:properties
     {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName, properties);
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName, properties, comment);
     :}
-    /* cluster */
-   /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
-    {:
-        RESULT = new CreateClusterStmt(name, properties, password);
-    :}*/
     /* Function */
     | KW_CREATE opt_var_type:type opt_aggregate:isAggregate KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
             KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
@@ -1906,11 +1867,6 @@ create_stmt ::=
     {:
         RESULT = new CreateViewStmt(ifNotExists, viewName, columns, comment, view_def);
     :}
-    /* cluster */
-    | KW_CREATE KW_CLUSTER ident:name opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
-    {:
-        RESULT = new CreateClusterStmt(name, properties, password);
-    :}
     | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH storage_backend:storage
     {:
         RESULT = new CreateRepositoryStmt(isReadOnly, repoName, storage);
@@ -1941,10 +1897,20 @@ create_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment), false)));
     :}
-    /* resource */
-    | KW_CREATE opt_external:isExternal KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
+    /* external resource */
+    | KW_CREATE KW_EXTERNAL KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
     {:
-        RESULT = new CreateResourceStmt(isExternal, ifNotExists, resourceName, properties);
+        RESULT = new CreateResourceStmt(true, ifNotExists, resourceName, properties);
+    :}
+    /* resource */
+    | KW_CREATE KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
+    {:
+        RESULT = new CreateResourceStmt(false, ifNotExists, resourceName, properties);
+    :}
+    /* resource group*/
+    | KW_CREATE KW_RESOURCE KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:resourceGroupName opt_properties:properties
+    {:
+        RESULT = new CreateResourceGroupStmt(ifNotExists, resourceGroupName, properties);
     :}
     /* encryptkey */
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
@@ -2294,7 +2260,7 @@ load_stmt ::=
     opt_properties:properties
     opt_comment:comment
     {:
-        RESULT = new LoadStmt(label, dataDescList, broker, system, properties, comment);
+        RESULT = new UnifiedLoadStmt(label, dataDescList, broker, system, properties, comment, LoadType.BROKER_LOAD);
     :}
     | KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
@@ -2787,32 +2753,54 @@ show_create_load_stmt ::=
     :}
     ;
 
+show_create_reporitory_stmt ::=
+    KW_SHOW KW_CREATE KW_REPOSITORY KW_FOR ident:repoName
+    {:
+        RESULT = new ShowCreateRepositoryStmt(repoName);
+    :}
+    ;
+
 // analyze statment
 analyze_stmt ::=
-    KW_ANALYZE KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    // statistics
+    KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols
+      opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
-        boolean is_whole_tbl = (cols == null);
-        boolean is_histogram = false;
-        boolean is_increment = false;
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        for (Map<String, String> property : withAnalysisProperties) {
+            properties.putAll(property);
+        }
+        if (!properties.containsKey("sync")) {
+            properties.put("sync", String.valueOf(sync));
+        }
+        // Rule: If no type is specified, see if there is a specified column
+        if (!properties.containsKey("analysis.type")) {
+            if ((cols == null)) {
+                properties.put("analysis.type", "INDEX");
+            } else {
+                properties.put("analysis.type", "COLUMN");
+            }
+        }
+        RESULT = new AnalyzeStmt(tbl, cols, properties);
     :}
-    | KW_ANALYZE KW_INCREMENTAL KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    // histogram
+    | KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols KW_UPDATE KW_HISTOGRAM
+      opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
-        boolean is_whole_tbl = (cols == null);
-        boolean is_histogram = false;
-        boolean is_increment = true;
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
-    :}
-    | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM KW_ON ident_list:cols opt_partition_names:partitionNames opt_properties:properties
-    {:
-        boolean is_whole_tbl = false;
-        boolean is_histogram = true;
-        boolean is_increment = false;
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
-    :}
-    | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM
-    {:
-        RESULT = new AnalyzeStmt(tbl, null, null, new HashMap<>(), true, true, false);
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        for (Map<String, String> property : withAnalysisProperties) {
+            properties.putAll(property);
+        }
+        if (!properties.containsKey("sync")) {
+            properties.put("sync", String.valueOf(sync));
+        }
+        // TODO: Support materialized view
+        properties.put("analysis.type", "HISTOGRAM");
+        RESULT = new AnalyzeStmt(tbl, cols, properties);
     :}
     ;
 
@@ -2917,11 +2905,6 @@ drop_stmt ::=
     {:
         RESULT = new DropCatalogStmt(ifExists, catalogName);
     :}
-    /* cluster */
-    | KW_DROP KW_CLUSTER opt_if_exists:ifExists ident:cluster
-    {:
-        RESULT = new DropClusterStmt(ifExists, cluster);
-    :}
     /* Function */
     | KW_DROP opt_var_type:type KW_FUNCTION opt_if_exists:ifExists function_name:functionName LPAREN func_args_def:args RPAREN
     {:
@@ -2970,6 +2953,10 @@ drop_stmt ::=
     {:
         RESULT = new DropResourceStmt(ifExists, resourceName);
     :}
+    | KW_DROP KW_RESOURCE KW_GROUP opt_if_exists:ifExists ident_or_text:resourceGroupName
+    {:
+        RESULT = new DropResourceGroupStmt(ifExists, resourceGroupName);
+    :}
     | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
     {:
         RESULT = new DropEncryptKeyStmt(ifExists, keyName);
@@ -2991,9 +2978,13 @@ drop_stmt ::=
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
     :}
     /* statistics */
-    | KW_DROP KW_STATS opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
+    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols
     {:
-        RESULT = new DropTableStatsStmt(tbl, partitionNames, cols);
+        RESULT = new DropStatsStmt(tbl, cols);
+    :}
+    | KW_DROP KW_EXPIRED KW_STATS
+    {:
+        RESULT = new DropStatsStmt(true);
     :}
     ;
 
@@ -3655,9 +3646,13 @@ show_param ::=
     {:
         RESULT = new ShowCreateTableStmt(table);
     :}
-    | KW_CREATE KW_VIEW table_name:table
+    | KW_BRIEF KW_CREATE KW_TABLE table_name:table
     {:
         RESULT = new ShowCreateTableStmt(table, true);
+    :}
+    | KW_CREATE KW_VIEW table_name:table
+    {:
+        RESULT = new ShowCreateTableStmt(table, true, false);
     :}
     /* Create database */
     | KW_CREATE KW_DATABASE ident:db
@@ -3676,15 +3671,6 @@ show_param ::=
     | KW_CREATE opt_var_type:type KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
     {:
         RESULT = new ShowCreateFunctionStmt(type, dbName, functionName, args);
-    :}
-    /* Cluster */
-    | KW_CLUSTERS
-    {:
-        RESULT = new ShowClusterStmt();
-    :}
-    | KW_MIGRATIONS
-    {:
-        RESULT = new ShowMigrationsStmt();
     :}
     /* Database */
     | KW_DATABASES opt_wild_where
@@ -3853,6 +3839,10 @@ show_param ::=
     {:
         RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
     :}
+    | KW_RESOURCE KW_GROUPS
+    {:
+        RESULT = new ShowResourceGroupsStmt();
+    :}
     | KW_BACKENDS
     {:
         RESULT = new ShowBackendsStmt();
@@ -3938,10 +3928,20 @@ show_param ::=
     {:
         RESULT = new ShowSyncJobStmt(dbName);
     :}
-    /* show column stats */
-    | KW_COLUMN KW_STATS table_name:tbl opt_partition_names:partitionNames
+    /* show table stats */
+    | KW_TABLE KW_STATS table_name:tbl opt_partition_names:partitionNames
     {:
-        RESULT = new ShowColumnStatsStmt(tbl, partitionNames);
+        RESULT = new ShowTableStatsStmt(tbl, partitionNames);
+    :}
+    /* show column stats */
+    | KW_COLUMN KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
+    {:
+        RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames);
+    :}
+    /* show column histogram */
+    | KW_COLUMN KW_HISTOGRAM table_name:tbl opt_col_list:cols
+    {:
+        RESULT = new ShowColumnHistStmt(tbl, cols);
     :}
     /* show table creation statement */
     | KW_TABLE KW_CREATION opt_db:db opt_wild_where
@@ -4464,13 +4464,6 @@ switch_stmt ::=
     :}
     ;
 
-// Change cluster
-enter_stmt ::=
-    KW_ENTER ident:cluster
-    {:
-        RESULT = new EnterStmt(cluster);
-    :}
-    ;
 // Change database
 use_stmt ::=
     KW_USE ident:db
@@ -4487,7 +4480,7 @@ use_stmt ::=
 insert_stmt ::=
     KW_INSERT KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
-        RESULT = new InsertStmt(target, label, cols, source, hints);
+        RESULT = new NativeInsertStmt(target, label, cols, source, hints);
     :}
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
@@ -4517,6 +4510,7 @@ insert_source ::=
         RESULT = new InsertSource(query);
     :}
     ;
+
 
 // update stmt
 update_stmt ::=
@@ -4690,6 +4684,13 @@ kill_stmt ::=
     | KW_KILL KW_QUERY INTEGER_LITERAL:value
     {:
         RESULT = new KillStmt(false, value.intValue());
+    :}
+    ;
+
+kill_analysis_job_stmt ::=
+    KW_KILL KW_ANALYZE INTEGER_LITERAL:value
+    {:
+        RESULT = new KillAnalysisJobStmt(value.intValue());
     :}
     ;
 
@@ -5694,6 +5695,65 @@ ident_list ::=
     :}
     ;
 
+with_analysis_properties ::=
+    KW_SYNC
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("sync", "true");
+        }};
+    :}
+    | KW_INCREMENTAL
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("incremental", "true");
+        }};
+    :}
+    | KW_AUTO
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("automatic", "true");
+        }};
+    :}
+    | KW_SAMPLE KW_PERCENT INTEGER_LITERAL:samplePercent
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("sample.percent", String.valueOf(samplePercent.intValue()));
+        }};
+    :}
+    | KW_SAMPLE KW_ROWS INTEGER_LITERAL:sampleRows
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("sample.rows", String.valueOf(sampleRows.intValue()));
+        }};
+    :}
+    | KW_BUCKETS INTEGER_LITERAL:numBuckets
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("num.buckets", String.valueOf(numBuckets.intValue()));
+        }};
+    :}
+    | KW_PERIOD INTEGER_LITERAL:periodInSec
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("period.seconds", String.valueOf(periodInSec.intValue()));
+        }};
+    :}
+    ;
+
+opt_with_analysis_properties ::=
+    /* empty */
+    {:
+        RESULT = Lists.newArrayList();
+    :}
+    | opt_with_analysis_properties:withAnalysisProperties
+      KW_WITH with_analysis_properties:property
+    {:
+        withAnalysisProperties.add(property);
+        RESULT = withAnalysisProperties;
+    :}
+    ;
+
+
 expr_list ::=
   expr:e
   {:
@@ -6168,6 +6228,17 @@ map_literal ::=
   :}
   ;
 
+map_expr ::=
+  KW_MAP LPAREN function_params:params RPAREN
+  {:
+    RESULT = new FunctionCallExpr("map", params);
+  :}
+  | KW_MAP LPAREN RPAREN
+  {:
+    RESULT = new MapLiteral();
+  :}
+  ;
+
 struct_field ::=
   ident:name COLON type:type
   {: RESULT = new StructField(name, type); :}
@@ -6213,6 +6284,8 @@ non_pred_expr ::=
   | array_expr:a
   {: RESULT = a; :}
   | array_literal:a
+  {: RESULT = a; :}
+  | map_expr:a
   {: RESULT = a; :}
   | map_literal:a
   {: RESULT = a; :}
@@ -6297,7 +6370,23 @@ non_pred_expr ::=
     exprs.add(new StringLiteral(character));
     RESULT = new FunctionCallExpr("convert_to", new FunctionParams(exprs)); 
   :}
+  | KW_CHAR LPAREN expr_list:exprs opt_using_charset:charset_name RPAREN
+  {: 
+    exprs.add(0, new StringLiteral(charset_name));
+    RESULT = new FunctionCallExpr("char", new FunctionParams(exprs)); 
+  :}
   ;
+
+opt_using_charset ::=
+    /* empty */
+    {:
+        RESULT = "utf8";
+    :}
+    | KW_USING ident:charset_name
+    {:
+        RESULT = charset_name;
+    :}
+    ;
 
 expr_pipe_list ::=
   expr:e1 KW_PIPE expr:e2
@@ -6908,6 +6997,16 @@ type_func_name_keyword ::=
     {: RESULT = id; :}
     ;
 
+opt_sync ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_SYNC
+    {:
+        RESULT = true;
+    :}
+    ;
+
 // Keyword that we allow for identifiers
 keyword ::=
     KW_AFTER:id
@@ -6939,6 +7038,8 @@ keyword ::=
     | KW_BLOB:id
     {: RESULT = id; :}
     | KW_BOOLEAN:id
+    {: RESULT = id; :}
+    | KW_BRIEF:id
     {: RESULT = id; :}
     | KW_BROKER:id
     {: RESULT = id; :}
@@ -7286,6 +7387,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_GROUPING:id
     {: RESULT = id; :}
+    | KW_GROUPS:id
+    {: RESULT = id; :}
     | KW_DYNAMIC:id
     {: RESULT = id; :}
     | time_unit:id
@@ -7317,6 +7420,14 @@ keyword ::=
     | KW_HISTOGRAM:id
     {: RESULT = id; :}
     | KW_CURRENT_CATALOG:id
+    {: RESULT = id; :}
+    | KW_EXPIRED: id
+    {: RESULT = id; :}
+    | KW_SAMPLE:id
+    {: RESULT = id; :}
+    | KW_INCREMENTAL:id
+    {: RESULT = id; :}
+    | KW_PERIOD:id
     {: RESULT = id; :}
     ;
 
@@ -7435,13 +7546,6 @@ time_unit ::=
 //   KW_WHERE expr:e
 //   {: RESULT = e; :}
 //   ;
-//
-// alter_cluster_clause ::=
-//     KW_MODIFY opt_properties:properties
-//     {:
-//         RESULT = new AlterClusterClause(AlterClusterType.ALTER_CLUSTER_PROPERTIES, properties);
-//     :}
-//     ;
 //
 // col_list ::=
 //     KW_COLUMNS LPAREN ident_list:colList RPAREN

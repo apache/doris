@@ -17,6 +17,15 @@
 
 #include "olap/wrapper_field.h"
 
+#include <glog/logging.h>
+#include <string.h>
+
+#include <algorithm>
+#include <ostream>
+
+#include "common/config.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/row_cursor.h"
 
 namespace doris {
@@ -99,8 +108,4 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
         rep->set_long_text_buf(&_long_text_buf);
     }
 }
-
-WrapperField::WrapperField(Field* rep, const RowCursorCell& row_cursor_cell)
-        : _rep(rep), _field_buf((char*)row_cursor_cell.cell_ptr() - 1) {}
-
 } // namespace doris

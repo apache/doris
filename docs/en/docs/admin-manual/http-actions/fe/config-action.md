@@ -42,7 +42,9 @@ None
 
 ## Query parameters
 
-None
+* `conf_item`
+
+    Optional parameters. Return specified item in FE configuration.
 
 ## Request body
 

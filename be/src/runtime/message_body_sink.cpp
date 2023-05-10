@@ -17,11 +17,14 @@
 
 #include "runtime/message_body_sink.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
+#include <glog/logging.h>
+#include <string.h>
+#include <unistd.h>
 
-#include <algorithm>
-
-#include "util/runtime_profile.h"
+#include <ostream>
 
 namespace doris {
 

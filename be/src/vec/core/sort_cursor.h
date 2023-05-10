@@ -38,6 +38,7 @@ public:
         _reset();
     }
 
+    // need exception safety
     void filter_block(IColumn::Filter& filter) {
         Block::filter_block_internal(&block, filter, block.columns());
         _reset();
@@ -228,10 +229,13 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
 
     bool has_next_block() override {
         _block.clear();
-        auto status = _block_supplier(&_block, &_is_eof);
+        Status status;
+        do {
+            status = _block_supplier(&_block, &_is_eof);
+        } while (_block.empty() && !_is_eof && status.ok());
         // If status not ok, upper callers could not detect whether it is eof or error.
         // So that fatal here, and should throw exception in the future.
-        if (status.ok() && !_is_eof) {
+        if (status.ok() && !_block.empty()) {
             if (_ordering_expr.size() > 0) {
                 for (int i = 0; status.ok() && i < desc.size(); ++i) {
                     // TODO yiguolei: throw exception if status not ok in the future

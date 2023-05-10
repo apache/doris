@@ -17,9 +17,14 @@
 
 #include "agent/agent_server.h"
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <filesystem>
+#include <ostream>
 #include <string>
 
 #include "agent/task_worker_pool.h"
@@ -29,7 +34,14 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "olap/olap_define.h"
+#include "olap/options.h"
 #include "olap/snapshot_manager.h"
+#include "runtime/exec_env.h"
+
+namespace doris {
+class TopicListener;
+} // namespace doris
 
 using std::string;
 using std::vector;

@@ -236,9 +236,9 @@ ADMIN_PRIV and GRANT_PRIV have the authority of **"grant authority"** at the sam
 
 5. Forget passwords
 
-	If you forget your password and cannot log in to Doris, you can log in to Doris without a password using the following command on the machine where the Doris FE node is located:
+	If you forget your password and cannot log in to Doris, you can add `skip_localhost_auth_check` in fe config and restart FE so that logging to Doris without a password in localhost.
 
-	`mysql-client -h 127.0.0.1 -P query_port -uroot`
+	`skip_localhost_auth_check = true`
 
 	After login, the password can be reset through the SET PASSWORD command.
 

@@ -18,18 +18,26 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Ifnull.h
 // and modified by Doris
 
-#include "common/logging.h"
+#include <stddef.h>
+
+#include <memory>
+
 #include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/get_least_supertype.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/functions/function_string.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/utils/util.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 class FunctionNonNullable : public IFunction {

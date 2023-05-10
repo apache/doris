@@ -17,13 +17,35 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
+#include "common/factory_creator.h"
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/odbc_connector.h"
 #include "exec/text_converter.h"
-#include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class RuntimeProfile;
+class RuntimeState;
+class TOdbcScanNode;
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+class NewOdbcScanNode;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 class NewOdbcScanner : public VScanner {
+    ENABLE_FACTORY_CREATOR(NewOdbcScanner);
+
 public:
     NewOdbcScanner(RuntimeState* state, NewOdbcScanNode* parent, int64_t limit,
                    const TOdbcScanNode& odbc_scan_node, RuntimeProfile* profile);
@@ -34,7 +56,7 @@ public:
     Status close(RuntimeState* state) override;
 
 public:
-    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+    Status prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;

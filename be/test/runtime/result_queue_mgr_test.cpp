@@ -17,17 +17,26 @@
 
 #include "runtime/result_queue_mgr.h"
 
-#include <arrow/array.h>
-#include <arrow/builder.h>
+#include <arrow/array/builder_primitive.h>
 #include <arrow/record_batch.h>
+#include <arrow/status.h>
 #include <arrow/type.h>
-#include <gtest/gtest.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <memory>
+#include <ostream>
+#include <utility>
+#include <vector>
 
-#include "gen_cpp/DorisExternalService_types.h"
-#include "testutil/test_util.h"
-#include "util/blocking_queue.hpp"
+#include "gtest/gtest_pred_impl.h"
+#include "runtime/record_batch_queue.h"
+
+namespace arrow {
+class Array;
+} // namespace arrow
 
 namespace doris {
 

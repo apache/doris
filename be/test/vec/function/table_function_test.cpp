@@ -15,7 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-spec-builders.h>
+#include <gtest/gtest-matchers.h>
+
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "exprs/mock_vexpr.h"
+#include "gtest/gtest_pred_impl.h"
+#include "testutil/any_type.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"

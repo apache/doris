@@ -42,19 +42,6 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     }
 
     public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort,
-            long hbTime, long beStartTime, String version) {
-        super(HeartbeatResponse.Type.BACKEND);
-        this.beId = beId;
-        this.status = HbStatus.OK;
-        this.bePort = bePort;
-        this.httpPort = httpPort;
-        this.brpcPort = brpcPort;
-        this.hbTime = hbTime;
-        this.beStartTime = beStartTime;
-        this.version = version;
-    }
-
-    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort,
             long hbTime, long beStartTime, String version, String nodeRole) {
         super(HeartbeatResponse.Type.BACKEND);
         this.beId = beId;

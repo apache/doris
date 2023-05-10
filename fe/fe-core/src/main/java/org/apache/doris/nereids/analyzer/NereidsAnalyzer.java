@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySe
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
+import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
@@ -54,8 +55,11 @@ public class NereidsAnalyzer extends BatchRewriteJob {
                 new BindExpression()
             ),
             bottomUp(
+                new CheckBound()
+            ),
+            bottomUp(
                 new ProjectToGlobalAggregate(),
-                // this rule check's the logicalProject node's isDisinct property
+                // this rule check's the logicalProject node's isDistinct property
                 // and replace the logicalProject node with a LogicalAggregate node
                 // so any rule before this, if create a new logicalProject node
                 // should make sure isDistinct property is correctly passed around.

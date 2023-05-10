@@ -17,26 +17,51 @@
 
 #pragma once
 
-#include <future>
-#include <variant>
+#include <gen_cpp/PlanNodes_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <iosfwd>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <variant>
+#include <vector>
+
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exprs/runtime_filter_slots.h"
-#include "join_op.h"
-#include "process_hash_table_probe.h"
+#include "util/runtime_profile.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/aggregation_common.h"
+#include "vec/common/arena.h"
 #include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/hash_map.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/types.h"
+#include "vec/exec/join/join_op.h" // IWYU pragma: keep
 #include "vec/runtime/shared_hash_table_controller.h"
 #include "vjoin_node_base.h"
+
+template <typename T>
+struct HashCRC32;
 
 namespace doris {
 
 class ObjectPool;
 class IRuntimeFilter;
+class DescriptorTbl;
+class RuntimeState;
 
 namespace vectorized {
 
-class SharedHashTableController;
+struct UInt128;
+struct UInt256;
+template <int JoinOpType>
+struct ProcessHashTableProbe;
 
 template <typename RowRefListType>
 struct SerializedHashTableContext {
@@ -173,7 +198,6 @@ using HashTableVariants = std::variant<
         I256FixedKeyHashTableContext<false, RowRefListWithFlags>>;
 
 class VExprContext;
-class HashJoinNode;
 
 using HashTableCtxVariants =
         std::variant<std::monostate, ProcessHashTableProbe<TJoinOp::INNER_JOIN>,
@@ -264,6 +288,7 @@ private:
     RuntimeProfile::Counter* _probe_side_output_timer;
     RuntimeProfile::Counter* _build_side_compute_hash_timer;
     RuntimeProfile::Counter* _build_side_merge_block_timer;
+    RuntimeProfile::Counter* _build_runtime_filter_timer;
 
     RuntimeProfile::Counter* _build_blocks_memory_usage;
     RuntimeProfile::Counter* _hash_table_memory_usage;
@@ -359,6 +384,7 @@ private:
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
 
     std::vector<IRuntimeFilter*> _runtime_filters;
+    size_t _build_bf_cardinality = 0;
 };
 } // namespace vectorized
 } // namespace doris

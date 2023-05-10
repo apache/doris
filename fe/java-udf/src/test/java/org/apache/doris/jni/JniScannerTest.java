@@ -18,6 +18,7 @@
 package org.apache.doris.jni;
 
 import org.apache.doris.jni.utils.OffHeap;
+import org.apache.doris.jni.vec.VectorTable;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -38,20 +39,22 @@ public class JniScannerTest {
                         + "date#timestamp#char(10)#varchar(10)#string#decimalv2(12,4)#decimal64(10,3)");
             }
         });
-        StringBuilder result = new StringBuilder();
         scanner.open();
         long metaAddress = 0;
         do {
             metaAddress = scanner.getNextBatchMeta();
             if (metaAddress != 0) {
-                result.append(scanner.getTable().dump(32));
                 long rows = OffHeap.getLong(null, metaAddress);
                 Assert.assertEquals(32, rows);
+
+                VectorTable restoreTable = new VectorTable(scanner.getTable().getColumnTypes(),
+                        scanner.getTable().getFields(), metaAddress);
+                System.out.println(restoreTable.dump((int) rows));
+                // Restored table is release by the origin table.
             }
             scanner.resetTable();
         } while (metaAddress != 0);
         scanner.releaseTable();
         scanner.close();
-        System.out.print(result);
     }
 }

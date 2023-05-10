@@ -36,9 +36,7 @@ array_union
 
 #### Syntax
 
-```
-ARRAY<T> array_union(ARRAY<T> array1, ARRAY<T> array2)
-```
+`ARRAY<T> array_union(ARRAY<T> array1, ARRAY<T> array2)`
 
 返回一个数组，包含array1和array2的并集中的所有元素，不包含重复项，如果输入参数为NULL，则返回NULL
 

@@ -843,9 +843,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return masterImpl.report(request);
     }
 
+    // This interface is used for keeping backward compatible
     @Override
     public TFetchResourceResult fetchResource() throws TException {
-        return masterImpl.fetchResource();
+        throw new TException("not supported");
     }
 
     @Override
@@ -1521,6 +1522,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private PrivPredicate getPrivPredicate(TPrivilegeType privType) {
+        if (privType == null) {
+            return null;
+        }
         switch (privType) {
             case SHOW:
                 return PrivPredicate.SHOW;

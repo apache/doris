@@ -18,10 +18,12 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.statistics.AnalysisTaskInfo.ScheduleType;
 
+import java.util.Map;
 import java.util.Set;
 
 public class AnalysisTaskInfoBuilder {
@@ -30,16 +32,47 @@ public class AnalysisTaskInfoBuilder {
     private String catalogName;
     private String dbName;
     private String tblName;
+    private Map<String, Set<String>> colToPartitions;
     private String colName;
-    private Set<String> partitionNames;
     private Long indexId;
     private JobType jobType;
+    private AnalysisMode analysisMode;
     private AnalysisMethod analysisMethod;
     private AnalysisType analysisType;
-    private String message;
-    private int lastExecTimeInMs;
+    private int maxBucketNum;
+    private int samplePercent;
+    private int sampleRows;
+    private long periodTimeInMs;
+    private long lastExecTimeInMs;
     private AnalysisState state;
     private ScheduleType scheduleType;
+    private String message;
+
+    public AnalysisTaskInfoBuilder() {
+    }
+
+    public AnalysisTaskInfoBuilder(AnalysisTaskInfo info) {
+        jobId = info.jobId;
+        taskId = info.taskId;
+        catalogName = info.catalogName;
+        dbName = info.dbName;
+        tblName = info.tblName;
+        colToPartitions = info.colToPartitions;
+        colName = info.colName;
+        indexId = info.indexId;
+        jobType = info.jobType;
+        analysisMode = info.analysisMode;
+        analysisMethod = info.analysisMethod;
+        analysisType = info.analysisType;
+        samplePercent = info.samplePercent;
+        sampleRows = info.sampleRows;
+        periodTimeInMs = info.periodTimeInMs;
+        maxBucketNum = info.maxBucketNum;
+        message = info.message;
+        lastExecTimeInMs = info.lastExecTimeInMs;
+        state = info.state;
+        scheduleType = info.scheduleType;
+    }
 
     public AnalysisTaskInfoBuilder setJobId(long jobId) {
         this.jobId = jobId;
@@ -66,13 +99,13 @@ public class AnalysisTaskInfoBuilder {
         return this;
     }
 
-    public AnalysisTaskInfoBuilder setColName(String colName) {
-        this.colName = colName;
+    public AnalysisTaskInfoBuilder setColToPartitions(Map<String, Set<String>> colToPartitions) {
+        this.colToPartitions = colToPartitions;
         return this;
     }
 
-    public AnalysisTaskInfoBuilder setPartitionNames(Set<String> partitionNames) {
-        this.partitionNames = partitionNames;
+    public AnalysisTaskInfoBuilder setColName(String colName) {
+        this.colName = colName;
         return this;
     }
 
@@ -86,6 +119,11 @@ public class AnalysisTaskInfoBuilder {
         return this;
     }
 
+    public AnalysisTaskInfoBuilder setAnalysisMode(AnalysisMode analysisMode) {
+        this.analysisMode = analysisMode;
+        return this;
+    }
+
     public AnalysisTaskInfoBuilder setAnalysisMethod(AnalysisMethod analysisMethod) {
         this.analysisMethod = analysisMethod;
         return this;
@@ -96,12 +134,32 @@ public class AnalysisTaskInfoBuilder {
         return this;
     }
 
+    public AnalysisTaskInfoBuilder setMaxBucketNum(int maxBucketNum) {
+        this.maxBucketNum = maxBucketNum;
+        return this;
+    }
+
+    public AnalysisTaskInfoBuilder setSamplePercent(int samplePercent) {
+        this.samplePercent = samplePercent;
+        return this;
+    }
+
+    public AnalysisTaskInfoBuilder setSampleRows(int sampleRows) {
+        this.sampleRows = sampleRows;
+        return this;
+    }
+
+    public AnalysisTaskInfoBuilder setPeriodTimeInMs(long periodTimeInMs) {
+        this.periodTimeInMs = periodTimeInMs;
+        return this;
+    }
+
     public AnalysisTaskInfoBuilder setMessage(String message) {
         this.message = message;
         return this;
     }
 
-    public AnalysisTaskInfoBuilder setLastExecTimeInMs(int lastExecTimeInMs) {
+    public AnalysisTaskInfoBuilder setLastExecTimeInMs(long lastExecTimeInMs) {
         this.lastExecTimeInMs = lastExecTimeInMs;
         return this;
     }
@@ -117,7 +175,32 @@ public class AnalysisTaskInfoBuilder {
     }
 
     public AnalysisTaskInfo build() {
-        return new AnalysisTaskInfo(jobId, taskId, catalogName, dbName, tblName, colName, partitionNames,
-                indexId, jobType, analysisMethod, analysisType, message, lastExecTimeInMs, state, scheduleType);
+        return new AnalysisTaskInfo(jobId, taskId, catalogName, dbName, tblName, colToPartitions,
+                colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
+                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, state, scheduleType);
+    }
+
+    public AnalysisTaskInfoBuilder copy() {
+        return new AnalysisTaskInfoBuilder()
+                .setJobId(jobId)
+                .setTaskId(taskId)
+                .setCatalogName(catalogName)
+                .setDbName(dbName)
+                .setTblName(tblName)
+                .setColToPartitions(colToPartitions)
+                .setColName(colName)
+                .setIndexId(indexId)
+                .setJobType(jobType)
+                .setAnalysisMode(analysisMode)
+                .setAnalysisMethod(analysisMethod)
+                .setAnalysisType(analysisType)
+                .setSamplePercent(samplePercent)
+                .setSampleRows(sampleRows)
+                .setPeriodTimeInMs(periodTimeInMs)
+                .setMaxBucketNum(maxBucketNum)
+                .setMessage(message)
+                .setLastExecTimeInMs(lastExecTimeInMs)
+                .setState(state)
+                .setScheduleType(scheduleType);
     }
 }

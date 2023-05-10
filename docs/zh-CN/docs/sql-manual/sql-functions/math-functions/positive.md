@@ -27,7 +27,11 @@ under the License.
 ### description
 #### Syntax
 
-`BIGINT positive(BIGINT x)`  `DOUBLE positive(DOUBLE x)`  `DECIMAL positive(DECIMAL x)`
+```sql
+BIGINT positive(BIGINT x)
+DOUBLE positive(DOUBLE x)
+DECIMAL positive(DECIMAL x)
+```
 返回`x`.
 
 ### example

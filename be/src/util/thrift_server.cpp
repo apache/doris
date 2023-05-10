@@ -17,23 +17,38 @@
 
 #include "util/thrift_server.h"
 
-#include <thrift/concurrency/Thread.h>
+#include <glog/logging.h>
+#include <thrift/Thrift.h>
 #include <thrift/concurrency/ThreadFactory.h>
 #include <thrift/concurrency/ThreadManager.h>
 #include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/protocol/TProtocol.h>
 #include <thrift/server/TNonblockingServer.h>
 #include <thrift/server/TThreadPoolServer.h>
 #include <thrift/server/TThreadedServer.h>
+#include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TNonblockingServerSocket.h>
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TSocket.h>
-
+#include <thrift/transport/TTransport.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <condition_variable>
 #include <mutex>
 #include <sstream>
 #include <thread>
 
 #include "util/doris_metrics.h"
+
+namespace apache {
+namespace thrift {
+class TProcessor;
+
+namespace transport {
+class TServerTransport;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
 
 namespace doris {
 

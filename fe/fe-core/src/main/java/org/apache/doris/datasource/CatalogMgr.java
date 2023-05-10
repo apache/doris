@@ -93,7 +93,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private final Map<String, String> lastDBOfCatalog = Maps.newConcurrentMap();
 
     // Use a separate instance to facilitate access.
-    // internalDataSource still exists in idToDataSource and nameToDataSource
+    // internalDataSource still exists in idToCatalog and nameToCatalog
     private InternalCatalog internalCatalog;
 
     public CatalogMgr() {
@@ -368,11 +368,15 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         row.add(String.valueOf(catalog.getId()));
                         row.add(name);
                         row.add(catalog.getType());
-                        if (name.equals(currentCtlg)) {
+                        if (currentCtlg != null && name.equals(currentCtlg)) {
                             row.add(YES);
                         } else {
                             row.add("");
                         }
+                        Map<String, String> props = catalog.getProperties();
+                        String createTime = props.getOrDefault(CreateCatalogStmt.CREATE_TIME_PROP, "UNRECORDED");
+                        row.add(createTime);
+                        row.add(catalog.getComment());
                         rows.add(row);
                     }
 
@@ -421,8 +425,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new AnalysisException("No catalog found with name " + showStmt.getCatalog());
             }
             StringBuilder sb = new StringBuilder();
-            sb.append("CREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()))
+            sb.append("\nCREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()))
                     .append("`");
+            if (!com.google.common.base.Strings.isNullOrEmpty(catalog.getComment())) {
+                sb.append("\nCOMMENT \"").append(catalog.getComment()).append("\"\n");
+            }
             if (catalog.getProperties().size() > 0) {
                 sb.append(" PROPERTIES (\n");
                 sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, true, true));
@@ -591,6 +598,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (table == null) {
             throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
         }
+        if (table instanceof ExternalTable) {
+            ((ExternalTable) table).unsetObjectCreated();
+        }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
@@ -615,6 +625,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
+        table.unsetObjectCreated();
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }
@@ -987,6 +998,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             // ATTN: can not call catalog.getProperties() here, because ResourceMgr is not replayed yet.
         }
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
+    }
+
+    public Map<Long, CatalogIf> getIdToCatalog() {
+        return idToCatalog;
     }
 }
 

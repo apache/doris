@@ -17,13 +17,17 @@
 
 #include "io/fs/broker_file_writer.h"
 
+#include <gen_cpp/PaloBrokerService_types.h>
+#include <gen_cpp/TPaloBrokerService.h>
+#include <gen_cpp/Types_types.h>
+#include <thrift/Thrift.h>
 #include <thrift/protocol/TDebugProtocol.h>
+#include <thrift/transport/TTransportException.h>
 
 #include <sstream>
 
+#include "common/config.h"
 #include "common/logging.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/TPaloBrokerService.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"

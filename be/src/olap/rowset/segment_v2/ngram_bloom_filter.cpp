@@ -17,8 +17,11 @@
 
 #include "olap/rowset/segment_v2/ngram_bloom_filter.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+
+#include "gutil/strings/substitute.h"
 #include "util/cityhash102/city.h"
-#include "util/debug_util.h"
 
 namespace doris {
 namespace segment_v2 {

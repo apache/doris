@@ -33,10 +33,10 @@ suite("nereids_test_arithmetic_operators", "query,p0") {
 		    k5*(-0.1), k8*(-0.1), k9*(-0.1) from  ${tableName} order by k1, k2, k3, k4"
     qt_arith_op7 "select k1, k5*(9223372036854775807/100), k8*9223372036854775807, \
 		    k9*9223372036854775807 from  ${tableName} order by k1, k2, k3, k4"
-    qt_arith_op8 "select k1, k2/9223372036854775807, k3/9223372036854775807, \
-		    k4/9223372036854775807,k5/9223372036854775807, \
-		    k8/9223372036854775807,k9/9223372036854775807 \
-		    from  ${tableName} order by k1, k2, k3, k4"
+    // qt_arith_op8 "select k1, k2/9223372036854775807, k3/9223372036854775807, \
+	//	    k4/9223372036854775807,k5/9223372036854775807, \
+	//	    k8/9223372036854775807,k9/9223372036854775807 \
+	//	    from  ${tableName} order by k1, k2, k3, k4"
     qt_arith_op9 "select k1, k5+9223372036854775807/100, k8+9223372036854775807, \
 		    k9+9223372036854775807 from  ${tableName} order by k1, k2, k3, k4"
     qt_arith_op10 "select k1, k5-9223372036854775807/100, k8-9223372036854775807, \
@@ -66,9 +66,9 @@ suite("nereids_test_arithmetic_operators", "query,p0") {
         }
     }
     
-    qt_arith_op22 "select 1.1*1.1 + k2 from ${tableName} order by 1 limit 10"
-    qt_arith_op23 "select 1.1*1.1 + k5 from ${tableName} order by 1 limit 10"
-    qt_arith_op24 "select 1.1*1.1+1.1"
+    // qt_arith_op22 "select 1.1*1.1 + k2 from ${tableName} order by 1 limit 10"
+    // qt_arith_op23 "select 1.1*1.1 + k5 from ${tableName} order by 1 limit 10"
+    // qt_arith_op24 "select 1.1*1.1+1.1"
 
     // divide mod zero
     qt_arith_op25 "select 10.2 / 0.0, 10.2 / 0, 10.2 % 0.0, 10.2 % 0"

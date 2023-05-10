@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,6 +30,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -58,10 +59,18 @@ public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
             .when(this::isAllSlotOrAliasSlot)
             .then(project -> {
                 LogicalJoin<? extends Plan, ? extends Plan> join = project.child();
-                // aliasMap { Slot -> Alias<Slot> }
-                Map<Expression, NamedExpression> aliasMap = project.getProjects().stream()
+                // aliasMap { Slot -> List<Alias<Slot>> }
+                Map<Expression, List<NamedExpression>> aliasMap = Maps.newHashMap();
+                project.getProjects().stream()
                         .filter(expr -> expr instanceof Alias && ((Alias) expr).child() instanceof Slot)
-                        .map(expr -> (Alias) expr).collect(Collectors.toMap(UnaryNode::child, expr -> expr));
+                        .forEach(expr -> {
+                            List<NamedExpression> aliases = aliasMap.get(((Alias) expr).child());
+                            if (aliases == null) {
+                                aliases = Lists.newArrayList();
+                                aliasMap.put(((Alias) expr).child(), aliases);
+                            }
+                            aliases.add(expr);
+                        });
                 if (aliasMap.isEmpty()) {
                     return null;
                 }
@@ -69,21 +78,9 @@ public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
                         .collect(Collectors.toList());
 
                 List<Slot> leftOutput = join.left().getOutput();
-                List<NamedExpression> leftProjects = leftOutput.stream().map(slot -> {
-                    NamedExpression alias = aliasMap.get(slot);
-                    if (alias != null) {
-                        return alias;
-                    }
-                    return slot;
-                }).collect(Collectors.toList());
+                List<NamedExpression> leftProjects = createNewOutput(leftOutput, aliasMap);
                 List<Slot> rightOutput = join.right().getOutput();
-                List<NamedExpression> rightProjects = rightOutput.stream().map(slot -> {
-                    NamedExpression alias = aliasMap.get(slot);
-                    if (alias != null) {
-                        return alias;
-                    }
-                    return slot;
-                }).collect(Collectors.toList());
+                List<NamedExpression> rightProjects = createNewOutput(rightOutput, aliasMap);
 
                 Plan left;
                 Plan right;
@@ -103,7 +100,7 @@ public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
                 // join aid = b.id -- project a.id as aid
                 Map<ExprId, Slot> replaceMap = aliasMap.entrySet().stream().collect(
                         Collectors.toMap(entry -> ((Slot) entry.getKey()).getExprId(),
-                                entry -> entry.getValue().toSlot()));
+                                entry -> entry.getValue().get(0).toSlot()));
 
                 List<Expression> newHash = replaceJoinConjuncts(join.getHashJoinConjuncts(), replaceMap);
                 List<Expression> newOther = replaceJoinConjuncts(join.getOtherJoinConjuncts(), replaceMap);
@@ -121,5 +118,19 @@ public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
                 return e;
             }
         })).collect(ImmutableList.toImmutableList());
+    }
+
+    private List<NamedExpression> createNewOutput(List<Slot> oldOutput,
+            Map<Expression, List<NamedExpression>> aliasMap) {
+        List<NamedExpression> output = Lists.newArrayList();
+        oldOutput.stream().forEach(slot -> {
+            List<NamedExpression> alias = aliasMap.get(slot);
+            if (alias != null) {
+                output.addAll(alias);
+            } else {
+                output.add(slot);
+            }
+        });
+        return output;
     }
 }

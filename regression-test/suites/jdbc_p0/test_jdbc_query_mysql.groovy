@@ -126,7 +126,7 @@ suite("test_jdbc_query_mysql", "p0") {
                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
-                "in_memory" = "true",
+                "in_memory" = "false",
                 "storage_format" = "V2"
                 );
         """
@@ -222,7 +222,7 @@ suite("test_jdbc_query_mysql", "p0") {
                 DISTRIBUTED BY HASH(`game_code`, `plat_code`, `sid`, `name`) BUCKETS 4
                 PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
-                "in_memory" = "true",
+                "in_memory" = "false",
                 "storage_format" = "V2"
                 );
         """

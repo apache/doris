@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Doris NGram BloomFilter Index
+# [Experimental] NGram BloomFilter Index
 
 <version since="2.0.0">
 </version>

@@ -18,7 +18,7 @@
 package org.apache.doris.common.util;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Objects;
 

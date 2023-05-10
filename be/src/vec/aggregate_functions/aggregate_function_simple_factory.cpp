@@ -20,11 +20,11 @@
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 
+#include <mutex>
+
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 
 namespace doris::vectorized {
-
-class AggregateFunctionSimpleFactory;
 
 void register_aggregate_function_combinator_sort(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);

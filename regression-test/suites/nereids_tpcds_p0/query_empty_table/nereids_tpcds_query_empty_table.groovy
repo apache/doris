@@ -54,6 +54,7 @@ suite("nereids_tpcds_query_empty_table") {
             sql "set enable_nereids_planner=true"
             sql "set enable_fallback_to_original_planner=false"
             sql "set query_timeout=60"
+            sql "set enable_nereids_timeout=false"
 
             logger.info("execute ${sqlFile.getName()} [${++num}/${sqlFiles.size()}]".toString())
             try {

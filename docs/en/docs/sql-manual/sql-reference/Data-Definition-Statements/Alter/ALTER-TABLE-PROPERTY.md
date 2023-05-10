@@ -93,10 +93,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. Modify the in_memory attribute of the table
+5. Modify the in_memory attribute of the table, only can set value 'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. Enable batch delete function
@@ -169,6 +169,14 @@ Note:
 changed.
 3. For partitioned tables, the actual replica distribution of the table is at the partition level, that is, each partition has its own replica distribution, which can be viewed through the `show partitions from tbl` statement. If you want to modify the actual replica distribution, see `ALTER TABLE PARTITION`.
 
+13\. **[Experimental]** turn on `light_schema_change`
+
+  For tables that were not created with light_schema_change enabled, you can enable it by using the following statement.
+
+```sql
+ALTER TABLE example_db.mysql_table SET ("light_schema_change" = "true");
+```
+
 ### Example
 
 1. Modify the bloom filter column of the table
@@ -210,10 +218,10 @@ If you need to add dynamic partition attributes to tables without dynamic partit
 ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition. buckets" = "32");
 ```
 
-5. Modify the in_memory attribute of the table
+5. Modify the in_memory attribute of the table, only can set value 'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. Enable batch delete function

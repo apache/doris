@@ -17,27 +17,31 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include <memory>
 #include <string>
-#include <vector>
 
+#include "common/factory_creator.h"
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
 
 class S2Polyline;
 class S2Polygon;
 class S2Cap;
-
+class S2Loop;
 template <typename T>
 class Vector3;
-typedef Vector3<double> Vector3_d;
+
+using Vector3_d = Vector3<double>;
+
 using S2Point = Vector3_d;
 
 namespace doris {
 
 class GeoShape {
 public:
-    virtual ~GeoShape() {}
+    virtual ~GeoShape() = default;
 
     virtual GeoShapeType type() const = 0;
 
@@ -48,6 +52,8 @@ public:
     // return nullptr if convert failed, and reason will be set in status
     static GeoShape* from_wkt(const char* data, size_t size, GeoParseStatus* status);
 
+    static GeoShape* from_wkb(const char* data, size_t size, GeoParseStatus* status);
+
     void encode_to(std::string* buf);
     bool decode_from(const void* data, size_t size);
 
@@ -55,6 +61,7 @@ public:
 
     virtual bool contains(const GeoShape* rhs) const { return false; }
     virtual std::string to_string() const { return ""; }
+    static std::string as_binary(GeoShape* rhs);
 
     static bool ComputeArea(GeoShape* rhs, double* angle, std::string square_unit);
 
@@ -64,12 +71,16 @@ protected:
 };
 
 class GeoPoint : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoPoint);
+
 public:
     GeoPoint();
     ~GeoPoint() override;
 
     GeoParseStatus from_coord(double x, double y);
     GeoParseStatus from_coord(const GeoCoordinate& point);
+
+    GeoCoordinateList to_coords() const;
 
     GeoShapeType type() const override { return GEO_SHAPE_POINT; }
 
@@ -98,16 +109,23 @@ private:
 };
 
 class GeoLine : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoLine);
+
 public:
     GeoLine();
     ~GeoLine() override;
 
     GeoParseStatus from_coords(const GeoCoordinateList& list);
 
+    GeoCoordinateList to_coords() const;
+
     GeoShapeType type() const override { return GEO_SHAPE_LINE_STRING; }
     const S2Polyline* polyline() const { return _polyline.get(); }
 
     std::string as_wkt() const override;
+
+    int numPoint() const;
+    S2Point* getPoint(int i) const;
 
 protected:
     void encode(std::string* buf) override;
@@ -118,11 +136,14 @@ private:
 };
 
 class GeoPolygon : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoPolygon);
+
 public:
     GeoPolygon();
     ~GeoPolygon() override;
 
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
+    const std::unique_ptr<GeoCoordinateListList> to_coords() const;
 
     GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
     const S2Polygon* polygon() const { return _polygon.get(); }
@@ -130,7 +151,9 @@ public:
     bool contains(const GeoShape* rhs) const override;
     std::string as_wkt() const override;
 
+    int numLoops() const;
     double getArea() const;
+    S2Loop* getLoop(int i) const;
 
 protected:
     void encode(std::string* buf) override;
@@ -141,6 +164,8 @@ private:
 };
 
 class GeoCircle : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoCircle);
+
 public:
     GeoCircle();
     ~GeoCircle() override;

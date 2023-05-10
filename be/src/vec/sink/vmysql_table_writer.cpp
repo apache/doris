@@ -17,17 +17,36 @@
 
 #include "vec/sink/vmysql_table_writer.h"
 
+#include <glog/logging.h>
 #include <mysql/mysql.h>
+#include <stdint.h>
 
+#include <memory>
 #include <sstream>
 
-#include "util/types.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "util/binary_cast.hpp"
+#include "vec/columns/column.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 namespace vectorized {
@@ -83,14 +102,10 @@ Status VMysqlTableWriter::append(vectorized::Block* block) {
     if (block == nullptr || block->rows() == 0) {
         return status;
     }
-
-    auto output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, *block, status);
-
+    Block output_block;
+    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _vec_output_expr_ctxs, *block, &output_block));
     auto num_rows = output_block.rows();
-    if (UNLIKELY(num_rows == 0)) {
-        return status;
-    }
     materialize_block_inplace(output_block);
     for (int i = 0; i < num_rows; ++i) {
         RETURN_IF_ERROR(insert_row(output_block, i));

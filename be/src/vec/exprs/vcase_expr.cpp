@@ -17,8 +17,28 @@
 
 #include "vec/exprs/vcase_expr.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <vector>
+
 #include "common/status.h"
-#include "vec/columns/column_nullable.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 

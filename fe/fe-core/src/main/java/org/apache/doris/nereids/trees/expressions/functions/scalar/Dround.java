@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForR
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 
@@ -38,9 +39,10 @@ public class Dround extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable, ComputePrecisionForRound {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            // TODO: decimal
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD),
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD, IntegerType.INSTANCE)
     );
 
     /**

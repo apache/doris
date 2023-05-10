@@ -90,14 +90,16 @@ docker build -t doris .
 
 运行镜像
 
-此处按需注意 [挂载的问题](../../docs/install/source-install/compilation.md)
+此处按需注意 [挂载的问题](../../docs/install/source-install/compilation-general.md)
 
 > 见链接中：建议以挂载本地 Doris 源码目录的方式运行镜像 .....
 
-由于如果是使用 windows 开发，挂载会存在跨文件系统访问的问题，请自行斟酌设置
+由于如果是使用 windows 开发，挂载会存在跨文件系统访问的问题，请自行斟酌设置。
+
+`--cap-add SYS_PTRACE`参数可以允许docker使用ptrace，便于我们使用ptrace和gdb远程调试功能。
 
 ```bash
-docker run -it doris:latest /bin/bash
+docker run -it --cap-add SYS_PTRACE doris:latest /bin/bash
 ```
 
 如果选择安装了 zsh
@@ -113,6 +115,8 @@ plugins=(git zsh-autosuggestions zsh-syntax-highlighting)
 su <your user>
 mkdir code && cd code
 git clone https://github.com/apache/doris.git
+cd doris
+git submodule update --init --recursive
 ```
 
 ## 编译

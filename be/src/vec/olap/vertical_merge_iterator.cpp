@@ -17,7 +17,23 @@
 
 #include "vec/olap/vertical_merge_iterator.h"
 
+#include <fcntl.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <stdlib.h>
+
+#include <ostream>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
+#include "olap/field.h"
 #include "olap/olap_common.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -104,7 +120,7 @@ size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
     size_t result = 1;
     int start = index + 1;
     int end = _buffer->size();
-    while (index < end) {
+    while (start < end) {
         RowSource next(_buffer->get_element(start++));
         if (next.agg_flag()) {
             ++result;

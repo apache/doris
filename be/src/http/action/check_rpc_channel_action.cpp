@@ -17,18 +17,28 @@
 
 #include "http/action/check_rpc_channel_action.h"
 
-#include <fmt/core.h>
+#include <brpc/controller.h>
+#include <fmt/format.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
-#include "gen_cpp/internal_service.pb.h"
+#include <exception>
+#include <memory>
+#include <string>
+
 #include "http/http_channel.h"
 #include "http/http_request.h"
+#include "http/http_status.h"
 #include "runtime/exec_env.h"
-#include "service/brpc.h"
 #include "util/brpc_client_cache.h"
 #include "util/md5.h"
 
 namespace doris {
-CheckRPCChannelAction::CheckRPCChannelAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+CheckRPCChannelAction::CheckRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                             TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 void CheckRPCChannelAction::handle(HttpRequest* req) {
     std::string req_ip = req->param("ip");
     std::string req_port = req->param("port");

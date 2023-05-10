@@ -22,7 +22,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -83,7 +83,7 @@ public abstract class DistributionInfo implements Writable {
     }
 
     public DistributionDesc toDistributionDesc() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("toDistributionDesc not implemented");
     }
 
     @Override

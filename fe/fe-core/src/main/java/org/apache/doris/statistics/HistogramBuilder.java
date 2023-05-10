@@ -64,6 +64,6 @@ public class HistogramBuilder {
     }
 
     public Histogram build() {
-        return new Histogram(dataType, sampleRate, buckets);
+        return new Histogram(dataType, sampleRate, numBuckets, buckets);
     }
 }

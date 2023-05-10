@@ -645,4 +645,49 @@ suite("test_bitmap_function") {
     sql "insert into d_table select -4,-4,-4,'d';"
     try_sql "select bitmap_union(to_bitmap_with_check(k2)) from d_table;"
     qt_sql "select bitmap_union(to_bitmap(k2)) from d_table;"
+
+    // bug fix
+    sql """ DROP TABLE IF EXISTS test_bitmap1 """
+    sql """
+        CREATE TABLE test_bitmap1 (
+          dt INT(11) NULL,
+          id bitmap BITMAP_UNION NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 1
+        properties (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into
+            test_bitmap1
+        values
+            (1, to_bitmap(11)),
+            (2, to_bitmap(22)),
+            (3, to_bitmap(33)),
+            (4, to_bitmap(44)),
+            (5, to_bitmap(44)),
+            (6, to_bitmap(44)),
+            (7, to_bitmap(44)),
+            (8, to_bitmap(44)),
+            (9, to_bitmap(44)),
+            (10, to_bitmap(44)),
+            (11, to_bitmap(44)),
+            (12, to_bitmap(44)),
+            (13, to_bitmap(44)),
+            (14, to_bitmap(44)),
+            (15, to_bitmap(44)),
+            (16, to_bitmap(44)),
+            (17, to_bitmap(44));
+    """
+    qt_sql_bitmap_subset_in_range """
+        select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/
+            bitmap_to_string(
+                bitmap_subset_in_range(id, cast(null as bigint), cast(null as bigint))
+            )
+        from
+            test_bitmap1;
+    """
+
 }

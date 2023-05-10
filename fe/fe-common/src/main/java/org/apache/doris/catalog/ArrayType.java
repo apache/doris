@@ -165,6 +165,7 @@ public class ArrayType extends Type {
         container.types.add(node);
         Preconditions.checkNotNull(itemType);
         node.setType(TTypeNodeType.ARRAY);
+        node.setContainsNull(containsNull);
         node.setContainsNulls(Lists.newArrayList(containsNull));
         itemType.toThrift(container);
     }

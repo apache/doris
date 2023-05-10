@@ -21,16 +21,29 @@
 #include "vec/data_types/data_type.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
+
+#include <algorithm>
+#include <utility>
 
 #include "common/logging.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/core/field.h"
+
+namespace doris {
+namespace vectorized {
+class BufferWritable;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
-IDataType::IDataType() {}
+IDataType::IDataType() = default;
 
-IDataType::~IDataType() {}
+IDataType::~IDataType() = default;
 
 String IDataType::get_name() const {
     return do_get_name();
@@ -47,10 +60,11 @@ void IDataType::update_avg_value_size_hint(const IColumn& column, double& avg_va
         double current_avg_value_size = static_cast<double>(column.byte_size()) / row_size;
 
         /// Heuristic is chosen so that avg_value_size_hint increases rapidly but decreases slowly.
-        if (current_avg_value_size > avg_value_size_hint)
+        if (current_avg_value_size > avg_value_size_hint) {
             avg_value_size_hint = std::min(1024., current_avg_value_size); /// avoid overestimation
-        else if (current_avg_value_size * 2 < avg_value_size_hint)
+        } else if (current_avg_value_size * 2 < avg_value_size_hint) {
             avg_value_size_hint = (current_avg_value_size + avg_value_size_hint * 3) / 4;
+        }
     }
 }
 
@@ -158,6 +172,10 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::JSONB;
     case TypeIndex::Map:
         return PGenericType::MAP;
+    case TypeIndex::Time:
+        return PGenericType::TIME;
+    case TypeIndex::AggState:
+        return PGenericType::AGG_STATE;
     default:
         return PGenericType::UNKNOWN;
     }

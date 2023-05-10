@@ -34,6 +34,14 @@ When connecting to Iceberg, Doris:
 1. Supports Iceberg V1/V2 table formats;
 2. Supports Position Delete but not Equality Delete for V2 format;
 
+<version since="dev">
+
+3. Supports Hive / Iceberg tables with data stored in GooseFS(GFS), which can be used the same way as normal Hive tables. Follow below steps to prepare doris environment：
+    1. put goosefs-x.x.x-client.jar in fe/lib/ and apache_hdfs_broker/lib/
+    2. add extra properties 'fs.AbstractFileSystem.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.GooseFileSystem'， 'fs.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.FileSystem' when creating catalog
+
+</version>
+
 ## Create Catalog
 
 ### Hive Metastore Catalog
@@ -52,11 +60,6 @@ CREATE CATALOG iceberg PROPERTIES (
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
-
-> `specified_database_list`:
-> 
-> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
-> 
 
 ### Iceberg Native Catalog
 

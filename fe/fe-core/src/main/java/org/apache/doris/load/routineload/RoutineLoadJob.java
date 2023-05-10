@@ -588,6 +588,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     @Override
+    public boolean isPartialUpdate() {
+        return false;
+    }
+
+    @Override
     public ImportColumnDescs getColumnExprDescs() {
         if (columnDescs == null) {
             return new ImportColumnDescs();
@@ -1572,7 +1577,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         Text.writeString(out, comment);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    protected void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             dataSourceType = LoadDataSourceType.valueOf(Text.readString(in));
             isTypeRead = true;
@@ -1651,13 +1656,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 userIdentity = UserIdentity.read(in);
                 userIdentity.setIsAnalyzed();
             } else {
-                userIdentity = null;
+                userIdentity = UserIdentity.UNKNOWN;
             }
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
             comment = Text.readString(in);
         } else {
-            comment = null;
+            comment = "";
         }
     }
 

@@ -17,27 +17,42 @@
 
 #include "olap/task/engine_batch_load_task.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
 #include <pthread.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <cstdio>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
-#include <iostream>
-#include <sstream>
+#include <list>
 #include <string>
+#include <system_error>
 
 #include "boost/lexical_cast.hpp"
-#include "gen_cpp/AgentService_types.h"
+#include "common/config.h"
+#include "common/logging.h"
 #include "http/http_client.h"
+#include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
+#include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
+
+namespace doris {
+class TTabletInfo;
+} // namespace doris
 
 using apache::thrift::ThriftDebugString;
 using std::list;
@@ -267,7 +282,7 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
         return Status::InternalError("could not find tablet {}", request.tablet_id);
     }
 
-    PushType type = PUSH_NORMAL_V2;
+    PushType type = PushType::PUSH_NORMAL_V2;
     int64_t duration_ns = 0;
     PushHandler push_handler;
     if (!request.__isset.transaction_id) {
@@ -318,7 +333,7 @@ Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
     if (!request.__isset.transaction_id) {
         return Status::InvalidArgument("transaction_id is not set");
     }
-    res = push_handler.process_streaming_ingestion(tablet, request, PUSH_FOR_DELETE,
+    res = push_handler.process_streaming_ingestion(tablet, request, PushType::PUSH_FOR_DELETE,
                                                    tablet_info_vec);
     if (!res.ok()) {
         DorisMetrics::instance()->delete_requests_failed->increment(1);

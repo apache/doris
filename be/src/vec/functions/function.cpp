@@ -20,13 +20,19 @@
 
 #include "vec/functions/function.h"
 
+#include <algorithm>
 #include <memory>
-#include <optional>
+#include <numeric>
+#include <vector>
 
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/typeid_cast.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -70,7 +76,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
             } else {
                 if (!mutable_result_null_map_column) {
                     mutable_result_null_map_column =
-                            (*std::move(result_null_map_column)).assume_mutable();
+                            std::move(result_null_map_column)->assume_mutable();
                 }
 
                 NullMap& result_null_map =
@@ -103,8 +109,12 @@ NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
     for (const auto& arg : args) {
         const auto& elem = block.get_by_position(arg);
 
-        if (!res.has_nullable) res.has_nullable = elem.type->is_nullable();
-        if (!res.has_null_constant) res.has_null_constant = elem.type->only_null();
+        if (!res.has_nullable) {
+            res.has_nullable = elem.type->is_nullable();
+        }
+        if (!res.has_null_constant) {
+            res.has_null_constant = elem.type->only_null();
+        }
     }
 
     return res;
@@ -114,8 +124,12 @@ NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
     NullPresence res;
 
     for (const auto& elem : args) {
-        if (!res.has_nullable) res.has_nullable = elem.type->is_nullable();
-        if (!res.has_null_constant) res.has_null_constant = elem.type->only_null();
+        if (!res.has_nullable) {
+            res.has_nullable = elem.type->is_nullable();
+        }
+        if (!res.has_null_constant) {
+            res.has_null_constant = elem.type->only_null();
+        }
     }
 
     return res;
@@ -166,15 +180,24 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         !all_arguments_are_constant(block, args)) {
         return Status::OK();
     }
+
     // now all columns is const.
     Block temporary_block;
 
     size_t arguments_size = args.size();
     for (size_t arg_num = 0; arg_num < arguments_size; ++arg_num) {
         const ColumnWithTypeAndName& column = block.get_by_position(args[arg_num]);
-        temporary_block.insert(
-                {assert_cast<const ColumnConst*>(column.column.get())->get_data_column_ptr(),
-                 column.type, column.name});
+        // Columns in const_list --> column_const,    others --> nested_column
+        // that's because some functions supposes some specific columns always constant.
+        // If we unpack it, there will be unnecessary cost of virtual judge.
+        if (args_expect_const.end() !=
+            std::find(args_expect_const.begin(), args_expect_const.end(), arg_num)) {
+            temporary_block.insert({column.column, column.type, column.name});
+        } else {
+            temporary_block.insert(
+                    {assert_cast<const ColumnConst*>(column.column.get())->get_data_column_ptr(),
+                     column.type, column.name});
+        }
     }
 
     temporary_block.insert(block.get_by_position(result));
@@ -251,27 +274,14 @@ Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
 Status PreparedFunctionImpl::execute(FunctionContext* context, Block& block,
                                      const ColumnNumbers& args, size_t result,
                                      size_t input_rows_count, bool dry_run) {
-    //    if (use_default_implementation_for_low_cardinality_columns()) {
-    //        auto& res = block.safe_get_by_position(result);
-    //        Block block_without_low_cardinality = block.clone_without_columns();
-    //
-    //        for (auto arg : args)
-    //            block_without_low_cardinality.safe_get_by_position(arg).column =
-    //                    block.safe_get_by_position(arg).column;
-    //
-    //        {
-    //            RETURN_IF_ERROR(execute_without_low_cardinality_columns(
-    //                    context, block_without_low_cardinality, args, result, input_rows_count,
-    //                    dry_run));
-    //            res.column = block_without_low_cardinality.safe_get_by_position(result).column;
-    //        }
-    //    } else
     return execute_without_low_cardinality_columns(context, block, args, result, input_rows_count,
                                                    dry_run);
 }
 
 void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) const {
-    if (is_variadic()) return;
+    if (is_variadic()) {
+        return;
+    }
 
     size_t expected_number_of_arguments = get_number_of_arguments();
 
@@ -310,8 +320,9 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
 
         for (ColumnWithTypeAndName& arg : args_without_low_cardinality) {
             bool is_const = arg.column && is_column_const(*arg.column);
-            if (is_const)
+            if (is_const) {
                 arg.column = assert_cast<const ColumnConst&>(*arg.column).remove_low_cardinality();
+            }
         }
 
         auto type_without_low_cardinality =

@@ -17,11 +17,18 @@
 
 #include "olap/base_tablet.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <ostream>
+#include <vector>
+
 #include "gutil/strings/substitute.h"
 #include "olap/data_dir.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "util/doris_metrics.h"
-#include "util/path_util.h"
 
 namespace doris {
 using namespace ErrorCode;

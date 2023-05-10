@@ -17,12 +17,17 @@
 
 #include "vec/runtime/vdata_stream_mgr.h"
 
-#include "gen_cpp/internal_service.pb.h"
-#include "runtime/descriptors.h"
-#include "runtime/primitive_type.h"
-#include "runtime/runtime_state.h"
-#include "util/doris_metrics.h"
-#include "util/runtime_profile.h"
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/logging.h"
+#include "util/hash_util.hpp"
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {

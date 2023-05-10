@@ -55,63 +55,25 @@ _is_sourced() {
 }
 
 docker_setup_env() {
+  sysctl -w vm.max_map_count=2000000
   declare -g DATABASE_ALREADY_EXISTS
   if [ -d "${DORIS_HOME}/be/storage/data" ]; then
     DATABASE_ALREADY_EXISTS='true'
   fi
 }
 
-# Check the variables required for startup
-docker_required_variables_env() {
-  if [[ $FE_SERVERS =~ ^.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$ ]]; then
-    doris_warn "FE_SERVERS" $FE_SERVERS
-  else
-    doris_error "FE_SERVERS rule error！example: \$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT[,\$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT]..."
-  fi
-  if [[ $BE_ADDR =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}$ ]]; then
-    doris_warn "BE_ADDR" $BE_ADDR
-  else
-    doris_error "BE_ADDR rule error！example: \$BE_HOST_IP:\$HEARTBEAT_SERVICE_PORT"
-  fi
-}
-
-get_doris_be_args() {
-  local feServerArray=($(echo "${FE_SERVERS}" | awk '{gsub (/,/," "); print $0}'))
-  for i in "${feServerArray[@]}"; do
-    val=${i}
-    val=${val// /}
-    tmpFeId=$(echo "${val}" | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
-    tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
-    tmpFeEditLogPort=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$3}')
-    check_arg "tmpFeIp" $tmpFeIp
-    feIpArray[$tmpFeId]=${tmpFeIp}
-    check_arg "tmpFeEditLogPort" $tmpFeEditLogPort
-    feEditLogPortArray[$tmpFeId]=${tmpFeEditLogPort}
-  done
-
-  declare -g MASTER_FE_IP BE_HOST_IP BE_HEARTBEAT_PORT PRIORITY_NETWORKS
-  MASTER_FE_IP=${feIpArray[1]}
-  check_arg "MASTER_FE_IP" $MASTER_FE_IP
-  BE_HOST_IP=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$1}')
-  check_arg "BE_HOST_IP" $BE_HOST_IP
-  BE_HEARTBEAT_PORT=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$2}')
-  check_arg "BE_HEARTBEAT_PORT" $BE_HEARTBEAT_PORT
-
-  PRIORITY_NETWORKS=$(echo "${BE_HOST_IP}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
-  check_arg "priority_networks" $PRIORITY_NETWORKS
-
-  doris_note "feIpArray = ${feIpArray[*]}"
-  doris_note "feEditLogPortArray = ${feEditLogPortArray[*]}"
-  doris_note "masterFe = ${feIpArray[1]}:${feEditLogPortArray[1]}"
-  doris_note "be_addr = ${BE_HOST_IP}:${BE_HEARTBEAT_PORT}"
-  doris_note "priority_networks = ${PRIORITY_NETWORKS}"
-  # wait fe start
-  check_be_status true
-}
-
 add_priority_networks() {
   doris_note "add priority_networks ${1} to ${DORIS_HOME}/be/conf/be.conf"
   echo "priority_networks = ${1}" >>${DORIS_HOME}/be/conf/be.conf
+}
+
+show_be_args(){
+  doris_note "============= init args ================"
+  doris_note "MASTER_FE_IP " ${MASTER_FE_IP}
+  doris_note "CURRENT_BE_IP " ${CURRENT_BE_IP}
+  doris_note "CURRENT_BE_PORT " ${CURRENT_BE_PORT}
+  doris_note "RUN_TYPE " ${RUN_TYPE}
+  doris_note "PRIORITY_NETWORKS " ${PRIORITY_NETWORKS}
 }
 
 # Execute sql script, passed via stdin
@@ -135,7 +97,7 @@ register_be_to_fe() {
   # check fe status
   local is_fe_start=false
   for i in {1..300}; do
-    docker_process_sql <<<"alter system add backend '${BE_HOST_IP}:${BE_HEARTBEAT_PORT}'"
+    docker_process_sql <<<"alter system add backend '${CURRENT_BE_IP}:${CURRENT_BE_PORT}'"
     register_be_status=$?
     if [[ $register_be_status == 0 ]]; then
       doris_note "BE successfully registered to FE！"
@@ -162,58 +124,48 @@ register_be_to_fe() {
   fi
 }
 
-# Check whether the passed parameters are empty to avoid subsequent task execution failures. At the same time,
-# enumeration checks can be added, such as checking whether a certain parameter appears repeatedly, etc.
-check_arg() {
-  if [ -z $2 ]; then
-    doris_error "$1 is null!"
-  fi
+check_be_status() {
+    set +e
+    local is_fe_start=false
+    for i in {1..300}; do
+        if [[ $(($i % 20)) == 1 ]]; then
+            doris_warn "start check be register status~"
+        fi
+        docker_process_sql <<<"show backends;" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
+        be_join_status=$?
+        if [[ "${be_join_status}" == 0 ]]; then
+            doris_note "Verify that BE is registered to FE successfully"
+            is_fe_start=true
+            return
+        else
+            if [[ $(($i % 20)) == 1 ]]; then
+                doris_note "register is failed, wait next~"
+            fi
+        fi
+        sleep 1
+    done
+    if [[ ! $is_fe_start ]]; then
+        doris_error "Failed to register BE to FE！Tried 30 times！Maybe FE Start Failed！"
+    fi
 }
 
-check_be_status() {
-  set +e
-  for i in {1..300}; do
-    if [[ $1 == true ]]; then
-      docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_FE_IP}[[:space:]]"
-    else
-      docker_process_sql <<<"show backends" | grep "[[:space:]]${BE_HOST_IP}[[:space:]]" | grep "[[:space:]]${BE_HEARTBEAT_PORT}[[:space:]]"
-    fi
-    be_join_status=$?
-    if [[ "${be_join_status}" == 0 ]]; then
-      if [[ $1 == true ]]; then
-        doris_note "MASTER FE is started!"
-      else
-        doris_note "Init Check - Verify that BE is registered to FE successfully"
-        BE_ALREADY_EXISTS=true
-      fi
-      break
-    fi
-    if [[ $(( $i % 20 )) == 1 ]]; then
-      if [[ $1 == true ]]; then
-        doris_note "MASTER FE is not started. retry."
-      else
-        doris_note "BE is not register. retry."
-      fi
-    fi
-    sleep 1
-  done
-}
 
 _main() {
-  docker_setup_env
-  docker_required_variables_env
-  get_doris_be_args
-
-  if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
-    add_priority_networks $PRIORITY_NETWORKS
-    node_role_conf
+  if [[ $RUN_TYPE == "K8S" ]]; then
+      start_be.sh
+  else
+      docker_setup_env
+      if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
+        add_priority_networks $PRIORITY_NETWORKS
+        node_role_conf
+      fi
+      show_be_args
+      register_be_to_fe
+      check_be_status
+      doris_note "Ready to start BE！"
+      start_be.sh
+      exec "$@"
   fi
-
-  register_be_to_fe
-  check_be_status
-  doris_note "Ready to start BE！"
-  start_be.sh
-  exec "$@"
 }
 
 if ! _is_sourced; then

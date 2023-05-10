@@ -17,13 +17,30 @@
 
 #pragma once
 
-#include <queue>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <iosfwd>
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/exec_node.h"
+#include "util/runtime_profile.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
-#include "vec/core/block.h"
-#include "vec/core/sort_cursor.h"
+#include "vec/core/field.h"
+
+namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TPlanNode;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 // Node that implements a full sort of its input with a fixed memory budget

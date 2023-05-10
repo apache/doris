@@ -17,9 +17,10 @@
 
 #include "geo/wkt_parse.h"
 
-#include "geo/geo_types.h"
 #include "geo/wkt_parse_ctx.h"
+#include "geo/wkt_parse_type.h" // IWYU pragma: keep
 #include "geo/wkt_yacc.y.hpp"
+
 #define YYSTYPE WKT_STYPE
 #define YY_EXTRA_TYPE WktParseContext*
 #include "geo/wkt_lex.l.h"

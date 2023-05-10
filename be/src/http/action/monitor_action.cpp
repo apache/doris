@@ -17,12 +17,13 @@
 
 #include "http/action/monitor_action.h"
 
-#include <sstream>
+#include <glog/logging.h>
 
-#include "common/status.h"
+#include <sstream>
+#include <utility>
+
 #include "http/http_channel.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 #include "http/rest_monitor_iface.h"
 

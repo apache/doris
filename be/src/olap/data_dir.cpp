@@ -17,42 +17,50 @@
 
 #include "olap/data_dir.h"
 
-#include "olap/storage_policy.h"
-
-#ifndef __APPLE__
-#include <mntent.h>
-#include <sys/statfs.h>
-#endif
-
-#include <ctype.h>
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <stdio.h>
-#include <sys/file.h>
-#include <utime.h>
 
 #include <atomic>
-#include <boost/algorithm/string/classification.hpp>
-#include <boost/algorithm/string/predicate.hpp>
-#include <boost/algorithm/string/split.hpp>
-#include <boost/algorithm/string/trim.hpp>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <filesystem>
 #include <memory>
+#include <new>
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <utility>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "io/fs/remote_file_system.h"
 #include "olap/olap_define.h"
+#include "olap/olap_meta.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_id_generator.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
+#include "olap/tablet.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/txn_manager.h"
 #include "olap/utils.h" // for check_dir_existed
 #include "service/backend_options.h"
-#include "util/errno.h"
+#include "util/doris_metrics.h"
 #include "util/string_util.h"
+#include "util/uid_util.h"
 
 using strings::Substitute;
 

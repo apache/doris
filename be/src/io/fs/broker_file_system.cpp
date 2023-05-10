@@ -17,15 +17,33 @@
 
 #include "io/fs/broker_file_system.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/PaloBrokerService_types.h>
 #include <gen_cpp/TPaloBrokerService.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <thrift/Thrift.h>
+#include <thrift/transport/TTransportException.h>
 
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <filesystem>
+#include <ostream>
+#include <thread>
+#include <utility>
+
+#include "common/config.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/broker_file_writer.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/exec_env.h"
-#include "util/defer_op.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {

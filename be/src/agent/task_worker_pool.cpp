@@ -17,46 +17,66 @@
 
 #include "agent/task_worker_pool.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
-#include <pthread.h>
-#include <sys/stat.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <unistd.h>
 
-#include <boost/lexical_cast.hpp>
-#include <chrono>
-#include <csignal>
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <ctime>
+#include <functional>
 #include <memory>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "agent/utils.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
+#include "gutil/ref_counted.h"
+#include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/task/engine_alter_tablet_task.h"
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clone_task.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/engine_storage_migration_task.h"
+#include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/random.h"
+#include "util/s3_util.h"
 #include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
+#include "util/time.h"
 #include "util/trace.h"
 
 namespace doris {
@@ -273,6 +293,9 @@ bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_
     if (task_type == TTaskType::type::PUSH_STORAGE_POLICY ||
         task_type == TTaskType::type::PUSH_COOLDOWN_CONF) {
         // no need to report task of these types
+        return true;
+    }
+    if (signature == -1) { // No need to report task with unintialized signature
         return true;
     }
     std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
@@ -651,7 +674,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     // Check last schema change status, if failed delete tablet file
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
-    TTabletId new_tablet_id;
+    TTabletId new_tablet_id = 0;
     TSchemaHash new_schema_hash = 0;
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
@@ -945,7 +968,6 @@ void TaskWorkerPool::_clear_transaction_task_worker_thread_callback() {
 void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
-        TUpdateTabletMetaInfoReq update_tablet_meta_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             _worker_thread_condition_variable.wait(
@@ -953,68 +975,55 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
             if (!_is_work) {
                 return;
             }
-
             agent_task_req = _tasks.front();
-            update_tablet_meta_req = agent_task_req.update_tablet_meta_info_req;
             _tasks.pop_front();
         }
         LOG(INFO) << "get update tablet meta task. signature=" << agent_task_req.signature;
 
         Status status;
-
+        auto& update_tablet_meta_req = agent_task_req.update_tablet_meta_info_req;
         for (auto& tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                     tablet_meta_info.tablet_id);
             if (tablet == nullptr) {
-                LOG(WARNING) << "could not find tablet when update partition id. tablet_id="
-                             << tablet_meta_info.tablet_id
-                             << ", schema_hash=" << tablet_meta_info.schema_hash;
+                LOG(WARNING) << "could not find tablet when update tablet meta. tablet_id="
+                             << tablet_meta_info.tablet_id;
                 continue;
             }
-            std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
-            // update tablet meta
-            if (!tablet_meta_info.__isset.meta_type) {
-                tablet->set_partition_id(tablet_meta_info.partition_id);
-            } else {
-                switch (tablet_meta_info.meta_type) {
-                case TTabletMetaType::PARTITIONID: // FIXME(plat1ko): deprecate?
-                    tablet->set_partition_id(tablet_meta_info.partition_id);
-                    break;
-                case TTabletMetaType::INMEMORY:
-                    if (tablet_meta_info.__isset.storage_policy_id) {
-                        LOG(INFO) << "set tablet storage_policy_id="
-                                  << tablet_meta_info.storage_policy_id;
-                        tablet->tablet_meta()->set_storage_policy_id(
-                                tablet_meta_info.storage_policy_id);
-                    }
-                    if (tablet_meta_info.__isset.is_in_memory) {
-                        tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
-                                tablet_meta_info.is_in_memory);
-                        // The field is_in_memory should not be in the tablet_schema.
-                        // it should be in the tablet_meta.
-                        for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                            rowset_meta->tablet_schema()->set_is_in_memory(
-                                    tablet_meta_info.is_in_memory);
-                        }
-                        tablet->get_max_version_schema(wrlock)->set_is_in_memory(
-                                tablet_meta_info.is_in_memory);
-                    }
-                    break;
-                }
+            bool need_to_save = false;
+            if (tablet_meta_info.__isset.storage_policy_id) {
+                tablet->tablet_meta()->set_storage_policy_id(tablet_meta_info.storage_policy_id);
+                need_to_save = true;
             }
-            tablet->save_meta();
+            if (tablet_meta_info.__isset.is_in_memory) {
+                tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
+                        tablet_meta_info.is_in_memory);
+                std::shared_lock rlock(tablet->get_header_lock());
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_is_in_memory(tablet_meta_info.is_in_memory);
+                }
+                tablet->tablet_schema_unlocked()->set_is_in_memory(tablet_meta_info.is_in_memory);
+                need_to_save = true;
+            }
+            if (tablet_meta_info.__isset.replica_id) {
+                tablet->tablet_meta()->set_replica_id(tablet_meta_info.replica_id);
+            }
+            if (need_to_save) {
+                std::shared_lock rlock(tablet->get_header_lock());
+                tablet->save_meta();
+            }
         }
 
         LOG(INFO) << "finish update tablet meta task. signature=" << agent_task_req.signature;
-
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_task_status(status.to_thrift());
-        finish_task_request.__set_backend(_backend);
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
-
-        _finish_task(finish_task_request);
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+        if (agent_task_req.signature != -1) {
+            TFinishTaskRequest finish_task_request;
+            finish_task_request.__set_task_status(status.to_thrift());
+            finish_task_request.__set_backend(_backend);
+            finish_task_request.__set_task_type(agent_task_req.task_type);
+            finish_task_request.__set_signature(agent_task_req.signature);
+            _finish_task(finish_task_request);
+            _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+        }
     }
 }
 
@@ -1302,7 +1311,9 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_used(root_path_info.is_used);
             request.disks[root_path_info.path] = disk;
         }
-
+        int num_cores = config::pipeline_executor_size > 0 ? config::pipeline_executor_size
+                                                           : CpuInfo::num_cores();
+        request.__set_num_cores(num_cores);
         _handle_report(request, ReportType::DISK);
     }
     StorageEngine::instance()->deregister_report_listener(this);

@@ -15,13 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <memory>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "runtime/thread_context.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_const.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h" // IWYU pragma: keep
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class FunctionContext;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -54,6 +79,9 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto num = block.get_by_position(arguments[FunctionType::param_num_idx])
                            .column->convert_to_full_column_if_const();
+        num = num->is_nullable()
+                      ? assert_cast<const ColumnNullable*>(num.get())->get_nested_column_ptr()
+                      : num;
         auto value = block.get_by_position(arguments[FunctionType::param_val_idx])
                              .column->convert_to_full_column_if_const();
         auto offsets_col = ColumnVector<ColumnArray::Offset64>::create();
@@ -74,7 +102,8 @@ public:
         }
         auto clone = value->clone_empty();
         clone->reserve(input_rows_count);
-        value->replicate(array_sizes.data(), offset, *clone->assume_mutable().get());
+        RETURN_IF_CATCH_EXCEPTION(
+                value->replicate(array_sizes.data(), offset, *clone->assume_mutable().get()));
         if (!clone->is_nullable()) {
             clone = ColumnNullable::create(std::move(clone), ColumnUInt8::create(clone->size(), 0));
         }

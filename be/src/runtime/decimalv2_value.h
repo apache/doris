@@ -17,16 +17,16 @@
 
 #pragma once
 
-#include <cctype>
-#include <climits>
+#include <glog/logging.h>
+#include <stdint.h>
+
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
 #include <cstdlib>
-#include <cstring>
 #include <iostream>
-#include <sstream>
 #include <string>
 #include <string_view>
 
-#include "udf/udf.h"
 #include "util/hash_util.hpp"
 
 namespace doris {

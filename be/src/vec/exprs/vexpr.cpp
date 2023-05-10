@@ -17,30 +17,43 @@
 
 #include "vec/exprs/vexpr.h"
 
-#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
 #include <memory>
+#include <stack>
 
-#include "gen_cpp/Exprs_types.h"
+#include "common/config.h"
+#include "common/exception.h"
+#include "common/object_pool.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcolumn_ref.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
 #include "vec/exprs/vlambda_function_expr.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
-#include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vschema_change_expr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 using doris::Status;
@@ -62,19 +75,14 @@ VExpr::VExpr(const doris::TExprNode& node)
     if (node.__isset.is_nullable) {
         is_nullable = node.is_nullable;
     }
+    // If we define null literal ,should make nullable data type to get correct field instead of undefined ptr
+    if (node.node_type == TExprNodeType::NULL_LITERAL) {
+        CHECK(is_nullable);
+    }
     _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
 
-VExpr::VExpr(const VExpr& vexpr)
-        : _node_type(vexpr._node_type),
-          _opcode(vexpr._opcode),
-          _type(vexpr._type),
-          _data_type(vexpr._data_type),
-          _children(vexpr._children),
-          _fn(vexpr._fn),
-          _fn_context_index(vexpr._fn_context_index),
-          _constant_col(vexpr._constant_col),
-          _prepared(vexpr._prepared) {}
+VExpr::VExpr(const VExpr& vexpr) = default;
 
 VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
         : _opcode(TExprOpcode::INVALID_OPCODE),
@@ -118,90 +126,93 @@ void VExpr::close(doris::RuntimeState* state, VExprContext* context,
     }
 }
 
-Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr_node,
-                          VExpr** expr) {
-    switch (texpr_node.node_type) {
-    case TExprNodeType::BOOL_LITERAL:
-    case TExprNodeType::INT_LITERAL:
-    case TExprNodeType::LARGE_INT_LITERAL:
-    case TExprNodeType::FLOAT_LITERAL:
-    case TExprNodeType::DECIMAL_LITERAL:
-    case TExprNodeType::DATE_LITERAL:
-    case TExprNodeType::STRING_LITERAL:
-    case TExprNodeType::JSON_LITERAL:
-    case TExprNodeType::NULL_LITERAL: {
-        *expr = pool->add(new VLiteral(texpr_node));
-        break;
-    }
-    case TExprNodeType::ARRAY_LITERAL: {
-        *expr = pool->add(new VArrayLiteral(texpr_node));
-        break;
-    }
-    case TExprNodeType::MAP_LITERAL: {
-        *expr = pool->add(new VMapLiteral(texpr_node));
-        break;
-    }
-    case TExprNodeType::STRUCT_LITERAL: {
-        *expr = pool->add(new VStructLiteral(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::SLOT_REF: {
-        *expr = pool->add(new VSlotRef(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::COLUMN_REF: {
-        *expr = pool->add(new VColumnRef(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::COMPOUND_PRED: {
-        *expr = pool->add(new VcompoundPred(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::LAMBDA_FUNCTION_EXPR: {
-        *expr = pool->add(new VLambdaFunctionExpr(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
-        *expr = pool->add(new VLambdaFunctionCallExpr(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::ARITHMETIC_EXPR:
-    case doris::TExprNodeType::BINARY_PRED:
-    case doris::TExprNodeType::FUNCTION_CALL:
-    case doris::TExprNodeType::COMPUTE_FUNCTION_CALL:
-    case doris::TExprNodeType::MATCH_PRED: {
-        *expr = pool->add(new VectorizedFnCall(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::CAST_EXPR: {
-        *expr = pool->add(new VCastExpr(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::IN_PRED: {
-        *expr = pool->add(new VInPredicate(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::CASE_EXPR: {
-        if (!texpr_node.__isset.case_expr) {
-            return Status::InternalError("Case expression not set in thrift node");
+Status VExpr::create_expr(ObjectPool* pool, const doris::TExprNode& texpr_node, VExpr** expr) {
+    try {
+        switch (texpr_node.node_type) {
+        case TExprNodeType::BOOL_LITERAL:
+        case TExprNodeType::INT_LITERAL:
+        case TExprNodeType::LARGE_INT_LITERAL:
+        case TExprNodeType::FLOAT_LITERAL:
+        case TExprNodeType::DECIMAL_LITERAL:
+        case TExprNodeType::DATE_LITERAL:
+        case TExprNodeType::STRING_LITERAL:
+        case TExprNodeType::JSON_LITERAL:
+        case TExprNodeType::NULL_LITERAL: {
+            *expr = pool->add(VLiteral::create_unique(texpr_node).release());
+            break;
         }
-        *expr = pool->add(new VCaseExpr(texpr_node));
-        break;
-    }
-    case TExprNodeType::INFO_FUNC: {
-        *expr = pool->add(new VInfoFunc(texpr_node));
-        break;
-    }
-    case TExprNodeType::TUPLE_IS_NULL_PRED: {
-        *expr = pool->add(new VTupleIsNullPredicate(texpr_node));
-        break;
-    }
-    case TExprNodeType::SCHEMA_CHANGE_EXPR: {
-        *expr = pool->add(new VSchemaChangeExpr(texpr_node));
-        break;
-    }
-    default:
-        return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
+        case TExprNodeType::ARRAY_LITERAL: {
+            *expr = pool->add(VArrayLiteral::create_unique(texpr_node).release());
+            break;
+        }
+        case TExprNodeType::MAP_LITERAL: {
+            *expr = pool->add(VMapLiteral::create_unique(texpr_node).release());
+            break;
+        }
+        case TExprNodeType::STRUCT_LITERAL: {
+            *expr = pool->add(VStructLiteral::create_unique(texpr_node).release());
+            break;
+        }
+        case doris::TExprNodeType::SLOT_REF: {
+            *expr = pool->add(VSlotRef::create_unique(texpr_node).release());
+            break;
+        }
+        case doris::TExprNodeType::COLUMN_REF: {
+            *expr = pool->add(VColumnRef::create_unique(texpr_node).release());
+            break;
+        }
+        case doris::TExprNodeType::COMPOUND_PRED: {
+            *expr = pool->add(VcompoundPred::create_unique(texpr_node).release());
+            break;
+        }
+        case doris::TExprNodeType::LAMBDA_FUNCTION_EXPR: {
+            *expr = pool->add(VLambdaFunctionExpr::create_unique(texpr_node).release());
+            break;
+        }
+        case doris::TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
+            *expr = pool->add(VLambdaFunctionCallExpr::create_unique(texpr_node).release());
+            break;
+        }
+        case doris::TExprNodeType::ARITHMETIC_EXPR:
+        case doris::TExprNodeType::BINARY_PRED:
+        case doris::TExprNodeType::FUNCTION_CALL:
+        case doris::TExprNodeType::COMPUTE_FUNCTION_CALL:
+        case doris::TExprNodeType::MATCH_PRED: {
+            *expr = pool->add(VectorizedFnCall::create_unique(texpr_node).release());
+            break;
+        }
+        case doris::TExprNodeType::CAST_EXPR: {
+            *expr = pool->add(VCastExpr::create_unique(texpr_node).release());
+            break;
+        }
+        case doris::TExprNodeType::IN_PRED: {
+            *expr = pool->add(VInPredicate::create_unique(texpr_node).release());
+            break;
+        }
+        case doris::TExprNodeType::CASE_EXPR: {
+            if (!texpr_node.__isset.case_expr) {
+                return Status::InternalError("Case expression not set in thrift node");
+            }
+            *expr = pool->add(VCaseExpr::create_unique(texpr_node).release());
+            break;
+        }
+        case TExprNodeType::INFO_FUNC: {
+            *expr = pool->add(VInfoFunc::create_unique(texpr_node).release());
+            break;
+        }
+        case TExprNodeType::TUPLE_IS_NULL_PRED: {
+            *expr = pool->add(VTupleIsNullPredicate::create_unique(texpr_node).release());
+            break;
+        }
+        case TExprNodeType::SCHEMA_CHANGE_EXPR: {
+            *expr = pool->add(VSchemaChangeExpr::create_unique(texpr_node).release());
+            break;
+        }
+        default:
+            return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
+        }
+    } catch (const doris::Exception& e) {
+        return Status::Error(e.code(), e.to_string());
     }
     if (!(*expr)->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", texpr_node.node_type);
@@ -226,7 +237,7 @@ Status VExpr::create_tree_from_thrift(doris::ObjectPool* pool,
     DCHECK(root_expr != nullptr);
     DCHECK(ctx != nullptr);
     *root_expr = root;
-    *ctx = pool->add(new VExprContext(root));
+    *ctx = pool->add(VExprContext::create_unique(root).release());
     // short path for leaf node
     if (root_children <= 0) {
         return Status::OK();

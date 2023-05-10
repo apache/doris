@@ -42,8 +42,8 @@ array_apply(arr, op, val)
 #### Arguments
 
 `arr` — 输入的数组， 如果是null， 则返回null
-`op` — 过滤条件， 条件包括 `=`, `>=`, `<=`, `>`, `<`, `!=`
-`val` — 过滤的条件值， 如果是null， 则返回null
+`op` — 过滤条件， 条件包括 `=`, `>=`, `<=`, `>`, `<`, `!=`，仅支持常量
+`val` — 过滤的条件值， 如果是null， 则返回null，仅支持常量
 
 #### Returned value
 

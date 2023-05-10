@@ -17,7 +17,23 @@
 
 #include "vec/exec/vselect_node.h"
 
+#include <opentelemetry/nostd/shared_ptr.h>
+
+#include <functional>
+#include <memory>
+#include <vector>
+
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/core/block.h"
+#include "vec/exprs/vexpr_context.h"
+
 namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class TPlanNode;
+
 namespace vectorized {
 
 VSelectNode::VSelectNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)

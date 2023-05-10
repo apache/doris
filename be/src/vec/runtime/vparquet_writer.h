@@ -17,26 +17,34 @@
 
 #pragma once
 
-#include <arrow/api.h>
-#include <arrow/buffer.h>
-#include <arrow/io/api.h>
-#include <arrow/io/file.h>
 #include <arrow/io/interfaces.h>
+#include <arrow/result.h>
+#include <arrow/status.h>
 #include <gen_cpp/DataSinks_types.h>
-#include <parquet/api/reader.h>
-#include <parquet/api/writer.h>
-#include <parquet/arrow/reader.h>
-#include <parquet/arrow/writer.h>
-#include <parquet/exception.h>
+#include <parquet/file_writer.h>
+#include <parquet/properties.h>
+#include <parquet/types.h>
 #include <stdint.h>
 
-#include <map>
-#include <string>
+#include <memory>
+#include <vector>
 
 #include "common/status.h"
 #include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vfile_result_writer.h"
+
+namespace doris {
+namespace io {
+class FileWriter;
+} // namespace io
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+namespace parquet {
+namespace schema {
+class GroupNode;
+} // namespace schema
+} // namespace parquet
 
 namespace doris::vectorized {
 

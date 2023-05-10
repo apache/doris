@@ -57,10 +57,12 @@ sudo apt install -y openssl libssl-dev
 
 The following steps are carried out in the /home/workspace directory
 
-1. dowload source
+1. download source
 
 ```
-git clone https://github.com/apache/doris.git 
+git clone https://github.com/apache/doris.git
+cd doris
+git submodule update --init --recursive 
 ```
 
 2. Compile third-party dependency packages

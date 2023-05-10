@@ -17,9 +17,20 @@
 
 #include "vec/core/block_spill_writer.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <unistd.h>
+
+#include <algorithm>
+
 #include "agent/be_exec_version_manager.h"
 #include "io/file_factory.h"
-#include "runtime/runtime_state.h"
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
+#include "vec/columns/column.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris {
 namespace vectorized {
@@ -27,6 +38,7 @@ void BlockSpillWriter::_init_profile() {
     write_bytes_counter_ = ADD_COUNTER(profile_, "WriteBytes", TUnit::BYTES);
     write_timer_ = ADD_TIMER(profile_, "WriteTime");
     serialize_timer_ = ADD_TIMER(profile_, "SerializeTime");
+    write_blocks_num_ = ADD_COUNTER(profile_, "WriteBlockNum", TUnit::UNIT);
 }
 
 Status BlockSpillWriter::open() {
@@ -66,10 +78,6 @@ Status BlockSpillWriter::close() {
 
 Status BlockSpillWriter::write(const Block& block) {
     auto rows = block.rows();
-    if (0 == rows) {
-        return Status::OK();
-    }
-
     // file format: block1, block2, ..., blockn, meta
     if (rows <= batch_size_) {
         return _write_internal(block);
@@ -87,14 +95,12 @@ Status BlockSpillWriter::write(const Block& block) {
             auto& dst_data = tmp_block_.get_columns_with_type_and_name();
 
             size_t block_rows = std::min(rows - row_idx, batch_size_);
-            try {
+            RETURN_IF_CATCH_EXCEPTION({
                 for (size_t col_idx = 0; col_idx < block.columns(); ++col_idx) {
                     dst_data[col_idx].column->assume_mutable()->insert_range_from(
                             *src_data[col_idx].column, row_idx, block_rows);
                 }
-            } catch (const doris::Exception& e) {
-                return Status::Error(e.code(), e.to_string());
-            }
+            });
 
             RETURN_IF_ERROR(_write_internal(tmp_block_));
 
@@ -110,33 +116,37 @@ Status BlockSpillWriter::_write_internal(const Block& block) {
     Status status;
     std::string buff;
 
-    PBlock pblock;
-    {
-        SCOPED_TIMER(serialize_timer_);
-        status = block.serialize(BeExecVersionManager::get_newest_version(), &pblock,
-                                 &uncompressed_bytes, &compressed_bytes,
-                                 segment_v2::CompressionTypePB::LZ4);
+    if (block.rows() > 0) {
+        PBlock pblock;
+        {
+            SCOPED_TIMER(serialize_timer_);
+            status = block.serialize(BeExecVersionManager::get_newest_version(), &pblock,
+                                     &uncompressed_bytes, &compressed_bytes,
+                                     segment_v2::CompressionTypePB::LZ4);
+            if (!status.ok()) {
+                unlink(file_path_.c_str());
+                return status;
+            }
+            pblock.SerializeToString(&buff);
+        }
+
+        {
+            SCOPED_TIMER(write_timer_);
+            status = file_writer_->append(buff);
+            written_bytes = buff.size();
+        }
+
         if (!status.ok()) {
             unlink(file_path_.c_str());
             return status;
         }
-        pblock.SerializeToString(&buff);
-    }
-
-    {
-        SCOPED_TIMER(write_timer_);
-        status = file_writer_->append(buff);
-        written_bytes = buff.size();
-    }
-    if (!status.ok()) {
-        unlink(file_path_.c_str());
-        return status;
     }
 
     max_sub_block_size_ = std::max(max_sub_block_size_, written_bytes);
 
     meta_.append((const char*)&total_written_bytes_, sizeof(size_t));
     COUNTER_UPDATE(write_bytes_counter_, written_bytes);
+    COUNTER_UPDATE(write_blocks_num_, 1);
     total_written_bytes_ += written_bytes;
     ++written_blocks_;
 

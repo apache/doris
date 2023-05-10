@@ -17,36 +17,54 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <map>
 #include <memory>
+#include <ostream>
 #include <roaring/roaring.hh>
+#include <set>
+#include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
+#include "olap/field.h"
+#include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
+#include "olap/row_cursor_cell.h"
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
-#include "vec/exprs/vexpr.h"
+#include "util/runtime_profile.h"
+#include "util/slice.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
-class RowCursor;
-class ShortKeyIndexIterator;
+class ObjectPool;
 
-namespace fs {
-class ReadableBlock;
-}
+namespace vectorized {
+class VExpr;
+class VExprContext;
+} // namespace vectorized
+struct RowLocation;
 
 namespace segment_v2 {
 
 class BitmapIndexIterator;
-class BitmapIndexReader;
 class ColumnIterator;
+class InvertedIndexIterator;
+class RowRanges;
 
 struct ColumnPredicateInfo {
     ColumnPredicateInfo() = default;

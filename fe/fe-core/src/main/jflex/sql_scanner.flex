@@ -123,6 +123,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("ngram_bf", new Integer(SqlParserSymbols.KW_NGRAM_BF));
         keywordMap.put("blob", new Integer(SqlParserSymbols.KW_BLOB));
         keywordMap.put("boolean", new Integer(SqlParserSymbols.KW_BOOLEAN));
+        keywordMap.put("brief", new Integer(SqlParserSymbols.KW_BRIEF));
         keywordMap.put("broker", new Integer(SqlParserSymbols.KW_BROKER));
         keywordMap.put("buckets", new Integer(SqlParserSymbols.KW_BUCKETS));
         keywordMap.put("build", new Integer(SqlParserSymbols.KW_BUILD));
@@ -244,6 +245,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("graph", new Integer(SqlParserSymbols.KW_GRAPH));
         keywordMap.put("group", new Integer(SqlParserSymbols.KW_GROUP));
         keywordMap.put("grouping", new Integer(SqlParserSymbols.KW_GROUPING));
+        keywordMap.put("groups", new Integer(SqlParserSymbols.KW_GROUPS));
         keywordMap.put("hash", new Integer(SqlParserSymbols.KW_HASH));
         keywordMap.put("having", new Integer(SqlParserSymbols.KW_HAVING));
         keywordMap.put("hdfs", new Integer(SqlParserSymbols.KW_HDFS));
@@ -349,6 +351,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("password_lock_time", new Integer(SqlParserSymbols.KW_PASSWORD_LOCK_TIME));
         keywordMap.put("path", new Integer(SqlParserSymbols.KW_PATH));
         keywordMap.put("pause", new Integer(SqlParserSymbols.KW_PAUSE));
+        keywordMap.put("period", new Integer(SqlParserSymbols.KW_PERIOD));
         keywordMap.put("plugin", new Integer(SqlParserSymbols.KW_PLUGIN));
         keywordMap.put("plugins", new Integer(SqlParserSymbols.KW_PLUGINS));
         keywordMap.put("policy", new Integer(SqlParserSymbols.KW_POLICY));
@@ -391,6 +394,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("revoke", new Integer(SqlParserSymbols.KW_REVOKE));
         keywordMap.put("right", new Integer(SqlParserSymbols.KW_RIGHT));
         keywordMap.put("rlike", new Integer(SqlParserSymbols.KW_REGEXP));
+        keywordMap.put("repository", new Integer(SqlParserSymbols.KW_REPOSITORY));
         keywordMap.put("role", new Integer(SqlParserSymbols.KW_ROLE));
         keywordMap.put("roles", new Integer(SqlParserSymbols.KW_ROLES));
         keywordMap.put("rollback", new Integer(SqlParserSymbols.KW_ROLLBACK));
@@ -416,6 +420,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("soname", new Integer(SqlParserSymbols.KW_SONAME));
         keywordMap.put("split", new Integer(SqlParserSymbols.KW_SPLIT));
         keywordMap.put("sql_block_rule", new Integer(SqlParserSymbols.KW_SQL_BLOCK_RULE));
+        keywordMap.put("sample", new Integer(SqlParserSymbols.KW_SAMPLE));
         keywordMap.put("start", new Integer(SqlParserSymbols.KW_START));
         keywordMap.put("stats", new Integer(SqlParserSymbols.KW_STATS));
         keywordMap.put("status", new Integer(SqlParserSymbols.KW_STATUS));
@@ -487,6 +492,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("execute", new Integer(SqlParserSymbols.KW_EXECUTE));
         keywordMap.put("lines", new Integer(SqlParserSymbols.KW_LINES));
         keywordMap.put("ignore", new Integer(SqlParserSymbols.KW_IGNORE));
+        keywordMap.put("expired", new Integer(SqlParserSymbols.KW_EXPIRED));
    }
     
   // map from token id to token description
@@ -549,6 +555,9 @@ import org.apache.doris.qe.SqlModeHelper;
   }
 
   public static boolean isKeyword(String str) {
+        if (str == null) {
+            return false;
+        }
 	    return keywordMap.containsKey(str.toLowerCase());
   }
 

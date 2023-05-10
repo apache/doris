@@ -98,11 +98,17 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
                 value3 INT
             )
             DUPLICATE KEY (k1)
-            DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "light_schema_change" = "true", "disable_auto_compaction" = "true");
+            DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "light_schema_change" = "false", "disable_auto_compaction" = "true");
         """
-    // delete value3 = 2
+
     sql "insert into ${tbName1} values(1,1,1,1);"
     sql "insert into ${tbName1} values(2,2,2,2);"
+    qt_sql "select * from ${tbName1} where value2=2 order by k1;"
+
+    // test alter light schema change by the way
+    sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+
+    // delete value3 = 2
     sql "delete from ${tbName1} where value3 = 2;"
     sql "insert into ${tbName1} values(3,3,3,3);"
     sql "insert into ${tbName1} values(4,4,4,4);"
@@ -185,11 +191,17 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
                 value3 INT
             )
             DUPLICATE KEY (k1)
-            DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "light_schema_change" = "true", "disable_auto_compaction" = "false");
+            DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "light_schema_change" = "false", "disable_auto_compaction" = "false");
         """
-    // delete value3 = 2
+
     sql "insert into ${tbName1} values(1,1,1,1);"
     sql "insert into ${tbName1} values(2,2,2,2);"
+    qt_sql "select * from ${tbName1} order by k1;"
+
+    // test alter light schema change by the way
+    sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+
+    // delete value3 = 2
     sql "delete from ${tbName1} where value3 = 2;"
     sql "insert into ${tbName1} values(3,3,3,3);"
     sql "insert into ${tbName1} values(4,4,4,4);"

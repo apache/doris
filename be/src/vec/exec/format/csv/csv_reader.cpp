@@ -17,26 +17,54 @@
 
 #include "csv_reader.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <map>
+#include <new>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
 #include "exec/decompressor.h"
+#include "exec/line_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/s3_file_reader.h"
-#include "olap/iterators.h"
-#include "olap/olap_common.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
+#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/format/file_reader/new_plain_binary_line_reader.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class RuntimeProfile;
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+
+namespace io {
+class IOContext;
+enum class FileCachePolicy : uint8_t;
+} // namespace io
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -138,22 +166,14 @@ Status CsvReader::init_reader(bool is_load) {
 
     _file_description.start_offset = start_offset;
 
-    io::FileReaderSPtr csv_file_reader;
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &csv_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &csv_file_reader, cache_policy));
-    }
-    if (typeid_cast<io::S3FileReader*>(csv_file_reader.get()) != nullptr ||
-        typeid_cast<io::BrokerFileReader*>(csv_file_reader.get()) != nullptr) {
-        // PrefetchBufferedReader now only support csv&json format when reading s3&broker file
-        _file_reader.reset(
-                new io::PrefetchBufferedReader(csv_file_reader, _range.start_offset, _range.size));
-    } else {
-        _file_reader = std::move(csv_file_reader);
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
+        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &_file_reader,
+                io::DelegateReader::AccessMode::SEQUENTIAL, reader_options, _io_ctx,
+                io::PrefetchRange(_range.start_offset, _range.size)));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
@@ -186,13 +206,13 @@ Status CsvReader::init_reader(bool is_load) {
     case TFileFormatType::FORMAT_CSV_LZOP:
         [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
-                                                      _size, _line_delimiter,
-                                                      _line_delimiter_length, start_offset));
+        _line_reader = NewPlainTextLineReader::create_unique(
+                _profile, _file_reader, _decompressor.get(), _size, _line_delimiter,
+                _line_delimiter_length, start_offset);
 
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader));
+        _line_reader = NewPlainBinaryLineReader::create_unique(_file_reader);
         break;
     default:
         return Status::InternalError(
@@ -636,9 +656,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     }
 
     _file_description.start_offset = start_offset;
-    io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+    io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
     RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties, _file_description,
-                                                    &_file_system, &_file_reader, cache_policy));
+                                                    &_file_system, &_file_reader, reader_options));
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("get parsed schema failed, empty csv file: " + _range.path);
@@ -654,9 +674,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
 
-    _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
-                                                  _size, _line_delimiter, _line_delimiter_length,
-                                                  start_offset));
+    _line_reader = NewPlainTextLineReader::create_unique(
+            _profile, _file_reader, _decompressor.get(), _size, _line_delimiter,
+            _line_delimiter_length, start_offset);
 
     return Status::OK();
 }

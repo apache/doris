@@ -18,15 +18,23 @@
 #include "http/utils.h"
 
 #include <fcntl.h>
+#include <stdint.h>
 #include <sys/stat.h>
+#include <unistd.h>
+
+#include <memory>
+#include <ostream>
+#include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
 #include "http/http_channel.h"
-#include "http/http_common.h"
 #include "http/http_headers.h"
+#include "http/http_method.h"
 #include "http/http_request.h"
+#include "http/http_status.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "util/path_util.h"
 #include "util/url_coding.h"
@@ -174,7 +182,6 @@ void do_dir_response(const std::string& dir_path, HttpRequest* req) {
 
     std::string result_str = result.str();
     HttpChannel::send_reply(req, result_str);
-    return;
 }
 
 } // namespace doris

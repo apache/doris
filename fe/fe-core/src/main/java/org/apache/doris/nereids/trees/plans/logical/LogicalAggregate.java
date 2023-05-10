@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -34,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Logical Aggregate plan.
@@ -128,6 +130,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     public List<NamedExpression> getOutputExpressions() {
         return outputExpressions;
+    }
+
+    public String getOutputExprsSql() {
+        return outputExpressions.stream().map(ExpressionTrait::toSql).collect(Collectors.joining(", "));
     }
 
     public Optional<LogicalRepeat> getSourceRepeat() {
@@ -236,10 +242,14 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
+    public LogicalAggregate<Plan> withAggOutputChild(List<NamedExpression> newOutput, Plan newChild) {
+        return new LogicalAggregate<>(groupByExpressions, newOutput, normalized, ordinalIsResolved,
+                sourceRepeat, Optional.empty(), Optional.empty(), newChild);
+    }
+
     public LogicalAggregate<Plan> withNormalized(List<Expression> normalizedGroupBy,
             List<NamedExpression> normalizedOutput, Plan normalizedChild) {
         return new LogicalAggregate<>(normalizedGroupBy, normalizedOutput, true, ordinalIsResolved,
-                sourceRepeat, Optional.empty(),
-                Optional.empty(), normalizedChild);
+                sourceRepeat, Optional.empty(), Optional.empty(), normalizedChild);
     }
 }

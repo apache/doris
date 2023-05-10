@@ -18,43 +18,53 @@
 #include "service/backend_service.h"
 
 #include <arrow/record_batch.h>
-#include <gperftools/heap-profiler.h>
+#include <fmt/format.h>
+#include <gen_cpp/BackendService.h>
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/DorisExternalService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Planner_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <sys/types.h>
 #include <thrift/concurrency/ThreadFactory.h>
-#include <thrift/processor/TMultiplexedProcessor.h>
-#include <thrift/protocol/TDebugProtocol.h>
+#include <time.h>
 
 #include <map>
 #include <memory>
+#include <ostream>
+#include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/DorisExternalService_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/TDorisExternalService.h"
-#include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "runtime/descriptors.h"
+#include "olap/tablet_manager.h"
 #include "runtime/exec_env.h"
-#include "runtime/export_task_mgr.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/primitive_type.h"
-#include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/stream_load_context.h"
-#include "service/backend_options.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/arrow/row_batch.h"
-#include "util/blocking_queue.hpp"
-#include "util/debug_util.h"
-#include "util/doris_metrics.h"
-#include "util/network_util.h"
 #include "util/thrift_server.h"
-#include "util/thrift_util.h"
 #include "util/uid_util.h"
-#include "util/url_coding.h"
+
+namespace apache {
+namespace thrift {
+class TException;
+class TMultiplexedProcessor;
+class TProcessor;
+namespace transport {
+class TTransportException;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
 
 namespace doris {
 

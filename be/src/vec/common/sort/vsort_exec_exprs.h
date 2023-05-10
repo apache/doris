@@ -17,12 +17,17 @@
 
 #pragma once
 
-#include "runtime/runtime_state.h"
-#include "vec/exprs/vexpr.h"
+#include <vector>
+
+#include "common/status.h"
 
 namespace doris {
 
-class MemTracker;
+class ObjectPool;
+class RowDescriptor;
+class RuntimeState;
+class TExpr;
+class TSortInfo;
 
 // Helper class to Prepare() , Open() and Close() the ordering expressions used to perform
 // comparisons in a sort. Used by TopNNode, SortNode.  When two
@@ -31,6 +36,7 @@ class MemTracker;
 // If _materialize_tuple is true, SortExecExprs also stores the slot expressions used to
 // materialize the sort tuples.
 namespace vectorized {
+class VExprContext;
 
 class VSortExecExprs {
 public:

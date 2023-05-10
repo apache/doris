@@ -18,12 +18,28 @@
 #include "pipeline_fragment_context.h"
 
 #include <gen_cpp/DataSinks_types.h>
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Planner_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/span_context.h>
+#include <opentelemetry/trace/tracer.h>
+#include <pthread.h>
+#include <stdlib.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <map>
+#include <ostream>
+#include <typeinfo>
+#include <utility>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "exec/data_sink.h"
+#include "exec/exec_node.h"
 #include "exec/scan_node.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/HeartbeatService_types.h"
+#include "io/fs/stream_load_pipe.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
@@ -38,7 +54,7 @@
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
-#include "pipeline/exec/mysql_scan_operator.h"
+#include "pipeline/exec/mysql_scan_operator.h" // IWYU pragma: keep
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
@@ -49,9 +65,9 @@
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/exec/schema_scan_operator.h"
 #include "pipeline/exec/select_operator.h"
-#include "pipeline/exec/set_probe_sink_operator.h"
-#include "pipeline/exec/set_sink_operator.h"
-#include "pipeline/exec/set_source_operator.h"
+#include "pipeline/exec/set_probe_sink_operator.h" // IWYU pragma: keep
+#include "pipeline/exec/set_sink_operator.h"       // IWYU pragma: keep
+#include "pipeline/exec/set_source_operator.h"     // IWYU pragma: keep
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
@@ -61,32 +77,41 @@
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline_task.h"
-#include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
+#include "util/debug_util.h"
+#include "util/telemetry/telemetry.h"
+#include "util/uid_util.h"
+#include "vec/common/assert_cast.h"
 #include "vec/exec/join/vhash_join_node.h"
-#include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
-#include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vexchange_node.h"
-#include "vec/exec/vrepeat_node.h"
-#include "vec/exec/vschema_scan_node.h"
-#include "vec/exec/vset_operation_node.h"
-#include "vec/exec/vsort_node.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
-#include "vec/sink/vresult_file_sink.h"
-#include "vec/sink/vresult_sink.h"
+
+namespace apache {
+namespace thrift {
+class TException;
+
+namespace transport {
+class TTransportException;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
 
 using apache::thrift::transport::TTransportException;
 using apache::thrift::TException;
@@ -95,7 +120,7 @@ namespace doris::pipeline {
 
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
-        int backend_num, std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
+        int backend_num, std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
         const std::function<void(RuntimeState*, Status*)>& call_back,
         const report_status_callback& report_status_cb)
         : _query_id(query_id),
@@ -183,9 +208,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     // 1. init _runtime_state
     _runtime_state =
-            std::make_unique<RuntimeState>(local_params, request.query_id, request.query_options,
-                                           _query_ctx->query_globals, _exec_env);
-    _runtime_state->set_query_fragments_ctx(_query_ctx.get());
+            RuntimeState::create_unique(local_params, request.query_id, request.query_options,
+                                        _query_ctx->query_globals, _exec_env);
+    _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 
@@ -205,9 +230,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     }
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
-    }
-    if (request.__isset.shared_scan_opt) {
-        _runtime_state->set_shared_scan_opt(request.shared_scan_opt);
     }
 
     if (request.query_options.__isset.is_report_success) {
@@ -256,15 +278,19 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 #endif
         ) {
             auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
-            const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
-                    local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
+                                                 no_scan_ranges);
+            const bool shared_scan =
+                    find_with_default(local_params.per_node_shared_scans, scan_node->id(), false);
             scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
             ScanNode* scan_node = static_cast<ScanNode*>(node);
-            const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
-                    local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
+                                                 no_scan_ranges);
             scan_node->set_scan_ranges(scan_ranges);
-            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
+            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
+                          << " size=" << scan_ranges.get().size();
         }
     }
 
@@ -369,6 +395,10 @@ void PipelineFragmentContext::report_profile() {
             std::stringstream ss;
             _runtime_state->runtime_profile()->compute_time_in_profile();
             _runtime_state->runtime_profile()->pretty_print(&ss);
+            if (_runtime_state->load_channel_profile()) {
+                // _runtime_state->load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
+                _runtime_state->load_channel_profile()->pretty_print(&ss);
+            }
             VLOG_FILE << ss.str();
         }
 
@@ -625,6 +655,7 @@ Status PipelineFragmentContext::submit() {
     for (auto& task : _tasks) {
         st = scheduler->schedule_task(task.get());
         if (!st) {
+            std::lock_guard<std::mutex> l(_status_lock);
             cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             _total_tasks = submit_tasks;
             break;
@@ -632,6 +663,7 @@ Status PipelineFragmentContext::submit() {
         submit_tasks++;
     }
     if (!st.ok()) {
+        std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks == _total_tasks) {
             std::call_once(_close_once_flag, [this] { _close_action(); });
         }
@@ -698,6 +730,7 @@ void PipelineFragmentContext::_close_action() {
 }
 
 void PipelineFragmentContext::close_a_pipeline() {
+    std::lock_guard<std::mutex> l(_task_mutex);
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
         std::call_once(_close_once_flag, [this] { _close_action(); });
@@ -727,6 +760,7 @@ void PipelineFragmentContext::send_report(bool done) {
 
     _report_status_cb(
             {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
+             _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
              done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
              _fragment_instance_id, _backend_num, _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),

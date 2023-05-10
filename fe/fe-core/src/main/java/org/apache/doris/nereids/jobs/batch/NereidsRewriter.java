@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.RewriteJob;
+import org.apache.doris.nereids.processor.pre.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
@@ -26,10 +27,9 @@ import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySe
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
-import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
@@ -52,6 +52,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.ExtractAndNormalizeWindowE
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractFilterFromCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.InferAggNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
@@ -69,8 +70,10 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTransposeProject;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
+import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
 
 import com.google.common.collect.ImmutableList;
@@ -134,11 +137,16 @@ public class NereidsRewriter extends BatchRewriteJob {
                 new AdjustAggregateNullableForEmptySet()
             ),
 
+            // we should eliminate hint again because some hint maybe exist in the CTE or subquery.
+            // so this rule should invoke after "Subquery unnesting"
+            custom(RuleType.ELIMINATE_HINT, EliminateLogicalSelectHint::new),
+
             // The rule modification needs to be done after the subquery is unnested,
             // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
             // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
             // resulting in inconsistent output results and results in apply
             topDown(
+                new SimplifyAggGroupBy(),
                 new NormalizeAggregate(),
                 new NormalizeSort()
             ),
@@ -146,9 +154,6 @@ public class NereidsRewriter extends BatchRewriteJob {
             topic("Window analysis",
                 topDown(
                     new ExtractAndNormalizeWindowExpression(),
-                    // execute NormalizeAggregate() again to resolve nested AggregateFunctions in WindowExpression,
-                    // e.g. sum(sum(c1)) over(partition by avg(c1))
-                    new NormalizeAggregate(),
                     new CheckAndStandardizeWindowFunctionAndFrame()
                 )
             ),
@@ -156,6 +161,7 @@ public class NereidsRewriter extends BatchRewriteJob {
             topic("Rewrite join",
                 // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
                 topDown(
+                    new InferAggNotNull(),
                     new InferFilterNotNull(),
                     new InferJoinNotNull()
                 ),
@@ -176,12 +182,12 @@ public class NereidsRewriter extends BatchRewriteJob {
                 ),
 
                 // pushdown SEMI Join
-                topDown(
-                        // new SemiJoinCommute(),
-                        new SemiJoinLogicalJoinTranspose(),
-                        new SemiJoinLogicalJoinTransposeProject(),
-                        new SemiJoinAggTranspose(),
-                        new SemiJoinAggTransposeProject()
+                bottomUp(
+                    new SemiJoinCommute(),
+                    new SemiJoinLogicalJoinTranspose(),
+                    new SemiJoinLogicalJoinTransposeProject(),
+                    new SemiJoinAggTranspose(),
+                    new SemiJoinAggTransposeProject()
                 ),
 
                 topDown(
@@ -245,7 +251,8 @@ public class NereidsRewriter extends BatchRewriteJob {
 
             topic("MV optimization",
                 topDown(
-                    new SelectMaterializedIndexWithAggregate(),
+                    // TODO: enable this rule after https://github.com/apache/doris/issues/18263 is fixed
+                    // new SelectMaterializedIndexWithAggregate(),
                     new SelectMaterializedIndexWithoutAggregate(),
                     new PushdownFilterThroughProject(),
                     new MergeProjects(),

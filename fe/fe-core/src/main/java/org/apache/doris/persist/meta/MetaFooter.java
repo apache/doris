@@ -45,7 +45,7 @@ import java.util.List;
 public class MetaFooter {
     private static final Logger LOG = LogManager.getLogger(MetaFooter.class);
 
-    private static final long FOOTER_LENGTH_SIZE = 8L;
+    public static final long FOOTER_LENGTH_SIZE = 8L;
     private static final long CHECKSUM_LENGTH_SIZE = 8L;
 
     // checksum

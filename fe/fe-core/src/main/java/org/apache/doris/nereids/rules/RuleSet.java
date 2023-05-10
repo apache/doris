@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.rules.exploration.AggSemiJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.AggSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
 import org.apache.doris.nereids.rules.exploration.PushdownFilterThroughProjectCBO;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
@@ -30,6 +32,8 @@ import org.apache.doris.nereids.rules.exploration.join.JoinExchange;
 import org.apache.doris.nereids.rules.exploration.join.JoinExchangeBothProject;
 import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssoc;
+import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssocProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughInnerJoin;
@@ -79,7 +83,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimi
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -100,6 +103,8 @@ public class RuleSet {
             .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
             .add(PushdownProjectThroughInnerJoin.INSTANCE)
             .add(PushdownProjectThroughSemiJoin.INSTANCE)
+            .add(AggSemiJoinTranspose.INSTANCE)
+            .add(AggSemiJoinTransposeProject.INSTANCE)
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
@@ -162,29 +167,37 @@ public class RuleSet {
             .add(InnerJoinRightAssociateProject.INSTANCE)
             .add(JoinExchange.INSTANCE)
             .add(JoinExchangeBothProject.INSTANCE)
+            .add(OuterJoinAssoc.INSTANCE)
+            .add(OuterJoinAssocProject.INSTANCE)
+            .build();
+
+    public static final List<Rule> otherReorderRules = ImmutableList.<Rule>builder()
+            .addAll(OTHER_REORDER_RULES)
+            .addAll(EXPLORATION_RULES)
+            .build();
+
+    public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER_RULES = ImmutableList.<Rule>builder()
+            .addAll(ZIG_ZAG_TREE_JOIN_REORDER)
+            .addAll(OTHER_REORDER_RULES)
+            .addAll(EXPLORATION_RULES)
+            .build();
+
+    public static final List<Rule> BUSHY_TREE_JOIN_REORDER_RULES = ImmutableList.<Rule>builder()
+            .addAll(BUSHY_TREE_JOIN_REORDER)
+            .addAll(OTHER_REORDER_RULES)
+            .addAll(EXPLORATION_RULES)
             .build();
 
     public List<Rule> getOtherReorderRules() {
-        List<Rule> rules = new ArrayList<>();
-        rules.addAll(OTHER_REORDER_RULES);
-        rules.addAll(EXPLORATION_RULES);
-        return rules;
+        return otherReorderRules;
     }
 
     public List<Rule> getZigZagTreeJoinReorder() {
-        List<Rule> rules = new ArrayList<>();
-        rules.addAll(ZIG_ZAG_TREE_JOIN_REORDER);
-        rules.addAll(OTHER_REORDER_RULES);
-        rules.addAll(EXPLORATION_RULES);
-        return rules;
+        return ZIG_ZAG_TREE_JOIN_REORDER_RULES;
     }
 
     public List<Rule> getBushyTreeJoinReorder() {
-        List<Rule> rules = new ArrayList<>();
-        rules.addAll(BUSHY_TREE_JOIN_REORDER);
-        rules.addAll(OTHER_REORDER_RULES);
-        rules.addAll(EXPLORATION_RULES);
-        return rules;
+        return BUSHY_TREE_JOIN_REORDER_RULES;
     }
 
     public List<Rule> getImplementationRules() {

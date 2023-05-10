@@ -133,7 +133,7 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
                     PhysicalProperties.ANY
             );
             // Just to check whether translate will throw exception
-            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
+            new PhysicalPlanTranslator(new PlanTranslatorContext()).translatePlan(plan);
         }
     }
 

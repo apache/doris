@@ -33,10 +33,8 @@ import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -76,7 +74,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -218,14 +215,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         org.apache.doris.analysis.NullLiteral nullLit = new org.apache.doris.analysis.NullLiteral();
         nullLit.setType(nullLiteral.getDataType().toCatalogDataType());
         return nullLit;
-    }
-
-    @Override
-    public Expr visitDateTimeV2Literal(DateTimeV2Literal dateTimeV2Literal, PlanTranslatorContext context) {
-        // BE not support date v2 literal and datetime v2 literal
-        int scale = dateTimeV2Literal.getDataType().getScale();
-        return new CastExpr(ScalarType.createDatetimeV2Type(scale),
-                new StringLiteral(dateTimeV2Literal.getStringValue()));
     }
 
     @Override

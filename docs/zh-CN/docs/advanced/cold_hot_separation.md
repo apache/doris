@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 冷热分离
+# [Experimental] 冷热分离
 
 ## 需求场景
 
@@ -46,6 +46,7 @@ under the License.
 - 远程对象空间回收recycler，若表、分区被删除，或者冷热分离过程中异常情况产生的空间浪费，则会有recycler线程周期性的回收，节约存储资源
 - cache优化，将访问过的冷数据cache到be本地，达到非冷热分离的查询性能
 - be线程池优化，区分数据来源是本地还是对象存储，防止读取对象延时影响查询性能
+- 新建的物化视图也会继承相同partition的存储策略
 
 ## Storage policy的使用
 

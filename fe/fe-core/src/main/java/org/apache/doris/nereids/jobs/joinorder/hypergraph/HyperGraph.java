@@ -107,7 +107,7 @@ public class HyperGraph {
      * @param group The group that is the end node in graph
      */
     public void addNode(Group group) {
-        Preconditions.checkArgument(!group.isJoinGroup());
+        Preconditions.checkArgument(!group.isInnerJoinGroup());
         for (Slot slot : group.getLogicalExpression().getPlan().getOutput()) {
             Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
             slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
@@ -130,7 +130,7 @@ public class HyperGraph {
      * @param group The join group
      */
     public void addEdge(Group group) {
-        Preconditions.checkArgument(group.isJoinGroup());
+        Preconditions.checkArgument(group.isInnerJoinGroup());
         LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin) group.getLogicalExpression().getPlan();
         HashMap<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new HashMap<>();
         for (Expression expression : join.getHashJoinConjuncts()) {

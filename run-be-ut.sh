@@ -129,6 +129,7 @@ CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
+    ENABLE_PCH          -- ${ENABLE_PCH}
 "
 echo "Build Backend UT"
 
@@ -178,7 +179,7 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
-MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
+MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
 echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
@@ -199,6 +200,8 @@ cd "${CMAKE_BUILD_DIR}"
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
     -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
     ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
+    -DENABLE_PCH="${ENABLE_PCH}" \
+    -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
@@ -218,7 +221,7 @@ export UDF_RUNTIME_DIR="${DORIS_HOME}/lib/udf-runtime"
 export LOG_DIR="${DORIS_HOME}/log"
 while read -r variable; do
     eval "export ${variable}"
-done < <(sed 's/ //g' "${DORIS_HOME}/conf/be.conf" | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
+done < <(sed 's/[[:space:]]*\(=\)[[:space:]]*/\1/' "${DORIS_HOME}/conf/be.conf" | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
 
 mkdir -p "${LOG_DIR}"
 mkdir -p "${UDF_RUNTIME_DIR}"

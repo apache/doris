@@ -15,27 +15,54 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cctz/time_zone.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
-#include <gtest/gtest.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <math.h>
+#include <stdint.h>
+#include <sys/types.h>
 
+#include <algorithm>
+#include <memory>
+#include <new>
+#include <ostream>
 #include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
+#include "common/object_pool.h"
+#include "common/status.h"
 #include "exec/schema_scanner.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
-#include "olap/iterators.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
-#include "util/runtime_profile.h"
+#include "runtime/types.h"
+#include "util/slice.h"
+#include "util/spinlock.h"
 #include "util/timezone_utils.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
+#include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_column_chunk_reader.h"
-#include "vec/exec/format/parquet/vparquet_column_reader.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
 #include "vec/exec/format/parquet/vparquet_group_reader.h"
 
@@ -324,7 +351,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
     ObjectPool object_pool;
     doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
     auto tuple_slots = tuple_desc->slots();
-    block.reset(new vectorized::Block());
+    block = vectorized::Block::create_unique();
     for (const auto& slot_desc : tuple_slots) {
         auto data_type = slot_desc->get_data_type_ptr();
         MutableColumnPtr data_column = data_type->create_column();

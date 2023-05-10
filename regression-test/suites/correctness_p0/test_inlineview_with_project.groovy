@@ -103,4 +103,222 @@ suite("test_inlineview_with_project") {
     sql """
         drop table if exists cir_1756_t2;
     """
+
+    sql """
+        drop table if exists ods_table1;
+    """
+
+    sql """
+        drop table if exists ods_table2;
+    """
+
+    sql """
+        drop table if exists ods_table3;
+    """
+
+    sql """
+        drop table if exists ods_table4;
+    """
+
+    sql """
+        CREATE TABLE `ods_table1` (
+        `dt` datev2 NOT NULL,
+        `id` int(11) NULL,
+        `server_id` int(11) NULL,
+        `uid` varchar(128) NULL,
+        `status` int(11) NULL,
+        `price` decimal(8, 2) NULL,
+        `pay_time` int(11) NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`dt`, `id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "enable_unique_key_merge_on_write" = "true",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """
+        CREATE TABLE `ods_table2` (
+        `openid` bigint(20) NULL,
+        `attribution` varchar(2048) NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`openid`,  `attribution`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`openid`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """
+        CREATE TABLE `ods_table3` (
+        `gamesvrid` bigint(20) NULL,
+        `region` text NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`gamesvrid`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`gamesvrid`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """
+        CREATE TABLE `ods_table4` (
+        `event_name` varchar(64) NULL,
+        `serverid` varchar(64) NULL,
+        `playerid` varchar(64) NULL,
+        `region` varchar(64) NULL,
+        `uid` varchar(64) NULL,
+        `_json` jsonb NULL,
+        `dt` datev2 NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`event_name`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`event_name`) BUCKETS 16
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    qt_select3 """
+        with 
+        table_orders as (
+            select
+                a.uid as vopenid,
+                a.server_id as gamesvrid,
+                a.price,
+                case
+                when c.region = 'TH' then 
+                to_date(from_unixtime(CAST(a.pay_time AS BIGINT) + 7 * 3600))
+                else to_date(from_unixtime(CAST(a.pay_time AS BIGINT) - 5 * 3600))
+                end as paydate,
+                b.attribution,
+                c.region
+            FROM
+                ods_table1 a
+                left join ods_table2 b on cast(a.uid as bigint) = cast(b.openid as bigint)
+                join ods_table3 c on a.server_id = cast(c.gamesvrid as int)
+            where
+                a.status = 2
+                and a.pay_time >= 1672930800
+        ),
+        playerregistertotal as (
+            SELECT
+                cast(jsonb_extract_string(a._json, '\$.created_dt') as datetimev2) as dt,
+                a.serverid as gamesvrid,
+                b.attribution,
+                c.region,
+                a.uid as vopenid,
+                a.playerid as vroleid
+            FROM
+                ods_table4 a
+                left join ods_table2 b on cast(a.uid as bigint) = cast(b.openid as bigint)
+                join ods_table3 c on a.serverid = cast(c.gamesvrid as int)
+            WHERE
+                event_name = 'dd'
+        ),
+        tab_join_login as (
+            SELECT
+                tab_rolereg.vopenid,
+                tab_rolereg.注册日期,
+                tab_rolereg.gamesvrid,
+                tab_rolereg.attribution,
+                tab_rolereg.region,
+                table_orders.price,
+                table_orders.paydate,
+                table_orders.gamesvrid as payer_gamesvrid,
+                table_orders.attribution as payer_attribution,
+                table_orders.region as payer_region
+            FROM
+                (
+                    SELECT
+                        gamesvrid,
+                        vopenid,
+                        case
+                        when
+                    region
+                        = 'TH' then to_date(date_add(dt, INTERVAL +7 HOUR))
+                        else to_date(date_add(dt, INTERVAL -5 HOUR)) end as 注册日期,
+                        attribution,
+                    region
+                    FROM
+                        (
+                            SELECT
+                                gamesvrid,
+                                vopenid,
+                                dt,
+                                attribution,
+                                region,
+                                row_number() over(
+                                    partition BY vopenid
+                                    ORDER BY
+                                        dt ASC
+                                ) AS reg_times
+                            FROM
+                                playerregistertotal
+                        ) as tab_rolereg2
+                    where
+                        tab_rolereg2.reg_times = 1
+                ) as tab_rolereg
+                left JOIN table_orders ON cast(tab_rolereg.vopenid as bigint)  = cast(table_orders.vopenid as bigint) 
+        ),
+        table_registerpay AS(
+            SELECT
+                case when bitand(grouping_id(paydate,payer_gamesvrid,payer_attribution,payer_region),8) = 8 then 'All' else paydate end as paydate,
+                SUM(ddd) AS ddd
+            FROM
+                (
+                select
+                    paydate,
+                    payer_gamesvrid,
+                    payer_attribution,
+                    payer_region,
+                    CASE
+                    WHEN 注册日期 is not null
+                    and paydate = 注册日期 THEN price
+                    ELSE 0 END AS ddd
+                from 
+                    tab_join_login
+                ) cte
+            GROUP BY
+                CUBE(paydate,
+                payer_gamesvrid,
+                payer_attribution,
+                payer_region)
+        )
+        select paydate  from table_registerpay;
+    """
+
+    sql """
+        drop table if exists ods_table1;
+    """
+
+    sql """
+        drop table if exists ods_table2;
+    """
+
+    sql """
+        drop table if exists ods_table3;
+    """
+
+    sql """
+        drop table if exists ods_table4;
+    """
 }

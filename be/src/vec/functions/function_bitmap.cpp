@@ -18,21 +18,63 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionBitmap.h
 // and modified by Doris
 
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <functional>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
+#include "util/bitmap_value.h"
+#include "util/hash_util.hpp"
+#include "util/murmur_hash3.h"
 #include "util/string_parser.hpp"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/util.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
+
 namespace doris::vectorized {
 
 struct BitmapEmpty {
@@ -412,7 +454,7 @@ public:
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map = data_null_map->get_data();
 
-        auto& column = block.get_by_position(arguments[0]).column;
+        auto column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
             VectorizedUtils::update_null_map(null_map, nullable->get_null_map_data());
             column = nullable->get_nested_column_ptr();
@@ -1001,7 +1043,7 @@ public:
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], res_null_map);
+            check_set_nullable(argument_columns[i], res_null_map, col_const[i]);
         }
 
         auto bitmap_column = assert_cast<const ColumnBitmap*>(argument_columns[0].get());

@@ -17,20 +17,28 @@
 
 #include "geo/geo_types.h"
 
+#include <absl/strings/str_format.h>
+#include <glog/logging.h>
+#include <s2/s1angle.h>
 #include <s2/s2cap.h>
-#include <s2/s2cell.h>
 #include <s2/s2earth.h>
 #include <s2/s2latlng.h>
+#include <s2/s2loop.h>
+#include <s2/s2point.h>
 #include <s2/s2polygon.h>
 #include <s2/s2polyline.h>
 #include <s2/util/coding/coder.h>
 #include <s2/util/units/length-units.h>
-#include <stdio.h>
-
+#include <string.h>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
-#include <type_traits>
+#include <utility>
+#include <vector>
 
+#include "geo/geo_tobinary.h"
+#include "geo/wkb_parse.h"
 #include "geo/wkt_parse.h"
 
 namespace doris {
@@ -148,37 +156,6 @@ static GeoParseStatus to_s2polyline(const GeoCoordinateList& coords,
     return GEO_PARSE_OK;
 }
 
-// remove those compatibility codes when we finish upgrade s2geo.
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-template <typename T, bool (T::*)(const T*) const = &T::Contains>
-constexpr bool is_pointer_argument() {
-    return true;
-}
-
-constexpr bool is_pointer_argument(...) {
-    return false;
-}
-
-template <typename T>
-bool adapt_contains(const T* lhs, const T* rhs) {
-    if constexpr (is_pointer_argument<T>()) {
-        return lhs->Contains(rhs);
-    } else {
-        return lhs->Contains(*rhs);
-    }
-}
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic pop
-#endif
-
 static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
                                    std::unique_ptr<S2Polygon>* polygon) {
     std::vector<std::unique_ptr<S2Loop>> loops(coords_list.list.size());
@@ -187,7 +164,7 @@ static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
         if (res != GEO_PARSE_OK) {
             return res;
         }
-        if (i != 0 && !adapt_contains(loops[0].get(), loops[i].get())) {
+        if (i != 0 && !(loops[0]->Contains(*loops[i]))) {
             return GEO_PARSE_POLYGON_NOT_HOLE;
         }
     }
@@ -220,6 +197,21 @@ GeoShape* GeoShape::from_wkt(const char* data, size_t size, GeoParseStatus* stat
     return shape;
 }
 
+GeoShape* GeoShape::from_wkb(const char* data, size_t size, GeoParseStatus* status) {
+    std::stringstream wkb;
+
+    for (int i = 0; i < size; ++i) {
+        if ((i == 1 && wkb.str() == "x") || (i == 2 && wkb.str() == "\\x")) {
+            wkb.str(std::string());
+        }
+        wkb << *data;
+        data++;
+    }
+    GeoShape* shape = nullptr;
+    *status = WkbParse::parse_wkb(wkb, &shape);
+    return shape;
+}
+
 GeoShape* GeoShape::from_encoded(const void* ptr, size_t size) {
     if (size < 2 || ((const char*)ptr)[0] != 0X00) {
         return nullptr;
@@ -227,19 +219,19 @@ GeoShape* GeoShape::from_encoded(const void* ptr, size_t size) {
     std::unique_ptr<GeoShape> shape;
     switch (((const char*)ptr)[1]) {
     case GEO_SHAPE_POINT: {
-        shape.reset(new GeoPoint());
+        shape.reset(GeoPoint::create_unique().release());
         break;
     }
     case GEO_SHAPE_LINE_STRING: {
-        shape.reset(new GeoLine());
+        shape.reset(GeoLine::create_unique().release());
         break;
     }
     case GEO_SHAPE_POLYGON: {
-        shape.reset(new GeoPolygon());
+        shape.reset(GeoPolygon::create_unique().release());
         break;
     }
     case GEO_SHAPE_CIRCLE: {
-        shape.reset(new GeoCircle());
+        shape.reset(GeoCircle::create_unique().release());
         break;
     }
     default:
@@ -260,6 +252,53 @@ GeoParseStatus GeoPoint::from_coord(const GeoCoordinate& coord) {
     return to_s2point(coord, _point.get());
 }
 
+GeoCoordinateList GeoPoint::to_coords() const {
+    GeoCoordinate coord;
+    coord.x = GeoPoint::x();
+    coord.y = GeoPoint::y();
+    GeoCoordinateList coords;
+    coords.add(coord);
+    return coords;
+}
+
+GeoCoordinateList GeoLine::to_coords() const {
+    GeoCoordinateList coords;
+    for (int i = 0; i < GeoLine::numPoint(); ++i) {
+        GeoCoordinate coord;
+        coord.x = std::stod(
+                absl::StrFormat("%.13f", S2LatLng::Longitude(*GeoLine::getPoint(i)).degrees()));
+        coord.y = std::stod(
+                absl::StrFormat("%.13f", S2LatLng::Latitude(*GeoLine::getPoint(i)).degrees()));
+        coords.add(coord);
+    }
+    return coords;
+}
+
+const std::unique_ptr<GeoCoordinateListList> GeoPolygon::to_coords() const {
+    std::unique_ptr<GeoCoordinateListList> coordss(new GeoCoordinateListList());
+    for (int i = 0; i < GeoPolygon::numLoops(); ++i) {
+        std::unique_ptr<GeoCoordinateList> coords(new GeoCoordinateList());
+        S2Loop* loop = GeoPolygon::getLoop(i);
+        for (int j = 0; j < loop->num_vertices(); ++j) {
+            GeoCoordinate coord;
+            coord.x = std::stod(
+                    absl::StrFormat("%.13f", S2LatLng::Longitude(loop->vertex(j)).degrees()));
+            coord.y = std::stod(
+                    absl::StrFormat("%.13f", S2LatLng::Latitude(loop->vertex(j)).degrees()));
+            coords->add(coord);
+            if (j == loop->num_vertices() - 1) {
+                coord.x = std::stod(
+                        absl::StrFormat("%.13f", S2LatLng::Longitude(loop->vertex(0)).degrees()));
+                coord.y = std::stod(
+                        absl::StrFormat("%.13f", S2LatLng::Latitude(loop->vertex(0)).degrees()));
+                coords->add(coord);
+            }
+        }
+        coordss->add(coords.release());
+    }
+    return coordss;
+}
+
 std::string GeoPoint::to_string() const {
     return as_wkt();
 }
@@ -277,11 +316,13 @@ bool GeoPoint::decode(const void* data, size_t size) {
 }
 
 double GeoPoint::x() const {
-    return S2LatLng(*_point).lng().degrees();
+    //Accurate to 13 decimal places
+    return std::stod(absl::StrFormat("%.13f", S2LatLng::Longitude(*_point).degrees()));
 }
 
 double GeoPoint::y() const {
-    return S2LatLng(*_point).lat().degrees();
+    //Accurate to 13 decimal places
+    return std::stod(absl::StrFormat("%.13f", S2LatLng::Latitude(*_point).degrees()));
 }
 
 std::string GeoPoint::as_wkt() const {
@@ -374,6 +415,14 @@ bool GeoLine::decode(const void* data, size_t size) {
     return _polyline->Decode(&decoder);
 }
 
+int GeoLine::numPoint() const {
+    return _polyline->num_vertices();
+}
+
+S2Point* GeoLine::getPoint(int i) const {
+    return const_cast<S2Point*>(&(_polyline->vertex(i)));
+}
+
 GeoParseStatus GeoPolygon::from_coords(const GeoCoordinateListList& list) {
     return to_s2polygon(list, &_polygon);
 }
@@ -439,7 +488,7 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
-        return adapt_contains(_polygon.get(), other->polygon());
+        return _polygon->Contains(*other->polygon());
     }
     default:
         return false;
@@ -448,6 +497,14 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
 
 std::double_t GeoPolygon::getArea() const {
     return _polygon->GetArea();
+}
+
+int GeoPolygon::numLoops() const {
+    return _polygon->num_loops();
+}
+
+S2Loop* GeoPolygon::getLoop(int i) const {
+    return const_cast<S2Loop*>(_polygon->loop(i));
 }
 
 GeoParseStatus GeoCircle::init(double lng, double lat, double radius_meter) {
@@ -533,6 +590,14 @@ bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit)
     } else {
         return false;
     }
+}
+
+std::string GeoShape::as_binary(GeoShape* rhs) {
+    std::string res;
+    if (toBinary::geo_tobinary(rhs, &res)) {
+        return res;
+    }
+    return res;
 }
 
 } // namespace doris

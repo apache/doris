@@ -219,7 +219,8 @@ public abstract class SetOperationNode extends PlanNode {
                 for (int j = 1; j < resultExprLists.size(); j++) {
                     isNullable = isNullable || resultExprLists.get(j).get(i).isNullable();
                 }
-                tupleDescriptor.getSlots().get(i).setIsNullable(isNullable);
+                tupleDescriptor.getSlots().get(i).setIsNullable(
+                        tupleDescriptor.getSlots().get(i).getIsNullable() || isNullable);
                 tupleDescriptor.computeMemLayout();
             }
         }

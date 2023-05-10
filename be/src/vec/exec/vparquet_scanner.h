@@ -17,20 +17,24 @@
 
 #pragma once
 
-#include <arrow/array.h>
-#include <vec/exec/varrow_scanner.h>
+#include <stdint.h>
 
-#include <map>
-#include <memory>
-#include <sstream>
-#include <string>
-#include <unordered_map>
 #include <vector>
 
-#include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
-#include "util/runtime_profile.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "vec/exec/varrow_scanner.h"
+
+namespace doris {
+class ArrowReaderWrap;
+class RuntimeProfile;
+class RuntimeState;
+class SlotDescriptor;
+class TBrokerRangeDesc;
+class TBrokerScanRangeParams;
+class TExpr;
+class TNetworkAddress;
+struct ScannerCounter;
+} // namespace doris
 
 namespace doris::vectorized {
 

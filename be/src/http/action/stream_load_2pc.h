@@ -24,6 +24,7 @@
 namespace doris {
 
 class ExecEnv;
+class HttpRequest;
 
 class StreamLoad2PCAction : public HttpHandler {
 public:

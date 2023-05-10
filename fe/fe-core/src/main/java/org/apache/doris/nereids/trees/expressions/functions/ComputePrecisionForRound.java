@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.Int32OrLessType;
 
@@ -34,7 +34,7 @@ public interface ComputePrecisionForRound extends ComputePrecision {
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(getArgumentType(0));
             return signature.withArgumentType(0, decimalV3Type)
                     .withReturnType(DecimalV3Type.createDecimalV3Type(decimalV3Type.getPrecision(), 0));
-        } else if (arity() == 2 && getArgumentType(0).isDecimalV3Type()) {
+        } else if (arity() == 2 && signature.getArgType(0) instanceof DecimalV3Type) {
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(getArgumentType(0));
             Expression floatLength = getArgument(1);
             Preconditions.checkArgument(floatLength.getDataType() instanceof Int32OrLessType
@@ -45,10 +45,11 @@ public interface ComputePrecisionForRound extends ComputePrecision {
 
             int scale;
             if (floatLength instanceof Cast) {
-                scale = ((IntegerLiteral) floatLength.child(0)).getIntValue();
+                scale = ((IntegerLikeLiteral) floatLength.child(0)).getIntValue();
             } else {
-                scale = ((IntegerLiteral) floatLength).getIntValue();
+                scale = ((IntegerLikeLiteral) floatLength).getIntValue();
             }
+            scale = Math.min(Math.max(scale, 0), decimalV3Type.getScale());
             return signature.withArgumentType(0, decimalV3Type)
                     .withReturnType(DecimalV3Type.createDecimalV3Type(decimalV3Type.getPrecision(), scale));
         } else {

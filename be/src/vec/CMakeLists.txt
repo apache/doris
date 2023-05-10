@@ -73,6 +73,7 @@ set(VEC_FILES
   common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
   common/hex.cpp
+  common/allocator.cpp
   core/block.cpp
   core/block_spill_reader.cpp
   core/block_spill_writer.cpp
@@ -81,6 +82,22 @@ set(VEC_FILES
   core/field.cpp
   core/sort_block.cpp
   core/materialize_block.cpp
+  data_types/serde/data_type_serde.cpp
+  data_types/serde/data_type_map_serde.cpp
+  data_types/serde/data_type_array_serde.cpp
+  data_types/serde/data_type_struct_serde.cpp
+  data_types/serde/data_type_number_serde.cpp
+  data_types/serde/data_type_datev2_serde.cpp
+  data_types/serde/data_type_datetimev2_serde.cpp
+  data_types/serde/data_type_date64_serde.cpp
+  data_types/serde/data_type_string_serde.cpp
+  data_types/serde/data_type_decimal_serde.cpp
+  data_types/serde/data_type_object_serde.cpp
+  data_types/serde/data_type_fixedlengthobject_serde.cpp
+  data_types/serde/data_type_hll_serde.cpp
+  data_types/serde/data_type_bitmap_serde.cpp
+  data_types/serde/data_type_quantilestate_serde.cpp
+  data_types/serde/data_type_nullable_serde.cpp
   data_types/data_type.cpp
   data_types/data_type_array.cpp
   data_types/data_type_struct.cpp
@@ -192,7 +209,9 @@ set(VEC_FILES
   functions/array/function_array_zip.cpp
   functions/array/function_array_pushfront.cpp
   functions/array/function_array_first_index.cpp
+  functions/array/function_array_cum_sum.cpp
   functions/function_map.cpp
+  functions/function_struct.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -340,4 +359,6 @@ endif ()
 
 add_library(Vec STATIC
         ${VEC_FILES}
-        )
+)
+
+pch_reuse(Vec)

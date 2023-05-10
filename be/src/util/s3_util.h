@@ -18,10 +18,14 @@
 #pragma once
 
 #include <aws/core/Aws.h>
+#include <fmt/format.h>
+#include <stdint.h>
 
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "gutil/hash/hash.h"

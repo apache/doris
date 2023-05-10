@@ -17,9 +17,12 @@
 
 #include "io/cache/dummy_file_cache.h"
 
-#include "gutil/strings/util.h"
+#include <time.h>
+
+#include <memory>
+#include <string>
+
 #include "io/fs/local_file_system.h"
-#include "util/string_util.h"
 
 namespace doris {
 namespace io {

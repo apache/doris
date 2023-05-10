@@ -19,7 +19,7 @@ version: "2.1"
 
 services:
   doris--postgres:
-    image: postgres:14.1
+    image: postgis/postgis:14-3.3
     restart: always
     environment:
       POSTGRES_PASSWORD: 123456

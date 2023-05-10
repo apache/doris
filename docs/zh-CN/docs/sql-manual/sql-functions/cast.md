@@ -28,21 +28,9 @@ under the License.
 ### description
 #### Syntax
 
-```
-cast (input as type)
-```
+`T cast (input as Type)`
 
-#### BIGINT type 
-
-#### Syntax(BIGINT)
-
-``` cast (input as BIGINT) ```
-
-
-将 input 转成 指定的 type 
-
-
-将当前列 input 转换为 BIGINT 类型
+将 input 转成 指定的 Type类型
 
 ### example
 

@@ -43,8 +43,8 @@ array_apply(arr, op, val)
 #### Arguments
 
 `arr` — The array to inspect. If it null, null will be returned.
-`op` — The compare operation, op includes `=`, `>=`, `<=`, `>`, `<`, `!=`
-`val` — The compared value.If it null, null will be returned.
+`op` — The compare operation, op includes `=`, `>=`, `<=`, `>`, `<`, `!=`. Support const value only.
+`val` — The compared value.If it null, null will be returned. Support const value only.
 
 #### Returned value
 

@@ -17,20 +17,45 @@
 
 #pragma once
 
-#include "runtime/runtime_state.h"
+#include <gen_cpp/Data_types.h>
+#include <stdint.h>
+
+#include <vector>
+
+#include "common/factory_creator.h"
+#include "common/global_types.h"
+#include "common/status.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/scan/vscanner.h"
-#include "vmeta_scan_node.h"
+
+namespace doris {
+class RuntimeProfile;
+class RuntimeState;
+class TFetchSchemaTableDataRequest;
+class TMetaScanRange;
+class TScanRange;
+class TScanRangeParams;
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+class VExprContext;
+class VMetaScanNode;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 class VMetaScanner : public VScanner {
+    ENABLE_FACTORY_CREATOR(VMetaScanner);
+
 public:
     VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
                  const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+    Status prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -42,6 +67,8 @@ private:
                                            TFetchSchemaTableDataRequest* request);
     Status _build_backends_metadata_request(const TMetaScanRange& meta_scan_range,
                                             TFetchSchemaTableDataRequest* request);
+    Status _build_resource_groups_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                   TFetchSchemaTableDataRequest* request);
 
     bool _meta_eos;
     TupleId _tuple_id;

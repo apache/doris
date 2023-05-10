@@ -17,14 +17,14 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "operator.h"
+#include "vec/exec/vselect_node.h"
 
 namespace doris {
-namespace vectorized {
-class VSelectNode;
-class VExprContext;
-class Block;
-} // namespace vectorized
+class ExecNode;
+
 namespace pipeline {
 
 class SelectOperatorBuilder final : public OperatorBuilder<vectorized::VSelectNode> {

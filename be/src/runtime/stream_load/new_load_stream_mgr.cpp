@@ -17,6 +17,9 @@
 
 #include "runtime/stream_load/new_load_stream_mgr.h"
 
+#include "util/doris_metrics.h"
+#include "util/metrics.h"
+
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(new_stream_load_pipe_count, MetricUnit::NOUNIT);

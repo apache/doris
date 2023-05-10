@@ -17,6 +17,33 @@
 
 #include "vparquet_column_chunk_reader.h"
 
+#include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "util/bit_util.h"
+#include "util/block_compression.h"
+#include "util/runtime_profile.h"
+#include "vec/columns/column.h"
+#include "vec/exec/format/parquet/decoder.h"
+#include "vec/exec/format/parquet/level_decoder.h"
+#include "vec/exec/format/parquet/schema_desc.h"
+#include "vec/exec/format/parquet/vparquet_page_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace io {
+class BufferedStreamReader;
+class IOContext;
+} // namespace io
+} // namespace doris
+
 namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
@@ -264,6 +291,9 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
 
 Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                         ColumnSelectVector& select_vector, bool is_dict_filter) {
+    if (select_vector.num_values() == 0) {
+        return Status::OK();
+    }
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     if (UNLIKELY((doris_column->is_column_dictionary() || is_dict_filter) && !_has_dict)) {
         return Status::IOError("Not dictionary coded");

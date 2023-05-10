@@ -18,16 +18,26 @@
 #pragma once
 
 #include <gen_cpp/internal_service.pb.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <condition_variable>
 #include <deque>
+#include <memory>
+#include <mutex>
+#include <string>
 
+#include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 #include "runtime/message_body_sink.h"
+#include "util/byte_buffer.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 const size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
 

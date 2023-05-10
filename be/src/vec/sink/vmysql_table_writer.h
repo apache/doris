@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <mysql/mysql.h>
+#include <stddef.h>
 
 #include <string>
 #include <vector>
@@ -41,6 +42,7 @@ struct MysqlConnInfo {
 
 class VExprContext;
 class Block;
+
 class VMysqlTableWriter {
 public:
     VMysqlTableWriter(const std::vector<vectorized::VExprContext*>& output_exprs);

@@ -32,6 +32,14 @@ under the License.
 1. 支持 Iceberg V1/V2 表格式。
 2. V2 格式仅支持 Position Delete 方式，不支持 Equality Delete。
 
+<version since="dev">
+
+3. 支持数据存在在 GooseFS(GFS) 上的 iceberg表。需配置环境：
+    1. 把goosefs-x.x.x-client.jar 放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下
+    2. 创建 catalog 时增加属性：'fs.AbstractFileSystem.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.GooseFileSystem'， 'fs.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.FileSystem'
+
+</version>
+
 ## 创建 Catalog
 
 ### 基于Hive Metastore创建Catalog
@@ -50,11 +58,6 @@ CREATE CATALOG iceberg PROPERTIES (
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
-
-> `specified_database_list`:
-> 
-> 支持只同步指定的同步多个database，以','分隔。默认为''，同步所有database。db名称是大小写敏感的。
-> 
 
 ### 基于Iceberg API创建Catalog
 

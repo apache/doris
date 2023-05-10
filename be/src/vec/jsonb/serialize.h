@@ -16,8 +16,21 @@
 // under the License.
 
 #pragma once
+#include <stddef.h>
+
+#include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"
+
+namespace doris {
+class TabletSchema;
+class TupleDescriptor;
+
+namespace vectorized {
+class ColumnString;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 // use jsonb codec to store row format
@@ -31,5 +44,13 @@ public:
     // single row
     static void jsonb_to_block(const TupleDescriptor& desc, const char* data, size_t size,
                                Block& dst);
+
+    static void jsonb_to_block(TabletSchemaSPtr schema, const std::vector<uint32_t>& col_ids,
+                               const ColumnString& jsonb_column, Block& dst);
+
+    static void jsonb_to_block(TabletSchemaSPtr schema, const std::vector<uint32_t>& col_ids,
+                               const char* data, size_t size, Block& dst);
+
+    static PrimitiveType get_primity_type(FieldType type);
 };
 } // namespace doris::vectorized

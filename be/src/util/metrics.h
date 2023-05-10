@@ -19,18 +19,20 @@
 
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <atomic>
 #include <functional>
-#include <iomanip>
+#include <map>
+#include <memory>
 #include <mutex>
-#include <ostream>
-#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
-#include "common/config.h"
 #include "util/core_local.h"
 #include "util/histogram.h"
 #include "util/spinlock.h"
@@ -38,8 +40,6 @@
 namespace doris {
 
 namespace rj = RAPIDJSON_NAMESPACE;
-
-class MetricRegistry;
 
 enum class MetricType { COUNTER, GAUGE, HISTOGRAM, SUMMARY, UNTYPED };
 

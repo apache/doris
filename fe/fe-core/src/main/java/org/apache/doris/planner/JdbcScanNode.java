@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -53,6 +54,7 @@ public class JdbcScanNode extends ScanNode {
     private final List<String> filters = new ArrayList<String>();
     private String tableName;
     private TOdbcTableType jdbcType;
+    private String graphQueryString = "";
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
         super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE);
@@ -71,6 +73,26 @@ public class JdbcScanNode extends ScanNode {
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         computeStats(analyzer);
+        getGraphQueryString();
+    }
+
+    private boolean isNebula() {
+        return jdbcType == TOdbcTableType.NEBULA;
+    }
+
+    private void getGraphQueryString() {
+        if (!isNebula()) {
+            return;
+        }
+        for (Expr expr : conjuncts) {
+            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
+            if ("g".equals(functionCallExpr.getFnName().getFunction())) {
+                graphQueryString = functionCallExpr.getChild(0).getStringValue();
+                break;
+            }
+        }
+        //clean conjusts cause graph sannnode no need conjuncts
+        conjuncts = Lists.newArrayList();
     }
 
     /**
@@ -130,6 +152,9 @@ public class JdbcScanNode extends ScanNode {
     }
 
     private String getJdbcQueryStr() {
+        if (isNebula()) {
+            return graphQueryString;
+        }
         StringBuilder sql = new StringBuilder("SELECT ");
 
         // Oracle use the where clause to do top n
@@ -157,7 +182,8 @@ public class JdbcScanNode extends ScanNode {
                 || jdbcType == TOdbcTableType.POSTGRESQL
                 || jdbcType == TOdbcTableType.MONGODB
                 || jdbcType == TOdbcTableType.CLICKHOUSE
-                || jdbcType == TOdbcTableType.SAP_HANA)) {
+                || jdbcType == TOdbcTableType.SAP_HANA
+                || jdbcType == TOdbcTableType.TRINO)) {
             sql.append(" LIMIT ").append(limit);
         }
 

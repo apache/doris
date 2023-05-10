@@ -141,7 +141,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                         PhysicalProperties.ANY
                 );
                 // Just to check whether translate will throw exception
-                new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
+                new PhysicalPlanTranslator(new PlanTranslatorContext()).translatePlan(plan);
             } catch (Throwable t) {
                 throw new IllegalStateException("Test sql failed: " + t.getMessage() + ", sql:\n" + sql, t);
             }

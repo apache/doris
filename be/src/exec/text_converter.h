@@ -17,13 +17,13 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include "vec/columns/column.h"
+
 namespace doris {
 
 class SlotDescriptor;
-class Status;
-struct StringRef;
-class TupleDescriptor;
 
 // Helper class for dealing with text data, e.g., converting text data to
 // numeric types, etc.

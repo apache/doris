@@ -20,19 +20,20 @@
 
 #include "runtime/descriptors.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/descriptors.pb.h>
+#include <stddef.h>
 
+#include <algorithm>
 #include <boost/algorithm/string/join.hpp>
-#include <ios>
-#include <sstream>
+#include <memory>
 
 #include "common/object_pool.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/descriptors.pb.h"
 #include "util/string_util.h"
-#include "vec/columns/column_nullable.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
 using boost::algorithm::join;

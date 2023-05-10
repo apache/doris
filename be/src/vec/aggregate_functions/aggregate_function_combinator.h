@@ -20,10 +20,10 @@
 
 #pragma once
 
-#include <vec/aggregate_functions/aggregate_function.h>
-#include <vec/data_types/data_type.h>
-
 #include <memory>
+
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 

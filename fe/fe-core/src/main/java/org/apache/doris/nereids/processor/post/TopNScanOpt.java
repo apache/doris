@@ -19,7 +19,6 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
@@ -36,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
  */
 
 public class TopNScanOpt extends PlanPostProcessor {
+
     @Override
     public PhysicalTopN visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
         topN.child().accept(this, ctx);
@@ -43,15 +43,23 @@ public class TopNScanOpt extends PlanPostProcessor {
         if (topN.getSortPhase() != SortPhase.LOCAL_SORT) {
             return topN;
         }
-        long threshold = getTopNOptLimitThreshold();
-        if (threshold == -1 || topN.getLimit() > threshold) {
-            return topN;
-        }
         if (topN.getOrderKeys().isEmpty()) {
             return topN;
         }
+
+        // topn opt
+        long topNOptLimitThreshold = getTopNOptLimitThreshold();
+        if (topNOptLimitThreshold == -1 || topN.getLimit() > topNOptLimitThreshold) {
+            return topN;
+        }
+        // if firstKey's column is not present, it means the firstKey is not a original column from scan node
+        // for example: "select cast(k1 as INT) as id from tbl1 order by id limit 2;" the firstKey "id" is
+        // a cast expr which is not from tbl1 and its column is not present.
+        // On the other hand "select k1 as id from tbl1 order by id limit 2;" the firstKey "id" is just an alias of k1
+        // so its column is present which is valid for topN optimize
+        // see Alias::toSlot() method to get how column info is passed around by alias of slotReference
         Expression firstKey = topN.getOrderKeys().get(0).getExpr();
-        if (!(firstKey instanceof SlotReference)) {
+        if (!firstKey.isColumnFromTable()) {
             return topN;
         }
         if (firstKey.getDataType().isStringLikeType()
@@ -59,15 +67,20 @@ public class TopNScanOpt extends PlanPostProcessor {
                 || firstKey.getDataType().isDoubleType()) {
             return topN;
         }
-        while (child != null && (child instanceof Project || child instanceof Filter)) {
+
+        PhysicalOlapScan olapScan;
+        while (child instanceof Project || child instanceof Filter) {
             child = child.child(0);
         }
-        if (child instanceof PhysicalOlapScan) {
-            PhysicalOlapScan scan = (PhysicalOlapScan) child;
-            if (scan.getTable().isDupKeysOrMergeOnWrite()) {
-                topN.setMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER, true);
-            }
+        if (!(child instanceof PhysicalOlapScan)) {
+            return topN;
         }
+        olapScan = (PhysicalOlapScan) child;
+
+        if (olapScan.getTable().isDupKeysOrMergeOnWrite()) {
+            topN.setMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER, true);
+        }
+
         return topN;
     }
 

@@ -17,10 +17,13 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "operator.h"
 #include "vec/exec/vempty_set_node.h"
 
 namespace doris {
+class ExecNode;
 
 namespace pipeline {
 

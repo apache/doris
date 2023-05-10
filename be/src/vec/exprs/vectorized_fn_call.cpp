@@ -17,18 +17,36 @@
 
 #include "vec/exprs/vectorized_fn_call.h"
 
-#include <string_view>
+#include <fmt/format.h>
+#include <fmt/ranges.h> // IWYU pragma: keep
+#include <gen_cpp/Types_types.h>
 
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <string_view>
+#include <utility>
+
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "fmt/format.h"
-#include "fmt/ranges.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function_java_udf.h"
 #include "vec/functions/function_rpc.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -55,11 +73,19 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
                     "and restart be.");
         }
     } else {
-        _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
-                                                                   argument_template, _data_type);
+        // get the function. won't prepare function.
+        _function = SimpleFunctionFactory::instance().get_function(
+                _fn.name.function_name, argument_template, _data_type, state->be_exec_version());
     }
     if (_function == nullptr) {
-        return Status::InternalError("Function {} is not implemented", _fn.name.function_name);
+        std::string type_str;
+        for (auto arg : argument_template) {
+            type_str = type_str + " " + arg.type->get_name();
+        }
+        return Status::InternalError(
+                "Function {} is not implemented, input param type is {}, "
+                "and return type is {}.",
+                _fn.name.function_name, type_str, _data_type->get_name());
     }
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);

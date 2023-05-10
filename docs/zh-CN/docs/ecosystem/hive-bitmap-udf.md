@@ -64,6 +64,8 @@ Hive Bitmap UDF 需要在 Hive/Spark 中使用，首先需要编译fe得到hive-
 ```sql
 --clone doris源码
 git clone https://github.com/apache/doris.git
+cd doris
+git submodule update --init --recursive
 --安装thrift
 --进入fe目录
 cd fe

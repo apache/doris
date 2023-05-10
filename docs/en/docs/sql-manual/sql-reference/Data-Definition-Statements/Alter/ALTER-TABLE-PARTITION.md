@@ -134,7 +134,7 @@ MODIFY PARTITION p1 SET("replication_num"="1");
 
 ```sql
 ALTER TABLE example_db.my_table
-MODIFY PARTITION (p1, p2, p4) SET("in_memory"="true");
+MODIFY PARTITION (p1, p2, p4) SET("replication_num"="1");
 ```
 
 6. Batch modify all partitions

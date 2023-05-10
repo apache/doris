@@ -18,13 +18,26 @@
 #include "io/fs/broker_file_reader.h"
 
 #include <gen_cpp/TPaloBrokerService.h>
+#include <string.h>
+#include <thrift/Thrift.h>
+#include <thrift/transport/TTransportException.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <ostream>
+#include <string>
+#include <thread>
+#include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, const Path& path,
                                    size_t file_size, TBrokerFD fd,

@@ -24,7 +24,7 @@ suite("test_string_function_regexp") {
             CREATE TABLE IF NOT EXISTS ${tbName} (
                 k varchar(32)
             )
-            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
+            DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1");
         """
     sql """
         INSERT INTO ${tbName} VALUES 
@@ -54,6 +54,26 @@ suite("test_string_function_regexp") {
 
     qt_sql "SELECT regexp_replace_one('a b c', \" \", \"-\");"
     qt_sql "SELECT regexp_replace_one('a b b','(b)','<\\\\1>');"
+
+    // bug fix
+    sql """
+        INSERT INTO ${tbName} VALUES
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish"),
+            ("billie eillish")
+        """
+    qt_sql_regexp_null "SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/regexp_extract(k, cast(null as varchar), 1) from test_string_function_regexp;"
+    // end bug fix
 
     sql "DROP TABLE ${tbName};"
 

@@ -20,17 +20,19 @@
 
 #include "vec/data_types/data_type_string.h"
 
-#include <string_view>
+#include <string.h>
+
+#include <typeinfo>
+#include <utility>
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
 #include "vec/core/field.h"
-
-#ifdef __SSE2__
-#include <emmintrin.h>
-#endif
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 

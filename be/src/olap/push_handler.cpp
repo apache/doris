@@ -17,20 +17,43 @@
 
 #include "olap/push_handler.h"
 
-#include <algorithm>
-#include <filesystem>
-#include <iostream>
-#include <sstream>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/types.pb.h>
 
-#include "common/object_pool.h"
+#include <algorithm>
+#include <iostream>
+#include <mutex>
+#include <new>
+#include <queue>
+#include <shared_mutex>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "olap/rowset/rowset_id_generator.h"
-#include "olap/rowset/rowset_meta_manager.h"
-#include "olap/schema_change.h"
+#include "olap/delete_handler.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/rowset_writer_context.h"
+#include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
+#include "olap/txn_manager.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "util/runtime_profile.h"
+#include "util/time.h"
+#include "vec/core/block.h"
 #include "vec/exec/vparquet_scanner.h"
 
 namespace doris {
@@ -96,7 +119,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     load_id.set_lo(0);
     {
         std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
-        RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
+        RETURN_IF_ERROR(StorageEngine::instance()->txn_manager()->prepare_txn(
                 request.partition_id, tablet, request.transaction_id, load_id));
     }
 
@@ -106,7 +129,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     Status res;
     // check delete condition if push for delete
     std::queue<DeletePredicatePB> del_preds;
-    if (push_type == PUSH_FOR_DELETE) {
+    if (push_type == PushType::PUSH_FOR_DELETE) {
         DeletePredicatePB del_pred;
         TabletSchema tablet_schema;
         tablet_schema.copy_from(*tablet->tablet_schema());
@@ -161,7 +184,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
 
     // add pending data to tablet
 
-    if (push_type == PUSH_FOR_DELETE) {
+    if (push_type == PushType::PUSH_FOR_DELETE) {
         rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
         del_preds.pop();
     }
@@ -303,8 +326,8 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     TQueryOptions query_options;
     TQueryGlobals query_globals;
-    _runtime_state.reset(
-            new RuntimeState(params, query_options, query_globals, ExecEnv::GetInstance()));
+    _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
+                                                 ExecEnv::GetInstance());
     DescriptorTbl* desc_tbl = nullptr;
     Status status = DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {

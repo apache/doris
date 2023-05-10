@@ -17,10 +17,21 @@
 
 #include "vec/exprs/table_function/vexplode_split.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <iterator>
+#include <ostream>
+
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
@@ -84,11 +95,10 @@ Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
                 if (first != second) {
                     output.emplace_back(strv.substr(std::distance(strv.begin(), first),
                                                     std::distance(first, second)));
-                    first = std::next(second);
                 } else {
                     output.emplace_back("", 0);
-                    first = std::next(second, delims.size());
                 }
+                first = std::next(second, delims.size());
 
                 if (second == last) {
                     break;

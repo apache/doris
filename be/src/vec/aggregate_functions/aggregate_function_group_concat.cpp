@@ -17,6 +17,9 @@
 
 #include "vec/aggregate_functions/aggregate_function_group_concat.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {

@@ -17,13 +17,26 @@
 
 #include "olap/task/engine_publish_version_task.h"
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <util/defer_op.h>
-
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <map>
+#include <memory>
+#include <ostream>
+#include <set>
+#include <shared_mutex>
+#include <string>
+#include <utility>
 
-#include "olap/data_dir.h"
-#include "olap/rowset/rowset_meta_manager.h"
+#include "common/logging.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/txn_manager.h"
+#include "olap/utils.h"
+#include "util/threadpool.h"
 
 namespace doris {
 

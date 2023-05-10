@@ -17,20 +17,17 @@
 
 #include "http/action/checksum_action.h"
 
+#include <boost/lexical_cast/bad_lexical_cast.hpp>
 #include <sstream>
 #include <string>
 
 #include "boost/lexical_cast.hpp"
 #include "common/logging.h"
+#include "common/status.h"
 #include "http/http_channel.h"
-#include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
 #include "olap/task/engine_checksum_task.h"
-#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -40,7 +37,9 @@ const std::string TABLET_ID = "tablet_id";
 const std::string TABLET_VERSION = "version";
 const std::string SCHEMA_HASH = "schema_hash";
 
-ChecksumAction::ChecksumAction() {}
+ChecksumAction::ChecksumAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                               TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 
 void ChecksumAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();

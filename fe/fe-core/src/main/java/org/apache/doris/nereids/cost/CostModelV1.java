@@ -174,10 +174,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     || childStatistics.getRowCount() > rowsLimit) {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
+            // estimate broadcast cost by an experience formula: beNumber^0.5 * rowCount
+            // - sender number and receiver number is not available at RBO stage now, so we use beNumber
+            // - senders and receivers work in parallel, that why we use square of beNumber
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount() * beNumber);
+                    childStatistics.getRowCount() * Math.pow(beNumber, 0.5));
 
         }
 

@@ -17,11 +17,38 @@
 
 #include "vec/olap/block_reader.h"
 
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <ostream>
+#include <string>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "exprs/function_filter.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/olap/vcollect_iterator.h"
+
+namespace doris {
+class ColumnPredicate;
+} // namespace doris
 
 namespace doris::vectorized {
 using namespace ErrorCode;
@@ -83,7 +110,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
         auto& rs_reader = read_params.rs_readers[i];
         // _vcollect_iter.topn_next() will init rs_reader by itself
         if (!_vcollect_iter.use_topn_next()) {
-            RETURN_NOT_OK(rs_reader->init(
+            RETURN_IF_ERROR(rs_reader->init(
                     &_reader_context,
                     is_empty ? std::pair {0, 0} : read_params.rs_readers_segment_offsets[i]));
         }
@@ -120,16 +147,19 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 
     auto& tablet_schema = *_tablet_schema;
     for (auto idx : _agg_columns_idx) {
+        auto column = tablet_schema.column(
+                read_params.origin_return_columns->at(_return_columns_loc[idx]));
         AggregateFunctionPtr function =
-                tablet_schema
-                        .column(read_params.origin_return_columns->at(_return_columns_loc[idx]))
-                        .get_aggregate_function({_next_row.block->get_data_type(idx)},
-                                                vectorized::AGG_READER_SUFFIX);
+                column.get_aggregate_function(vectorized::AGG_READER_SUFFIX);
+
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
         // create aggregate data
         AggregateDataPtr place = new char[function->size_of_data()];
-        function->create(place);
+        SAFE_CREATE(function->create(place), {
+            _agg_functions.pop_back();
+            delete[] place;
+        });
         _agg_places.push_back(place);
 
         // calculate `has_string` tag.
@@ -143,7 +173,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 }
 
 Status BlockReader::init(const ReaderParams& read_params) {
-    RETURN_NOT_OK(TabletReader::init(read_params));
+    RETURN_IF_ERROR(TabletReader::init(read_params));
 
     int32_t return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());
@@ -438,8 +468,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
         if (is_close) {
             function->insert_result_into(place, *columns[_return_columns_loc[idx]]);
             // reset aggregate data
-            function->destroy(place);
-            function->create(place);
+            function->reset(place);
         }
     }
 }

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -55,7 +56,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
-                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
+                .when(join -> join.left().isAllSlots())
                 .then(topSemi -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
                     LogicalProject abProject = topSemi.left();
@@ -80,7 +81,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(acProject, b);
                     newTopSemi.getJoinReorderContext().copyFrom(topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topSemi.getOutput()), newTopSemi);
+                    return CBOUtils.projectOrSelf(new ArrayList<>(topSemi.getOutput()), newTopSemi);
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANSPOSE_PROJECT);
     }
 

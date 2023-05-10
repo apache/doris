@@ -17,17 +17,18 @@
 
 #include "olap/rowset/rowset_meta_manager.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
-#include <sstream>
+#include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
 #include "common/logging.h"
-#include "json2pb/json_to_pb.h"
-#include "json2pb/pb_to_json.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
+#include "olap/olap_meta.h"
 #include "olap/utils.h"
 
 namespace doris {

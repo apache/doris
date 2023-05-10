@@ -54,15 +54,17 @@ class JoinExchangeLeftProjectTest implements MemoPatternMatchSupported {
                 .applyExploration(JoinExchangeLeftProject.INSTANCE.build())
                 .printlnExploration()
                 .matchesExploration(
-                    logicalJoin(
+                    logicalProject(
                         logicalJoin(
-                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
-                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                        ),
-                        logicalProject(
                             logicalJoin(
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")),
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t4"))
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                            ),
+                            logicalProject(
+                                logicalJoin(
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")),
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t4"))
+                                )
                             )
                         )
                     )

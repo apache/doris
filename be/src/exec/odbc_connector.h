@@ -16,12 +16,24 @@
 // under the License.
 
 #pragma once
+#include <fmt/format.h>
 #include <sqltypes.h>
+#include <stdint.h>
+#include <stdlib.h>
 
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/config.h"
 #include "common/status.h"
 #include "exec/table_connector.h"
 
 namespace doris {
+class RuntimeProfile;
+class RuntimeState;
+class TupleDescriptor;
+
 struct ODBCConnectorParam {
     std::string connect_string;
 

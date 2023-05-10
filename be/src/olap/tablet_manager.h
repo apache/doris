@@ -17,30 +17,37 @@
 
 #pragma once
 
-#include <atomic>
-#include <list>
+#include <butil/macros.h>
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/BackendService_types.h"
-#include "gen_cpp/MasterService_types.h"
-#include "olap/olap_define.h"
-#include "olap/olap_meta.h"
-#include "olap/options.h"
+#include "olap/olap_common.h"
 #include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 
 namespace doris {
 
-class Tablet;
 class DataDir;
+class CumulativeCompactionPolicy;
+class MemTracker;
+class TCreateTabletReq;
+class TTablet;
+class TTabletInfo;
 
 // TabletManager provides get, add, delete tablet method for storage engine
 // NOTE: If you want to add a method that needs to hold meta-lock before you can call it,

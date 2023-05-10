@@ -20,19 +20,32 @@
 
 #include "exec/exec_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
-#include <unistd.h>
 
+#include <map>
 #include <sstream>
+#include <typeinfo>
+#include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exec/scan_node.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
@@ -41,13 +54,14 @@
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vmeta_scan_node.h"
+#include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
 #include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/vexchange_node.h"
-#include "vec/exec/vmysql_scan_node.h"
+#include "vec/exec/vmysql_scan_node.h" // IWYU pragma: keep
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
@@ -56,8 +70,12 @@
 #include "vec/exec/vtable_function_node.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/vdatetime_value.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
+class QueryStatistics;
 
 const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
 
@@ -86,9 +104,8 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
 
     if (tnode.__isset.vconjunct) {
-        _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
-                                                                   _vconjunct_ctx_ptr.get()));
+                                                                   &_vconjunct_ctx_ptr));
     }
 
     // create the projections expr
@@ -113,8 +130,8 @@ Status ExecNode::prepare(RuntimeState* state) {
     _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
                                                 _runtime_profile.get(), nullptr, "PeakMemoryUsage");
 
-    if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
+    if (_vconjunct_ctx_ptr != nullptr) {
+        RETURN_IF_ERROR(_vconjunct_ctx_ptr->prepare(state, intermediate_row_desc()));
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
@@ -127,8 +144,8 @@ Status ExecNode::prepare(RuntimeState* state) {
 }
 
 Status ExecNode::alloc_resource(doris::RuntimeState* state) {
-    if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
+    if (_vconjunct_ctx_ptr != nullptr) {
+        RETURN_IF_ERROR(_vconjunct_ctx_ptr->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
     return Status::OK();
@@ -160,8 +177,8 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
-        if (_vconjunct_ctx_ptr) {
-            (*_vconjunct_ctx_ptr)->close(state);
+        if (_vconjunct_ctx_ptr != nullptr) {
+            _vconjunct_ctx_ptr->close(state);
         }
         vectorized::VExpr::close(_projections, state);
 

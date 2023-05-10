@@ -17,7 +17,19 @@
 
 #include "union_sink_operator.h"
 
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/operator.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+
+namespace doris {
+class ExecNode;
+} // namespace doris
 
 namespace doris::pipeline {
 

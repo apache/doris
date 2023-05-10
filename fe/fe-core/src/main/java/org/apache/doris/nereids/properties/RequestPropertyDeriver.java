@@ -144,7 +144,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     private void addShuffleJoinRequestProperty(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin) {
-        Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
+        Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = hashJoin.getHashConjunctsExprIds();
         // shuffle join
         addRequestPropertyToChildren(
                 PhysicalProperties.createHash(

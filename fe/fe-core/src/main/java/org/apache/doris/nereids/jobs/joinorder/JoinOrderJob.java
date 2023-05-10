@@ -66,7 +66,7 @@ public class JoinOrderJob extends Job {
     }
 
     private Group optimizePlan(Group group) {
-        if (group.isJoinGroup()) {
+        if (group.isInnerJoinGroup()) {
             return optimizeJoin(group);
         }
         GroupExpression rootExpr = group.getLogicalExpression();
@@ -117,7 +117,7 @@ public class JoinOrderJob extends Job {
             processProjectPlan(hyperGraph, group);
             return;
         }
-        if (!group.isJoinGroup()) {
+        if (!group.isInnerJoinGroup()) {
             hyperGraph.addNode(optimizePlan(group));
             return;
         }

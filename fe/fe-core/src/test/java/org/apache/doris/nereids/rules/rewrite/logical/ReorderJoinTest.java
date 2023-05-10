@@ -124,9 +124,9 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
                 .rewrite()
                 .matchesFromRoot(
-                        rightSemiLogicalJoin(
-                                logicalProject(logicalOlapScan()),
-                                innerLogicalJoin()
+                        innerLogicalJoin(
+                                leftSemiLogicalJoin(),
+                                logicalOlapScan()
                         )
                 );
 

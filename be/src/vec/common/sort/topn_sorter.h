@@ -16,13 +16,32 @@
 // under the License.
 
 #pragma once
-#include <queue>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
 #include "vec/common/sort/sorter.h"
+
+namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class RuntimeProfile;
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+class VSortExecExprs;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 class TopNSorter final : public Sorter {
+    ENABLE_FACTORY_CREATOR(TopNSorter);
+
 public:
     TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,

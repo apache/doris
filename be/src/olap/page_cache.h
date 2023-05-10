@@ -17,14 +17,17 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <memory>
 #include <string>
 #include <utility>
 
-#include "gen_cpp/segment_v2.pb.h" // for cache allocation
-#include "gutil/macros.h"          // for DISALLOW_COPY_AND_ASSIGN
 #include "olap/lru_cache.h"
-#include "runtime/memory/mem_tracker.h"
+#include "util/slice.h"
 
 namespace doris {
 

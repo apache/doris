@@ -18,6 +18,19 @@
 #include "vec/exec/vparquet_scanner.h"
 
 #include "exec/arrow/parquet_reader.h"
+#include "vec/exec/varrow_scanner.h"
+
+namespace doris {
+class ArrowReaderWrap;
+class RuntimeProfile;
+class RuntimeState;
+class SlotDescriptor;
+class TBrokerRangeDesc;
+class TBrokerScanRangeParams;
+class TExpr;
+class TNetworkAddress;
+struct ScannerCounter;
+} // namespace doris
 
 namespace doris::vectorized {
 

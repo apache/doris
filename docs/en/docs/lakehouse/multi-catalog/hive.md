@@ -38,6 +38,17 @@ When connnecting to Hive, Doris:
 2. Supports both Managed Table and External Table;
 3. Can identify metadata of Hive, Iceberg, and Hudi stored in Hive Metastore;
 4. Supports Hive tables with data stored in JuiceFS, which can be used the same way as normal Hive tables (put `juicefs-hadoop-x.x.x.jar` in `fe/lib/` and `apache_hdfs_broker/lib/`).
+5. Supports Hive tables with data stored in CHDFS, which can be used the same way as normal Hive tables. Follow below steps to prepare doris environment：
+    1. put chdfs_hadoop_plugin_network-x.x.jar in fe/lib/ and apache_hdfs_broker/lib/
+    2. copy core-site.xml and hdfs-site.xml from hive cluster to fe/conf/ and apache_hdfs_broker/conf
+
+<version since="dev">
+
+6. Supports Hive / Iceberg tables with data stored in GooseFS(GFS), which can be used the same way as normal Hive tables. Follow below steps to prepare doris environment：
+    1. put goosefs-x.x.x-client.jar in fe/lib/ and apache_hdfs_broker/lib/
+    2. add extra properties 'fs.AbstractFileSystem.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.GooseFileSystem'， 'fs.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.FileSystem' when creating catalog
+
+</version>
 
 ## Create Catalog
 
@@ -56,11 +67,6 @@ CREATE CATALOG hive PROPERTIES (
 
  In addition to `type` and  `hive.metastore.uris` , which are required, you can specify other parameters regarding the connection.
 
-> `specified_database_list`:
-> 
-> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
-> 
-	
 For example, to specify HDFS HA:
 
 ```sql

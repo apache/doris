@@ -17,53 +17,105 @@
 
 #include "service/internal_service.h"
 
+#include <assert.h>
+#include <brpc/closure_guard.h>
+#include <brpc/controller.h>
+#include <bthread/bthread.h>
+#include <bthread/types.h>
+#include <butil/errno.h>
 #include <butil/iobuf.h>
+#include <fcntl.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <google/protobuf/stubs/callback.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <sys/stat.h>
 
+#include <algorithm>
+#include <filesystem>
+#include <memory>
+#include <set>
+#include <sstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
-#include "common/consts.h"
-#include "gen_cpp/BackendService.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "common/logging.h"
+#include "gutil/integral_types.h"
 #include "http/http_client.h"
+#include "io/fs/stream_load_pipe.h"
+#include "io/io_common.h"
+#include "olap/data_dir.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_schema.h"
+#include "olap/txn_manager.h"
+#include "olap/utils.h"
 #include "runtime/buffer_control_block.h"
+#include "runtime/cache/result_cache.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
-#include "runtime/runtime_state.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
-#include "service/brpc.h"
+#include "runtime/types.h"
 #include "service/point_query_executor.h"
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
-#include "util/defer_op.h"
+#include "util/doris_metrics.h"
 #include "util/md5.h"
+#include "util/metrics.h"
+#include "util/network_util.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
-#include "util/s3_uri.h"
+#include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
 #include "util/string_util.h"
 #include "util/telemetry/brpc_carrier.h"
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_util.h"
+#include "util/time.h"
 #include "util/uid_util.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+
+namespace google {
+namespace protobuf {
+class RpcController;
+} // namespace protobuf
+} // namespace google
 
 namespace doris {
 using namespace ErrorCode;
@@ -461,8 +513,11 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
 
+        // make sure profile is desctructed after reader cause PrefetchBufferedReader
+        // might asynchronouslly access the profile
+        std::unique_ptr<RuntimeProfile> profile =
+                std::make_unique<RuntimeProfile>("FetchTableSchema");
         std::unique_ptr<vectorized::GenericReader> reader(nullptr);
-        std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
@@ -475,23 +530,23 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             // file_slots is no use
             std::vector<SlotDescriptor*> file_slots;
-            reader.reset(
-                    new vectorized::CsvReader(profile.get(), params, range, file_slots, &io_ctx));
+            reader = vectorized::CsvReader::create_unique(profile.get(), params, range, file_slots,
+                                                          &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader.reset(new vectorized::ParquetReader(params, range, &io_ctx, nullptr));
+            reader = vectorized::ParquetReader::create_unique(params, range, &io_ctx, nullptr);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
             std::vector<std::string> column_names;
-            reader.reset(new vectorized::OrcReader(params, range, column_names, "", &io_ctx));
+            reader = vectorized::OrcReader::create_unique(params, range, column_names, "", &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
             std::vector<SlotDescriptor*> file_slots;
-            reader.reset(new vectorized::NewJsonReader(profile.get(), params, range, file_slots,
-                                                       &io_ctx));
+            reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
+                                                              file_slots, &io_ctx);
             break;
         }
         default:
@@ -554,6 +609,72 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
     }
+}
+
+void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
+                                                        const PFetchColIdsRequest* request,
+                                                        PFetchColIdsResponse* response,
+                                                        google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        _get_column_ids_by_tablet_ids(controller, request, response, done);
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
+void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
+        google::protobuf::RpcController* controller, const PFetchColIdsRequest* request,
+        PFetchColIdsResponse* response, google::protobuf::Closure* done) {
+    brpc::ClosureGuard guard(done);
+    [[maybe_unused]] brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+    TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+    const auto& params = request->params();
+    for (const auto& param : params) {
+        int64_t index_id = param.indexid();
+        auto tablet_ids = param.tablet_ids();
+        std::set<std::vector<int32_t>> filter_set;
+        for (const int64_t tablet_id : tablet_ids) {
+            TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
+            if (tablet == nullptr) {
+                std::stringstream ss;
+                ss << "cannot get tablet by id:" << tablet_id;
+                LOG(WARNING) << ss.str();
+                response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
+                response->mutable_status()->add_error_msgs(ss.str());
+                return;
+            }
+            // check schema consistency, column ids should be the same
+            const auto& columns = tablet->tablet_schema()->columns();
+            std::vector<int32_t> column_ids(columns.size());
+            std::transform(columns.begin(), columns.end(), column_ids.begin(),
+                           [](const TabletColumn& c) { return c.unique_id(); });
+            filter_set.insert(column_ids);
+        }
+        if (filter_set.size() > 1) {
+            // consistecy check failed
+            std::stringstream ss;
+            ss << "consistency check failed: index{" << index_id << "}"
+               << "got inconsistent shema";
+            LOG(WARNING) << ss.str();
+            response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
+            response->mutable_status()->add_error_msgs(ss.str());
+            return;
+        }
+        // consistency check passed, use the first tablet to be the representative
+        TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_ids[0]);
+        const auto& columns = tablet->tablet_schema()->columns();
+        auto entry = response->add_entries();
+        entry->set_index_id(index_id);
+        auto col_name_to_id = entry->mutable_col_name_to_id();
+        for (const auto& column : columns) {
+            (*col_name_to_id)[column.name()] = column.unique_id();
+        }
+    }
+    response->mutable_status()->set_status_code(TStatusCode::OK);
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
@@ -699,6 +820,30 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
         UniqueId unique_id(request->query_id());
         VLOG_NOTICE << "rpc apply_filter recv";
         Status st = _exec_env->fragment_mgr()->apply_filter(request, &zero_copy_input_stream);
+        if (!st.ok()) {
+            LOG(WARNING) << "apply filter meet error: " << st.to_string();
+        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
+void PInternalServiceImpl::apply_filterv2(::google::protobuf::RpcController* controller,
+                                          const ::doris::PPublishFilterRequestV2* request,
+                                          ::doris::PPublishFilterResponse* response,
+                                          ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
+        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
+        UniqueId unique_id(request->query_id());
+        VLOG_NOTICE << "rpc apply_filterv2 recv";
+        Status st = _exec_env->fragment_mgr()->apply_filterv2(request, &zero_copy_input_stream);
         if (!st.ok()) {
             LOG(WARNING) << "apply filter meet error: " << st.to_string();
         }
@@ -1069,9 +1214,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             }
 
             std::stringstream ss;
-            ss << "http://" << host << ":" << http_port << "/api/_tablet/_download?token=" << token
-               << "&file=" << rowset_path << "/" << remote_rowset_id << "_" << segment.first
-               << ".dat";
+            ss << "http://" << get_host_port(host, http_port)
+               << "/api/_single_replica/_download?token=" << token << "&file=" << rowset_path << "/"
+               << remote_rowset_id << "_" << segment.first << ".dat";
             std::string remote_file_url = ss.str();
             ss.str("");
             ss << tablet->tablet_path() << "/" << rowset_meta->rowset_id() << "_" << segment.first

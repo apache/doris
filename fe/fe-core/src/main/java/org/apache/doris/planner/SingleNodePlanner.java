@@ -60,13 +60,18 @@ import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.planner.external.FileQueryScanNode;
+import org.apache.doris.planner.external.HiveScanNode;
+import org.apache.doris.planner.external.HudiScanNode;
+import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TNullSide;
@@ -458,8 +463,11 @@ public class SingleNodePlanner {
                                 break;
                             }
                         } else {
-                            aggExprValidate = false;
-                            break;
+                            // want to support the agg of count(const value) in dup table
+                            aggExprValidate = (aggOp == TPushAggOp.COUNT && child.isConstant() && !child.isNullable());
+                            if (!aggExprValidate) {
+                                break;
+                            }
                         }
                     } else {
                         returnColumns.add(((SlotRef) aggExpr.getChild(0)).getDesc().getColumn());
@@ -490,8 +498,7 @@ public class SingleNodePlanner {
                                 break;
                             }
 
-                            if (colType.isCharFamily() && aggOp != TPushAggOp.COUNT
-                                    && col.getType().getLength() > 512) {
+                            if (colType.isCharFamily() && col.getType().getLength() > 512) {
                                 returnColumnValidate = false;
                                 break;
                             }
@@ -1984,8 +1991,7 @@ public class SingleNodePlanner {
             case HIVE:
                 throw new RuntimeException("Hive external table is not supported, try to use hive catalog please");
             case ICEBERG:
-                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
-                break;
+                throw new RuntimeException("Iceberg external table is not supported, use iceberg catalog please");
             case HUDI:
                 throw new UserException(
                         "Hudi table is no longer supported. Use Multi Catalog feature to connect to Hudi");
@@ -1996,8 +2002,23 @@ public class SingleNodePlanner {
                 scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId());
                 break;
             case HMS_EXTERNAL_TABLE:
+                TableIf table = tblRef.getDesc().getTable();
+                switch (((HMSExternalTable) table).getDlaType()) {
+                    case HUDI:
+                        scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        break;
+                    case ICEBERG:
+                        scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        break;
+                    case HIVE:
+                        scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        break;
+                    default:
+                        throw new UserException("Not supported table type" + table.getType());
+                }
+                break;
             case ICEBERG_EXTERNAL_TABLE:
-                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
@@ -2012,7 +2033,7 @@ public class SingleNodePlanner {
                 break;
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
-                || scanNode instanceof ExternalFileScanNode) {
+                || scanNode instanceof FileQueryScanNode) {
             if (analyzer.enableInferPredicate()) {
                 PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             }

@@ -23,7 +23,6 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 
@@ -62,21 +61,29 @@ public class JdbcClient {
 
     private boolean isLowerCaseTableNames = false;
 
-    private Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
+    private Map<String, Boolean> includeDatabaseMap = Maps.newHashMap();
+    private Map<String, Boolean> excludeDatabaseMap = Maps.newHashMap();
 
     // only used when isLowerCaseTableNames = true.
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
 
+    private String oceanbaseMode = "";
+
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
-            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap) {
+            String onlySpecifiedDatabase, String isLowerCaseTableNames, String oceanbaseMode, Map includeDatabaseMap,
+            Map excludeDatabaseMap) {
         this.jdbcUser = user;
         this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
         this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
-        if (specifiedDatabaseMap != null) {
-            this.specifiedDatabaseMap = specifiedDatabaseMap;
+        if (includeDatabaseMap != null) {
+            this.includeDatabaseMap = includeDatabaseMap;
         }
+        if (excludeDatabaseMap != null) {
+            this.excludeDatabaseMap = excludeDatabaseMap;
+        }
+        this.oceanbaseMode = oceanbaseMode;
         try {
-            this.dbType = JdbcResource.parseDbType(jdbcUrl);
+            this.dbType = JdbcResource.parseDbType(jdbcUrl, oceanbaseMode);
         } catch (DdlException e) {
             throw new JdbcClientException("Failed to parse db type from jdbcUrl: " + jdbcUrl, e);
         }
@@ -98,8 +105,10 @@ public class JdbcClient {
             dataSource.setUsername(jdbcUser);
             dataSource.setPassword(password);
             dataSource.setMinIdle(1);
-            dataSource.setInitialSize(2);
-            dataSource.setMaxActive(5);
+            dataSource.setInitialSize(1);
+            dataSource.setMaxActive(100);
+            dataSource.setTimeBetweenEvictionRunsMillis(600000);
+            dataSource.setMinEvictableIdleTimeMillis(300000);
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
@@ -175,7 +184,7 @@ public class JdbcClient {
         Connection conn = getConnection();
         Statement stmt = null;
         ResultSet rs = null;
-        if (isOnlySpecifiedDatabase && specifiedDatabaseMap.isEmpty()) {
+        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
             return getSpecifiedDatabase(conn);
         }
         List<String> databaseNames = Lists.newArrayList();
@@ -184,6 +193,7 @@ public class JdbcClient {
             switch (dbType) {
                 case JdbcResource.MYSQL:
                 case JdbcResource.CLICKHOUSE:
+                case JdbcResource.OCEANBASE:
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -191,6 +201,7 @@ public class JdbcClient {
                             + "'" + jdbcUser + "', nspname, 'USAGE');");
                     break;
                 case JdbcResource.ORACLE:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
                     break;
                 case JdbcResource.SQLSERVER:
@@ -199,6 +210,10 @@ public class JdbcClient {
                 case JdbcResource.SAP_HANA:
                     rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'");
                     break;
+                case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
+                    rs = stmt.executeQuery("SHOW SCHEMAS");
+                    break;
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
             }
@@ -206,11 +221,16 @@ public class JdbcClient {
             while (rs.next()) {
                 tempDatabaseNames.add(rs.getString(1));
             }
-            if (isOnlySpecifiedDatabase && !specifiedDatabaseMap.isEmpty()) {
+            if (isOnlySpecifiedDatabase) {
                 for (String db : tempDatabaseNames) {
-                    if (specifiedDatabaseMap.get(db) != null) {
-                        databaseNames.add(db);
+                    // Exclude database map take effect with higher priority over include database map
+                    if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(db)) {
+                        continue;
                     }
+                    if (!includeDatabaseMap.isEmpty() && includeDatabaseMap.containsKey(db)) {
+                        continue;
+                    }
+                    databaseNames.add(db);
                 }
             } else {
                 databaseNames = tempDatabaseNames;
@@ -229,12 +249,16 @@ public class JdbcClient {
             switch (dbType) {
                 case JdbcResource.MYSQL:
                 case JdbcResource.CLICKHOUSE:
+                case JdbcResource.OCEANBASE:
                     databaseNames.add(conn.getCatalog());
                     break;
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
+                case JdbcResource.OCEANBASE_ORACLE:
                     databaseNames.add(conn.getSchema());
                     break;
                 default:
@@ -258,8 +282,10 @@ public class JdbcClient {
         String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.OCEANBASE:
                     rs = databaseMetaData.getTables(dbName, null, null, types);
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -267,7 +293,12 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
+                    rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
@@ -294,8 +325,10 @@ public class JdbcClient {
         String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.OCEANBASE:
                     rs = databaseMetaData.getTables(dbName, null, tableName, types);
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -303,7 +336,12 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
+                    rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type: " + dbType);
@@ -356,6 +394,7 @@ public class JdbcClient {
         }
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = conn.getCatalog();
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
             // catalog - the catalog of this table, `null` means all catalogs
             // schema - The schema of the table; corresponding to tablespace in Oracle
@@ -367,6 +406,7 @@ public class JdbcClient {
             //                     Can contain single-character wildcards ("_"), or multi-character wildcards ("%")
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.OCEANBASE:
                     rs = databaseMetaData.getColumns(dbName, null, tableName, null);
                     break;
                 case JdbcResource.POSTGRESQL:
@@ -374,7 +414,12 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
+                    break;
+                case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
+                    rs = databaseMetaData.getColumns(catalogName, dbName, tableName, null);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
@@ -410,17 +455,22 @@ public class JdbcClient {
     public Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         switch (dbType) {
             case JdbcResource.MYSQL:
+            case JdbcResource.OCEANBASE:
                 return mysqlTypeToDoris(fieldSchema);
             case JdbcResource.POSTGRESQL:
                 return postgresqlTypeToDoris(fieldSchema);
             case JdbcResource.CLICKHOUSE:
                 return clickhouseTypeToDoris(fieldSchema);
             case JdbcResource.ORACLE:
+            case JdbcResource.OCEANBASE_ORACLE:
                 return oracleTypeToDoris(fieldSchema);
             case JdbcResource.SQLSERVER:
                 return sqlserverTypeToDoris(fieldSchema);
             case JdbcResource.SAP_HANA:
                 return saphanaTypeToDoris(fieldSchema);
+            case JdbcResource.TRINO:
+            case JdbcResource.PRESTO:
+                return trinoTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -566,6 +616,7 @@ public class JdbcClient {
             case "varbit":
             case "jsonb":
             case "uuid":
+            case "bytea":
                 return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
@@ -711,7 +762,10 @@ public class JdbcClient {
     }
 
     public Type sqlserverTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String sqlserverType = fieldSchema.getDataTypeName();
+        String originSqlserverType = fieldSchema.getDataTypeName();
+        // For sqlserver IDENTITY type, such as 'INT IDENTITY'
+        // originSqlserverType is "int identity", so we only get "int".
+        String sqlserverType = originSqlserverType.split(" ")[0];
         switch (sqlserverType) {
             case "bit":
                 return Type.BOOLEAN;
@@ -809,13 +863,53 @@ public class JdbcClient {
         }
     }
 
+    public Type trinoTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String trinoType = fieldSchema.getDataTypeName();
+        if (trinoType.startsWith("decimal")) {
+            String[] split = trinoType.split("\\(");
+            String[] precisionAndScale = split[1].split(",");
+            int precision = Integer.parseInt(precisionAndScale[0]);
+            int scale = Integer.parseInt(precisionAndScale[1].substring(0, precisionAndScale[1].length() - 1));
+            return createDecimalOrStringType(precision, scale);
+        } else if (trinoType.startsWith("char")) {
+            ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+            charType.setLength(fieldSchema.columnSize);
+            return charType;
+        } else if (trinoType.startsWith("timestamp")) {
+            return ScalarType.createDatetimeV2Type(6);
+        } else if (trinoType.startsWith("array")) {
+            String trinoArrType = trinoType.substring(6, trinoType.length() - 1);
+            fieldSchema.setDataTypeName(trinoArrType);
+            Type type = trinoTypeToDoris(fieldSchema);
+            return ArrayType.create(type, true);
+        } else if (trinoType.startsWith("varchar")) {
+            return ScalarType.createStringType();
+        }
+        switch (trinoType) {
+            case "integer":
+                return Type.INT;
+            case "bigint":
+                return Type.BIGINT;
+            case "smallint":
+                return Type.SMALLINT;
+            case "tinyint":
+                return Type.TINYINT;
+            case "double":
+                return Type.DOUBLE;
+            case "real":
+                return Type.FLOAT;
+            case "boolean":
+                return Type.BOOLEAN;
+            case "date":
+                return ScalarType.createDateV2Type();
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
     private Type createDecimalOrStringType(int precision, int scale) {
         if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-            if (!Config.enable_decimal_conversion && (precision > ScalarType.MAX_DECIMALV2_PRECISION
-                    || scale > ScalarType.MAX_DECIMALV2_SCALE)) {
-                return ScalarType.createStringType();
-            }
-            return ScalarType.createDecimalType(precision, scale);
+            return ScalarType.createDecimalV3Type(precision, scale);
         }
         return ScalarType.createStringType();
     }

@@ -20,7 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Maps;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 

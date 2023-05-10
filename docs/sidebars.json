@@ -18,25 +18,25 @@
             "type": "category",
             "label": "Install And Deploy",
             "items": [
-                "install/install-deploy",
+                "install/standard-deployment",
                 {
                     "type": "category",
-                    "label": "Compile",
+                    "label": "Docker Deployment",
                     "items": [
-                        "install/source-install/compilation",
+                        "install/construct-docker/construct-docker-image",
+                        "install/construct-docker/run-docker-cluster"
+                    ]
+                },
+                "install/k8s-deploy",
+                {
+                    "type": "category",
+                    "label": "Source Code Compilation",
+                    "items": [
+                        "install/source-install/compilation-general",
                         "install/source-install/compilation-with-ldb-toolchain",
                         "install/source-install/compilation-arm",
                         "install/source-install/compilation-win",
                         "install/source-install/compilation-mac"
-                    ]
-                },
-                {
-                    "type": "category",
-                    "label": "Construct Docker",
-                    "items": [
-                        "install/construct-docker/construct-docker-image",
-                        "install/construct-docker/run-docker-cluster",
-                        "install/construct-docker/k8s-deploy"
                     ]
                 }
             ]
@@ -152,19 +152,7 @@
                         "advanced/cache/partition-cache"
                     ]
                 },
-                {
-                    "type": "category",
-                    "label": "Join Optimization",
-                    "items": [
-                        "advanced/join-optimization/bucket-shuffle-join",
-                        "advanced/join-optimization/colocation-join",
-                        "advanced/join-optimization/runtime-filter",
-                        "advanced/join-optimization/doris-join-optimization"
-                    ]
-                },
-                "advanced/pipeline-execution-engine",
                 "advanced/autobucket",
-                "advanced/materialized-view",
                 "advanced/broker",
                 {
                     "type": "category",
@@ -184,8 +172,27 @@
                 "advanced/small-file-mgr",
                 "advanced/cold_hot_separation",
                 "advanced/compute_node",
-                "advanced/hight-concurrent-point-query",
-                "advanced/nereids"
+                "advanced/lateral-view"
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Query Acceleration",
+            "items": [
+                "query-acceleration/pipeline-execution-engine",
+                "query-acceleration/nereids",
+                "query-acceleration/hight-concurrent-point-query",
+                "query-acceleration/materialized-view",
+                {
+                    "type": "category",
+                    "label": "Join Optimization",
+                    "items": [
+                        "query-acceleration/join-optimization/bucket-shuffle-join",
+                        "query-acceleration/join-optimization/colocation-join",
+                        "query-acceleration/join-optimization/runtime-filter",
+                        "query-acceleration/join-optimization/doris-join-optimization"
+                    ]
+                }
             ]
         },
         {
@@ -227,21 +234,15 @@
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
                 "ecosystem/datax",
+                "ecosystem/seatunnel",
                 "ecosystem/kyuubi",
                 "ecosystem/mysql-to-doris",
                 "ecosystem/logstash",
+                "ecosystem/beats",
                 "ecosystem/plugin-development-manual",
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
-                {
-                    "type": "category",
-                    "label": "SeaTunnel",
-                    "items": [
-                        "ecosystem/seatunnel/flink-sink",
-                        "ecosystem/seatunnel/spark-sink"
-                    ]
-                },
                 {
                     "type": "category",
                     "label": "UDF",
@@ -306,6 +307,7 @@
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/array_zip",
                                 "sql-manual/sql-functions/array-functions/array_shuffle",
+                                "sql-manual/sql-functions/array-functions/array_cum_sum",
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
@@ -347,6 +349,7 @@
                                 "sql-manual/sql-functions/date-time-functions/utc_timestamp",
                                 "sql-manual/sql-functions/date-time-functions/to_date",
                                 "sql-manual/sql-functions/date-time-functions/to_days",
+                                "sql-manual/sql-functions/date-time-functions/time_to_sec",
                                 "sql-manual/sql-functions/date-time-functions/extract",
                                 "sql-manual/sql-functions/date-time-functions/makedate",
                                 "sql-manual/sql-functions/date-time-functions/str_to_date",
@@ -400,7 +403,9 @@
                                 "sql-manual/sql-functions/spatial-functions/st_astext",
                                 "sql-manual/sql-functions/spatial-functions/st_contains",
                                 "sql-manual/sql-functions/spatial-functions/st_geometryfromtext",
-                                "sql-manual/sql-functions/spatial-functions/st_linefromtext"
+                                "sql-manual/sql-functions/spatial-functions/st_linefromtext",
+                                "sql-manual/sql-functions/spatial-functions/st_asbinary",
+                                "sql-manual/sql-functions/spatial-functions/st_geometryfromwkb"
                             ]
                         },
                         {
@@ -422,6 +427,7 @@
                                 "sql-manual/sql-functions/string-functions/initcap",
                                 "sql-manual/sql-functions/string-functions/repeat",
                                 "sql-manual/sql-functions/string-functions/reverse",
+                                "sql-manual/sql-functions/string-functions/char",
                                 "sql-manual/sql-functions/string-functions/concat",
                                 "sql-manual/sql-functions/string-functions/concat_ws",
                                 "sql-manual/sql-functions/string-functions/substr",
@@ -593,12 +599,15 @@
                             "items": [
                                 "sql-manual/sql-functions/json-functions/jsonb_parse",
                                 "sql-manual/sql-functions/json-functions/jsonb_extract",
+                                "sql-manual/sql-functions/json-functions/jsonb_exists_path",
+                                "sql-manual/sql-functions/json-functions/jsonb_type",
                                 "sql-manual/sql-functions/json-functions/get_json_double",
                                 "sql-manual/sql-functions/json-functions/get_json_int",
                                 "sql-manual/sql-functions/json-functions/get_json_string",
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
                                 "sql-manual/sql-functions/json-functions/json_quote",
+                                "sql-manual/sql-functions/json-functions/json_unquote",
                                 "sql-manual/sql-functions/json-functions/json_valid",
                                 "sql-manual/sql-functions/json-functions/json_extract"
                             ]
@@ -686,7 +695,8 @@
                                 "sql-manual/sql-functions/table-functions/s3",
                                 "sql-manual/sql-functions/table-functions/hdfs",
                                 "sql-manual/sql-functions/table-functions/iceberg_meta",
-                                "sql-manual/sql-functions/table-functions/backends"
+                                "sql-manual/sql-functions/table-functions/backends",
+                                "sql-manual/sql-functions/table-functions/resource-group"
                             ]
                         },
                         {
@@ -913,6 +923,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-LOAD",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-REPOSITORY",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",
@@ -938,7 +949,6 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-MIGRATIONS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PARTITION-ID",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SNAPSHOT",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-ROLLUP",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SQL-BLOCK-RULE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB",
@@ -1019,7 +1029,8 @@
                                 "sql-manual/sql-reference/Utility-Statements/USE",
                                 "sql-manual/sql-reference/Utility-Statements/DESCRIBE",
                                 "sql-manual/sql-reference/Utility-Statements/SWITCH",
-                                "sql-manual/sql-reference/Utility-Statements/REFRESH"
+                                "sql-manual/sql-reference/Utility-Statements/REFRESH",
+                                "sql-manual/sql-reference/Utility-Statements/SYNC"
                             ]
                         }
                     ]
@@ -1054,6 +1065,7 @@
                 "admin-manual/tracing",
                 "admin-manual/optimization",
                 "admin-manual/certificate",
+                "admin-manual/fe-certificate",
                 {
                     "type": "category",
                     "label": "Maintenance and Monitor",
@@ -1210,6 +1222,8 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.0Alpha1",
+                "releasenotes/release-1.2.4.1",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",
                 "releasenotes/release-1.2.1",

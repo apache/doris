@@ -18,13 +18,15 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <sys/types.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <ostream>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "gutil/port.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitshuffle_wrapper.h"
@@ -33,12 +35,12 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
-#include "runtime/memory/chunk_allocator.h"
+#include "util/alignment.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "vec/columns/column.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 namespace segment_v2 {

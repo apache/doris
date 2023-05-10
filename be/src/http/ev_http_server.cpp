@@ -17,14 +17,21 @@
 
 #include "http/ev_http_server.h"
 
-#include <event2/buffer.h>
-#include <event2/bufferevent.h>
+#include <arpa/inet.h>
+#include <butil/endpoint.h>
+#include <butil/fd_utility.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
-#include <event2/keyvalq_struct.h>
 #include <event2/thread.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
+#include <algorithm>
 #include <memory>
 #include <sstream>
 
@@ -33,10 +40,12 @@
 #include "http/http_handler.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "runtime/thread_context.h"
-#include "service/brpc.h"
-#include "util/debug_util.h"
+#include "http/http_status.h"
+#include "service/backend_options.h"
 #include "util/threadpool.h"
+
+struct event_base;
+struct evhttp;
 
 namespace doris {
 

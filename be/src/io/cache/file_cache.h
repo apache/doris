@@ -17,17 +17,23 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <memory>
-#include <queue>
-#include <shared_mutex>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 const std::string CACHE_DONE_FILE_SUFFIX = "_DONE";
 

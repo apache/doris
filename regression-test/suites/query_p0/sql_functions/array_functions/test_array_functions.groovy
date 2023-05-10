@@ -139,6 +139,7 @@ suite("test_array_functions") {
     qt_select_array_with_constant2 "SELECT k1, array_with_constant(10, null), array_repeat(null, 10) from ${tableName} ORDER BY k1"
     qt_select_array_with_constant3 "SELECT k1, array_with_constant(2, 'a'), array_repeat('a', 2) from ${tableName} ORDER BY k1"
     qt_select_array_with_constant4 "SELECT k1, array_with_constant(2, 123), array_repeat(123, 2) from ${tableName} ORDER BY k1"
+    qt_select_array_with_constant5 "SELECT k1, array_with_constant(k1, 3), array_repeat(3, k1) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array(2, k1) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array(k1, null, '2020-01-01') from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array(null, k1) from ${tableName} ORDER BY k1"
@@ -169,6 +170,9 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_zip(k9, k9) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_zip(k10, k10) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_zip(k11, k11, k11, k11) FROM ${tableName} ORDER BY k1"
+
+    qt_select "SELECT k1, array_cum_sum(k2), array_cum_sum(k4) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_cum_sum(k12), array_cum_sum(k13) FROM ${tableName} ORDER BY k1"
 
     def tableName2 = "tbl_test_array_range"
     sql """DROP TABLE IF EXISTS ${tableName2}"""

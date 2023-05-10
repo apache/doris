@@ -17,6 +17,26 @@
 
 #include "vec/common/sort/topn_sorter.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <queue>
+
+#include "common/object_pool.h"
+#include "vec/core/block.h"
+#include "vec/core/sort_cursor.h"
+#include "vec/utils/util.hpp"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeProfile;
+class RuntimeState;
+
+namespace vectorized {
+class VSortExecExprs;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
@@ -24,8 +44,7 @@ TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(std::unique_ptr<MergeSorterState>(
-                  new MergeSorterState(row_desc, offset, limit, state, profile))),
+          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)),
           _row_desc(row_desc) {}
 
 Status TopNSorter::append_block(Block* block) {

@@ -15,32 +15,47 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vec/columns/column_array.h>
-#include <vec/columns/column_object.h>
-#include <vec/common/schema_util.h>
-#include <vec/core/field.h>
-#include <vec/data_types/data_type_array.h>
-#include <vec/data_types/data_type_object.h>
-#include <vec/functions/simple_function_factory.h>
-#include <vec/json/parse2column.h>
+#include "vec/common/schema_util.h"
 
-#include <vec/data_types/data_type_factory.hpp>
+#include <assert.h>
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
-#include "common/compiler_util.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "olap/rowset/rowset_writer_context.h"
+#include "common/config.h"
+#include "olap/olap_common.h"
 #include "runtime/client_cache.h"
-#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/names.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
+#include "vec/functions/simple_function_factory.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris::vectorized::schema_util {
 

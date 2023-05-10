@@ -17,6 +17,16 @@
 
 #include "io/fs/hdfs_file_reader.h"
 
+#include <stdint.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/hdfs_file_system.h"
 #include "service/backend_options.h"

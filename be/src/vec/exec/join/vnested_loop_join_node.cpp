@@ -17,21 +17,50 @@
 
 #include "vec/exec/join/vnested_loop_join_node.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <string.h>
 
+#include <boost/iterator/iterator_facade.hpp>
+#include <functional>
 #include <sstream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <variant>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "exec/exec_node.h"
+#include "exprs/runtime_filter.h"
 #include "exprs/runtime_filter_slots_cross.h"
-#include "gen_cpp/PlanNodes_types.h"
+#include "gutil/integral_types.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_const.h"
-#include "vec/common/typeid_cast.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/utils/template_helpers.hpp"
-#include "vec/utils/util.hpp"
+
+namespace doris {
+class ObjectPool;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -488,6 +517,7 @@ void VNestedLoopJoinNode::_reset_with_next_probe_row() {
         block->get_by_position(i).column->assume_mutable()->clear(); \
     }
 
+// need exception safety
 template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
 void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
         Block* block, int column_to_keep, int build_block_idx, int processed_blocks_num,
@@ -517,6 +547,7 @@ void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
     }
 }
 
+// need exception safety
 template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
 Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block, bool materialize) {
     auto column_to_keep = block->columns();

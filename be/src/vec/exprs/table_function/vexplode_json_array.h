@@ -17,12 +17,26 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "vec/columns/column.h"
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "gutil/integral_types.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
+
+namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -88,6 +102,8 @@ struct ParsedData {
 };
 
 class VExplodeJsonArrayTableFunction final : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VExplodeJsonArrayTableFunction);
+
 public:
     VExplodeJsonArrayTableFunction(ExplodeJsonArrayType type);
     ~VExplodeJsonArrayTableFunction() override = default;

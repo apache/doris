@@ -77,14 +77,6 @@ public class PlanReceiver implements AbstractReceiver {
     HyperGraph hyperGraph;
     final Set<Slot> finalOutputs;
 
-    public PlanReceiver() {
-        throw new RuntimeException("");
-    }
-
-    public PlanReceiver(int limit) {
-        throw new RuntimeException("");
-    }
-
     public PlanReceiver(JobContext jobContext, int limit, HyperGraph hyperGraph, Set<Slot> outputs) {
         this.jobContext = jobContext;
         this.limit = limit;
@@ -95,6 +87,10 @@ public class PlanReceiver implements AbstractReceiver {
 
     /**
      * Emit a new plan from bottom to top
+     * <p>
+     * The purpose of EmitCsgCmp is to combine the optimal plans for S1 and S2 into a csg-cmp-pair.
+     * It requires calculating the proper join predicate and costs of the resulting joins.
+     * In the end, update dpTables.
      *
      * @param left the bitmap of left child tree
      * @param right the bitmap of the right child tree
@@ -179,7 +175,7 @@ public class PlanReceiver implements AbstractReceiver {
         BitSet usedEdgesBitmap = new BitSet();
         usedEdgesBitmap.or(usdEdges.get(left));
         usedEdgesBitmap.or(usdEdges.get(right));
-        edges.stream().forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
+        edges.forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
         long allReferenceNodes = getAllReferenceNodes(usedEdgesBitmap);
 
         // check all edges
@@ -304,8 +300,8 @@ public class PlanReceiver implements AbstractReceiver {
 
     @Override
     public Group getBestPlan(long bitmap) {
-        Preconditions.checkArgument(planTable.containsKey(bitmap));
         Group root = planTable.get(bitmap);
+        Preconditions.checkState(root != null);
         // If there are some rules relied on the logical join, we need to make logical Expression
         // However, it cost 15% of total optimized time.
         makeLogicalExpression(root);

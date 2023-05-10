@@ -17,41 +17,77 @@
 
 #include "vec/sink/vtablet_sink.h"
 
+#include <brpc/http_header.h>
+#include <brpc/http_method.h>
+#include <brpc/uri.h>
+#include <bthread/bthread.h>
+#include <butil/iobuf_inl.h>
 #include <fmt/format.h>
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <sys/param.h>
+#include <sys/types.h>
 
+#include <algorithm>
+#include <iterator>
 #include <mutex>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "olap/hll.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/binary_cast.hpp"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
+#include "util/network_util.h"
 #include "util/proto_util.h"
+#include "util/ref_count_closure.h"
+#include "util/telemetry/telemetry.h"
+#include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+class TExpr;
+
 namespace stream_load {
 
 IndexChannel::~IndexChannel() {
@@ -285,6 +321,7 @@ void VNodeChannel::open() {
     request.set_is_high_priority(_parent->_is_high_priority);
     request.set_sender_ip(BackendOptions::get_localhost());
     request.set_is_vectorized(true);
+    request.set_backend_id(_node_id);
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -419,6 +456,18 @@ Status VNodeChannel::open_wait() {
             _add_batch_counter.add_batch_wait_execution_time_us += result.wait_execution_time_us();
             _add_batch_counter.add_batch_num++;
         }
+        if (result.has_load_channel_profile()) {
+            TRuntimeProfileTree tprofile;
+            const uint8_t* buf = (const uint8_t*)result.load_channel_profile().data();
+            uint32_t len = result.load_channel_profile().size();
+            auto st = deserialize_thrift_msg(buf, &len, false, &tprofile);
+            if (st.ok()) {
+                _state->load_channel_profile()->update(tprofile);
+            } else {
+                LOG(WARNING) << "load channel TRuntimeProfileTree deserialize failed, errmsg="
+                             << st;
+            }
+        }
     });
     return status;
 }
@@ -451,7 +500,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     }
 
     if (UNLIKELY(!_cur_mutable_block)) {
-        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
+        _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
     }
 
     std::unique_ptr<Payload> temp_payload = nullptr;
@@ -535,7 +584,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
                        << " jobid:" << std::to_string(_state->load_job_id())
                        << " loadinfo:" << _load_info;
         }
-        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
+        _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
         _cur_add_block_request.clear_tablet_ids();
     }
 
@@ -823,7 +872,7 @@ void VNodeChannel::mark_close() {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         if (!_cur_mutable_block) {
             // add a dummy block
-            _cur_mutable_block.reset(new vectorized::MutableBlock());
+            _cur_mutable_block = vectorized::MutableBlock::create_unique();
         }
         _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
         _pending_batches_num++;
@@ -1135,11 +1184,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     vectorized::Block block(input_block->get_columns_with_type_and_name());
     if (!_output_vexpr_ctxs.empty()) {
         // Do vectorized expr here to speed up load
-        block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-                _output_vexpr_ctxs, *input_block, status);
-        if (UNLIKELY(block.rows() == 0)) {
-            return status;
-        }
+        RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+                _output_vexpr_ctxs, *input_block, &block));
     }
 
     auto num_rows = block.rows();
@@ -1200,7 +1246,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
             for (size_t i = 0; i < filter_col.size(); ++i) {
                 filter_data[i] = !_filter_bitmap.Get(i);
             }
-            vectorized::Block::filter_block_internal(&block, filter_col, block.columns());
+            RETURN_IF_CATCH_EXCEPTION(
+                    vectorized::Block::filter_block_internal(&block, filter_col, block.columns()));
         }
     }
     // Add block to node channel
@@ -1375,6 +1422,33 @@ DecimalV2Value VOlapTableSink::_get_decimalv2_min_or_max(const TypeDescriptor& t
     return value;
 }
 
+template <typename DecimalType, bool IsMin>
+DecimalType VOlapTableSink::_get_decimalv3_min_or_max(const TypeDescriptor& type) {
+    std::map<int, typename DecimalType::NativeType>* pmap = nullptr;
+    if constexpr (std::is_same_v<DecimalType, vectorized::Decimal32>) {
+        pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
+    } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal64>) {
+        pmap = IsMin ? &_min_decimal64_val : &_max_decimal64_val;
+    } else {
+        pmap = IsMin ? &_min_decimal128_val : &_max_decimal128_val;
+    }
+
+    // found
+    auto iter = pmap->find(type.precision);
+    if (iter != pmap->end()) {
+        return iter->second;
+    }
+
+    typename DecimalType::NativeType value;
+    if constexpr (IsMin) {
+        value = vectorized::min_decimal_value<DecimalType>(type.precision);
+    } else {
+        value = vectorized::max_decimal_value<DecimalType>(type.precision);
+    }
+    pmap->emplace(type.precision, value);
+    return value;
+}
+
 Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescriptor& type,
                                         bool is_nullable, vectorized::ColumnPtr column,
                                         size_t slot_index, Bitmap* filter_bitmap,
@@ -1508,6 +1582,47 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                 }
             }
         }
+        break;
+    }
+    case TYPE_DECIMAL32: {
+#define CHECK_VALIDATION_FOR_DECIMALV3(ColumnDecimalType, DecimalType)                             \
+    auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(   \
+            assert_cast<const vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(          \
+                    real_column_ptr.get()));                                                       \
+    for (size_t j = 0; j < column->size(); ++j) {                                                  \
+        auto row = rows ? (*rows)[j] : j;                                                          \
+        if (row == last_invalid_row) {                                                             \
+            continue;                                                                              \
+        }                                                                                          \
+        if (need_to_validate(j, row)) {                                                            \
+            auto dec_val = column_decimal->get_data()[j];                                          \
+            bool invalid = false;                                                                  \
+            const auto& max_decimal =                                                              \
+                    _get_decimalv3_min_or_max<vectorized::DecimalType, false>(type);               \
+            const auto& min_decimal =                                                              \
+                    _get_decimalv3_min_or_max<vectorized::DecimalType, true>(type);                \
+            if (dec_val > max_decimal || dec_val < min_decimal) {                                  \
+                fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");      \
+                fmt::format_to(error_msg, ", value={}", dec_val);                                  \
+                fmt::format_to(error_msg, ", precision={}, scale={}", type.precision, type.scale); \
+                fmt::format_to(error_msg, ", min={}, max={}; ", min_decimal, max_decimal);         \
+                invalid = true;                                                                    \
+            }                                                                                      \
+            if (invalid) {                                                                         \
+                last_invalid_row = row;                                                            \
+                RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));                            \
+            }                                                                                      \
+        }                                                                                          \
+    }
+        CHECK_VALIDATION_FOR_DECIMALV3(Decimal32, Decimal32);
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        CHECK_VALIDATION_FOR_DECIMALV3(Decimal64, Decimal64);
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        CHECK_VALIDATION_FOR_DECIMALV3(Decimal128I, Decimal128);
         break;
     }
     case TYPE_ARRAY: {

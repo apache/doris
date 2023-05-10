@@ -32,9 +32,8 @@ under the License.
 
 该函数用于from子句中。
 
-语法：
-
-```
+#### syntax
+```sql
 numbers(
   "number" = "n",
   "backend_num" = "m"

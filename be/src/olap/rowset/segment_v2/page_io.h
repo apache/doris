@@ -17,15 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+
 #include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_reader.h"
-#include "olap/iterators.h"
-#include "olap/rowset/segment_v2/encoding_info.h"
-#include "olap/rowset/segment_v2/page_handle.h"
+#include "io/io_common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/slice.h"
 
@@ -34,16 +32,14 @@ namespace doris {
 class BlockCompressionCodec;
 struct OlapReaderStatistics;
 
-namespace fs {
-class ReadableBlock;
-class WritableBlock;
-} // namespace fs
-
 namespace io {
 class FileWriter;
+class FileReader;
 } // namespace io
 
 namespace segment_v2 {
+class EncodingInfo;
+class PageHandle;
 
 struct PageReadOptions {
     // block to read page

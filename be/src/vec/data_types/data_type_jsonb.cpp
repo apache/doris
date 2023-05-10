@@ -17,15 +17,21 @@
 
 #include "data_type_jsonb.h"
 
-#include "gen_cpp/data.pb.h"
+#include <typeinfo>
+#include <utility>
+
+#include "util/jsonb_utils.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
-#include "vec/io/io_helper.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/io/reader_buffer.h"
 
-#ifdef __SSE2__
-#include <emmintrin.h>
-#endif
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

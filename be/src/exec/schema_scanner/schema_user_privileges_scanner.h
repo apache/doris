@@ -17,12 +17,22 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
+
+#include <vector>
+
+#include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 class SchemaUserPrivilegesScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaUserPrivilegesScanner);
+
 public:
     SchemaUserPrivilegesScanner();
     ~SchemaUserPrivilegesScanner() override;

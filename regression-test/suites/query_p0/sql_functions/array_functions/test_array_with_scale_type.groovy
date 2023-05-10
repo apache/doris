@@ -90,5 +90,10 @@ suite("test_array_with_scale_type") {
         qt_select "select array_pushfront(c_array_decimal, cast (25.99 as decimalv3(10,3))) from ${tableName}"
         qt_select "select c_decimal, c_array_decimal, array_pushfront(c_array_decimal, c_decimal) from ${tableName}"
 
+        qt_select  "select array_cum_sum(array(cast (22.99 as decimal), cast (-11.99 as decimal)))"
+        qt_select  "select array_cum_sum(array(cast (22.99 as decimal(10,3)), cast (-11.99 as decimal(10,3))))"
+        qt_select  "select array_cum_sum(array(cast (22.99 as decimal(10,6)), cast (-11.991 as decimal(10,6))))"
+        qt_select  "select array_cum_sum(c_array_decimal) from ${tableName}"
+
         sql "DROP TABLE IF EXISTS ${tableName}"
 }

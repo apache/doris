@@ -17,12 +17,24 @@
 
 #include "olap/schema.h"
 
-#include "olap/uint24.h"
-#include "vec/columns/column_complex.h"
+#include <glog/logging.h>
+
+#include <boost/iterator/iterator_facade.hpp>
+#include <ostream>
+#include <unordered_set>
+#include <utility>
+
+#include "common/config.h"
+#include "runtime/define_primitive_type.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
+#include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {

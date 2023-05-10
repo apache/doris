@@ -17,19 +17,38 @@
 
 #include "vec/sink/vdata_stream_sender.h"
 
+#include <butil/iobuf_inl.h>
 #include <fmt/format.h>
-#include <fmt/ranges.h>
+#include <fmt/ranges.h> // IWYU pragma: keep
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <functional>
+#include <map>
 #include <random>
 
+#include "common/object_pool.h"
 #include "common/status.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "runtime/types.h"
 #include "util/brpc_client_cache.h"
 #include "util/proto_util.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column.h"
 #include "vec/common/sip_hash.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 
@@ -183,7 +202,7 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
 
     if (_mutable_block == nullptr) {
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-        _mutable_block.reset(new MutableBlock(block->clone_empty()));
+        _mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
 
     int row_wait_add = rows.size();

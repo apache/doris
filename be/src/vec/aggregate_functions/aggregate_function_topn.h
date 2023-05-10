@@ -17,22 +17,47 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <algorithm>
+#include <functional>
+#include <iterator>
+#include <memory>
+#include <string>
 #include <type_traits>
-#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+template <typename T>
+class ColumnDecimal;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -183,7 +208,7 @@ struct AggregateFunctionTopNData {
 
     int top_num = 0;
     uint64_t capacity = 0;
-    phmap::flat_hash_map<T, uint64_t> counter_map;
+    flat_hash_map<T, uint64_t> counter_map;
 };
 
 struct AggregateFunctionTopNImplInt {

@@ -17,13 +17,25 @@
 
 #include "vec/exec/vdata_gen_scan_node.h"
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include <sstream>
 
+#include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
+#include "exec/exec_node.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
+#include "vec/core/block.h"
+#include "vec/exec/data_gen_functions/vdata_gen_function_inf.h"
 #include "vec/exec/data_gen_functions/vnumbers_tvf.h"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class ObjectPool;
+class TScanRangeParams;
+} // namespace doris
 
 namespace doris::vectorized {
 

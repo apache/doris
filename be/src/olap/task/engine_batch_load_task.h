@@ -18,22 +18,23 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H
 
-#include <utility>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/MasterService_types.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
+class MemTrackerLimiter;
+class TPushReq;
+class TTabletInfo;
 
 const uint32_t PUSH_MAX_RETRY = 1;
 const uint32_t MAX_RETRY = 3;
 const uint32_t DEFAULT_DOWNLOAD_TIMEOUT = 3600;
-class StorageEngine;
 
 class EngineBatchLoadTask : public EngineTask {
 public:

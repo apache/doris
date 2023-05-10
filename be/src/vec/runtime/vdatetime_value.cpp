@@ -17,16 +17,18 @@
 
 #include "vec/runtime/vdatetime_value.h"
 
+#include <cctz/civil_time.h>
+#include <cctz/time_zone.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-#include <limits>
-#include <sstream>
-#include <valarray>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath>
 
 #include "common/config.h"
-#include "runtime/datetime_value.h"
 #include "util/timezone_utils.h"
 
 namespace doris::vectorized {
@@ -1578,7 +1580,10 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
         // This will change month and year information, maybe date.
         int64_t months = _year * 12 + _month - 1 + sign * (12 * interval.year + interval.month);
         _year = months / 12;
-        if (_year > 9999) {
+        if (months < 0) {
+            return false;
+        }
+        if (_year > MAX_YEAR) {
             return false;
         }
         _month = (months % 12) + 1;
@@ -1795,28 +1800,31 @@ bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uin
 }
 
 template <typename T>
-void DateV2Value<T>::format_datetime(uint32_t* date_val) const {
+void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const {
     // ms
     DCHECK(date_val[6] < 1000000L);
     // hour, minute, second
     for (size_t i = 5; i > 2; i--) {
-        if (date_val[i] == MAX_TIME_PART_VALUE[i - 3] + 1) {
+        if (date_val[i] == MAX_TIME_PART_VALUE[i - 3] + 1 && carry_bits[i + 1]) {
             date_val[i] = 0;
             date_val[i - 1] += 1;
+            carry_bits[i] = true;
         }
     }
     // day
     if (date_val[1] == 2 && doris::is_leap(date_val[0])) {
-        if (date_val[2] == 30) {
+        if (date_val[2] == 30 && carry_bits[3]) {
             date_val[2] = 1;
             date_val[1] += 1;
+            carry_bits[2] = true;
         }
-    } else if (date_val[2] == s_days_in_month[date_val[1]] + 1) {
+    } else if (date_val[2] == s_days_in_month[date_val[1]] + 1 && carry_bits[3]) {
         date_val[2] = 1;
         date_val[1] += 1;
+        carry_bits[2] = true;
     }
     // month
-    if (date_val[1] == 13) {
+    if (date_val[1] == 13 && carry_bits[2]) {
         date_val[1] = 1;
         date_val[0] += 1;
     }
@@ -1833,6 +1841,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
     const static int allow_space_mask = 4 | 64;
     uint32_t date_val[MAX_DATE_PARTS] = {0};
     int32_t date_len[MAX_DATE_PARTS] = {0};
+    bool carry_bits[MAX_DATE_PARTS] = {false};
 
     // Skip space character
     while (ptr < end && isspace(*ptr)) {
@@ -1891,6 +1900,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
                         if (temp_val == 1000000L) {
                             temp_val = 0;
                             date_val[field_idx - 1] += 1;
+                            carry_bits[field_idx] = true;
                         }
                     }
                 }
@@ -1955,7 +1965,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
     }
 
     if (num_field < 3) return false;
-    format_datetime(date_val);
+    format_datetime(date_val, carry_bits);
     return check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
                                     date_val[5], date_val[6]);
 }
@@ -2618,7 +2628,10 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
                          12 * interval.year + interval.month;
         to_value.template set_time_unit<TimeUnit::YEAR>(months / 12);
-        if (to_value.year() > 9999) {
+        if (months < 0) {
+            return false;
+        }
+        if (to_value.year() > MAX_YEAR) {
             return false;
         }
         to_value.template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
@@ -2687,7 +2700,10 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
                          12 * interval.year + interval.month;
         this->template set_time_unit<TimeUnit::YEAR>(months / 12);
-        if (this->year() > 9999) {
+        if (months < 0) {
+            return false;
+        }
+        if (this->year() > MAX_YEAR) {
             return false;
         }
         this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);

@@ -17,21 +17,23 @@
 
 #include "olap/utils.h"
 
-#include <dirent.h>
-#include <errno.h>
-#include <lz4/lz4.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/stat.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <time.h>
 #include <unistd.h>
+#include <zconf.h>
+#include <zlib.h>
 
-#include <cstdint>
+#include <cmath>
 #include <cstring>
-#include <filesystem>
+#include <memory>
 #include <regex>
+#include <set>
+#include <sstream>
 #include <string>
 #include <vector>
+
+#include "util/sse_util.hpp"
 
 #ifdef DORIS_WITH_LZO
 #include <lzo/lzo1c.h>
@@ -42,13 +44,11 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "util/errno.h"
 #include "util/string_parser.hpp"
 
 using std::string;

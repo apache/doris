@@ -32,7 +32,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -385,7 +385,7 @@ public class DppScheduler {
         }
 
         // check input size limit
-        int inputSizeLimitGB = Config.load_input_size_limit_gb;
+        int inputSizeLimitGB = 0;
         if (inputSizeLimitGB != 0) {
             if (totalSizeB > inputSizeLimitGB * GB) {
                 String failMsg = "Input file size[" + (float) totalSizeB / GB + "GB]"

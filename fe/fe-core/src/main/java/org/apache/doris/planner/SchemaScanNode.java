@@ -23,6 +23,7 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticalType;
@@ -103,6 +104,8 @@ public class SchemaScanNode extends ScanNode {
         }
         if (schemaCatalog != null) {
             msg.schema_scan_node.setCatalog(schemaCatalog);
+        } else if (!Config.infodb_support_ext_catalog) {
+            msg.schema_scan_node.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         }
         msg.schema_scan_node.show_hidden_cloumns = Util.showHiddenColumns();
 

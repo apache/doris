@@ -18,22 +18,32 @@
 #pragma once
 
 #include <parallel_hashmap/phmap.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <functional>
 #include <memory>
-#include <string>
+#include <vector>
 
-#include "gen_cpp/segment_v2.pb.h"
+#include "common/status.h"
 #include "gutil/hash/string_hash.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/options.h"
+#include "olap/rowset/segment_v2/page_builder.h"
+#include "olap/rowset/segment_v2/page_decoder.h"
+#include "util/faststring.h"
+#include "util/slice.h"
 #include "vec/common/arena.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+struct StringRef;
+
 namespace segment_v2 {
+enum EncodingTypePB : int;
+template <FieldType Type>
+class BitShufflePageDecoder;
 
 enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 

@@ -250,7 +250,11 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 );
     }
 
+    // TODO aggregate estimation is not accurate enough.
+    //  we choose 3Phase as RBO. Re-open this case when we could compare cost between 2phase and 3phase.
     @Test
+    @Disabled
+    @Developing("reopen this case when we could choose agg phase by CBO")
     public void distinctWithNormalAggregateFunctionApply2PhaseRule() {
         Slot id = rStudent.getOutput().get(0);
         Slot name = rStudent.getOutput().get(2).toSlot();

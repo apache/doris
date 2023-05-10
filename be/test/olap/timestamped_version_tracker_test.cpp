@@ -16,13 +16,28 @@
 // under the License.
 
 #include <cctz/time_zone.h>
-#include <gtest/gtest.h>
+#include <fmt/format.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+#include <stdint.h>
 
-#include <filesystem>
-#include <fstream>
-#include <sstream>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <list>
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
+#include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/substitute.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/version_graph.h"
 

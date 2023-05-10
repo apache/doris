@@ -17,13 +17,23 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <limits.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <algorithm>
+#include <ostream>
 #include <string>
 #include <type_traits>
 
 #include "common/status.h"
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
+#include "olap/decimal12.h"
+#include "olap/olap_common.h"
 #include "olap/types.h"
+#include "util/slice.h"
 
 namespace doris {
 

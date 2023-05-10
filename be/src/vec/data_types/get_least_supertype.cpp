@@ -20,9 +20,20 @@
 
 #include "vec/data_types/get_least_supertype.h"
 
-#include <unordered_set>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
 
 #include "vec/common/typeid_cast.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nothing.h"

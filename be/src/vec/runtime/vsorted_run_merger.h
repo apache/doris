@@ -17,16 +17,23 @@
 
 #pragma once
 
-#include <queue>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <queue>
+#include <vector>
+
+#include "common/status.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/core/sort_cursor.h"
+#include "vec/core/sort_description.h"
 
 namespace doris {
 
-class RuntimeProfile;
-
 namespace vectorized {
-class Block;
+class VExprContext;
+
 // VSortedRunMerger is used to merge multiple sorted runs of blocks. A run is a sorted
 // sequence of blocks, which are fetched from a BlockSupplier function object.
 // Merging is implemented using a binary min-heap that maintains the run with the next

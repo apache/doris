@@ -37,6 +37,7 @@ struct TColumn {
     13: optional bool has_ngram_bf_index = false
     14: optional i32 gram_size
     15: optional i32 gram_bf_size
+    16: optional string aggregation
 }
 
 struct TSlotDescriptor {
@@ -111,6 +112,7 @@ enum TSchemaTableType {
     SCH_VIEWS,
     SCH_INVALID,
     SCH_ROWSETS,
+    SCH_BACKENDS,
     SCH_COLUMN_STATISTICS
 }
 
@@ -204,6 +206,8 @@ struct TOlapTableSchemaParam {
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
     7: optional bool is_dynamic_schema
+    8: optional bool is_partial_update
+    9: optional list<string> partial_update_input_columns
 }
 
 struct TOlapTableIndex {

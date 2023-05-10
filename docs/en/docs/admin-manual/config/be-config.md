@@ -7,7 +7,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -127,17 +127,11 @@ There are two ways to configure BE configuration items:
 * Description: The port of BRPC on BE, used for communication between BEs
 * Default value: 8060
 
-#### `single_replica_load_brpc_port`
+#### `enable_https`
 
-* Type: int32
-* Description: The port of BRPC on BE, used for single replica load. There is a independent BRPC thread pool for the communication between the Master replica and Slave replica during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for data distribution and query tasks when the load concurrency is large.
-* Default value: 9070
-
-#### `single_replica_load_download_port`
-
-* Type: int32
-* Description: The port of http for segment download on BE, used for single replica load. There is a independent HTTP thread pool for the Slave replica to download segments during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for other http tasks when the load concurrency is large.
-* Default value: 8050
+* Type: bool
+* Description: Whether https is supported. If so, configure `ssl_certificate_path` and `ssl_private_key_path` in be.conf.
+* Default value: false
 
 #### `priority_networks`
 
@@ -240,7 +234,7 @@ There are two ways to configure BE configuration items:
 
 * Description: This configuration is mainly used to modify the parameter `socket_max_unwritten_bytes` of brpc.
   - Sometimes the query fails and an error message of `The server is overcrowded` will appear in the BE log. This means there are too many messages to buffer at the sender side, which may happen when the SQL needs to send large bitmap value. You can avoid this error by increasing the configuration.
-    
+
 #### `transfer_large_data_by_brpc`
 
 * Type: bool
@@ -273,7 +267,7 @@ There are two ways to configure BE configuration items:
 
 * Type: string
 * Description:This configuration indicates the service model used by FE's Thrift service. The type is string and is case-insensitive. This parameter needs to be consistent with the setting of fe's thrift_server_type parameter. Currently there are two values for this parameter, `THREADED` and `THREAD_POOL`.
-  
+
     - If the parameter is `THREADED`, the model is a non-blocking I/O model.
 
     - If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
@@ -454,21 +448,21 @@ There are two ways to configure BE configuration items:
 
 #### `vertical_compaction_num_columns_per_group`
 
-* Type: bool
+* Type: int32
 * Description: In vertical compaction, column number for every group
-* Default value: true
+* Default value: 5
 
 #### `vertical_compaction_max_row_source_memory_mb`
 
-* Type: bool
-* Description: In vertical compaction, max memory usage for row_source_buffer
-* Default value: true
+* Type: int32
+* Description: In vertical compaction, max memory usage for row_source_buffer,The unit is MB.
+* Default value: 200
 
 #### `vertical_compaction_max_segment_size`
 
-* Type: bool
-* Description: In vertical compaction, max dest segment file size
-* Default value: true
+* Type: int32
+* Description: In vertical compaction, max dest segment file size, The unit is m bytes.
+* Default value: 268435456
 
 #### `enable_ordered_data_compaction`
 
@@ -478,9 +472,9 @@ There are two ways to configure BE configuration items:
 
 #### `ordered_data_compaction_min_segment_size`
 
-* Type: bool
-* Description: In ordered data compaction, min segment size for input rowset
-* Default value: true
+* Type: int32
+* Description: In ordered data compaction, min segment size for input rowset, The unit is m bytes.
+* Default value: 10485760
 
 #### `max_base_compaction_threads`
 
@@ -622,8 +616,8 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `enable_segcompaction`
 
 * Type: bool
-* Description: Enable to use segment compaction during loading
-* Default value: false
+* Description: Enable to use segment compaction during loading to avoid -238 error
+* Default value: true
 
 #### `segcompaction_threshold_segment_num`
 
@@ -689,18 +683,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The thread pool size of the routine load task. This should be greater than the FE configuration'max_concurrent_task_num_per_be'
 * Default value: 10
 
-#### `single_replica_load_brpc_num_threads`
-
-* Type: int32
-* Description: This configuration is mainly used to modify the number of bthreads for single replica load brpc. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
-* Default value: 64
-
-#### `single_replica_load_download_num_workers`
-
-* Type: int32
-* Description:This configuration is mainly used to modify the number of http threads for segment download, used for single replica load. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
-* Default value: 64
-
 #### `slave_replica_writer_rpc_timeout_sec`
 
 * Type: int32
@@ -724,6 +706,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Type: int32
 * Description: The number of caches for the data consumer used by the routine load.
 * Default value: 10
+
+#### `single_replica_load_download_num_workers`
+
+* Type: int32
+* Description:This configuration is mainly used to modify the number of http worker threads for segment download, used for single replica load. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely. If needed, `webserver_num_workers` should also be increased for better IO performance.
+* Default value: 64
 
 #### `load_task_high_priority_threshold_second`
 

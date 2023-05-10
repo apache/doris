@@ -20,9 +20,13 @@
 
 #include "util/time.h"
 
-#include <chrono>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <cstdlib>
 #include <iomanip>
+#include <ratio>
 #include <sstream>
 #include <thread>
 

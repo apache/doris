@@ -65,17 +65,31 @@ private:
         uint16_t new_size = 0;
         if (column.is_column_dictionary()) {
             auto* dict_col = reinterpret_cast<const vectorized::ColumnDictI32*>(&column);
-            for (uint16_t i = 0; i < size; i++) {
-                uint16_t idx = sel[i];
-                sel[new_size] = idx;
-                if constexpr (is_nullable) {
-                    new_size += !null_map[idx] &&
-                                _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
-                } else {
-                    new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
+            if (_be_exec_version >= 2) {
+                for (uint16_t i = 0; i < size; i++) {
+                    uint16_t idx = sel[i];
+                    sel[new_size] = idx;
+                    if constexpr (is_nullable) {
+                        new_size += !null_map[idx] && _specific_filter->find_uint32_t(
+                                                              dict_col->get_crc32_hash_value(idx));
+                    } else {
+                        new_size += _specific_filter->find_uint32_t(
+                                dict_col->get_crc32_hash_value(idx));
+                    }
+                }
+            } else {
+                for (uint16_t i = 0; i < size; i++) {
+                    uint16_t idx = sel[i];
+                    sel[new_size] = idx;
+                    if constexpr (is_nullable) {
+                        new_size += !null_map[idx] &&
+                                    _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
+                    } else {
+                        new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
+                    }
                 }
             }
-        } else if (IRuntimeFilter::enable_use_batch(_be_exec_version, T)) {
+        } else if (IRuntimeFilter::enable_use_batch(_be_exec_version > 0, T)) {
             const auto& data =
                     reinterpret_cast<
                             const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(

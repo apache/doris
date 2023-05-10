@@ -21,8 +21,29 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_array_serde.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+class PColumnMeta;
+
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -52,6 +73,10 @@ public:
     MutableColumnPtr create_column() const override;
 
     Field get_default() const override;
+
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for array";
+    }
 
     bool equals(const IDataType& rhs) const override;
 
@@ -89,6 +114,10 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeArraySerDe>(nested->get_serde());
+    };
 };
 
 } // namespace doris::vectorized

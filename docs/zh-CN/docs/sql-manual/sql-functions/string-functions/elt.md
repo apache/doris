@@ -26,7 +26,7 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR elt (INT,VARCHAR,...)`
+`VARCHAR elt(INT, VARCHAR,...)`
 
 在指定的索引处返回一个字符串。如果指定的索引处没有字符串，则返回NULL。
 

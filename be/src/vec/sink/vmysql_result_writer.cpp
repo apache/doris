@@ -17,19 +17,52 @@
 
 #include "vec/sink/vmysql_result_writer.h"
 
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
+
+#include <ostream>
+#include <string>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "gutil/integral_types.h"
 #include "olap/hll.h"
 #include "runtime/buffer_control_block.h"
-#include "runtime/jsonb_value.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "util/binary_cast.hpp"
+#include "util/bitmap_value.h"
+#include "util/jsonb_utils.h"
+#include "util/quantile_state.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -556,12 +589,10 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
 
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
-    auto block = VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, input_block,
-                                                                    status);
+    Block block;
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
+                                                                       input_block, &block));
     auto num_rows = block.rows();
-    if (UNLIKELY(num_rows == 0)) {
-        return status;
-    }
     std::vector<MysqlRowBuffer<is_binary_format>> rows_buffer;
     rows_buffer.resize(num_rows);
     if constexpr (is_binary_format) {
@@ -679,7 +710,8 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
         case TYPE_STRING:
         case TYPE_CHAR:
-        case TYPE_VARCHAR: {
+        case TYPE_VARCHAR:
+        case TYPE_AGG_STATE: {
             if (type_ptr->is_nullable()) {
                 status = _add_one_column<PrimitiveType::TYPE_VARCHAR, true>(column_ptr, result,
                                                                             rows_buffer);

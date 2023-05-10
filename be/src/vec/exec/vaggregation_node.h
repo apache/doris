@@ -17,22 +17,63 @@
 
 #pragma once
 
-#include <functional>
-#include <variant>
+#include <assert.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/object_pool.h"
+#include <algorithm>
+#include <functional>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <variant>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/exec_node.h"
+#include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector_helper.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/aggregation_common.h"
+#include "vec/common/allocator.h"
+#include "vec/common/arena.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/fixed_hash_map.h"
+#include "vec/common/hash_table/fixed_hash_table.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
+#include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/uint128.h"
+#include "vec/core/block.h"
+#include "vec/core/block_spill_reader.h"
+#include "vec/core/block_spill_writer.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/exprs/vectorized_agg_fn.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class TPlanNode;
 class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TupleDescriptor;
 
 namespace pipeline {
 class AggSinkOperator;
@@ -42,7 +83,6 @@ class StreamingAggSourceOperator;
 } // namespace pipeline
 
 namespace vectorized {
-class VExprContext;
 
 /** Aggregates by concatenating serialized key values.
   * The serialized value differs in that it uniquely allows to deserialize it, having only the position with which it starts.
@@ -134,6 +174,12 @@ struct AggregationMethodSerialized {
         }
     }
 
+    void reset() {
+        _arena.reset();
+        keys_memory_usage = 0;
+        _serialized_key_buffer_size = 0;
+    }
+
 private:
     size_t _serialized_key_buffer_size;
     uint8_t* _serialized_key_buffer;
@@ -144,8 +190,6 @@ private:
 
 using AggregatedDataWithoutKey = AggregateDataPtr;
 using AggregatedDataWithStringKey = PHHashMap<StringRef, AggregateDataPtr, DefaultHash<StringRef>>;
-using PartitionedAggregatedDataWithStringKey =
-        PHPartitionedHashMap<StringRef, AggregateDataPtr, DefaultHash<StringRef>>;
 using AggregatedDataWithShortStringKey = StringHashMap<AggregateDataPtr>;
 
 template <typename TData>
@@ -405,23 +449,6 @@ using AggregatedDataWithUInt128KeyPhase2 =
 using AggregatedDataWithUInt256KeyPhase2 =
         PHHashMap<UInt256, AggregateDataPtr, HashMixWrapper<UInt256>>;
 
-using PartitionedAggregatedDataWithUInt32Key =
-        PHPartitionedHashMap<UInt32, AggregateDataPtr, HashCRC32<UInt32>>;
-using PartitionedAggregatedDataWithUInt64Key =
-        PHPartitionedHashMap<UInt64, AggregateDataPtr, HashCRC32<UInt64>>;
-using PartitionedAggregatedDataWithUInt128Key =
-        PHPartitionedHashMap<UInt128, AggregateDataPtr, HashCRC32<UInt128>>;
-using PartitionedAggregatedDataWithUInt256Key =
-        PHPartitionedHashMap<UInt256, AggregateDataPtr, HashCRC32<UInt256>>;
-using PartitionedAggregatedDataWithUInt32KeyPhase2 =
-        PHPartitionedHashMap<UInt32, AggregateDataPtr, HashMixWrapper<UInt32>>;
-using PartitionedAggregatedDataWithUInt64KeyPhase2 =
-        PHPartitionedHashMap<UInt64, AggregateDataPtr, HashMixWrapper<UInt64>>;
-using PartitionedAggregatedDataWithUInt128KeyPhase2 =
-        PHPartitionedHashMap<UInt128, AggregateDataPtr, HashMixWrapper<UInt128>>;
-using PartitionedAggregatedDataWithUInt256KeyPhase2 =
-        PHPartitionedHashMap<UInt256, AggregateDataPtr, HashMixWrapper<UInt256>>;
-
 using AggregatedDataWithNullableUInt8Key = AggregationDataWithNullKey<AggregatedDataWithUInt8Key>;
 using AggregatedDataWithNullableUInt16Key = AggregationDataWithNullKey<AggregatedDataWithUInt16Key>;
 using AggregatedDataWithNullableUInt32Key = AggregationDataWithNullKey<AggregatedDataWithUInt32Key>;
@@ -436,19 +463,6 @@ using AggregatedDataWithNullableUInt128Key =
         AggregationDataWithNullKey<AggregatedDataWithUInt128Key>;
 using AggregatedDataWithNullableUInt128KeyPhase2 =
         AggregationDataWithNullKey<AggregatedDataWithUInt128KeyPhase2>;
-
-using PartitionedAggregatedDataWithNullableUInt32Key =
-        AggregationDataWithNullKey<PartitionedAggregatedDataWithUInt32Key>;
-using PartitionedAggregatedDataWithNullableUInt64Key =
-        AggregationDataWithNullKey<PartitionedAggregatedDataWithUInt64Key>;
-using PartitionedAggregatedDataWithNullableUInt32KeyPhase2 =
-        AggregationDataWithNullKey<PartitionedAggregatedDataWithUInt32KeyPhase2>;
-using PartitionedAggregatedDataWithNullableUInt64KeyPhase2 =
-        AggregationDataWithNullKey<PartitionedAggregatedDataWithUInt64KeyPhase2>;
-using PartitionedAggregatedDataWithNullableUInt128Key =
-        AggregationDataWithNullKey<PartitionedAggregatedDataWithUInt128Key>;
-using PartitionedAggregatedDataWithNullableUInt128KeyPhase2 =
-        AggregationDataWithNullKey<PartitionedAggregatedDataWithUInt128KeyPhase2>;
 
 using AggregatedMethodVariants = std::variant<
         AggregationMethodSerialized<AggregatedDataWithStringKey>,
@@ -490,38 +504,7 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, false>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, true>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, false>,
-        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, true>,
-        AggregationMethodSerialized<PartitionedAggregatedDataWithStringKey>,
-        AggregationMethodOneNumber<UInt32, PartitionedAggregatedDataWithUInt32Key>,
-        AggregationMethodOneNumber<UInt64, PartitionedAggregatedDataWithUInt64Key>,
-        AggregationMethodOneNumber<UInt128, PartitionedAggregatedDataWithUInt128Key>,
-        AggregationMethodOneNumber<UInt32, PartitionedAggregatedDataWithUInt32KeyPhase2>,
-        AggregationMethodOneNumber<UInt64, PartitionedAggregatedDataWithUInt64KeyPhase2>,
-        AggregationMethodOneNumber<UInt128, PartitionedAggregatedDataWithUInt128KeyPhase2>,
-        AggregationMethodSingleNullableColumn<
-                AggregationMethodOneNumber<UInt32, PartitionedAggregatedDataWithNullableUInt32Key>>,
-        AggregationMethodSingleNullableColumn<
-                AggregationMethodOneNumber<UInt64, PartitionedAggregatedDataWithNullableUInt64Key>>,
-        AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                UInt32, PartitionedAggregatedDataWithNullableUInt32KeyPhase2>>,
-        AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                UInt64, PartitionedAggregatedDataWithNullableUInt64KeyPhase2>>,
-        AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                UInt128, PartitionedAggregatedDataWithNullableUInt128Key>>,
-        AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                UInt128, PartitionedAggregatedDataWithNullableUInt128KeyPhase2>>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt64Key, false>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt64Key, true>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt128Key, false>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt128Key, true>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt256Key, false>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt256Key, true>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt64KeyPhase2, false>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt64KeyPhase2, true>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt128KeyPhase2, false>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt128KeyPhase2, true>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt256KeyPhase2, false>,
-        AggregationMethodKeysFixed<PartitionedAggregatedDataWithUInt256KeyPhase2, true>>;
+        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, true>>;
 
 struct AggregatedDataVariants {
     AggregatedDataVariants() = default;
@@ -529,7 +512,6 @@ struct AggregatedDataVariants {
     AggregatedDataVariants& operator=(const AggregatedDataVariants&) = delete;
     AggregatedDataWithoutKey without_key = nullptr;
     AggregatedMethodVariants _aggregated_method_variant;
-    bool _enable_partitioned_hash_table = false;
 
     // TODO: may we should support uint256 in the future
     enum class Type {
@@ -555,23 +537,14 @@ struct AggregatedDataVariants {
 
     Type _type = Type::EMPTY;
 
-    void set_enable_partitioned_hash_table(bool enabled) {
-        _enable_partitioned_hash_table = enabled;
-    }
-
     void init(Type type, bool is_nullable = false) {
         _type = type;
         switch (_type) {
         case Type::without_key:
             break;
         case Type::serialized:
-            if (_enable_partitioned_hash_table) {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodSerialized<PartitionedAggregatedDataWithStringKey>>();
-            } else {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodSerialized<AggregatedDataWithStringKey>>();
-            }
+            _aggregated_method_variant
+                    .emplace<AggregationMethodSerialized<AggregatedDataWithStringKey>>();
             break;
         case Type::int8_key:
             if (is_nullable) {
@@ -592,246 +565,123 @@ struct AggregatedDataVariants {
             }
             break;
         case Type::int32_key:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt32, PartitionedAggregatedDataWithNullableUInt32Key>>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodOneNumber<
-                            UInt32, PartitionedAggregatedDataWithUInt32Key>>();
-                }
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
+                        AggregationMethodOneNumber<UInt32, AggregatedDataWithNullableUInt32Key>>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt32, AggregatedDataWithNullableUInt32Key>>>();
-                } else {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32Key>>();
-                }
+                _aggregated_method_variant
+                        .emplace<AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32Key>>();
             }
             break;
         case Type::int32_key_phase2:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt32,
-                                    PartitionedAggregatedDataWithNullableUInt32KeyPhase2>>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodOneNumber<
-                            UInt32, PartitionedAggregatedDataWithUInt32KeyPhase2>>();
-                }
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
+                                UInt32, AggregatedDataWithNullableUInt32KeyPhase2>>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt32, AggregatedDataWithNullableUInt32KeyPhase2>>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodOneNumber<
-                            UInt32, AggregatedDataWithUInt32KeyPhase2>>();
-                }
+                _aggregated_method_variant.emplace<
+                        AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32KeyPhase2>>();
             }
             break;
         case Type::int64_key:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt64, PartitionedAggregatedDataWithNullableUInt64Key>>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodOneNumber<
-                            UInt64, PartitionedAggregatedDataWithUInt64Key>>();
-                }
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
+                        AggregationMethodOneNumber<UInt64, AggregatedDataWithNullableUInt64Key>>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt64, AggregatedDataWithNullableUInt64Key>>>();
-                } else {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64Key>>();
-                }
+                _aggregated_method_variant
+                        .emplace<AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64Key>>();
             }
             break;
         case Type::int64_key_phase2:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt64,
-                                    PartitionedAggregatedDataWithNullableUInt64KeyPhase2>>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodOneNumber<
-                            UInt64, PartitionedAggregatedDataWithUInt64KeyPhase2>>();
-                }
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
+                                UInt64, AggregatedDataWithNullableUInt64KeyPhase2>>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt64, AggregatedDataWithNullableUInt64KeyPhase2>>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodOneNumber<
-                            UInt64, AggregatedDataWithUInt64KeyPhase2>>();
-                }
+                _aggregated_method_variant.emplace<
+                        AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64KeyPhase2>>();
             }
             break;
         case Type::int128_key:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt128, PartitionedAggregatedDataWithNullableUInt128Key>>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodOneNumber<
-                            UInt128, PartitionedAggregatedDataWithUInt128Key>>();
-                }
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
+                                UInt128, AggregatedDataWithNullableUInt128Key>>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt128, AggregatedDataWithNullableUInt128Key>>>();
-                } else {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128Key>>();
-                }
+                _aggregated_method_variant.emplace<
+                        AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128Key>>();
             }
             break;
         case Type::int128_key_phase2:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt128,
-                                    PartitionedAggregatedDataWithNullableUInt128KeyPhase2>>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodOneNumber<
-                            UInt128, PartitionedAggregatedDataWithUInt128KeyPhase2>>();
-                }
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
+                                UInt128, AggregatedDataWithNullableUInt128KeyPhase2>>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                    UInt128, AggregatedDataWithNullableUInt128KeyPhase2>>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodOneNumber<
-                            UInt128, AggregatedDataWithUInt128KeyPhase2>>();
-                }
+                _aggregated_method_variant.emplace<
+                        AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128KeyPhase2>>();
             }
             break;
         case Type::int64_keys:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt64Key, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt64Key, false>>();
-                }
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, true>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, false>>();
-                }
+                _aggregated_method_variant
+                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, false>>();
             }
             break;
         case Type::int64_keys_phase2:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt64KeyPhase2, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt64KeyPhase2, false>>();
-                }
+
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, true>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, false>>();
-                }
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, false>>();
             }
+
             break;
         case Type::int128_keys:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt128Key, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt128Key, false>>();
-                }
+
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, true>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, false>>();
-                }
+                _aggregated_method_variant
+                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, false>>();
             }
             break;
         case Type::int128_keys_phase2:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt128KeyPhase2, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt128KeyPhase2, false>>();
-                }
+
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, true>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            AggregatedDataWithUInt128KeyPhase2, false>>();
-                }
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, false>>();
             }
+
             break;
         case Type::int256_keys:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt256Key, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt256Key, false>>();
-                }
+
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, true>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, false>>();
-                }
+                _aggregated_method_variant
+                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, false>>();
             }
+
             break;
         case Type::int256_keys_phase2:
-            if (_enable_partitioned_hash_table) {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt256KeyPhase2, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            PartitionedAggregatedDataWithUInt256KeyPhase2, false>>();
-                }
+
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, true>>();
             } else {
-                if (is_nullable) {
-                    _aggregated_method_variant.emplace<
-                            AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, true>>();
-                } else {
-                    _aggregated_method_variant.emplace<AggregationMethodKeysFixed<
-                            AggregatedDataWithUInt256KeyPhase2, false>>();
-                }
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, false>>();
             }
             break;
         case Type::string_key:
@@ -974,6 +824,44 @@ private:
     bool _inited = false;
 };
 
+struct AggSpillContext {
+    bool has_data = false;
+    bool readers_prepared = false;
+
+    /// stream ids of writers/readers
+    std::vector<int64_t> stream_ids;
+    std::vector<BlockSpillReaderUPtr> readers;
+    RuntimeProfile* runtime_profile;
+
+    size_t read_cursor {};
+
+    Status prepare_for_reading();
+
+    ~AggSpillContext() {
+        for (auto& reader : readers) {
+            if (reader) {
+                reader->close();
+                reader.reset();
+            }
+        }
+    }
+};
+
+struct SpillPartitionHelper {
+    const size_t partition_count_bits;
+    const size_t partition_count;
+    const size_t max_partition_index;
+
+    SpillPartitionHelper(const size_t partition_count_bits_)
+            : partition_count_bits(partition_count_bits_),
+              partition_count(1 << partition_count_bits),
+              max_partition_index(partition_count - 1) {}
+
+    size_t get_index(size_t hash_value) const {
+        return (hash_value >> (32 - partition_count_bits)) & max_partition_index;
+    }
+};
+
 // not support spill
 class AggregationNode final : public ::doris::ExecNode {
 public:
@@ -1019,7 +907,6 @@ private:
     bool _is_merge;
     bool _is_first_phase;
     bool _use_fixed_length_serialization_opt;
-    bool _partitioned_hash_table_enabled;
     std::unique_ptr<Arena> _agg_profile_arena;
 
     size_t _align_aggregate_states = 1;
@@ -1028,7 +915,13 @@ private:
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
 
+    size_t _external_agg_bytes_threshold;
+    size_t _partitioned_threshold = 0;
+
     AggregatedDataVariantsUPtr _agg_data;
+
+    AggSpillContext _spill_context;
+    std::unique_ptr<SpillPartitionHelper> _spill_partition_helper;
 
     ArenaUPtr _agg_arena_pool;
 
@@ -1089,7 +982,18 @@ private:
     void _close_without_key();
 
     Status _get_with_serialized_key_result(RuntimeState* state, Block* block, bool* eos);
+    Status _get_result_with_serialized_key_non_spill(RuntimeState* state, Block* block, bool* eos);
+
+    Status _merge_spilt_data();
+
+    Status _get_result_with_spilt_data(RuntimeState* state, Block* block, bool* eos);
+
     Status _serialize_with_serialized_key_result(RuntimeState* state, Block* block, bool* eos);
+    Status _serialize_with_serialized_key_result_non_spill(RuntimeState* state, Block* block,
+                                                           bool* eos);
+    Status _serialize_with_serialized_key_result_with_spilt_data(RuntimeState* state, Block* block,
+                                                                 bool* eos);
+
     Status _pre_agg_with_serialized_key(Block* in_block, Block* out_block);
     Status _execute_with_serialized_key(Block* block);
     Status _merge_with_serialized_key(Block* block);
@@ -1171,7 +1075,7 @@ private:
         return ((VSlotRef*)ctxs[0]->root())->column_id();
     }
 
-    template <bool limit>
+    template <bool limit, bool for_spill = false>
     Status _merge_with_serialized_key_helper(Block* block) {
         SCOPED_TIMER(_merge_timer);
 
@@ -1179,10 +1083,14 @@ private:
         ColumnRawPtrs key_columns(key_size);
 
         for (size_t i = 0; i < key_size; ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
-            block->replace_by_position_if_const(result_column_id);
-            key_columns[i] = block->get_by_position(result_column_id).column.get();
+            if constexpr (for_spill) {
+                key_columns[i] = block->get_by_position(i).column.get();
+            } else {
+                int result_column_id = -1;
+                RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
+                block->replace_by_position_if_const(result_column_id);
+                key_columns[i] = block->get_by_position(result_column_id).column.get();
+            }
         }
 
         int rows = block->rows();
@@ -1217,13 +1125,15 @@ private:
                                 _deserialize_buffer.data(), (ColumnString*)(column.get()),
                                 _agg_arena_pool.get(), rows);
                     }
+
+                    DEFER({
+                        _aggregate_evaluators[i]->function()->destroy_vec(
+                                _deserialize_buffer.data(), rows);
+                    });
+
                     _aggregate_evaluators[i]->function()->merge_vec_selected(
                             _places.data(), _offsets_of_aggregate_states[i],
                             _deserialize_buffer.data(), _agg_arena_pool.get(), rows);
-
-                    _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
-                                                                      rows);
-
                 } else {
                     RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add_selected(
                             block, _offsets_of_aggregate_states[i], _places.data(),
@@ -1234,8 +1144,13 @@ private:
             _emplace_into_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                if (_aggregate_evaluators[i]->is_merge()) {
-                    int col_id = _get_slot_column_id(_aggregate_evaluators[i]);
+                if (_aggregate_evaluators[i]->is_merge() || for_spill) {
+                    int col_id;
+                    if constexpr (for_spill) {
+                        col_id = _probe_expr_ctxs.size() + i;
+                    } else {
+                        col_id = _get_slot_column_id(_aggregate_evaluators[i]);
+                    }
                     auto column = block->get_by_position(col_id).column;
                     if (column->is_nullable()) {
                         column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
@@ -1257,13 +1172,15 @@ private:
                                 _deserialize_buffer.data(), (ColumnString*)(column.get()),
                                 _agg_arena_pool.get(), rows);
                     }
+
+                    DEFER({
+                        _aggregate_evaluators[i]->function()->destroy_vec(
+                                _deserialize_buffer.data(), rows);
+                    });
+
                     _aggregate_evaluators[i]->function()->merge_vec(
                             _places.data(), _offsets_of_aggregate_states[i],
                             _deserialize_buffer.data(), _agg_arena_pool.get(), rows);
-
-                    _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
-                                                                      rows);
-
                 } else {
                     RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
                             block, _offsets_of_aggregate_states[i], _places.data(),
@@ -1281,6 +1198,19 @@ private:
 
     void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                   const size_t num_rows);
+
+    size_t _memory_usage() const;
+
+    Status _reset_hash_table();
+
+    Status _try_spill_disk(bool eos = false);
+
+    template <typename HashTableCtxType, typename HashTableType, typename KeyType>
+    Status _serialize_hash_table_to_block(HashTableCtxType& context, HashTableType& hash_table,
+                                          Block& block, std::vector<KeyType>& keys);
+
+    template <typename HashTableCtxType, typename HashTableType>
+    Status _spill_hash_table(HashTableCtxType& agg_method, HashTableType& hash_table);
 
     void _find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns, size_t num_rows);
 

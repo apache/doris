@@ -20,17 +20,39 @@
 
 #pragma once
 
-#include <cstddef>
-#include <initializer_list>
-#include <type_traits>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
 
+#include <cstddef>
+#include <functional>
+#include <initializer_list>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
-#include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

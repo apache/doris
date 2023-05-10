@@ -17,14 +17,28 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include <memory>
+#include <vector>
+
+#include "common/factory_creator.h"
 #include "common/status.h"
-#include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
 #include "vec/core/block.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 class VExpr;
 
 class VExprContext {
+    ENABLE_FACTORY_CREATOR(VExprContext);
+
 public:
     VExprContext(VExpr* expr);
     ~VExprContext();
@@ -54,11 +68,16 @@ public:
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
                                              int column_to_keep);
-    [[nodiscard]] static Status filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr,
-                                             Block* block, int column_to_keep);
+    [[nodiscard]] static Status execute_conjuncts(const std::vector<VExprContext*>& ctxs,
+                                                  const std::vector<IColumn::Filter*>* filters,
+                                                  Block* block, IColumn::Filter* result_filter,
+                                                  bool* can_filter_all);
+    [[nodiscard]] static Status execute_conjuncts_and_filter_block(
+            const std::vector<VExprContext*>& ctxs, const std::vector<IColumn::Filter*>* filters,
+            Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep);
 
-    static Block get_output_block_after_execute_exprs(const std::vector<vectorized::VExprContext*>&,
-                                                      const Block&, Status&);
+    [[nodiscard]] static Status get_output_block_after_execute_exprs(
+            const std::vector<vectorized::VExprContext*>&, const Block&, Block*);
 
     int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);

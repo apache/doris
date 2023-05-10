@@ -17,9 +17,26 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <typeinfo>
+
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_fixedlengthobject_serde.h"
 #include "vec/columns/column_fixed_length_object.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -43,6 +60,10 @@ public:
 
     Field get_default() const override { return String(); }
 
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for DataTypeFixedLengthObject";
+    }
+
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
@@ -61,6 +82,9 @@ public:
 
     bool is_categorial() const override { return is_value_represented_by_integer(); }
     bool can_be_inside_low_cardinality() const override { return false; }
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeFixedLengthObjectSerDe>();
+    };
 };
 
 } // namespace doris::vectorized

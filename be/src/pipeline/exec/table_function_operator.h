@@ -17,8 +17,16 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include "common/status.h"
 #include "operator.h"
 #include "vec/exec/vtable_function_node.h"
+
+namespace doris {
+class ExecNode;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::pipeline {
 

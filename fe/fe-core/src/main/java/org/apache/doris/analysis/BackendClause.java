@@ -24,7 +24,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.List;
 import java.util.Map;
@@ -59,11 +59,11 @@ public class BackendClause extends AlterClause {
 
     @Override
     public String toSql() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("Not support toSql for BackendClause");
     }
 
     @Override
     public Map<String, String> getProperties() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("Not support getProperties for BackendClause");
     }
 }

@@ -20,12 +20,43 @@
 
 #include "vec/data_types/data_type_factory.hpp"
 
+#include <arrow/type.h>
+#include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
 #include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <ostream>
+
+#include "common/consts.h"
 #include "data_type_time.h"
+#include "olap/field.h"
+#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/common/uint128.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_agg_state.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_quantilestate.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_time_v2.h"
 
 namespace doris::vectorized {
 
@@ -145,6 +176,14 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_LAMBDA_FUNCTION:
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
+    case TYPE_AGG_STATE:
+        nested = std::make_shared<vectorized::DataTypeAggState>();
+        for (size_t i = 0; i < col_desc.children.size(); i++) {
+            ((DataTypeAggState*)nested.get())
+                    ->add_sub_type(
+                            create_data_type(col_desc.children[i], col_desc.contains_nulls[i]));
+        }
+        break;
     case TYPE_JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();
         break;
@@ -256,6 +295,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::DateV2:
         nested = std::make_shared<vectorized::DataTypeDateV2>();
         break;
+    case TypeIndex::Time:
+        nested = std::make_shared<DataTypeTime>();
+        break;
     case TypeIndex::DateTimeV2:
         nested = std::make_shared<DataTypeDateTimeV2>();
         break;
@@ -294,8 +336,11 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::TimeV2:
         nested = std::make_shared<vectorized::DataTypeTime>();
         break;
+    case TypeIndex::AggState:
+        nested = std::make_shared<vectorized::DataTypeAggState>();
+        break;
     default:
-        DCHECK(false) << "invalid typeindex:" << static_cast<int16_t>(type_index);
+        DCHECK(false) << "invalid typeindex:" << getTypeName(type_index);
         break;
     }
 
@@ -349,6 +394,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_STRING:
         result = std::make_shared<vectorized::DataTypeString>();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
+        result = std::make_shared<vectorized::DataTypeAggState>();
         break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<vectorized::DataTypeJsonb>();
@@ -490,6 +538,17 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     }
     case PGenericType::QUANTILE_STATE: {
         nested = std::make_shared<DataTypeQuantileStateDouble>();
+        break;
+    }
+    case PGenericType::TIME: {
+        nested = std::make_shared<DataTypeTime>();
+        break;
+    }
+    case PGenericType::AGG_STATE: {
+        nested = std::make_shared<DataTypeAggState>();
+        for (auto child : pcolumn.children()) {
+            ((DataTypeAggState*)nested.get())->add_sub_type(create_data_type(child));
+        }
         break;
     }
     default: {

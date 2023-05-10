@@ -17,24 +17,36 @@
 
 #pragma once
 
-#include <map>
+#include <butil/macros.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <stdint.h>
+
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "common/object_pool.h"
+#include "common/status.h"
 #include "exec/base_scanner.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/MasterService_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/row_cursor.h"
 #include "olap/rowset/rowset.h"
+#include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
-struct ColumnMapping;
-class RowCursor;
+class DescriptorTbl;
+class RuntimeProfile;
+class Schema;
+class TBrokerScanRange;
+class TDescriptorTable;
+class TTabletInfo;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 class PushHandler {
 public:

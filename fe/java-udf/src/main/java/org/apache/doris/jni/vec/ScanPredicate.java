@@ -21,7 +21,7 @@ import org.apache.doris.jni.utils.OffHeap;
 import org.apache.doris.jni.utils.TypeNativeBytes;
 import org.apache.doris.jni.vec.ColumnType.Type;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;

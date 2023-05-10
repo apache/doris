@@ -17,29 +17,44 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/util/BitSet.h>
 #include <CLucene/util/bkd/bkd_reader.h>
+#include <stdint.h>
 
-#include <roaring/roaring.hh>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 #include "olap/inverted_index_parser.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/tablet_schema.h"
+
+namespace lucene {
+namespace store {
+class Directory;
+} // namespace store
+namespace util {
+namespace bkd {
+class bkd_docid_set_iterator;
+} // namespace bkd
+} // namespace util
+} // namespace lucene
+namespace roaring {
+class Roaring;
+} // namespace roaring
 
 namespace doris {
 class KeyCoder;
 class TypeInfo;
+struct OlapReaderStatistics;
 
 namespace segment_v2 {
 
 class InvertedIndexIterator;
+class InvertedIndexQueryCacheHandle;
 
 enum class InvertedIndexReaderType {
     UNKNOWN = -1,
@@ -76,6 +91,9 @@ public:
     virtual Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
                              InvertedIndexParserType analyser_type, uint32_t* count) = 0;
+
+    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+                            lucene::store::Directory* dir = nullptr);
 
     virtual InvertedIndexReaderType type() = 0;
     bool indexExists(io::Path& index_file_path);
@@ -218,6 +236,11 @@ public:
                                     roaring::Roaring* bit_map, bool skip_try = false);
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
+
+    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+                            lucene::store::Directory* dir = nullptr) {
+        return _reader->read_null_bitmap(cache_handle, dir);
+    }
 
     InvertedIndexParserType get_inverted_index_analyser_type() const;
 

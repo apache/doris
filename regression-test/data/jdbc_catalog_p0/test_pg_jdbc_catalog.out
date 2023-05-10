@@ -2136,6 +2136,9 @@ true	abc	def	2022-10-11	1.234	1	2	99	2022-10-22T10:59:59	34.123
 1	980dd890-f7fe-4fff-999d-873516108b2e
 2	980dd890-f7fe-4fff-999d-873516108b2e
 
+-- !wkb_test --
+1	\\x01030000000100000005000000000000000000000000000000000000000000000000000000000000000000f03f000000000000f03f000000000000f03f000000000000f03f000000000000000000000000000000000000000000000000
+
 -- !test_insert1 --
 doris1	18
 
@@ -2149,11 +2152,20 @@ doris2	19
 doris3	20
 doris3	20
 
--- !specified_database --
+-- !specified_database_1 --
 doris_test
 
--- !specified_database --
+-- !specified_database_2 --
 doris_test
+
+-- !specified_database_3 --
+catalog_pg_test
+information_schema
+pg_catalog
+pg_toast
+public
+
+-- !specified_database_4 --
 
 -- !test_old --
 123	abc

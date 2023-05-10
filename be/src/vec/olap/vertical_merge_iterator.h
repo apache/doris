@@ -15,16 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <glog/logging.h>
+#include <stdint.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <list>
+#include <memory>
+#include <queue>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/iterators.h"
+#include "olap/olap_common.h"
 #include "olap/schema.h"
+#include "olap/utils.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 
 #pragma once
 
 namespace doris {
+enum KeysType : int;
 
 namespace vectorized {
 

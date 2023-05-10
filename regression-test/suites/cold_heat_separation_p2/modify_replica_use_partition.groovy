@@ -43,7 +43,7 @@ suite("modify_replica_use_partition") {
             data_sizes[0] = obj.local_data_size
             data_sizes[1] = obj.remote_data_size
         }
-        fetchBeHttp(clos, meta_url)
+        fetchBeHttp(clos, meta_url.replace("header", "data_size"))
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
@@ -401,7 +401,7 @@ suite("modify_replica_use_partition") {
             PARTITION BY RANGE(`L_SHIPDATE`)
             (
                 PARTITION `p202301` VALUES LESS THAN ("2017-02-01") ("replication_num" = "3"),
-                PARTITION `p202302` VALUES LESS THAN ("2017-03-01") ("replication_num" = "1"),
+                PARTITION `p202302` VALUES LESS THAN ("2017-03-01") ("replication_num" = "1")
             )
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
             PROPERTIES (

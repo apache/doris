@@ -20,11 +20,13 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.ImmutableSet;
@@ -83,7 +85,12 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         locationProperties = S3Properties.credentialToMap(credential);
         String usePathStyle = tvfParams.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
-        parseFile();
+        if (FeConstants.runningUnitTest) {
+            // Just check
+            FileSystemFactory.getS3FileSystem(locationProperties);
+        } else {
+            parseFile();
+        }
     }
 
     private static Map<String, String> getValidParams(Map<String, String> params) throws AnalysisException {

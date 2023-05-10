@@ -30,8 +30,7 @@ under the License.
 
 `ARRAY<INT> multi_search_all_positions(VARCHAR haystack, ARRAY<VARCHAR> needles)`
 
-
-搜索字符串 `haystack` 中的子字符串 `needles`，并返回在 `haystack` 中找到的相应 `needles` 的位置数组。位置的下标从 1 开始。
+返回一个 `ARRAY`，其中第 `i` 个元素为 `needles` 中第 `i` 个元素 `needle`，在字符串 `haystack` 中**首次**出现的位置。位置从1开始计数，0代表未找到该元素。**大小写敏感**。
 
 ### example
 
@@ -43,12 +42,13 @@ mysql> select multi_search_all_positions('Hello, World!', ['hello', '!', 'world'
 | [0,13,0]                                                             |
 +----------------------------------------------------------------------+
 
-mysql> select multi_search_all_positions('abc', ['a', 'bc', 'd']);
-+-----------------------------------------------------+
-| multi_search_all_positions('abc', ['a', 'bc', 'd']) |
-+-----------------------------------------------------+
-| [1,2,0]                                             |
-+-----------------------------------------------------+
+select multi_search_all_positions("Hello, World!", ['hello', '!', 'world', 'Hello', 'World']);
++---------------------------------------------------------------------------------------------+
+| multi_search_all_positions('Hello, World!', ARRAY('hello', '!', 'world', 'Hello', 'World')) |
++---------------------------------------------------------------------------------------------+
+| [0, 13, 0, 1, 8]                                                                            |
++---------------------------------------------------------------------------------------------+
 ```
+
 ### keywords
     MULTI_SEARCH,SEARCH,POSITIONS

@@ -23,13 +23,14 @@
 // TODO: Readable
 
 #include <fmt/format.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/chunk.h"
 #include "runtime/memory/chunk_allocator.h"
-#include "runtime/thread_context.h"
+#include "util/sse_util.hpp"
 
 #ifdef NDEBUG
 #define ALLOCATOR_ASLR 0
@@ -38,7 +39,6 @@
 #endif
 
 #if !defined(__APPLE__) && !defined(__FreeBSD__)
-#include <malloc.h>
 #else
 #define _DARWIN_C_SOURCE
 #endif
@@ -47,14 +47,15 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <string>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef THREAD_SANITIZER
 /// Thread sanitizer does not intercept mremap. The usage of mremap will lead to false positives.
 #define DISABLE_MREMAP 1
 #endif
 #include "common/exception.h"
-#include "vec/common/allocator_fwd.h"
 #include "vec/common/mremap.h"
 
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS
@@ -62,21 +63,6 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
-#ifdef NDEBUG
-/**
-  * Many modern allocators (for example, tcmalloc) do not do a mremap for
-  * realloc, even in case of large enough chunks of memory. Although this allows
-  * you to increase performance and reduce memory consumption during realloc.
-  * To fix this, we do mremap manually if the chunk of memory is large enough.
-  * The threshold (64 MB) is chosen quite large, since changing the address
-  * space is very slow, especially in the case of a large number of threads. We
-  * expect that the set of operations mmap/something to do/mremap can only be
-  * performed about 1000 times per second.
-  *
-  * P.S. This is also required, because tcmalloc can not allocate a chunk of
-  * memory greater than 16 GB.
-  */
-static constexpr size_t MMAP_THRESHOLD = 64 * (1ULL << 20);
 /**
  * Memory allocation between 4KB and 64MB will be through ChunkAllocator,
  * those less than 4KB will be through malloc (for example, tcmalloc),
@@ -87,36 +73,9 @@ static constexpr size_t MMAP_THRESHOLD = 64 * (1ULL << 20);
  * by more detailed test later.
   */
 static constexpr size_t CHUNK_THRESHOLD = 4096;
-#else
-/**
-  * In debug build, use small mmap threshold to reproduce more memory
-  * stomping bugs. Along with ASLR it will hopefully detect more issues than
-  * ASan. The program may fail due to the limit on number of memory mappings.
-  */
-static constexpr size_t MMAP_THRESHOLD = 4096;
-static constexpr size_t CHUNK_THRESHOLD = 1024;
-#endif
 
 static constexpr size_t MMAP_MIN_ALIGNMENT = 4096;
 static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
-
-#define RETURN_BAD_ALLOC(err)                                       \
-    do {                                                            \
-        LOG(WARNING) << err;                                        \
-        if (!doris::enable_thread_catch_bad_alloc)                  \
-            doris::MemTrackerLimiter::print_log_process_usage(err); \
-        throw std::bad_alloc {};                                    \
-    } while (0)
-
-#define RETURN_BAD_ALLOC_IF_PRE_CATCH(err)                          \
-    do {                                                            \
-        LOG(WARNING) << err;                                        \
-        if (!doris::enable_thread_catch_bad_alloc) {                \
-            doris::MemTrackerLimiter::print_log_process_usage(err); \
-        } else {                                                    \
-            throw std::bad_alloc {};                                \
-        }                                                           \
-    } while (0)
 
 /** Responsible for allocating / freeing memory. Used, for example, in PODArray, Arena.
   * Also used in hash tables.
@@ -131,72 +90,40 @@ static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 template <bool clear_memory_, bool mmap_populate>
 class Allocator {
 public:
-    void sys_memory_check(size_t size) {
-        if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
-            if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
-                doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
-                int64_t wait_milliseconds = doris::config::thread_wait_gc_max_milliseconds;
-                while (wait_milliseconds > 0) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    if (!doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
-                        doris::MemInfo::refresh_interval_memory_growth += size;
-                        break;
-                    }
-                    wait_milliseconds -= 100;
-                }
-                if (wait_milliseconds <= 0) {
-                    auto err_msg = fmt::format(
-                            "Allocator Sys Memory Check Failed In Query/Load: Cannot alloc {}, "
-                            "{}.",
-                            size,
-                            doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(size));
-                    doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
-                    if (!doris::enable_thread_catch_bad_alloc) {
-                        doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
-                    } else {
-                        LOG(WARNING) << err_msg;
-                        throw std::bad_alloc {};
-                    }
-                }
-            } else if (doris::enable_thread_catch_bad_alloc) {
-                LOG(WARNING) << fmt::format(
-                        "Allocator Sys Memory Check Failed: Cannot alloc {}, {}.", size,
-                        doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(size));
-                throw std::bad_alloc {};
-            }
-        }
-    }
+    void sys_memory_check(size_t size) const;
+    void memory_tracker_check(size_t size) const;
+    // If sys memory or tracker exceeds the limit, but there is no external catch bad_alloc,
+    // alloc will continue to execute, so the consume memtracker is forced.
+    void memory_check(size_t size) const;
+    // Increases consumption of this tracker by 'bytes'.
+    void consume_memory(size_t size) const;
+    void release_memory(size_t size) const;
+    void throw_bad_alloc(const std::string& err) const;
 
     /// Allocate memory range.
     void* alloc(size_t size, size_t alignment = 0) {
-        sys_memory_check(size);
+        memory_check(size);
         void* buf;
 
-        if (size >= MMAP_THRESHOLD) {
+        if (size >= doris::config::mmap_threshold) {
             if (alignment > MMAP_MIN_ALIGNMENT)
                 throw doris::Exception(
                         doris::ErrorCode::INVALID_ARGUMENT,
                         "Too large alignment {}: more than page size when allocating {}.",
                         alignment, size);
 
-            if (!TRY_CONSUME_THREAD_MEM_TRACKER(size)) {
-                RETURN_BAD_ALLOC_IF_PRE_CATCH(
-                        fmt::format("Allocator Pre Catch: Cannot mmap {}.", size));
-                // memory exceeds the limit, consume mem tracker fails, but there is no external catch bad_alloc,
-                // alloc will continue to execute, so the consume memtracker is forced.
-                CONSUME_THREAD_MEM_TRACKER(size);
-            }
-            buf = mmap(get_mmap_hint(), size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
+            consume_memory(size);
+            buf = mmap(nullptr, size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
             if (MAP_FAILED == buf) {
-                RELEASE_THREAD_MEM_TRACKER(size);
-                RETURN_BAD_ALLOC(fmt::format("Allocator: Cannot mmap {}.", size));
+                release_memory(size);
+                throw_bad_alloc(fmt::format("Allocator: Cannot mmap {}.", size));
             }
 
             /// No need for zero-fill, because mmap guarantees it.
         } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD) {
             doris::Chunk chunk;
             if (!doris::ChunkAllocator::instance()->allocate_align(size, &chunk)) {
-                RETURN_BAD_ALLOC(fmt::format("Allocator: Cannot allocate chunk {}.", size));
+                throw_bad_alloc(fmt::format("Allocator: Cannot allocate chunk {}.", size));
             }
             buf = chunk.data;
             if constexpr (clear_memory) memset(buf, 0, chunk.size);
@@ -208,14 +135,14 @@ public:
                     buf = ::malloc(size);
 
                 if (nullptr == buf) {
-                    RETURN_BAD_ALLOC(fmt::format("Allocator: Cannot malloc {}.", size));
+                    throw_bad_alloc(fmt::format("Allocator: Cannot malloc {}.", size));
                 }
             } else {
                 buf = nullptr;
                 int res = posix_memalign(&buf, alignment, size);
 
                 if (0 != res) {
-                    RETURN_BAD_ALLOC(
+                    throw_bad_alloc(
                             fmt::format("Cannot allocate memory (posix_memalign) {}.", size));
                 }
 
@@ -227,15 +154,11 @@ public:
 
     /// Free memory range.
     void free(void* buf, size_t size) {
-        if (size >= MMAP_THRESHOLD) {
+        if (size >= doris::config::mmap_threshold) {
             if (0 != munmap(buf, size)) {
-                auto err = fmt::format("Allocator: Cannot munmap {}.", size);
-                LOG(ERROR) << err;
-                if (!doris::enable_thread_catch_bad_alloc)
-                    doris::MemTrackerLimiter::print_log_process_usage(err);
-                throw std::bad_alloc {};
+                throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             } else {
-                RELEASE_THREAD_MEM_TRACKER(size);
+                release_memory(size);
             }
         } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD &&
                    ((size & (size - 1)) == 0)) {
@@ -256,35 +179,30 @@ public:
             /// BTW, it's not possible to change alignment while doing realloc.
         } else if (old_size < CHUNK_THRESHOLD && new_size < CHUNK_THRESHOLD &&
                    alignment <= MALLOC_MIN_ALIGNMENT) {
-            sys_memory_check(new_size);
+            memory_check(new_size);
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = ::realloc(buf, new_size);
             if (nullptr == new_buf) {
-                RETURN_BAD_ALLOC(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
-                                             new_size));
+                throw_bad_alloc(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
+                                            new_size));
             }
 
             buf = new_buf;
             if constexpr (clear_memory)
                 if (new_size > old_size)
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
-        } else if (old_size >= MMAP_THRESHOLD && new_size >= MMAP_THRESHOLD) {
-            sys_memory_check(new_size);
+        } else if (old_size >= doris::config::mmap_threshold &&
+                   new_size >= doris::config::mmap_threshold) {
+            memory_check(new_size);
             /// Resize mmap'd memory region.
-            if (!TRY_CONSUME_THREAD_MEM_TRACKER(new_size - old_size)) {
-                RETURN_BAD_ALLOC_IF_PRE_CATCH(fmt::format(
-                        "Allocator Pre Catch: Cannot mremap memory chunk from {} to {}.", old_size,
-                        new_size));
-                CONSUME_THREAD_MEM_TRACKER(new_size - old_size);
-            }
-
+            consume_memory(new_size - old_size);
             // On apple and freebsd self-implemented mremap used (common/mremap.h)
             buf = clickhouse_mremap(buf, old_size, new_size, MREMAP_MAYMOVE, PROT_READ | PROT_WRITE,
                                     mmap_flags, -1, 0);
             if (MAP_FAILED == buf) {
-                RELEASE_THREAD_MEM_TRACKER(new_size - old_size);
-                RETURN_BAD_ALLOC(fmt::format("Allocator: Cannot mremap memory chunk from {} to {}.",
-                                             old_size, new_size));
+                release_memory(new_size - old_size);
+                throw_bad_alloc(fmt::format("Allocator: Cannot mremap memory chunk from {} to {}.",
+                                            old_size, new_size));
             }
 
             /// No need for zero-fill, because mmap guarantees it.
@@ -296,7 +214,7 @@ public:
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
             }
         } else {
-            sys_memory_check(new_size);
+            memory_check(new_size);
             // CHUNK_THRESHOLD <= old_size <= MMAP_THRESHOLD use system realloc is slow, use ChunkAllocator.
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
@@ -325,19 +243,6 @@ protected:
                                       | (mmap_populate ? MAP_POPULATE : 0)
 #endif
             ;
-
-private:
-#ifndef NDEBUG
-    /// In debug builds, request mmap() at random addresses (a kind of ASLR), to
-    /// reproduce more memory stomping bugs. Note that Linux doesn't do it by
-    /// default. This may lead to worse TLB performance.
-    void* get_mmap_hint() {
-        // return reinterpret_cast<void *>(std::uniform_int_distribution<intptr_t>(0x100000000000UL, 0x700000000000UL)(thread_local_rng));
-        return nullptr;
-    }
-#else
-    void* get_mmap_hint() { return nullptr; }
-#endif
 };
 
 /** Allocator with optimization to place small memory ranges in automatic memory.

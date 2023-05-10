@@ -23,7 +23,7 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.List;
 import java.util.Set;
@@ -55,14 +55,14 @@ public class DistributionDesc {
     }
 
     public void analyze(Set<String> colSet, List<ColumnDef> columnDefs, KeysDesc keysDesc) throws AnalysisException {
-        throw new NotImplementedException();
+        throw new NotImplementedException("analyze not implemented");
     }
 
     public String toSql() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("toSql not implemented");
     }
 
     public DistributionInfo toDistributionInfo(List<Column> columns) throws DdlException {
-        throw new NotImplementedException();
+        throw new NotImplementedException("toDistributionInfo not implemented");
     }
 }

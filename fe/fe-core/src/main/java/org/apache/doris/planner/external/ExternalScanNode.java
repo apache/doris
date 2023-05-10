@@ -21,8 +21,11 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
+
+import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -33,10 +36,14 @@ import java.util.List;
  * For example:
  * hive, iceberg, hudi, es, odbc
  */
-public class ExternalScanNode extends ScanNode {
+public abstract class ExternalScanNode extends ScanNode {
+    private static final Logger LOG = LogManager.getLogger(ExternalScanNode.class);
 
     // set to false means this scan node does not need to check column priv.
-    private boolean needCheckColumnPriv;
+    protected boolean needCheckColumnPriv;
+
+    // Final output of this file scan node
+    protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
     public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
@@ -46,16 +53,17 @@ public class ExternalScanNode extends ScanNode {
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        return null;
-    }
-
-    @Override
-    protected void toThrift(TPlanNode msg) {
-
+        LOG.debug("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
+        return scanRangeLocations;
     }
 
     @Override
     public boolean needToCheckColumnPriv() {
         return this.needCheckColumnPriv;
+    }
+
+    @Override
+    public int getNumInstances() {
+        return scanRangeLocations.size();
     }
 }

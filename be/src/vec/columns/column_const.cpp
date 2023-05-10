@@ -20,16 +20,19 @@
 
 #include "vec/columns/column_const.h"
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <utility>
 
-#include "gutil/port.h"
 #include "runtime/raw_value.h"
+#include "util/hash_util.hpp"
 #include "vec/columns/columns_common.h"
-#include "vec/common/pod_array.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
 
@@ -55,19 +58,13 @@ ColumnPtr ColumnConst::remove_low_cardinality() const {
 }
 
 ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) const {
-    if (s != filt.size()) {
-        LOG(FATAL) << fmt::format("Size of filter ({}) doesn't match size of column ({})",
-                                  filt.size(), s);
-    }
+    column_match_filter_size(s, filt.size());
 
     return ColumnConst::create(data, count_bytes_in_filter(filt));
 }
 
 size_t ColumnConst::filter(const Filter& filter) {
-    if (s != filter.size()) {
-        LOG(FATAL) << fmt::format("Size of filter ({}) doesn't match size of column ({})",
-                                  filter.size(), s);
-    }
+    column_match_filter_size(s, filter.size());
 
     const auto result_size = count_bytes_in_filter(filter);
     resize(result_size);
@@ -75,10 +72,7 @@ size_t ColumnConst::filter(const Filter& filter) {
 }
 
 ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
-    if (s != offsets.size()) {
-        LOG(FATAL) << fmt::format("Size of offsets ({}) doesn't match size of column ({})",
-                                  offsets.size(), s);
-    }
+    column_match_offsets_size(s, offsets.size());
 
     size_t replicated_size = 0 == s ? 0 : offsets.back();
     return ColumnConst::create(data, replicated_size);

@@ -18,27 +18,31 @@
 #include "http/action/config_action.h"
 
 #include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
-#include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
+#include <map>
+#include <ostream>
 #include <string>
+#include <utility>
+#include <vector>
 
-#include "common/configbase.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 
 namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
-
 const static std::string PERSIST_PARAM = "persist";
+const std::string CONF_ITEM = "conf_item";
 
 void ConfigAction::handle(HttpRequest* req) {
     if (_type == ConfigActionType::UPDATE_CONFIG) {
@@ -54,13 +58,26 @@ void ConfigAction::handle_show_config(HttpRequest* req) {
     rapidjson::StringBuffer str_buf;
     rapidjson::Writer<rapidjson::StringBuffer> writer(str_buf);
 
+    const std::string& conf_item = req->param(CONF_ITEM);
+
     writer.StartArray();
     for (const auto& _config : config_info) {
-        writer.StartArray();
-        for (const std::string& config_filed : _config) {
-            writer.String(config_filed.c_str());
+        if (conf_item != nullptr || conf_item != "") {
+            if (_config[0] == conf_item) {
+                writer.StartArray();
+                for (const std::string& config_filed : _config) {
+                    writer.String(config_filed.c_str());
+                }
+                writer.EndArray();
+                break;
+            }
+        } else {
+            writer.StartArray();
+            for (const std::string& config_filed : _config) {
+                writer.String(config_filed.c_str());
+            }
+            writer.EndArray();
         }
-        writer.EndArray();
     }
 
     writer.EndArray();

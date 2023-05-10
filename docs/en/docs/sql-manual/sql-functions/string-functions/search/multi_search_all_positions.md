@@ -30,8 +30,7 @@ under the License.
 
 `ARRAY<INT> multi_search_all_positions(VARCHAR haystack, ARRAY<VARCHAR> needles)`
 
-
-Searches for the substrings `needles` in the string `haystack`, and returns array of positions of the found corresponding substrings in the string. Positions are indexed starting from 1.
+Returns an `ARRAY` where the `i`-th element is the position of the `i`-th element in `needles`(i.e. `needle`)'s **first** occurrence in the string `haystack`. Positions are counted from 1, with 0 meaning the element was not found. **Case-sensitive**.
 
 ### example
 
@@ -43,12 +42,13 @@ mysql> select multi_search_all_positions('Hello, World!', ['hello', '!', 'world'
 | [0,13,0]                                                             |
 +----------------------------------------------------------------------+
 
-mysql> select multi_search_all_positions('abc', ['a', 'bc', 'd']);
-+-----------------------------------------------------+
-| multi_search_all_positions('abc', ['a', 'bc', 'd']) |
-+-----------------------------------------------------+
-| [1,2,0]                                             |
-+-----------------------------------------------------+
+select multi_search_all_positions("Hello, World!", ['hello', '!', 'world', 'Hello', 'World']);
++---------------------------------------------------------------------------------------------+
+| multi_search_all_positions('Hello, World!', ARRAY('hello', '!', 'world', 'Hello', 'World')) |
++---------------------------------------------------------------------------------------------+
+| [0, 13, 0, 1, 8]                                                                            |
++---------------------------------------------------------------------------------------------+
 ```
+
 ### keywords
     MULTI_SEARCH,SEARCH,POSITIONS

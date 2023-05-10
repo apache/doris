@@ -20,26 +20,31 @@
 
 #pragma once
 
+#include <limits.h>
+#include <stddef.h>
+
+#include <boost/intrusive/detail/algo_type.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <condition_variable>
 #include <deque>
 #include <functional>
+#include <iosfwd>
 #include <memory>
+#include <mutex>
 #include <string>
-#include <type_traits>
 #include <unordered_set>
-#include <utility>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
-#include "util/priority_thread_pool.hpp"
 
 namespace doris {
 
 class Thread;
 class ThreadPool;
 class ThreadPoolToken;
+class PriorityThreadPool;
 
 class Runnable {
 public:

@@ -18,7 +18,11 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Minus.cpp
 // and modified by Doris
 
+#include <utility>
+
+#include "runtime/decimalv2_value.h"
 #include "vec/common/arithmetic_overflow.h"
+#include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 

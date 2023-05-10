@@ -37,7 +37,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -115,9 +115,13 @@ public class ShowAction extends RestBaseController {
 
         // forward to master if necessary
         if (!Env.getCurrentEnv().isMaster() && isForward) {
-            RedirectView redirectView = redirectToMaster(request, response);
-            Preconditions.checkNotNull(redirectView);
-            return redirectView;
+            try {
+                RedirectView redirectView = redirectToMasterOrException(request, response);
+                Preconditions.checkNotNull(redirectView);
+                return redirectView;
+            } catch (Exception e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
         } else {
             ProcNodeInterface procNode = null;
             ProcService instance = ProcService.getInstance();

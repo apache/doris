@@ -17,16 +17,42 @@
 
 #include "base_scanner.h"
 
+#include <assert.h>
 #include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <parallel_hashmap/phmap.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <iterator>
+#include <map>
+#include <string>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
-#include "common/utils.h"
-#include "exec/exec_node.h"
+#include "gutil/casts.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+class TColumn;
+class TNetworkAddress;
 
 BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
@@ -51,7 +77,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _scanner_eof(false) {}
 
 Status BaseScanner::open() {
-    _full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
+    _full_base_schema_view = vectorized::schema_util::FullBaseSchemaView::create_unique();
     RETURN_IF_ERROR(init_expr_ctxes());
     if (_params.__isset.strict_mode) {
         _strict_mode = _params.strict_mode;
@@ -117,11 +143,10 @@ Status BaseScanner::init_expr_ctxes() {
     if (!_pre_filter_texprs.empty()) {
         // for vectorized, preceding filter exprs should be compounded to one passed from fe.
         DCHECK(_pre_filter_texprs.size() == 1);
-        _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
-                _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
+                _state->obj_pool(), _pre_filter_texprs[0], &_vpre_filter_ctx_ptr));
+        RETURN_IF_ERROR(_vpre_filter_ctx_ptr->prepare(_state, *_row_desc));
+        RETURN_IF_ERROR(_vpre_filter_ctx_ptr->open(_state));
     }
 
     // Construct dest slots information
@@ -170,6 +195,7 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
+// need exception safety
 Status BaseScanner::_filter_src_block() {
     auto origin_column_num = _src_block.columns();
     // filter block
@@ -324,6 +350,7 @@ Status BaseScanner::_init_src_block() {
     return Status::OK();
 }
 
+// need exception safety
 Status BaseScanner::_fill_dest_block(vectorized::Block* dest_block, bool* eof) {
     *eof = _scanner_eof;
     _fill_columns_from_path();
@@ -337,7 +364,7 @@ Status BaseScanner::_fill_dest_block(vectorized::Block* dest_block, bool* eof) {
 
 void BaseScanner::close() {
     if (_vpre_filter_ctx_ptr) {
-        (*_vpre_filter_ctx_ptr)->close(_state);
+        _vpre_filter_ctx_ptr->close(_state);
     }
 }
 

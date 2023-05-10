@@ -15,9 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <tuple>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
@@ -26,8 +49,11 @@
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/array/function_array_index.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -90,25 +116,27 @@ public:
         auto& result_col_map_offsets = map_column->get_offsets();
         result_col_map_offsets.resize(input_rows_count);
 
-        // convert to nullable column
+        std::unique_ptr<bool[]> col_const = std::make_unique<bool[]>(num_element);
         for (size_t i = 0; i < num_element; ++i) {
             auto& col = block.get_by_position(arguments[i]).column;
-            col = col->convert_to_full_column_if_const();
+            std::tie(col, col_const[i]) = unpack_if_const(col);
             bool is_nullable = i % 2 == 0 ? result_col_map_keys_data.is_nullable()
                                           : result_col_map_vals_data.is_nullable();
+            // convert to nullable column
             if (is_nullable && !col->is_nullable()) {
                 col = ColumnNullable::create(col, ColumnUInt8::create(col->size(), 0));
             }
         }
 
-        // insert value into array
+        // insert value into map
         ColumnArray::Offset64 offset = 0;
         for (size_t row = 0; row < input_rows_count; ++row) {
             for (size_t i = 0; i < num_element; i += 2) {
                 result_col_map_keys_data.insert_from(*block.get_by_position(arguments[i]).column,
-                                                     row);
+                                                     index_check_const(row, col_const[i]));
                 result_col_map_vals_data.insert_from(
-                        *block.get_by_position(arguments[i + 1]).column, row);
+                        *block.get_by_position(arguments[i + 1]).column,
+                        index_check_const(row, col_const[i + 1]));
             }
             offset += num_element / 2;
             result_col_map_offsets[row] = offset;
@@ -142,8 +170,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto left_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto& [left_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
         const ColumnMap* map_column = nullptr;
         // const UInt8* map_null_map = nullptr;
         if (left_column->is_nullable()) {
@@ -161,8 +189,14 @@ public:
         auto dst_column = ColumnInt64::create(input_rows_count);
         auto& dst_data = dst_column->get_data();
 
-        for (size_t i = 0; i < map_column->size(); i++) {
-            dst_data[i] = map_column->size_at(i);
+        if (left_const) {
+            for (size_t i = 0; i < map_column->size(); i++) {
+                dst_data[i] = map_column->size_at(0);
+            }
+        } else {
+            for (size_t i = 0; i < map_column->size(); i++) {
+                dst_data[i] = map_column->size_at(i);
+            }
         }
 
         block.replace_by_position(result, std::move(dst_column));

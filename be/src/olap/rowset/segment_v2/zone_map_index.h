@@ -17,16 +17,19 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "olap/field.h"
-#include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "util/slice.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/common/arena.h"
 
 namespace doris {

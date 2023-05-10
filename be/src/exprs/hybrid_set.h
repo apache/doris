@@ -17,20 +17,21 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include "common/object_pool.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
 
+#define FIXED_CONTAINER_MAX_SIZE 8
+
 /**
- * Fix Container can use simd to improve performance. 1 <= N <= 12 can be improved performance by test.
+ * Fix Container can use simd to improve performance. 1 <= N <= 8 can be improved performance by test. FIXED_CONTAINER_MAX_SIZE = 8.
  * @tparam T Element Type
  * @tparam N Fixed Number
  */
@@ -42,7 +43,7 @@ public:
 
     class Iterator;
 
-    FixedContainer() : _size(0) { static_assert(N >= 1 && N <= 12); }
+    FixedContainer() : _size(0) { static_assert(N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE); }
 
     ~FixedContainer() = default;
 
@@ -90,41 +91,11 @@ public:
                    (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
                    (uint8_t)(value == _data[6]);
         }
-        if constexpr (N == 8) {
+        if constexpr (N == FIXED_CONTAINER_MAX_SIZE) {
             return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
                    (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
                    (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
                    (uint8_t)(value == _data[6]) | (uint8_t)(value == _data[7]);
-        }
-        if constexpr (N == 9) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
-                   (uint8_t)(value == _data[6]) | (uint8_t)(value == _data[7]) |
-                   (uint8_t)(value == _data[8]);
-        }
-        if constexpr (N == 10) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
-                   (uint8_t)(value == _data[6]) | (uint8_t)(value == _data[7]) |
-                   (uint8_t)(value == _data[8]) | (uint8_t)(value == _data[9]);
-        }
-        if constexpr (N == 11) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
-                   (uint8_t)(value == _data[6]) | (uint8_t)(value == _data[7]) |
-                   (uint8_t)(value == _data[8]) | (uint8_t)(value == _data[9]) |
-                   (uint8_t)(value == _data[10]);
-        }
-        if constexpr (N == 12) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
-                   (uint8_t)(value == _data[6]) | (uint8_t)(value == _data[7]) |
-                   (uint8_t)(value == _data[8]) | (uint8_t)(value == _data[9]) |
-                   (uint8_t)(value == _data[10]) | (uint8_t)(value == _data[11]);
         }
         CHECK(false) << "unreachable path";
         return false;
@@ -177,7 +148,7 @@ template <typename T>
 class DynamicContainer {
 public:
     using Self = DynamicContainer;
-    using Iterator = typename phmap::flat_hash_set<T>::iterator;
+    using Iterator = typename vectorized::flat_hash_set<T>::iterator;
     using ElementType = T;
 
     DynamicContainer() = default;
@@ -196,7 +167,7 @@ public:
     size_t size() const { return _set.size(); }
 
 private:
-    phmap::flat_hash_set<T> _set;
+    vectorized::flat_hash_set<T> _set;
 };
 
 // TODO Maybe change void* parameter to template parameter better.

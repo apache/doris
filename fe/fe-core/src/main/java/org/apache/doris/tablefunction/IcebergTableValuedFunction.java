@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
@@ -49,6 +50,18 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     private static final String QUERY_TYPE = "query_type";
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(TABLE, QUERY_TYPE);
+
+    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX = new ImmutableMap.Builder<String, Integer>()
+            .put("committed_at", 0)
+            .put("snapshot_id", 1)
+            .put("parent_id", 2)
+            .put("operation", 3)
+            .put("manifest_list", 4)
+            .build();
+
+    public static Integer getColumnIndexFromColumnName(String columnName) {
+        return COLUMN_TO_INDEX.get(columnName.toLowerCase());
+    }
 
     private TIcebergQueryType queryType;
 
@@ -82,7 +95,6 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
                     this.icebergTableName.getDb() + ": " + this.icebergTableName.getTbl());
         }
         try {
-            // TODO(ftw): check here
             this.queryType = TIcebergQueryType.valueOf(queryTypeString.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new AnalysisException("Unsupported iceberg metadata query type: " + queryType);

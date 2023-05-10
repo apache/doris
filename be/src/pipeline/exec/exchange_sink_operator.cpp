@@ -17,12 +17,19 @@
 
 #include "exchange_sink_operator.h"
 
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "util/brpc_client_cache.h"
-#include "vec/exprs/vexpr.h"
+#include "pipeline/exec/operator.h"
+#include "runtime/runtime_state.h"
 #include "vec/sink/vdata_stream_sender.h"
+
+namespace doris {
+class DataSink;
+} // namespace doris
 
 namespace doris::pipeline {
 

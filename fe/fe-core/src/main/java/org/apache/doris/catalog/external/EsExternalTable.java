@@ -52,6 +52,7 @@ public class EsExternalTable extends ExternalTable {
     }
 
     protected synchronized void makeSureInitialized() {
+        super.makeSureInitialized();
         if (!objectCreated) {
             esTable = toEsTable();
             objectCreated = true;

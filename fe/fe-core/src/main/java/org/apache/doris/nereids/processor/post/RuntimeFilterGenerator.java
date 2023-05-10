@@ -75,6 +75,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
      * plan translation:
      * third step: generate nereids runtime filter target at olap scan node fragment.
      * forth step: generate legacy runtime filter target and runtime filter at hash join node fragment.
+     * NOTICE: bottom-up travel the plan tree!!!
      */
     // TODO: current support inner join, cross join, right outer join, and will support more join type.
     @Override
@@ -101,6 +102,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     if (type == TRuntimeFilterType.BITMAP) {
                         continue;
                     }
+                    // in-filter is not friendly to pipeline
+                    if (type == TRuntimeFilterType.IN_OR_BLOOM && ctx.getSessionVariable().enablePipelineEngine()) {
+                        type = TRuntimeFilterType.BLOOM;
+                    }
                     // currently, we can ensure children in the two side are corresponding to the equal_to's.
                     // so right maybe an expression and left is a slot
                     Slot unwrappedSlot = checkTargetChild(equalTo.left());
@@ -125,13 +130,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalPlan visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         // TODO: we need to support all type join
+        join.right().accept(this, context);
+        join.left().accept(this, context);
         if (join.getJoinType() != JoinType.LEFT_SEMI_JOIN && join.getJoinType() != JoinType.CROSS_JOIN) {
             return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         Map<NamedExpression, Pair<ObjectId, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
-        join.right().accept(this, context);
-        join.left().accept(this, context);
 
         if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.BITMAP.getValue()) == 0) {
             //only generate BITMAP filter for nested loop join

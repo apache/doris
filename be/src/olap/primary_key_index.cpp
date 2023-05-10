@@ -17,9 +17,17 @@
 
 #include "olap/primary_key_index.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "io/fs/file_reader.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
+#include "olap/types.h"
 
 namespace doris {
 

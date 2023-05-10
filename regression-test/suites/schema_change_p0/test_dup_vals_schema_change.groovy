@@ -72,7 +72,7 @@ suite ("test_dup_vals_schema_change") {
                     `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
                 DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
                 BUCKETS 1
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
+                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
             """
 
         sql """ INSERT INTO ${tableName} VALUES
@@ -82,6 +82,9 @@ suite ("test_dup_vals_schema_change") {
         sql """ INSERT INTO ${tableName} VALUES
                 (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 19)
             """
+
+        // alter and test light schema change
+        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
         sql """ INSERT INTO ${tableName} VALUES
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)

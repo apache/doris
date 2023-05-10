@@ -18,20 +18,34 @@
 #include "exec/es/es_scroll_parser.h"
 
 #include <cctz/time_zone.h>
+#include <glog/logging.h>
 #include <gutil/strings/substitute.h>
+#include <rapidjson/allocators.h>
+#include <rapidjson/encodings.h>
+#include <stdint.h>
+#include <string.h>
 
-#include <boost/algorithm/string.hpp>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <cstdlib>
+#include <ostream>
 #include <string>
 
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
-#include "runtime/memory/mem_tracker.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/primitive_type.h"
+#include "runtime/types.h"
+#include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"
-#include "vec/columns/column_array.h"
-#include "vec/common/string_ref.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/field.h"
 #include "vec/runtime/vdatetime_value.h"
 

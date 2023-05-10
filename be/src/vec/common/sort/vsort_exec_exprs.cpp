@@ -17,6 +17,21 @@
 
 #include "vec/common/sort/vsort_exec_exprs.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <stddef.h>
+
+#include "vec/exprs/vexpr.h"
+
+namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class RuntimeState;
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 Status VSortExecExprs::init(const TSortInfo& sort_info, ObjectPool* pool) {

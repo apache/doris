@@ -17,22 +17,27 @@
 
 #include "http/action/meta_action.h"
 
+#include <json2pb/pb_to_json.h>
+#include <stdint.h>
+
+#include <cstring>
+#include <exception>
+#include <memory>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
-#include "olap/tablet_meta_manager.h"
-#include "util/json_util.h"
+#include "util/easy_json.h"
 
 namespace doris {
 
@@ -41,6 +46,8 @@ const static std::string OP = "op";
 const static std::string DATA_SIZE = "data_size";
 const static std::string HEADER = "header";
 
+MetaAction::MetaAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     std::string req_tablet_id = req->param(TABLET_ID_KEY);

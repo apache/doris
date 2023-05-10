@@ -17,31 +17,50 @@
 
 #pragma once
 
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "exprs/bitmapfilter_predicate.h"
+#include <memory>
+#include <set>
+#include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "exprs/function_filter.h"
-#include "exprs/hybrid_set.h"
+#include "gutil/strings/substitute.h"
 #include "io/io_common.h"
 #include "olap/delete_handler.h"
+#include "olap/iterators.h"
+#include "olap/olap_common.h"
+#include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/rowset_reader_context.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
-#include "util/runtime_profile.h"
-#include "vec/common/arena.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
-class Tablet;
-class RowCursor;
 class RuntimeState;
+class BitmapFilterFuncBase;
+class BloomFilterFuncBase;
+class ColumnPredicate;
+class DeleteBitmap;
+class HybridSetBase;
+class RuntimeProfile;
 
 namespace vectorized {
 class VCollectIterator;
 class Block;
 class VExpr;
+class Arena;
+class VExprContext;
 } // namespace vectorized
 
 // Used to compare row with input scan key. Scan key only contains key columns,
@@ -49,8 +68,7 @@ class VExpr;
 // So we should compare the common prefix columns of lhs and rhs.
 //
 // NOTE: if you are not sure if you can use it, please don't use this function.
-template <typename LhsRowType, typename RhsRowType>
-int compare_row_key(const LhsRowType& lhs, const RhsRowType& rhs) {
+inline int compare_row_key(const RowCursor& lhs, const RowCursor& rhs) {
     auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
     for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
         auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));

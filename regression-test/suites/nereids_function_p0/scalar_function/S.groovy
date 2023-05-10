@@ -244,6 +244,12 @@ suite("nereids_scalar_fn_S") {
 	qt_sql_st_y_Varchar_notnull "select st_y(st_point(x_lng, x_lat)) from fn_test_not_nullable order by 1"
 	qt_sql_st_y_String "select st_y(st_point(x_lng, x_lat)) from fn_test order by 1"
 	qt_sql_st_y_String_notnull "select st_y(st_point(x_lng, x_lat)) from fn_test_not_nullable order by 1"
+	qt_sql_st_asbinary_Varchar "select ST_AsBinary(st_point(x_lng, x_lat)) from fn_test order by 1"
+    qt_sql_st_asbinary_Varchar_notnull "select ST_AsBinary(st_point(x_lng, x_lat)) from fn_test_not_nullable order by 1"
+	qt_sql_st_geometryfromwkb_Varchar "select ST_AsText(ST_GeometryFromWKB(ST_AsBinary(st_polyfromtext(polygon_wkt)))) from fn_test order by 1"
+    qt_sql_st_geometryfromwkb_Varchar_notnull "select ST_AsText(ST_GeometryFromWKB(ST_AsBinary(st_polyfromtext(polygon_wkt)))) from fn_test_not_nullable order by 1"
+	qt_sql_st_geomfromwkb_Varchar "select ST_AsText(ST_GeomFromWKB(ST_AsBinary(st_polyfromtext(polygon_wkt)))) from fn_test order by 1"
+    qt_sql_st_geomfromwkb_Varchar_notnull "select ST_AsText(ST_GeomFromWKB(ST_AsBinary(st_polyfromtext(polygon_wkt)))) from fn_test_not_nullable order by 1"
 
 	qt_sql_starts_with_Varchar_Varchar "select starts_with(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
 	qt_sql_starts_with_Varchar_Varchar_notnull "select starts_with(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"

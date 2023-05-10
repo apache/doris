@@ -16,18 +16,26 @@
 // under the License.
 
 #pragma once
-#include "runtime/primitive_type.h"
+#include <gen_cpp/PaloInternalService_types.h>
+#include <stddef.h>
+
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "util/mysql_row_buffer.h"
 #include "util/runtime_profile.h"
-#include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 #include "vec/sink/vresult_writer.h"
 
 namespace doris {
 class BufferControlBlock;
-class TFetchDataResult;
+class RuntimeState;
 
 namespace vectorized {
 class VExprContext;
+class Block;
 
 template <bool is_binary_format = false>
 class VMysqlResultWriter final : public VResultWriter {

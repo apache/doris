@@ -40,7 +40,7 @@ suite('load') {
     // set fe configuration
     sql "ADMIN SET FRONTEND CONFIG ('max_bytes_per_broker_scanner' = '161061273600')"
     
-    sql "set global exec_mem_limit=16G;"
+    sql "set exec_mem_limit=16G;"
 
     def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
     tables.each { table, rows ->

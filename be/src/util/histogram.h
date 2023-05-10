@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <atomic>
 #include <map>
 #include <string>

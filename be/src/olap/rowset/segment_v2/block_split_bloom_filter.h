@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "olap/rowset/segment_v2/bloom_filter.h"
 
 namespace doris {

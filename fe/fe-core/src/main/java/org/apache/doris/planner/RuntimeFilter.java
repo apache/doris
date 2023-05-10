@@ -190,8 +190,12 @@ public final class RuntimeFilter {
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
         tFilter.setHasRemoteTargets(hasRemoteTargets);
+        boolean optRemoteRf = true;
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
+            // TODO: now only support SlotRef
+            optRemoteRf = optRemoteRf && hasRemoteTargets && runtimeFilterType == TRuntimeFilterType.BLOOM
+                    && target.expr instanceof SlotRef;
         }
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
@@ -199,6 +203,7 @@ public final class RuntimeFilter {
             tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
             tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
         }
+        tFilter.setOptRemoteRf(optRemoteRf);
         return tFilter;
     }
 

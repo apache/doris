@@ -19,13 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -36,9 +36,20 @@ import com.google.common.base.Strings;
 // change one variable.
 public class SetVar {
 
+    public enum SetVarType {
+        DEFAULT,
+        SET_SESSION_VAR,
+        SET_PASS_VAR,
+        SET_LDAP_PASS_VAR,
+        SET_NAMES_VAR,
+        SET_TRANSACTION,
+        SET_USER_PROPERTY_VAR
+    }
+
     private String variable;
     private Expr value;
     private SetType type;
+    public SetVarType varType;
     private LiteralExpr result;
 
     public SetVar() {
@@ -46,6 +57,7 @@ public class SetVar {
 
     public SetVar(SetType type, String variable, Expr value) {
         this.type = type;
+        this.varType = SetVarType.SET_SESSION_VAR;
         this.variable = variable;
         this.value = value;
         if (value instanceof LiteralExpr) {
@@ -55,6 +67,7 @@ public class SetVar {
 
     public SetVar(String variable, Expr value) {
         this.type = SetType.DEFAULT;
+        this.varType = SetVarType.SET_SESSION_VAR;
         this.variable = variable;
         this.value = value;
         if (value instanceof LiteralExpr) {
@@ -76,6 +89,14 @@ public class SetVar {
 
     public void setType(SetType type) {
         this.type = type;
+    }
+
+    public SetVarType getVarType() {
+        return varType;
+    }
+
+    public void setVarType(SetVarType varType) {
+        this.varType = varType;
     }
 
     // Value can be null. When value is null, means to set variable to DEFAULT.
@@ -116,13 +137,6 @@ public class SetVar {
 
         result = (LiteralExpr) literalExpr;
 
-        // Need to check if group is valid
-        if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
-            if (result != null && !UserResource.isValidGroup(result.getStringValue())) {
-                throw new AnalysisException("Invalid resource group, now we support {low, normal, high}.");
-            }
-        }
-
         if (variable.equalsIgnoreCase(GlobalVariable.DEFAULT_ROWSET_TYPE)) {
             if (result != null && !HeartbeatFlags.isValidRowsetType(result.getStringValue())) {
                 throw new AnalysisException("Invalid rowset type, now we support {alpha, beta}.");
@@ -142,8 +156,19 @@ public class SetVar {
             this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(getValue().getStringValue()));
             this.result = (LiteralExpr) this.value;
         }
-
+        if (getVariable().equalsIgnoreCase(SessionVariable.PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)) {
+            int instanceNum = Integer.parseInt(getValue().getStringValue());
+            if (instanceNum > Config.max_instance_num) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
+                        SessionVariable.PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM,
+                        instanceNum + "(Should not be set to more than " + Config.max_instance_num + ")");
+            }
+        }
         if (getVariable().equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)) {
+            this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getValue().getStringValue())));
+            this.result = (LiteralExpr) this.value;
+        }
+        if (getVariable().equalsIgnoreCase(SessionVariable.SCAN_QUEUE_MEM_LIMIT)) {
             this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getValue().getStringValue())));
             this.result = (LiteralExpr) this.value;
         }

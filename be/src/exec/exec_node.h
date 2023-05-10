@@ -20,35 +20,36 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <atomic>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <vector>
 
+#include "common/global_types.h"
 #include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
-#include "runtime/query_statistics.h"
-#include "service/backend_options.h"
-#include "util/blocking_queue.hpp"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
-#include "vec/exprs/vexpr_context.h"
+#include "vec/core/block.h"
 
 namespace doris {
 class ObjectPool;
-class Counters;
 class RuntimeState;
-class TPlan;
 class MemTracker;
+class QueryStatistics;
 
 namespace vectorized {
-class Block;
-class VExpr;
+class VExprContext;
 } // namespace vectorized
 
 namespace pipeline {
-class PipelineFragmentContext;
-class Pipeline;
 class OperatorBase;
 } // namespace pipeline
 
@@ -257,7 +258,7 @@ protected:
     ObjectPool* _pool;
     std::vector<TupleId> _tuple_ids;
 
-    std::unique_ptr<doris::vectorized::VExprContext*> _vconjunct_ctx_ptr;
+    doris::vectorized::VExprContext* _vconjunct_ctx_ptr = nullptr;
 
     std::vector<ExecNode*> _children;
     RowDescriptor _row_descriptor;

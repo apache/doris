@@ -16,11 +16,32 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+#include <typeinfo>
+
 #include "olap/hll.h"
-#include "vec/columns/column.h"
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_hll_serde.h"
 #include "vec/columns/column_complex.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class BufferReadable;
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 class DataTypeHLL : public IDataType {
@@ -79,9 +100,15 @@ public:
         return String();
     }
 
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for HLL";
+    }
+
     static void serialize_as_stream(const HyperLogLog& value, BufferWritable& buf);
 
     static void deserialize_as_stream(HyperLogLog& value, BufferReadable& buf);
+
+    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeHLLSerDe>(); };
 };
 
 } // namespace doris::vectorized

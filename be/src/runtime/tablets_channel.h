@@ -17,22 +17,46 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <mutex>
+#include <ostream>
+#include <shared_mutex>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
-#include <utility>
 #include <vector>
 
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "runtime/descriptors.h"
+#include "common/status.h"
 #include "util/bitmap.h"
+#include "util/runtime_profile.h"
+#include "util/spinlock.h"
 #include "util/uid_util.h"
 
+namespace google {
+namespace protobuf {
+template <typename Element>
+class RepeatedField;
+template <typename Key, typename T>
+class Map;
+template <typename T>
+class RepeatedPtrField;
+} // namespace protobuf
+} // namespace google
+
 namespace doris {
+class PSlaveTabletNodes;
+class PSuccessSlaveTabletNodeIds;
+class PTabletError;
+class PTabletInfo;
+class PTabletWriterOpenRequest;
+class PUniqueId;
+class TupleDescriptor;
 
 struct TabletsChannelKey {
     UniqueId id;
@@ -58,15 +82,16 @@ class LoadChannel;
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id, bool is_high_priority);
+    TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id, bool is_high_priority,
+                   RuntimeProfile* profile);
 
     ~TabletsChannel();
 
     Status open(const PTabletWriterOpenRequest& request);
 
     // no-op when this channel has been closed or cancelled
-    template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-    Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
+    Status add_batch(const PTabletWriterAddBlockRequest& request,
+                     PTabletWriterAddBlockResult* response);
 
     // Mark sender with 'sender_id' as closed.
     // If all senders are closed, close this channel, set '*finished' to true, update 'tablet_vec'
@@ -112,6 +137,7 @@ private:
 
     void _add_broken_tablet(int64_t tablet_id);
     bool _is_broken_tablet(int64_t tablet_id);
+    void _init_profile(RuntimeProfile* profile);
 
     // id of this load channel
     TabletsChannelKey _key;
@@ -167,6 +193,15 @@ private:
     // mem -> tablet_id
     // sort by memory size
     std::multimap<int64_t, int64_t, std::greater<int64_t>> _mem_consumptions;
+
+    RuntimeProfile* _profile;
+    RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _write_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _flush_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _max_tablet_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _max_tablet_write_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _max_tablet_flush_memory_usage_counter = nullptr;
 };
 
 template <typename Request>

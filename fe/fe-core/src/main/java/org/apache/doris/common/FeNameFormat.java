@@ -129,6 +129,10 @@ public class FeNameFormat {
         checkCommonName("resource", resourceName);
     }
 
+    public static void checkResourceGroupName(String resourceGroupName) throws AnalysisException {
+        checkCommonName("resource group", resourceGroupName);
+    }
+
     public static void checkCommonName(String type, String name) throws AnalysisException {
         if (Strings.isNullOrEmpty(name) || !name.matches(getCommonNameRegex())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);

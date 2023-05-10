@@ -17,8 +17,17 @@
 
 #pragma once
 
-#include "io/fs/local_file_writer.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "io/fs/file_writer.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
+
 namespace doris {
 namespace vectorized {
 
@@ -74,6 +83,7 @@ private:
     RuntimeProfile::Counter* write_bytes_counter_;
     RuntimeProfile::Counter* serialize_timer_;
     RuntimeProfile::Counter* write_timer_;
+    RuntimeProfile::Counter* write_blocks_num_;
 };
 
 using BlockSpillWriterUPtr = std::unique_ptr<BlockSpillWriter>;

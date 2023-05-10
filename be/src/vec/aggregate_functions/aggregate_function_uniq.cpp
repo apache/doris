@@ -20,11 +20,13 @@
 
 #include "vec/aggregate_functions/aggregate_function_uniq.h"
 
-#include "common/logging.h"
+#include <string>
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/common/hash_table/hash.h" // IWYU pragma: keep
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 

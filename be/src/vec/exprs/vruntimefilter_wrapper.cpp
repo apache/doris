@@ -17,13 +17,30 @@
 
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
-#include <string_view>
+#include <fmt/format.h>
+#include <stddef.h>
+
+#include <memory>
+#include <utility>
 
 #include "util/simd/bits.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/core/field.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/functions/simple_function_factory.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

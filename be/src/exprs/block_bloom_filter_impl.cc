@@ -19,23 +19,22 @@
 // https://github.com/apache/kudu/blob/master/src/kudu/util/block_bloom_filter.cc
 // and modified by Doris
 
-#ifdef __aarch64__
-#include <sse2neon.h>
-#else
-#include <emmintrin.h>
-#include <mm_malloc.h>
-#endif
-
 #include <butil/iobuf.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
 #include <algorithm>
-#include <climits>
-#include <cmath>
+#include <climits> // IWYU pragma: keep
+#include <cmath>   // IWYU pragma: keep
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
+#include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
+// IWYU pragma: no_include <emmintrin.h>
+#include "util/sse_util.hpp"
 
 namespace doris {
 

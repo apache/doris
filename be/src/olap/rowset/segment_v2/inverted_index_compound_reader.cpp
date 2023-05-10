@@ -17,7 +17,27 @@
 
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 
+#include <CLucene/clucene-config.h>
+#include <CLucene/debug/error.h>
+#include <CLucene/debug/mem.h>
+#include <CLucene/store/RAMDirectory.h>
+#include <CLucene/util/Misc.h>
+#include <stdio.h>
+#include <string.h>
+#include <wchar.h>
+
+#include <algorithm>
+#include <memory>
+#include <utility>
+
+#include "CLucene/SharedHeader.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
+
+namespace doris {
+namespace io {
+class FileWriter;
+} // namespace io
+} // namespace doris
 
 #define BUFFER_LENGTH 16384
 #define CL_MAX_PATH 4096
@@ -78,7 +98,7 @@ CSIndexInput::CSIndexInput(CL_NS(store)::IndexInput* base, const int64_t fileOff
 }
 
 void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
-    std::lock_guard<std::mutex> wlock(((DorisCompoundDirectory::FSIndexInput*)base)->_this_lock);
+    std::lock_guard wlock(((DorisCompoundDirectory::FSIndexInput*)base)->_this_lock);
 
     int64_t start = getFilePointer();
     if (start + len > _length) {
@@ -222,6 +242,17 @@ int64_t DorisCompoundReader::fileLength(const char* name) const {
         _CLTHROWA(CL_ERR_IO, buf);
     }
     return e->length;
+}
+
+bool DorisCompoundReader::openInput(const char* name,
+                                    std::unique_ptr<lucene::store::IndexInput>& ret,
+                                    CLuceneError& error, int32_t bufferSize) {
+    lucene::store::IndexInput* tmp;
+    bool success = openInput(name, tmp, error, bufferSize);
+    if (success) {
+        ret.reset(tmp);
+    }
+    return success;
 }
 
 bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*& ret,

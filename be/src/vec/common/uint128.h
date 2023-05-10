@@ -26,15 +26,8 @@
 
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
+#include "util/sse_util.hpp"
 #include "vec/core/types.h"
-
-#if defined(__SSE4_2__)
-#include <nmmintrin.h>
-#endif
-
-#if defined(__aarch64__)
-#include <sse2neon.h>
-#endif
 
 namespace doris::vectorized {
 

@@ -20,6 +20,18 @@
 
 #include "vec/columns/column_struct.h"
 
+#include <functional>
+
+#include "vec/common/assert_cast.h"
+#include "vec/common/typeid_cast.h"
+
+class SipHash;
+namespace doris {
+namespace vectorized {
+class Arena;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 std::string ColumnStruct::get_name() const {
@@ -291,6 +303,14 @@ void ColumnStruct::reserve(size_t n) {
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {
         get_column(i).reserve(n);
+    }
+}
+
+//please check you real need size in data column, When it mixes various data types， eg: string column with int column
+void ColumnStruct::resize(size_t n) {
+    const size_t tuple_size = columns.size();
+    for (size_t i = 0; i < tuple_size; ++i) {
+        get_column(i).resize(n);
     }
 }
 

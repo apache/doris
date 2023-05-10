@@ -26,6 +26,21 @@ suite ("test_dup_rollup_schema_change") {
          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
+    def waitForMVJob =  (tbName, timeout) -> {
+        while (timeout--){
+            String result = getMVJobState(tbName)
+            if (result == "FINISHED") {
+                sleep(3000)
+                break
+            } else {
+                sleep(100)
+                if (timeout < 1){
+                    assertEquals(1,2)
+                }
+            }
+        }
+    }
+
     def tableName = "schema_change_dup_rollup_regression_test"
 
     try {
@@ -80,29 +95,25 @@ suite ("test_dup_rollup_schema_change") {
                     `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
                 DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
                 BUCKETS 1
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
+                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
             """
 
         //add rollup
         def rollupName = "rollup_cost"
-        sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`city`,`age`, cost);"
-        int max_try_time = 3000
-        while (max_try_time--){
-            String result = getMVJobState(tableName)
-            if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (max_try_time < 1){
-                    assertEquals(1,2)
-                }
-            }
-        }
+        sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`age`, `cost`);"
+        waitForMVJob(tableName, 3000)
 
         sql """ INSERT INTO ${tableName} VALUES
                 (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2020-01-01', 1, 30, 20)
             """
+
+        // alter and test light schema change
+        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+
+        //add rollup
+        def rollupName2 = "rollup_city"
+        sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName2}(`user_id`,`city`);"
+        waitForMVJob(tableName, 3000)
 
         sql """ INSERT INTO ${tableName} VALUES
                 (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 19)

@@ -36,6 +36,17 @@ under the License.
 2. 支持 Managed Table 和 External Table。
 3. 可以识别 Hive Metastore 中存储的 hive、iceberg、hudi 元数据。
 4. 支持数据存储在 Juicefs 上的 hive 表，用法如下（需要把juicefs-hadoop-x.x.x.jar放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下）。
+5. 支持数据存储在 CHDFS 上的 hive 表。需配置环境：
+   1. 把chdfs_hadoop_plugin_network-x.x.jar 放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下
+   2. 将 hive 所在 Hadoop 集群的 core-site.xml 和 hdfs-site.xml 复制到 fe/conf/ 和 apache_hdfs_broker/conf 目录下
+
+<version since="dev">
+
+6. 支持数据存在在 GooseFS(GFS) 上的 hive、iceberg表。需配置环境：
+   1. 把 goosefs-x.x.x-client.jar 放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下
+   2. 创建 catalog 时增加属性：'fs.AbstractFileSystem.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.GooseFileSystem'， 'fs.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.FileSystem'
+   
+</version>
 
 ## 创建 Catalog
 
@@ -53,11 +64,6 @@ CREATE CATALOG hive PROPERTIES (
 ```
 
 除了 `type` 和 `hive.metastore.uris` 两个必须参数外，还可以通过更多参数来传递连接所需要的信息。
-
-> `specified_database_list`:
-> 
-> 支持只同步指定的同步多个database，以','分隔。默认为''，同步所有database。db名称是大小写敏感的。
-> 
 	
 如提供 HDFS HA 信息，示例如下：
 	

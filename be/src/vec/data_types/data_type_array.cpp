@@ -20,14 +20,26 @@
 
 #include "vec/data_types/data_type_array.h"
 
-#include "gen_cpp/data.pb.h"
-#include "util/stack_util.h"
+#include <ctype.h>
+#include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <typeinfo>
+#include <utility>
+
+#include "runtime/decimalv2_value.h"
+#include "util/types.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -42,7 +54,7 @@ MutableColumnPtr DataTypeArray::create_column() const {
 }
 
 Field DataTypeArray::get_default() const {
-    Array a = Array(1);
+    Array a;
     a.push_back(nested->get_default());
     return a;
 }

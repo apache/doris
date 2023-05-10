@@ -581,6 +581,7 @@ struct TOlapScanNode {
   13: optional bool use_topn_opt
   14: optional list<Descriptors.TOlapTableIndex> indexes_desc
   15: optional set<i32> output_column_unique_ids
+  16: optional list<i32> distribute_column_ids
 }
 
 struct TEqJoinCondition {
@@ -1000,6 +1001,8 @@ struct TRuntimeFilterDesc {
 
   // for bitmap filter
   11: optional bool bitmap_filter_not_in
+
+  12: optional bool opt_remote_rf;
 }
 
 struct TDataGenScanNode {

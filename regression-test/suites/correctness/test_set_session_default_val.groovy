@@ -17,7 +17,7 @@
 
 suite("test_set_session_default_val") {
     def default_timeout = sql """show variables where variable_name = 'insert_timeout';"""
-    sql """set global insert_timeout=3000;"""
+    sql """set insert_timeout=3000;"""
     sql """set session insert_timeout=${default_timeout[0][1]};"""
     def session_timeout = sql """show variables where variable_name = 'insert_timeout';"""
     assertEquals(default_timeout, session_timeout)

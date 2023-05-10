@@ -21,7 +21,6 @@ import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.statistics.AnalysisTaskInfo;
-import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
@@ -125,7 +124,7 @@ public interface TableIf {
 
     TTableDescriptor toThrift();
 
-    BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info);
+    BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info);
 
     long estimatedRowCount();
 

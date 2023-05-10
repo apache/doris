@@ -40,11 +40,9 @@ Table-Value-Function, generate a temporary table named `backends`. This tvf is u
 
 This function is used in `FROM` clauses.
 
-grammar:
+#### syntax
 
-```
-backends();
-```
+`backends()`
 
 The table schema of `backends()` tvf：
 ```

@@ -72,10 +72,59 @@ public class VectorColumn {
             }
         } else if (columnType.isStringType()) {
             childColumns = new VectorColumn[1];
-            childColumns[0] = new VectorColumn(new ColumnType("#data", Type.BYTE), capacity * DEFAULT_STRING_LENGTH);
+            childColumns[0] = new VectorColumn(new ColumnType("#stringBytes", Type.BYTE),
+                    capacity * DEFAULT_STRING_LENGTH);
         }
 
         reserveCapacity(capacity);
+    }
+
+    // restore the child of string column & restore meta column
+    public VectorColumn(long address, int capacity, ColumnType columnType) {
+        this.columnType = columnType;
+        this.capacity = capacity;
+        this.nullMap = 0;
+        this.data = address;
+        this.offsets = 0;
+        this.numNulls = 0;
+        this.appendIndex = capacity;
+    }
+
+    // restore block column
+    public VectorColumn(ColumnType columnType, int numRows, long columnMetaAddress) {
+        if (columnType.isUnsupported()) {
+            throw new RuntimeException("Unsupported type for column: " + columnType.getName());
+        }
+        long address = columnMetaAddress;
+        this.capacity = numRows;
+        this.columnType = columnType;
+        this.nullMap = OffHeap.getLong(null, address);
+        address += 8;
+        this.numNulls = 0;
+        if (this.nullMap != 0) {
+            for (int i = 0; i < numRows; ++i) {
+                if (isNullAt(i)) {
+                    this.numNulls++;
+                }
+            }
+        }
+        this.appendIndex = numRows;
+
+        if (columnType.isComplexType()) {
+            // todo: support complex type
+            throw new RuntimeException("Unhandled type: " + columnType);
+        } else if (columnType.isStringType()) {
+            this.offsets = OffHeap.getLong(null, address);
+            address += 8;
+            this.data = 0;
+            int length = OffHeap.getInt(null, this.offsets + (numRows - 1) * 4L);
+            childColumns = new VectorColumn[1];
+            childColumns[0] = new VectorColumn(OffHeap.getLong(null, address), length,
+                    new ColumnType("#stringBytes", Type.BYTE));
+        } else {
+            this.data = OffHeap.getLong(null, address);
+            this.offsets = 0;
+        }
     }
 
     public long nullMapAddress() {
@@ -88,6 +137,10 @@ public class VectorColumn {
 
     public long offsetAddress() {
         return offsets;
+    }
+
+    public ColumnType.Type getColumnTyp() {
+        return columnType.getType();
     }
 
     /**
@@ -159,8 +212,10 @@ public class VectorColumn {
             throw new RuntimeException("Unhandled type: " + columnType);
         }
         // todo: support complex type
-        this.nullMap = OffHeap.reallocateMemory(nullMap, oldCapacity, newCapacity);
-        OffHeap.setMemory(nullMap + oldCapacity, (byte) 0, newCapacity - oldCapacity);
+        if (!"#stringBytes".equals(columnType.getName())) {
+            this.nullMap = OffHeap.reallocateMemory(nullMap, oldCapacity, newCapacity);
+            OffHeap.setMemory(nullMap + oldCapacity, (byte) 0, newCapacity - oldCapacity);
+        }
         capacity = newCapacity;
     }
 
@@ -178,7 +233,11 @@ public class VectorColumn {
     }
 
     public boolean isNullAt(int rowId) {
-        return OffHeap.getByte(null, nullMap + rowId) == 1;
+        if (nullMap == 0) {
+            return false;
+        } else {
+            return OffHeap.getByte(null, nullMap + rowId) == 1;
+        }
     }
 
     public boolean hasNull() {

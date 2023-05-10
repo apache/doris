@@ -184,7 +184,7 @@ public class HyperGraphBuilder {
     }
 
     private void injectRowcount(Group group) {
-        if (!group.isJoinGroup()) {
+        if (!group.isInnerJoinGroup()) {
             LogicalOlapScan scanPlan = (LogicalOlapScan) group.getLogicalExpression().getPlan();
             HashMap<Expression, ColumnStatistic> slotIdToColumnStats = new HashMap<Expression, ColumnStatistic>();
             int count = rowCounts.get(Integer.parseInt(scanPlan.getTable().getName()));

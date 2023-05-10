@@ -65,6 +65,10 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -177,7 +181,7 @@ public class NereidsPlanner extends Planner {
             }
 
             if (statementContext.getConnectContext().getExecutor() != null) {
-                statementContext.getConnectContext().getExecutor().getPlannerProfile().setQueryAnalysisFinishTime();
+                statementContext.getConnectContext().getExecutor().getSummaryProfile().setQueryAnalysisFinishTime();
             }
 
             if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -185,6 +189,11 @@ public class NereidsPlanner extends Planner {
                 if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
                     return analyzedPlan;
                 }
+            }
+
+            Optional<ScheduledExecutorService> timeoutExecutor = Optional.empty();
+            if (ConnectContext.get().getSessionVariable().enableNereidsTimeout) {
+                timeoutExecutor = Optional.of(runTimeoutExecutor());
             }
 
             // rule-based optimize
@@ -204,7 +213,7 @@ public class NereidsPlanner extends Planner {
 
             // print memo before choose plan.
             // if chooseNthPlan failed, we could get memo to debug
-            if (ConnectContext.get().getSessionVariable().isDumpNereidsMemo()) {
+            if (ConnectContext.get().getSessionVariable().dumpNereidsMemo) {
                 String memo = cascadesContext.getMemo().toString();
                 LOG.info(memo);
             }
@@ -214,7 +223,7 @@ public class NereidsPlanner extends Planner {
 
             physicalPlan = postProcess(physicalPlan);
 
-            if (ConnectContext.get().getSessionVariable().isDumpNereidsMemo()) {
+            if (ConnectContext.get().getSessionVariable().dumpNereidsMemo) {
                 String tree = physicalPlan.treeString();
                 LOG.info(tree);
             }
@@ -223,6 +232,8 @@ public class NereidsPlanner extends Planner {
                     || explainLevel == ExplainLevel.SHAPE_PLAN) {
                 optimizedPlan = physicalPlan;
             }
+
+            timeoutExecutor.ifPresent(ExecutorService::shutdown);
 
             return physicalPlan;
         }
@@ -259,7 +270,7 @@ public class NereidsPlanner extends Planner {
 
     private void dpHypOptimize() {
         Group root = getRoot();
-        if (root.isJoinGroup()) {
+        if (root.isInnerJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a project operator above join
             List<NamedExpression> outputs = ImmutableList.copyOf(root.getLogicalExpression().getPlan().getOutput());
@@ -267,7 +278,6 @@ public class NereidsPlanner extends Planner {
             CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
             root = copyInResult.correspondingExpression.getOwnerGroup();
         }
-        cascadesContext.getStatementContext().setDpHyp(true);
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
@@ -278,10 +288,11 @@ public class NereidsPlanner extends Planner {
      * try to find best plan under the guidance of statistic information and cost model.
      */
     private void optimize() {
-        if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
-                && statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()
-                && statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
-                .getSessionVariable().getMaxTableCountUseCascadesJoinReorder()) {
+        boolean isDpHyp = statementContext.getConnectContext().getSessionVariable().enableDPHypOptimizer
+                || statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
+                .getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
+        cascadesContext.getStatementContext().setDpHyp(isDpHyp);
+        if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder() && isDpHyp) {
             dpHypOptimize();
         }
         new CascadesOptimizer(cascadesContext).execute();
@@ -341,6 +352,14 @@ public class NereidsPlanner extends Planner {
             LOG.warn("Failed to choose best plan, memo structure:{}", memo, e);
             throw new AnalysisException("Failed to choose best plan", e);
         }
+    }
+
+    private ScheduledExecutorService runTimeoutExecutor() {
+        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+        Runnable task = () -> cascadesContext.setIsTimeout(true);
+        executor.schedule(task, 5, TimeUnit.SECONDS);
+
+        return executor;
     }
 
     @Override

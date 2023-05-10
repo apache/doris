@@ -49,4 +49,25 @@ suite ("testQueryOnStar") {
         contains "(emps_mv)"
     }
     qt_select_mv "select * from emps where deptno = 1 order by empid;"
+
+    sql """ DROP TABLE IF EXISTS tpch_tiny_region; """
+    sql """
+        CREATE TABLE IF NOT EXISTS tpch_tiny_region (
+            r_regionkey  INTEGER NOT NULL,
+            r_name       CHAR(25) NOT NULL,
+            r_comment    VARCHAR(152)
+        )
+        DUPLICATE KEY(r_regionkey)
+        DISTRIBUTED BY HASH(r_regionkey) BUCKETS 3
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+        """
+    sql """insert into tpch_tiny_region values(1,'a','a');"""
+
+    explain {
+        sql("select ref_1.`empid` as c0 from tpch_tiny_region as ref_0 left join emps as ref_1 on (ref_0.`r_comment` = ref_1.`name` ) where true order by ref_0.`r_regionkey`,ref_0.`r_regionkey` desc ,ref_0.`r_regionkey`,ref_0.`r_regionkey`;")
+        contains "(emps_mv)"
+    }
+    qt_select_mv "select ref_1.`empid` as c0 from tpch_tiny_region as ref_0 left join emps as ref_1 on (ref_0.`r_comment` = ref_1.`name` ) where true order by ref_0.`r_regionkey`,ref_0.`r_regionkey` desc ,ref_0.`r_regionkey`,ref_0.`r_regionkey`;"    
 }

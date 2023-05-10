@@ -30,7 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.List;
 import java.util.Map;
@@ -156,11 +156,11 @@ public class PartitionDesc {
     }
 
     public String toSql() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("toSql not implemented");
     }
 
     public PartitionInfo toPartitionInfo(List<Column> schema, Map<String, Long> partitionNameToId, boolean isTemp)
             throws DdlException, AnalysisException {
-        throw new NotImplementedException();
+        throw new NotImplementedException("toPartitionInfo not implemented");
     }
 }

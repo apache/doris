@@ -17,7 +17,9 @@
 
 #include "vec/functions/function_datetime_string_to_string.h"
 
+#include "vec/data_types/data_type_time_v2.h" // IWYU pragma: keep
 #include "vec/functions/simple_function_factory.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 

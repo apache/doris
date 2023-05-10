@@ -18,14 +18,18 @@
 #include "io/hdfs_builder.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/PlanNodes_types.h>
 
+#include <cstdlib>
 #include <fstream>
+#include <utility>
+#include <vector>
 
 #include "agent/utils.h"
 #include "common/logging.h"
+#include "io/fs/hdfs.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
-#include "util/url_coding.h"
 
 namespace doris {
 

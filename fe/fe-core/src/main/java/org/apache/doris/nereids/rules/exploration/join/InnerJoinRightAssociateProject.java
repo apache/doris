@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -49,7 +50,7 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
                 .when(InnerJoinRightAssociate::checkReorder)
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
-                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
+                .when(join -> join.left().isAllSlots())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
                     GroupPlan a = bottomJoin.left();
@@ -58,11 +59,11 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
                     Set<ExprId> aExprIdSet = a.getOutputExprIdSet();
 
                     // Split condition
-                    Map<Boolean, List<Expression>> splitHashConjuncts = JoinReorderUtils.splitConjuncts(
+                    Map<Boolean, List<Expression>> splitHashConjuncts = CBOUtils.splitConjuncts(
                             topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), aExprIdSet);
                     List<Expression> newTopHashConjuncts = splitHashConjuncts.get(true);
                     List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
-                    Map<Boolean, List<Expression>> splitOtherConjuncts = JoinReorderUtils.splitConjuncts(
+                    Map<Boolean, List<Expression>> splitOtherConjuncts = CBOUtils.splitConjuncts(
                             topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), aExprIdSet);
                     List<Expression> newTopOtherConjuncts = splitOtherConjuncts.get(true);
                     List<Expression> newBottomOtherConjuncts = splitOtherConjuncts.get(false);
@@ -78,15 +79,15 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
                     newTopHashConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopOtherConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
-                    Plan left = JoinReorderUtils.newProject(topUsedExprIds, a);
-                    Plan right = JoinReorderUtils.newProject(topUsedExprIds, newBottomJoin);
+                    Plan left = CBOUtils.newProject(topUsedExprIds, a);
+                    Plan right = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
                             newTopHashConjuncts, newTopOtherConjuncts, left, right);
                     setNewBottomJoinReorder(newBottomJoin, bottomJoin);
                     setNewTopJoinReorder(newTopJoin, topJoin);
 
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
+                    return CBOUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_RIGHT_ASSOCIATIVE);
     }
 

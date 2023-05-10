@@ -5,17 +5,23 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <gen_cpp/Status_types.h> // for TStatus
 #include <glog/logging.h>
+#include <stdint.h>
 
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
-#include "common/compiler_util.h"
-#include "gen_cpp/Status_types.h" // for TStatus
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif
+
+#include "common/expected.h"
 
 namespace doris {
 
@@ -49,6 +55,7 @@ TStatusError(UNINITIALIZED);
 TStatusError(ABORTED);
 TStatusError(DATA_QUALITY_ERROR);
 TStatusError(LABEL_ALREADY_EXISTS);
+TStatusError(NOT_AUTHORIZED);
 #undef TStatusError
 // BE internal errors
 E(OS_ERROR, -100);
@@ -206,6 +213,8 @@ E(COLUMN_READ_STREAM, -1706);
 E(COLUMN_STREAM_NOT_EXIST, -1716);
 E(COLUMN_VALUE_NULL, -1717);
 E(COLUMN_SEEK_ERROR, -1719);
+E(COLUMN_NO_MATCH_OFFSETS_SIZE, -1720);
+E(COLUMN_NO_MATCH_FILTER_SIZE, -1721);
 E(DELETE_INVALID_CONDITION, -1900);
 E(DELETE_UPDATE_HEADER_FAILED, -1901);
 E(DELETE_SAVE_HEADER_FAILED, -1902);
@@ -282,7 +291,9 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
         && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
         && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
-        && code != ErrorCode::INVERTED_INDEX_NO_TERMS;
+        && code != ErrorCode::INVERTED_INDEX_NO_TERMS
+        && code != ErrorCode::META_KEY_NOT_FOUND
+        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST;
 }
 // clang-format on
 
@@ -395,6 +406,7 @@ public:
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
+    ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
 #undef ERROR_CTOR
 
     template <int code>
@@ -413,6 +425,7 @@ public:
     bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
 
     bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
+    bool is_not_authorized() const { return code() == TStatusCode::NOT_AUTHORIZED; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
@@ -566,6 +579,9 @@ inline std::string Status::to_string() const {
             return _s;                                             \
         }                                                          \
     } while (false);
+
+template <typename T>
+using Result = expected<T, Status>;
 } // namespace doris
 #ifdef WARN_UNUSED_RESULT
 #undef WARN_UNUSED_RESULT

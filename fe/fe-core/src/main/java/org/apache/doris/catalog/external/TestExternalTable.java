@@ -38,8 +38,9 @@ public class TestExternalTable extends ExternalTable {
     }
 
     @Override
-    protected synchronized void makeSureInitialized() {
-
+    public synchronized void makeSureInitialized() {
+        super.makeSureInitialized();
+        this.objectCreated = true;
     }
 
     @Override

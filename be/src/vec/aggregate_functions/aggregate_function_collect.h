@@ -17,19 +17,43 @@
 
 #pragma once
 
-#include <algorithm>
+#include <assert.h>
+#include <glog/logging.h>
+#include <string.h>
 
-#include "common/status.h"
+#include <limits>
+#include <memory>
+#include <new>
+#include <string>
+
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/key_holder_helpers.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/common/aggregation_common.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash_set.h"
+#include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/io/io_helper.h"
+#include "vec/io/var_int.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+} // namespace vectorized
+} // namespace doris
+template <typename, typename>
+struct DefaultHash;
 
 namespace doris::vectorized {
 

@@ -17,48 +17,61 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <sys/types.h>
+
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
 #include <memory>  // for unique_ptr
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "bloom_filter_index_reader.h"
+#include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"         // for Status
-#include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
-#include "io/fs/file_reader.h"
+#include "common/status.h" // for Status
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/io_common.h"
-#include "olap/block_column_predicate.h"
-#include "olap/column_predicate.h"
-#include "olap/iterators.h"
-#include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h" // for InvertedIndexReader
-#include "olap/rowset/segment_v2/ordinal_page_index.h"    // for OrdinalPageIndexIterator
-#include "olap/rowset/segment_v2/page_handle.h"           // for PageHandle
-#include "olap/rowset/segment_v2/parsed_page.h"           // for ParsedPage
-#include "olap/rowset/segment_v2/row_ranges.h"            // for RowRanges
-#include "olap/rowset/segment_v2/zone_map_index.h"
-#include "olap/tablet_schema.h"
+#include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
+#include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
+#include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
+#include "olap/types.h"
+#include "olap/utils.h"
 #include "util/once.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
-class TypeInfo;
 class BlockCompressionCodec;
 class WrapperField;
+class AndBlockColumnPredicate;
+class ColumnPredicate;
+class TabletIndex;
 
-namespace fs {
-class ReadableBlock;
-}
+namespace io {
+class FileReader;
+} // namespace io
+struct Slice;
+struct StringRef;
 
 namespace segment_v2 {
 
 class EncodingInfo;
-class PageHandle;
-struct PagePointer;
 class ColumnIterator;
 class BloomFilterIndexReader;
+class BitmapIndexIterator;
+class BitmapIndexReader;
+class InvertedIndexIterator;
+class InvertedIndexReader;
+class PageDecoder;
+class RowRanges;
+class ZoneMapIndexReader;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page

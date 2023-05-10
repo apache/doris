@@ -36,12 +36,12 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
+import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
@@ -113,32 +113,28 @@ public class LoadingTaskPlanner {
         // Generate tuple descriptor
         TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
         TupleDescriptor scanTupleDesc = destTupleDesc;
-        if (Config.enable_vectorized_load) {
-            scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
-        }
+        scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         // use full schema to fill the descriptor table
         for (Column col : table.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(destTupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
-            if (Config.enable_vectorized_load) {
-                SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
-                scanSlotDesc.setIsMaterialized(true);
-                scanSlotDesc.setColumn(col);
-                scanSlotDesc.setIsNullable(col.isAllowNull());
-                if (fileGroups.size() > 0) {
-                    for (ImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
-                        try {
-                            if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
-                                    && importColumnDesc.getColumnName().equals(col.getName())) {
-                                scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
-                                break;
-                            }
-                        } catch (Exception e) {
-                            // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed
-                            // now. We just skip this case here.
+            SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            scanSlotDesc.setIsMaterialized(true);
+            scanSlotDesc.setColumn(col);
+            scanSlotDesc.setIsNullable(col.isAllowNull());
+            if (fileGroups.size() > 0) {
+                for (ImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
+                    try {
+                        if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                                && importColumnDesc.getColumnName().equals(col.getName())) {
+                            scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                            break;
                         }
+                    } catch (Exception e) {
+                        // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed
+                        // now. We just skip this case here.
                     }
                 }
             }
@@ -165,14 +161,12 @@ public class LoadingTaskPlanner {
         // Generate plan trees
         // 1. Broker scan node
         ScanNode scanNode;
-        scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc, false);
-        ((ExternalFileScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
+        scanNode = new FileLoadScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc);
+        ((FileLoadScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
                 fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
-        if (Config.enable_vectorized_load) {
-            scanNode.convertToVectorized();
-        }
+        scanNode.convertToVectorized();
         scanNodes.add(scanNode);
         descTable.computeStatAndMemLayout();
 

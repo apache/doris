@@ -18,11 +18,21 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H
 
-#include "gen_cpp/AgentService_types.h"
-#include "olap/olap_define.h"
+#include <stdint.h>
+
+#include <mutex>
+#include <shared_mutex>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "olap/rowset/rowset.h"
+#include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
+class DataDir;
 
 /// This task is used to migrate the specified tablet to the specified data directory.
 // Usually used for storage medium migration, or migration of tablets between disks.

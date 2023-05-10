@@ -17,15 +17,25 @@
 
 #include "io/fs/s3_file_reader.h"
 
+#include <aws/core/utils/Outcome.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/S3Errors.h>
 #include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/GetObjectResult.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/fs/s3_common.h"
-#include "util/async_io.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 S3FileReader::S3FileReader(Path path, size_t file_size, std::string key, std::string bucket,
                            std::shared_ptr<S3FileSystem> fs)

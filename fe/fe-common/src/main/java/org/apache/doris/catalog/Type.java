@@ -111,6 +111,7 @@ public abstract class Type {
             new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
     public static final VariantType VARIANT = new VariantType();
+    public static final AnyType ANY_TYPE = new AnyType();
 
     private static final Logger LOG = LogManager.getLogger(Type.class);
     private static final ArrayList<ScalarType> integerTypes;
@@ -1706,15 +1707,15 @@ public abstract class Type {
         }
 
         // int family type and char family type should cast to char family type
-        if ((t1ResultType.isFixedPointType() && t2ResultType.isCharFamily())
-                || (t2ResultType.isFixedPointType() && t1ResultType.isCharFamily())) {
-            return t1.isStringType() ? t1 : t2;
+        if ((t1.getPrimitiveType().isFixedPointType() && t2.getPrimitiveType().isCharFamily())
+                || (t2.getPrimitiveType().isFixedPointType() && t1.getPrimitiveType().isCharFamily())) {
+            return Type.VARCHAR;
         }
 
         if (t1ResultType == PrimitiveType.BIGINT && t2ResultType == PrimitiveType.BIGINT) {
             return getAssignmentCompatibleType(t1, t2, false);
         }
-        if (t1ResultType.isDecimalV3Type() && t2ResultType.isDecimalV3Type()) {
+        if (t1.getPrimitiveType().isDecimalV3Type() && t2.getPrimitiveType().isDecimalV3Type()) {
             int resultPrecision = Math.max(t1.getPrecision(), t2.getPrecision());
             PrimitiveType resultDecimalType;
             if (resultPrecision <= ScalarType.MAX_DECIMAL32_PRECISION) {

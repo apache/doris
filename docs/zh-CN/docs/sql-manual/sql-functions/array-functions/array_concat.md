@@ -24,7 +24,7 @@ under the License.
 
 ## array_concat
 
-<version since="1.2.3">
+<version since="2.0.0">
 
 array_concat
 
@@ -36,9 +36,7 @@ array_concat
 
 #### Syntax
 
-```sql
-Array<T> array_concat(Array<T>, ...)
-```
+`Array<T> array_concat(Array<T>, ...)`
 
 #### Returned value
 

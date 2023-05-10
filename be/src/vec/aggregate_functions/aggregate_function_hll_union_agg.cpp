@@ -17,6 +17,8 @@
 
 #include "vec/aggregate_functions/aggregate_function_hll_union_agg.h"
 
+#include <algorithm>
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 

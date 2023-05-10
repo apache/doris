@@ -17,21 +17,44 @@
 
 #include "vec/runtime/vparquet_writer.h"
 
-#include <arrow/array.h>
-#include <arrow/status.h>
+#include <arrow/io/type_fwd.h>
+#include <glog/logging.h>
+#include <math.h>
+#include <parquet/column_writer.h>
+#include <parquet/platform.h>
+#include <parquet/schema.h>
+#include <parquet/type_fwd.h>
 #include <time.h>
 
+#include <algorithm>
+#include <exception>
+#include <ostream>
+#include <string>
+
 #include "io/fs/file_writer.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "util/binary_cast.hpp"
 #include "util/mysql_global.h"
 #include "util/types.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 

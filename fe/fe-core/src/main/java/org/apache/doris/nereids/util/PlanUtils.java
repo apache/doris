@@ -19,12 +19,15 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.Sets;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -54,4 +57,14 @@ public class PlanUtils {
         return buffer.isEmpty() ? expression : expression.commute();
     }
 
+    public static Optional<LogicalProject<? extends Plan>> project(List<NamedExpression> projects, Plan plan) {
+        if (projects.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new LogicalProject<>(projects, plan));
+    }
+
+    public static Plan projectOrSelf(List<NamedExpression> projects, Plan plan) {
+        return project(projects, plan).map(Plan.class::cast).orElse(plan);
+    }
 }

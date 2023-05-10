@@ -18,13 +18,23 @@
 #include "vec/sink/vjdbc_table_sink.h"
 
 #include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <stdint.h>
 
-#include <sstream>
-
+#include "exec/data_sink.h"
+#include "runtime/runtime_state.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/core/block.h"
 #include "vec/core/materialize_block.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/sink/vtable_sink.h"
 
 namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class TExpr;
+
 namespace vectorized {
 
 VJdbcTableSink::VJdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -72,9 +82,9 @@ Status VJdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
     if (block == nullptr || block->rows() == 0) {
         return status;
     }
-
-    auto output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _output_vexpr_ctxs, *block, status);
+    Block output_block;
+    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _output_vexpr_ctxs, *block, &output_block));
     materialize_block_inplace(output_block);
 
     uint32_t start_send_row = 0;

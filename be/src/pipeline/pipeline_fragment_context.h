@@ -17,26 +17,42 @@
 
 #pragma once
 
-#include <future>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "io/fs/stream_load_pipe.h"
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 class ExecNode;
 class DataSink;
 struct ReportStatusRequest;
+class ExecEnv;
+class RuntimeFilterMergeControllerEntity;
+class TDataSink;
+class TPipelineFragmentParams;
 
-namespace vectorized {
-template <bool is_intersect>
-class VSetOperationNode;
-}
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
 
 namespace pipeline {
-
-class PipelineTask;
 
 class PipelineFragmentContext : public std::enable_shared_from_this<PipelineFragmentContext> {
 public:
@@ -49,7 +65,7 @@ public:
     using report_status_callback = std::function<void(const ReportStatusRequest)>;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             const int fragment_id, int backend_num,
-                            std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
+                            std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
                             const report_status_callback& report_status_cb);
 
@@ -79,7 +95,7 @@ public:
 
     // TODO: Support pipeline runtime filter
 
-    QueryFragmentsCtx* get_query_context() { return _query_ctx.get(); }
+    QueryContext* get_query_context() { return _query_ctx.get(); }
 
     TUniqueId get_query_id() const { return _query_id; }
 
@@ -135,10 +151,11 @@ private:
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
-    std::atomic_int _closed_tasks = 0;
+    std::mutex _task_mutex;
+    int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    std::atomic_int _total_tasks = 0;
+    int _total_tasks = 0;
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     int32_t _next_operator_builder_id = 10000;
@@ -153,7 +170,7 @@ private:
     ExecNode* _root_plan = nullptr; // lives in _runtime_state->obj_pool()
     std::unique_ptr<DataSink> _sink;
 
-    std::shared_ptr<QueryFragmentsCtx> _query_ctx;
+    std::shared_ptr<QueryContext> _query_ctx;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 

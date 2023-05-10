@@ -16,19 +16,30 @@
 // under the License.
 #pragma once
 
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
-#include "io/fs/file_reader.h"
-#include "io/fs/file_writer.h"
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <map>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/factory_creator.h"
+#include "common/status.h"
+#include "io/fs/file_reader_options.h"
+#include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
 namespace io {
 class FileSystem;
-class FileReaderOptions;
+class FileWriter;
 } // namespace io
 class ExecEnv;
-class TNetworkAddress;
 class RuntimeProfile;
+class RuntimeState;
 
 struct FileSystemProperties {
     TFileType::type system_type;
@@ -44,8 +55,11 @@ struct FileDescription {
 };
 
 class FileFactory {
+    ENABLE_FACTORY_CREATOR(FileFactory);
+
 public:
-    static io::FileCachePolicy get_cache_policy(RuntimeState* state);
+    static io::FileReaderOptions get_reader_options(RuntimeState* state);
+    static io::FileReaderOptions NO_CACHE_READER_OPTIONS;
 
     /// Create FileWriter
     static Status create_file_writer(TFileType::type type, ExecEnv* env,
@@ -59,7 +73,7 @@ public:
             RuntimeProfile* profile, const FileSystemProperties& system_properties,
             const FileDescription& file_description, std::shared_ptr<io::FileSystem>* file_system,
             io::FileReaderSPtr* file_reader,
-            io::FileCachePolicy cache_policy = io::FileCachePolicy::NO_CACHE);
+            io::FileReaderOptions reader_options = NO_CACHE_READER_OPTIONS);
 
     // Create FileReader for stream load pipe
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader);

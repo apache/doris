@@ -30,6 +30,7 @@ public class SetLdapPassVar extends SetVar {
 
     public SetLdapPassVar(PassVar passVar) {
         this.passVar = passVar;
+        this.varType = SetVarType.SET_LDAP_PASS_VAR;
     }
 
     public String getLdapPassword() {

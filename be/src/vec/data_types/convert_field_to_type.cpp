@@ -18,19 +18,34 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/convert_field_to_type.cpp
 // and modified by Doris
 
-#include <vec/common/field_visitors.h>
-#include <vec/common/typeid_cast.h>
-#include <vec/core/accurate_comparison.h>
-#include <vec/data_types/convert_field_to_type.h>
-#include <vec/data_types/data_type_array.h>
-#include <vec/data_types/data_type_date.h>
-#include <vec/data_types/data_type_date_time.h>
-#include <vec/data_types/data_type_decimal.h>
-#include <vec/data_types/data_type_nullable.h>
-#include <vec/data_types/data_type_number.h>
-#include <vec/data_types/data_type_object.h>
-#include <vec/data_types/data_type_string.h>
-// #include <vec/data_types/data_type_tuple.h>
+#include "vec/data_types/convert_field_to_type.h"
+
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+#include "vec/common/field_visitors.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/accurate_comparison.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
+
+namespace doris {
+namespace vectorized {
+struct UInt128;
+} // namespace vectorized
+} // namespace doris
+
+// #include "vec/data_types/data_type_tuple.h"
 namespace doris::vectorized {
 /** Checking for a `Field from` of `From` type falls to a range of values of type `To`.
   * `From` and `To` - numeric types. They can be floating-point types.

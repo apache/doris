@@ -17,13 +17,22 @@
 
 #include "util/system_metrics.h"
 
+#include <ctype.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <glog/logging.h>
+#include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include <functional>
+#include <ostream>
+#include <unordered_map>
+#include <utility>
 
 #include "gutil/strings/split.h" // for string split
 #include "gutil/strtoint.h"      //  for atoi64
-#include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
 

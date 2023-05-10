@@ -17,13 +17,31 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
+#include <new>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "olap/hll.h"
+#include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
+#include "runtime/decimalv2_value.h"
+#include "util/bitmap_value.h"
+#include "util/quantile_state.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -56,6 +74,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE: {
         return std::make_unique<OlapColumnDataConvertorQuantileState>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
+        return std::make_unique<OlapColumnDataConvertorVarChar>(false);
     }
     case FieldType::OLAP_FIELD_TYPE_HLL: {
         return std::make_unique<OlapColumnDataConvertorHLL>();
@@ -157,6 +178,16 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
     for (const auto& typed_column : *block) {
         _convertors[cid]->set_source_column(typed_column, row_pos, num_rows);
         ++cid;
+    }
+}
+
+void OlapBlockDataConvertor::set_source_content_with_specifid_columns(
+        const vectorized::Block* block, size_t row_pos, size_t num_rows,
+        std::vector<uint32_t> cids) {
+    assert(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
+           block->columns() <= _convertors.size());
+    for (auto i : cids) {
+        _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
     }
 }
 

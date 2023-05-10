@@ -17,15 +17,41 @@
 
 #pragma once
 
-#include <cstdint>
+#include <string.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "gutil/integral_types.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_struct.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
-#include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
+
+namespace doris {
+class FunctionContext;
+
+namespace vectorized {
+class ColumnArray;
+class ColumnMap;
+class ColumnString;
+class ColumnStruct;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

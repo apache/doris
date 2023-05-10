@@ -34,9 +34,7 @@ array_remove
 
 #### Syntax
 
-```
-ARRAY<T> array_remove(ARRAY<T> arr, T val)
-```
+`ARRAY<T> array_remove(ARRAY<T> arr, T val)`
 
 Remove all elements that equal to element from array.
 

@@ -34,6 +34,9 @@ array_enumerate
 </version>
 
 ### description
+#### Syntax
+
+`ARRAY<T> array_enumerate(ARRAY<T> arr)`
 
 Returns array sub item indexes eg. [1, 2, 3, …, length (arr) ]
 

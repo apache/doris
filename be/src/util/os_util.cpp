@@ -25,21 +25,16 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
-#include <cstddef>
-#include <ostream>
+#include <algorithm>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "gutil/macros.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
-#include "gutil/strings/util.h"
 #include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
-#include "util/faststring.h"
 
 using std::string;
 using std::vector;

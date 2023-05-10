@@ -32,7 +32,7 @@ public class ExportProcNode implements ProcNodeInterface {
             .add("JobId").add("Label").add("State").add("Progress")
             .add("TaskInfo").add("Path")
             .add("CreateTime").add("StartTime").add("FinishTime")
-            .add("Timeout").add("ErrorMsg")
+            .add("Timeout").add("ErrorMsg").add("OutfileInfo")
             .build();
 
     // label and state column index of result

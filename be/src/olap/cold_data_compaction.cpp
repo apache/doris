@@ -17,10 +17,25 @@
 
 #include "olap/cold_data_compaction.h"
 
-#include "common/compiler_util.h"
+#include <stdint.h>
+
+#include <algorithm>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "olap/compaction.h"
-#include "olap/rowset/beta_rowset.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
+#include "olap/tablet_meta.h"
+#include "runtime/thread_context.h"
+#include "util/thread.h"
+#include "util/uid_util.h"
 
 namespace doris {
 using namespace ErrorCode;

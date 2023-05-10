@@ -68,7 +68,7 @@ public class SlotDescriptor {
     private boolean isAgg;
     private boolean isMultiRef;
     // If set to false, then such slots will be ignored during
-    // materialize them.Used to optmize to read less data and less memory usage
+    // materialize them.Used to optimize to read less data and less memory usage
     private boolean needMaterialize = true;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {

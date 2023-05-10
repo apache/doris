@@ -144,6 +144,10 @@ public class Column implements Writable, GsonPostProcessable {
         this(name, ScalarType.createType(dataType), isAllowNull);
     }
 
+    public Column(String name, PrimitiveType dataType, int len, int precision, int scale, boolean isAllowNull) {
+        this(name, ScalarType.createType(dataType, len, precision, scale), isAllowNull);
+    }
+
     public Column(String name, Type type, boolean isAllowNull) {
         this(name, type, false, null, isAllowNull, null, "");
     }
@@ -213,6 +217,8 @@ public class Column implements Writable, GsonPostProcessable {
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
+        this.defineExpr = column.getDefineExpr();
+        this.defineName = column.getDefineName();
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -262,6 +268,10 @@ public class Column implements Writable, GsonPostProcessable {
 
     public String getName() {
         return this.name;
+    }
+
+    public String getNonShadowName() {
+        return removeNamePrefix(name);
     }
 
     public String getNameWithoutMvPrefix() {

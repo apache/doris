@@ -18,7 +18,6 @@
 #pragma once
 
 #include <iostream>
-#include <memory>
 
 #include "common/status.h"
 

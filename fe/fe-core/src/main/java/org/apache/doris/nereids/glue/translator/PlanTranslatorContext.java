@@ -159,10 +159,6 @@ public class PlanTranslatorContext {
         return bufferedTupleForWindow;
     }
 
-    public void setBufferedTupleForWindow(TupleDescriptor bufferedTupleForWindow) {
-        this.bufferedTupleForWindow = bufferedTupleForWindow;
-    }
-
     /**
      * Create SlotDesc and add it to the mappings from expression to the stales expr.
      */

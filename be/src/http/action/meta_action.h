@@ -17,19 +17,21 @@
 
 #pragma once
 
+#include <string>
+
 #include "common/status.h"
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
-class ExecEnv;
+class HttpRequest;
 
 // Get Meta Info
-class MetaAction : public HttpHandler {
+class MetaAction : public HttpHandlerWithAuth {
 public:
-    MetaAction() = default;
+    MetaAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
 
-    virtual ~MetaAction() {}
+    ~MetaAction() override = default;
 
     void handle(HttpRequest* req) override;
 

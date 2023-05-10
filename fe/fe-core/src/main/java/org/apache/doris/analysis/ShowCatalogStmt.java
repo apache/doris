@@ -31,6 +31,8 @@ public class ShowCatalogStmt extends ShowStmt {
                     .addColumn(new Column("CatalogName", ScalarType.createVarchar(64)))
                     .addColumn(new Column("Type", ScalarType.createStringType()))
                     .addColumn(new Column("IsCurrent", ScalarType.createStringType()))
+                    .addColumn(new Column("CreateTime", ScalarType.createStringType()))
+                    .addColumn(new Column("Comment", ScalarType.createStringType()))
                     .build();
 
     private static final ShowResultSetMetaData META_DATA_SPECIFIC =

@@ -34,9 +34,7 @@ array_reverse_sort
 
 #### Syntax
 
-```
-ARRAY<T> array_reverse_sort(ARRAY<T> arr)
-```
+`ARRAY<T> array_reverse_sort(ARRAY<T> arr)`
 
 Return the array which has been sorted in descending order. Return NULL for NULL input.
 If the element of array is NULL, it will be placed in the last of the sorted array.

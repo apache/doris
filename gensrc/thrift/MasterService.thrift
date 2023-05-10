@@ -101,6 +101,7 @@ struct TReportRequest {
     8: optional i64 tablet_max_compaction_score
     9: optional list<AgentService.TStoragePolicy> storage_policy // only id and version
     10: optional list<AgentService.TStorageResource> resource // only id and version
+    11: i32 num_cores
 }
 
 struct TMasterResult {
@@ -108,7 +109,7 @@ struct TMasterResult {
     1: required Status.TStatus status
 }
 
-// Now we only support CPU share.
+// Deprecated
 enum TResourceType {
     TRESOURCE_CPU_SHARE
     TRESOURCE_IO_SHARE
@@ -122,11 +123,12 @@ enum TResourceType {
     TRESOURCE_HDD_WRITE_MBPS
 }
 
+// Deprecated
 struct TResourceGroup {
     1: required map<TResourceType, i32> resourceByType
 }
 
-// Resource per user
+// Deprecated
 struct TUserResource {
     1: required TResourceGroup resource
 
@@ -134,6 +136,7 @@ struct TUserResource {
     2: required map<string, i32> shareByGroup
 }
 
+// Deprecated
 struct TFetchResourceResult {
     // Master service not find protocol version, so using agent service version
     1: required AgentService.TAgentServiceVersion protocolVersion

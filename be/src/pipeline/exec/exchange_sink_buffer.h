@@ -17,18 +17,25 @@
 
 #pragma once
 
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
 #include <parallel_hashmap/phmap.h>
+#include <stdint.h>
 
+#include <atomic>
 #include <list>
+#include <memory>
+#include <mutex>
 #include <queue>
-#include <shared_mutex>
+#include <string>
 
 #include "common/global_types.h"
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
+class PTransmitDataParams;
+class TUniqueId;
+
 namespace vectorized {
 class PipChannel;
 class BroadcastPBlockHolder;

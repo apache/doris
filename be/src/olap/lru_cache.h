@@ -4,18 +4,22 @@
 
 #pragma once
 
+#include <assert.h>
+#include <butil/macros.h>
+#include <glog/logging.h>
 #include <gtest/gtest_prod.h>
-#include <rapidjson/document.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include <atomic>
 #include <functional>
-#include <queue>
+#include <memory>
+#include <set>
 #include <string>
-#include <vector>
+#include <utility>
 
-#include "olap/olap_common.h"
-#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/lock.h"
@@ -49,7 +53,6 @@ namespace doris {
     } while (0)
 
 class Cache;
-class CacheKey;
 
 enum LRUCacheType {
     SIZE,  // The capacity of cache is based on the size of cache entry.

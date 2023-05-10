@@ -4,10 +4,16 @@
 
 #include "common/status.h"
 
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/types.pb.h> // for PStatus
+#include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
-#include "gen_cpp/types.pb.h" // for PStatus
+#include <algorithm>
+#include <new>
+#include <vector>
+
 #include "service/backend_options.h"
 
 namespace doris {

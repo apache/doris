@@ -17,16 +17,17 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <stdint.h>
+
 #include <cstddef>
 #include <memory>
-#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
-#include "util/slice.h"
+#include "util/faststring.h"
 #include "vec/common/arena.h"
 
 namespace doris {

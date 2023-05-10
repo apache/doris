@@ -17,30 +17,33 @@
 
 #pragma once
 
-#include <memory>
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
+#include <utility>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/parsed_page.h"
-#include "util/block_compression.h"
 #include "util/slice.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class KeyCoder;
 class TypeInfo;
+class BlockCompressionCodec;
 
 namespace segment_v2 {
 
 class EncodingInfo;
-class IndexedColumnIterator;
 
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
 class IndexedColumnReader {

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -114,7 +113,6 @@ public class InsertArrayStmtTest {
 
     @Test
     public void testTransactionalInsert() throws Exception {
-        Config.enable_new_load_scan_node = true;
         ExceptionChecker.expectThrowsNoException(
                 () -> createTable("CREATE TABLE test.`txn_insert_tbl` (\n"
                         + "  `k1` int(11) NULL,\n"

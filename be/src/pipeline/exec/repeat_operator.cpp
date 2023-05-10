@@ -17,7 +17,15 @@
 
 #include "repeat_operator.h"
 
+#include <memory>
+
+#include "pipeline/exec/operator.h"
+#include "vec/core/block.h"
 #include "vec/exec/vrepeat_node.h"
+
+namespace doris {
+class RuntimeState;
+} // namespace doris
 
 namespace doris::pipeline {
 
