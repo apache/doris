@@ -188,7 +188,6 @@
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <gen_cpp/types.pb.h>
-#include <gen_cpp/version.h>
 
 // gflags headers
 #include <gflags/gflags.h>
@@ -315,10 +314,12 @@
 #include <sanitizer/lsan_interface.h>
 
 // simdjson headers
+#include <simdjson.h>
 #include <simdjson/common_defs.h>
 #include <simdjson/simdjson.h>
 
 // snappy headers
+#include <snappy.h>
 #include <snappy/snappy-sinksource.h>
 #include <snappy/snappy.h>
 
@@ -385,62 +386,16 @@
 // roaring headers
 #include <roaring/roaring.hh>
 
-// others
-#include <arpa/inet.h>
-#include <assert.h>
-#include <bzlib.h>
+// c/c++ headers
 #include <ctype.h>
-#include <curl/curl.h>
-#include <curl/system.h>
 #include <cxxabi.h>
-#include <dlfcn.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <fenv.h>
 #include <float.h>
-#include <iconv.h>
-#include <inttypes.h>
-#include <jni.h>
-#include <jni_md.h>
-#include <libdivide.h>
-#include <libgen.h>
-#include <librdkafka/rdkafkacpp.h>
 #include <limits.h>
 #include <math.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <pdqsort.h>
-#include <pthread.h>
-#include <sched.h>
-#include <setjmp.h>
-#include <signal.h>
-#include <simdjson.h>
-#include <snappy.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <strings.h>
-#include <sys/mman.h>
-#include <sys/param.h>
-#include <sys/resource.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
-#include <sys/sysctl.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/ucontext.h>
-#include <sys/uio.h>
-#include <sys/un.h>
-#include <time.h>
-#include <wchar.h>
-#include <zconf.h>
-#include <zlib.h>
-#include <zstd.h>
-#include <zstd_errors.h>
 
 #include <algorithm>
 #include <array>
@@ -509,6 +464,66 @@
 #include <variant>
 #include <vector>
 
+// zlib headers
+#include <bzlib.h>
+#include <zlib.h>
+
+// curl headers
+#include <curl/curl.h>
+#include <curl/system.h>
+
+// jdk headers
+#include <jni.h>
+#include <jni_md.h>
+
+// libdivide header
+#include <libdivide.h>
+
+// librdkafka header
+#include <librdkafka/rdkafkacpp.h>
+
+// pdqsort header
+#include <pdqsort.h>
+
+// usr headers
+#include <arpa/inet.h>
+#include <assert.h>
+#include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <fenv.h> // also in c++ headers
+#include <iconv.h>
+#include <inttypes.h>
+#include <libgen.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <pthread.h>
+#include <sched.h>
+#include <setjmp.h>
+#include <signal.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/mman.h>
+#include <sys/param.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/ucontext.h>
+#include <sys/uio.h>
+#include <sys/un.h>
+#include <wchar.h>
+
+// zconf header
+#include <zconf.h>
+
+// zstd headers
+#include <zstd.h>
+#include <zstd_errors.h>
+
 #ifndef __APPLE__
 #include <byteswap.h>
 #include <endian.h>
@@ -517,11 +532,22 @@
 #include <linux/perf_event.h>
 #include <malloc.h>
 #include <mmintrin.h>
+#include <sched.h>
 #include <sys/prctl.h>
 #include <sys/sysinfo.h>
 #include <ucontext.h>
 #include <unistd.h>
+#else
+#include <sys/sysctl.h>
+#endif
 
+#ifndef USE_LIBCPP
 #include <ext/pb_ds/priority_queue.hpp>
 #include <memory_resource>
 #endif
+
+// doris headers
+#include "common/config.h"
+#include "common/status.h"
+#include "common/version_internal.h"
+#include "olap/olap_common.h"
