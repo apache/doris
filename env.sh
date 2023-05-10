@@ -263,3 +263,4 @@ export GENERATOR
 export BUILD_SYSTEM
 
 export PKG_CONFIG_PATH="${DORIS_HOME}/thirdparty/installed/lib64/pkgconfig:${PKG_CONFIG_PATH}"
+export CCACHE_SLOPPINESS="time_macros pch_defines"
