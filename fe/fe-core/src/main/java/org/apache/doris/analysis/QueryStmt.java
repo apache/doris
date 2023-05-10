@@ -347,7 +347,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         sortInfo = new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);
         // order by w/o limit and offset in inline views, set operands and insert statements
         // are ignored.
-        if (!analyzer.isNeedAddOrderBy() && !hasLimit() && !hasOffset() && (!analyzer.isRootAnalyzer() || fromInsert)) {
+        if (!hasLimit() && !hasOffset() && (!analyzer.isRootAnalyzer() || fromInsert)) {
             evaluateOrderBy = false;
             if (LOG.isDebugEnabled()) {
                 // Return a warning that the order by was ignored.

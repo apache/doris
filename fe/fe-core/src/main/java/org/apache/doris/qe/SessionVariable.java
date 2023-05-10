@@ -311,6 +311,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
+    public static final String ENABLE_DEFAULT_ORDER = "enable_default_order";
+
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
@@ -868,6 +870,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PLAN_NEREIDS_DUMP)
     public boolean planNereidsDump = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_DEFAULT_ORDER)
+    public boolean enableDefaultOrder = false;
 
     // If set to true, all query will be executed without returning result
     @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
@@ -2107,6 +2112,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
         this.dumpNereidsMemo = dumpNereidsMemo;
+    }
+
+    public boolean isEnableDefaultOrder() {
+        return enableDefaultOrder;
     }
 
     public void enableFallbackToOriginalPlannerOnce() throws DdlException {

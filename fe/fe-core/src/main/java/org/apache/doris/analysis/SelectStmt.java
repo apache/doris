@@ -632,7 +632,8 @@ public class SelectStmt extends QueryStmt {
         }
 
         // if the query contains limit clause but not order by clause, order by keys by default.
-        if (analyzer.isNeedAddOrderBy()) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
+                && ConnectContext.get().getSessionVariable().isEnableDefaultOrder() && analyzer.isNeedAddOrderBy()) {
             orderByElements = Lists.newArrayList();
             for (TableRef ref : getTableRefs()) {
                 if (ref instanceof BaseTableRef
