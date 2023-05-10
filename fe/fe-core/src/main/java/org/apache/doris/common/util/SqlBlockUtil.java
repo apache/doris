@@ -29,9 +29,9 @@ public class SqlBlockUtil {
     public static final String STRING_DEFAULT = "NULL";
     public static final String LONG_DEFAULT = "0";
     public static final Long LONG_ZERO = 0L;
-    public static final Double DOUBLE_ZERO = 0D;
+    public static final double DOUBLE_ZERO = 0D;
     public static final Long LONG_MINUS_ONE = -1L;
-    public static final Double DOUBLE_MINUS_ONE = -1D;
+    public static final double DOUBLE_MINUS_ONE = -1D;
 
 
     public static void checkSqlAndSqlHashSetBoth(String sql, String sqlHash) throws AnalysisException {
