@@ -109,8 +109,8 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_STRICT_MODE = "strict_mode";
     public static final String KEY_IN_PARAM_TIMEZONE = "timezone";
     public static final String KEY_IN_PARAM_EXEC_MEM_LIMIT = "exec_mem_limit";
-    public static final String KEY_IN_PARAM_JSONPATHS  = "jsonpaths";
-    public static final String KEY_IN_PARAM_JSONROOT  = "json_root";
+    public static final String KEY_IN_PARAM_JSONPATHS = "jsonpaths";
+    public static final String KEY_IN_PARAM_JSONROOT = "json_root";
     public static final String KEY_IN_PARAM_STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String KEY_IN_PARAM_FUZZY_PARSE = "fuzzy_parse";
     public static final String KEY_IN_PARAM_NUM_AS_STRING = "num_as_string";
@@ -273,6 +273,7 @@ public class LoadStmt extends DdlStmt {
         return brokerDesc;
     }
 
+    @Deprecated
     public String getCluster() {
         return cluster;
     }
@@ -285,6 +286,7 @@ public class LoadStmt extends DdlStmt {
         return properties;
     }
 
+    @Deprecated
     public String getUser() {
         return user;
     }
