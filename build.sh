@@ -46,6 +46,7 @@ Usage: $0 <options>
      --audit            build audit loader. Default ON.
      --spark-dpp        build Spark DPP application. Default ON.
      --hive-udf         build Hive UDF library for Spark Load. Default ON.
+     --java-udf         build Java UDF. Default ON.
      --clean            clean and build target
      -j                 build Backend parallel
 
@@ -115,6 +116,7 @@ if ! OPTS="$(getopt \
     -l 'meta-tool' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
+    -l 'java-udf' \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
@@ -183,6 +185,10 @@ else
             ;;
         --hive-udf)
             BUILD_HIVE_UDF=1
+            shift
+            ;;
+        --java-udf)
+            BUILD_JAVA_UDF=1
             shift
             ;;
         --clean)
@@ -410,6 +416,10 @@ fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("hive-udf")
+fi
+if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
+    modules+=("fe-common")
+    modules+=("java-udf")
 fi
 FE_MODULES="$(
     IFS=','
