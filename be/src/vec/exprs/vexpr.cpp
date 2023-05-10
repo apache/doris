@@ -75,6 +75,10 @@ VExpr::VExpr(const doris::TExprNode& node)
     if (node.__isset.is_nullable) {
         is_nullable = node.is_nullable;
     }
+    // If we define null literal ,should make nullable data type to get correct field instead of undefined ptr
+    if (node.node_type == TExprNodeType::NULL_LITERAL) {
+        CHECK(is_nullable);
+    }
     _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
 

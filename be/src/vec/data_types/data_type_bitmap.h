@@ -103,6 +103,10 @@ public:
         __builtin_unreachable();
     }
 
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for BitMap";
+    }
+
     static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);
 
     static void deserialize_as_stream(BitmapValue& value, BufferReadable& buf);

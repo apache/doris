@@ -70,6 +70,13 @@ public:
         return JsonbField(binary_val.value(), binary_val.size());
     }
 
+    Field get_field(const TExprNode& node) const override {
+        DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
+        DCHECK(node.__isset.json_literal);
+        JsonBinaryValue value(node.json_literal.value);
+        return String(value.value(), value.size());
+    }
+
     bool equals(const IDataType& rhs) const override;
 
     bool get_is_parametric() const override { return false; }
