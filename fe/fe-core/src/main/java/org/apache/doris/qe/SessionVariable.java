@@ -62,6 +62,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
@@ -226,6 +227,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
     public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
 
+    public static final String ENABLE_DPHYP_TRACE = "enable_dphyp_trace";
+
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
 
@@ -309,6 +312,10 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    public static final String ENABLE_PARQUET_LAZY_MAT = "enable_parquet_lazy_materialization";
+
+    public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -329,6 +336,9 @@ public class SessionVariable implements Serializable, Writable {
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
+
+    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT)
+    public long maxScanQueueMemByte = 2147483648L / 20;
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
@@ -630,7 +640,8 @@ public class SessionVariable implements Serializable, Writable {
      * the new optimizer is fully developed. I hope that day
      * would be coming soon.
      */
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, expType = ExperimentalType.EXPERIMENTAL)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true,
+            fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
     private boolean enableNereidsPlanner = false;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
@@ -650,6 +661,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
     private boolean enableNereidsTrace = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_DPHYP_TRACE, needForward = true)
+    public boolean enableDpHypTrace = false;
 
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
     private double broadcastRightTableScaleFactor = 10.0;
@@ -841,6 +855,22 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
 
+    @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_LAZY_MAT,
+            description = {"控制 parquet reader 是否启用延迟物化技术。默认为 true。",
+                    "Controls whether to use lazy materialization technology in parquet reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableParquetLazyMat = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_ORC_LAZY_MAT,
+            description = {"控制 orc reader 是否启用延迟物化技术。默认为 true。",
+                    "Controls whether to use lazy materialization technology in orc reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableOrcLazyMat = true;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -984,6 +1014,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
+    }
+
+    public long getMaxScanQueueExecMemByte() {
+        return maxScanQueueMemByte;
     }
 
     public int getQueryTimeoutS() {
@@ -1131,6 +1165,10 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.maxExecMemByte = maxExecMemByte;
         }
+    }
+
+    public void setMaxScanQueueMemByte(long scanQueueMemByte) {
+        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 20);
     }
 
     public boolean isSqlQuoteShowCreate() {
@@ -1439,6 +1477,23 @@ public class SessionVariable implements Serializable, Writable {
         this.fileSplitSize = fileSplitSize;
     }
 
+    public boolean isEnableParquetLazyMat() {
+        return enableParquetLazyMat;
+    }
+
+    public void setEnableParquetLazyMat(boolean enableParquetLazyMat) {
+        this.enableParquetLazyMat = enableParquetLazyMat;
+    }
+
+    public boolean isEnableOrcLazyMat() {
+        return enableOrcLazyMat;
+    }
+
+    public void setEnableOrcLazyMat(boolean enableOrcLazyMat) {
+        this.enableOrcLazyMat = enableOrcLazyMat;
+    }
+
+
     /**
      * getInsertVisibleTimeoutMs.
      **/
@@ -1700,6 +1755,7 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
+        tResult.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);
@@ -1770,6 +1826,9 @@ public class SessionVariable implements Serializable, Writable {
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
         }
+
+        tResult.setEnableParquetLazyMat(enableParquetLazyMat);
+        tResult.setEnableOrcLazyMat(enableOrcLazyMat);
 
         return tResult;
     }
@@ -1950,6 +2009,7 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions getQueryOptionVariables() {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(maxExecMemByte);
+        queryOptions.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
         return queryOptions;

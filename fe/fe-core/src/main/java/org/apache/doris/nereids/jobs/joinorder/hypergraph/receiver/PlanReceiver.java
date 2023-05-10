@@ -87,6 +87,10 @@ public class PlanReceiver implements AbstractReceiver {
 
     /**
      * Emit a new plan from bottom to top
+     * <p>
+     * The purpose of EmitCsgCmp is to combine the optimal plans for S1 and S2 into a csg-cmp-pair.
+     * It requires calculating the proper join predicate and costs of the resulting joins.
+     * In the end, update dpTables.
      *
      * @param left the bitmap of left child tree
      * @param right the bitmap of the right child tree
@@ -296,8 +300,8 @@ public class PlanReceiver implements AbstractReceiver {
 
     @Override
     public Group getBestPlan(long bitmap) {
-        Preconditions.checkArgument(planTable.containsKey(bitmap));
         Group root = planTable.get(bitmap);
+        Preconditions.checkState(root != null);
         // If there are some rules relied on the logical join, we need to make logical Expression
         // However, it cost 15% of total optimized time.
         makeLogicalExpression(root);

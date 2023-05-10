@@ -155,9 +155,10 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.need_bloom_filter = false;
                 null_options.need_bitmap_index = false;
 
-                TabletColumn null_column = TabletColumn(
-                        OLAP_FIELD_AGGREGATION_NONE, null_type, null_options.meta->is_nullable(),
-                        null_options.meta->unique_id(), null_options.meta->length());
+                TabletColumn null_column =
+                        TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type,
+                                     null_options.meta->is_nullable(),
+                                     null_options.meta->unique_id(), null_options.meta->length());
                 null_column.set_name("nullable");
                 null_column.set_index_length(-1); // no short key index
                 std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
@@ -212,9 +213,10 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_options.need_bloom_filter = false;
             length_options.need_bitmap_index = false;
 
-            TabletColumn length_column = TabletColumn(
-                    OLAP_FIELD_AGGREGATION_NONE, length_type, length_options.meta->is_nullable(),
-                    length_options.meta->unique_id(), length_options.meta->length());
+            TabletColumn length_column =
+                    TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
+                                 length_options.meta->is_nullable(),
+                                 length_options.meta->unique_id(), length_options.meta->length());
             length_column.set_name("length");
             length_column.set_index_length(-1); // no short key index
             std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
@@ -240,9 +242,10 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.need_bloom_filter = false;
                 null_options.need_bitmap_index = false;
 
-                TabletColumn null_column = TabletColumn(
-                        OLAP_FIELD_AGGREGATION_NONE, null_type, length_options.meta->is_nullable(),
-                        null_options.meta->unique_id(), null_options.meta->length());
+                TabletColumn null_column =
+                        TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type,
+                                     length_options.meta->is_nullable(),
+                                     null_options.meta->unique_id(), null_options.meta->length());
                 null_column.set_name("nullable");
                 null_column.set_index_length(-1); // no short key index
                 std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
@@ -303,9 +306,10 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_options.need_bloom_filter = false;
             length_options.need_bitmap_index = false;
 
-            TabletColumn length_column = TabletColumn(
-                    OLAP_FIELD_AGGREGATION_NONE, length_type, length_options.meta->is_nullable(),
-                    length_options.meta->unique_id(), length_options.meta->length());
+            TabletColumn length_column =
+                    TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
+                                 length_options.meta->is_nullable(),
+                                 length_options.meta->unique_id(), length_options.meta->length());
             length_column.set_name("length");
             length_column.set_index_length(-1); // no short key index
             std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
@@ -330,9 +334,9 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.need_bloom_filter = false;
                 null_options.need_bitmap_index = false;
 
-                TabletColumn null_column =
-                        TabletColumn(OLAP_FIELD_AGGREGATION_NONE, null_type, false,
-                                     null_options.meta->unique_id(), null_options.meta->length());
+                TabletColumn null_column = TabletColumn(
+                        FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type, false,
+                        null_options.meta->unique_id(), null_options.meta->length());
                 null_column.set_name("nullable");
                 null_column.set_index_length(-1); // no short key index
                 std::unique_ptr<Field> null_field(FieldFactory::create(null_column));

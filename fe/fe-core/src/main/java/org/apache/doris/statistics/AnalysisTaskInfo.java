@@ -59,7 +59,8 @@ public class AnalysisTaskInfo {
 
     public enum ScheduleType {
         ONCE,
-        PERIOD
+        PERIOD,
+        AUTOMATIC
     }
 
     public final long jobId;

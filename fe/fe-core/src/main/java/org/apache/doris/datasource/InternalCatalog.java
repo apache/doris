@@ -202,8 +202,9 @@ public class InternalCatalog implements CatalogIf<Database> {
     private ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
 
+    // Add transient to fix gson issue.
     @Getter
-    private EsRepository esRepository = new EsRepository();
+    private transient EsRepository esRepository = new EsRepository();
     @Getter
     private IcebergTableCreationRecordMgr icebergTableCreationRecordMgr = new IcebergTableCreationRecordMgr();
 
