@@ -32,13 +32,11 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileQueryScanNode;
-import org.apache.doris.planner.external.FileSplit;
 import org.apache.doris.planner.external.TableFormatType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
-import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
@@ -263,11 +261,6 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", icebergFormat));
         }
         return type;
-    }
-
-    @Override
-    public TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
-        return null;
     }
 
     @Override
