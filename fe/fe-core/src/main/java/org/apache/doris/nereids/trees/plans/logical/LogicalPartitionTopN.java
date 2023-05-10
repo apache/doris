@@ -46,15 +46,17 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     private final Boolean hasGlobalLimit;
     private final long partitionLimit;
 
-    public LogicalPartitionTopN(WindowExpression windowExpr, Boolean hasGlobalLimit, long partitionLimit, CHILD_TYPE child) {
+    public LogicalPartitionTopN(WindowExpression windowExpr, Boolean hasGlobalLimit, long partitionLimit,
+                                CHILD_TYPE child) {
         this(windowExpr.getFunction(), windowExpr.getPartitionKeys(), windowExpr.getOrderKeys(),
-            hasGlobalLimit, partitionLimit, Optional.empty(), Optional.empty(), child);
+                hasGlobalLimit, partitionLimit, Optional.empty(),
+                Optional.empty(), child);
     }
 
     public LogicalPartitionTopN(Expression function, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
                                 Boolean hasGlobalLimit, long partitionLimit, CHILD_TYPE child) {
         this(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-            Optional.empty(), Optional.empty(), child);
+                Optional.empty(), Optional.empty(), child);
     }
 
     /**
@@ -62,10 +64,10 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
      */
     public LogicalPartitionTopN(Expression function, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
                                 Boolean hasGlobalLimit, long partitionLimit, Optional<GroupExpression> groupExpression,
-                       Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child);
         this.function = function;
-        this.partitionKeys = ImmutableList.copyOf(partitionKeys);;
+        this.partitionKeys = ImmutableList.copyOf(partitionKeys);
         this.orderKeys = ImmutableList.copyOf(orderKeys);
         this.hasGlobalLimit = hasGlobalLimit;
         this.partitionLimit = partitionLimit;
@@ -117,8 +119,9 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
             return false;
         }
         LogicalPartitionTopN<?> that = (LogicalPartitionTopN<?>) o;
-        return Objects.equals(this.function, that.function) && Objects.equals(this.partitionKeys, that.partitionKeys) &&
-            Objects.equals(this.orderKeys, that.orderKeys) && this.hasGlobalLimit == that.hasGlobalLimit && this.partitionLimit == that.partitionLimit;
+        return Objects.equals(this.function, that.function) && Objects.equals(this.partitionKeys, that.partitionKeys)
+            && Objects.equals(this.orderKeys, that.orderKeys) && this.hasGlobalLimit == that.hasGlobalLimit
+            && this.partitionLimit == that.partitionLimit;
     }
 
     @Override
@@ -140,7 +143,8 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public LogicalPartitionTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit, children.get(0));
+        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+            children.get(0));
     }
 
     @Override

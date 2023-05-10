@@ -74,6 +74,9 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
             LogicalWindow<Plan> window = filter.child();
 
             // TODO: Check whether the child is already PartitionTopN
+            if (window.child(0) instanceof LogicalPartitionTopN) {
+                return filter;
+            }
 
             // Check the filter conditions. Now, we currently only support
             // simple conditions of the form 'column </<= constant'.
@@ -141,7 +144,8 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
             }
 
             // return PartitionTopN -> Window -> Filter
-            return filter.withChildren(window.withChildren(new LogicalPartitionTopN<>(windowFunc, false, limitVal, window.child(0))));
+            return filter.withChildren(window.withChildren(
+                new LogicalPartitionTopN<>(windowFunc, false, limitVal, window.child(0))));
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_WINDOW);
     }
 

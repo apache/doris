@@ -96,6 +96,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
@@ -129,6 +130,7 @@ import org.apache.doris.planner.JdbcScanNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RepeatNode;
@@ -846,6 +848,59 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             inputPlanFragment.addPlanRoot(analyticEvalNode);
         }
         return inputPlanFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN,
+                                                   PlanTranslatorContext context) {
+        PlanFragment inputFragment = partitionTopN.child(0).accept(this, context);
+
+        Preconditions.checkArgument(!(partitionTopN.child(0) instanceof ExchangeNode));
+        PartitionSortNode partitionSortNode = translatePartitionSortNode(partitionTopN,
+                inputFragment.getPlanRoot(), context);
+        addPlanRoot(inputFragment, partitionSortNode, partitionTopN);
+
+        return inputFragment;
+    }
+
+    private PartitionSortNode translatePartitionSortNode(PhysicalPartitionTopN<? extends Plan> partitionTopN,
+                                                         PlanNode childNode, PlanTranslatorContext context) {
+        // Generate the SortInfo, similar to 'translateSortNode'.
+        List<Expr> oldOrderingExprList = Lists.newArrayList();
+        List<Boolean> ascOrderList = Lists.newArrayList();
+        List<Boolean> nullsFirstParamList = Lists.newArrayList();
+        List<OrderKey> orderKeyList = partitionTopN.getOrderKeys();
+        // 1. Get previous slotRef
+        orderKeyList.forEach(k -> {
+            oldOrderingExprList.add(ExpressionTranslator.translate(k.getExpr(), context));
+            ascOrderList.add(k.isAsc());
+            nullsFirstParamList.add(k.isNullFirst());
+        });
+        List<Expr> sortTupleOutputList = new ArrayList<>();
+        List<Slot> outputList = partitionTopN.getOutput();
+        outputList.forEach(k -> {
+            sortTupleOutputList.add(ExpressionTranslator.translate(k, context));
+        });
+        // 2. Generate new Tuple and get current slotRef for newOrderingExprList
+        List<Expr> newOrderingExprList = Lists.newArrayList();
+        TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, newOrderingExprList, context, null);
+        // 3. fill in SortInfo members
+        SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
+
+        Expr function = ExpressionTranslator.translate(partitionTopN.getFunction(), context);
+        List<Expr> partitionExprs = partitionTopN.getPartitionKeys().stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
+
+        PartitionSortNode partitionSortNode = new PartitionSortNode(context.nextPlanNodeId(), childNode, function,
+                partitionExprs, sortInfo, partitionTopN.hasGlobalLimit(), partitionTopN.getPartitionLimit());
+
+        partitionSortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
+        if (partitionTopN.getStats() != null) {
+            partitionSortNode.setCardinality((long) partitionTopN.getStats().getRowCount());
+        }
+        updateLegacyPlanIdToPhysicalPlan(partitionSortNode, partitionTopN);
+        return partitionSortNode;
     }
 
     @Override

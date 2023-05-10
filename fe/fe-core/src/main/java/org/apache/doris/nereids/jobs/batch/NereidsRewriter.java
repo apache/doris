@@ -64,6 +64,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
@@ -251,6 +252,8 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new PruneOlapScanTablet()
                 )
             ),
+
+            topDown(new PushdownFilterThroughWindow()),
 
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check", bottomUp(

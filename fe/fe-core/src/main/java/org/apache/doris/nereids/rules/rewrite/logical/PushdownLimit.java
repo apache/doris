@@ -95,7 +95,8 @@ public class PushdownLimit implements RewriteRuleFactory {
                         return limit;
                     }
 
-                    return limit.withChildren(window.withChildren(new LogicalPartitionTopN<>(windowFunc, false, limit.getLimit(), window.child(0))));
+                    return limit.withChildren(window.withChildren(
+                        new LogicalPartitionTopN<>(windowFunc, false, limit.getLimit(), window.child(0))));
                 })
                 .toRule(RuleType.PUSH_LIMIT_THROUGH_JOIN),
 

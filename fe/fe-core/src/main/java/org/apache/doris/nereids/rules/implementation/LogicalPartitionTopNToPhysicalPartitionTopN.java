@@ -17,9 +17,16 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
+
+import com.google.common.collect.Lists;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Implementation rule that convert logical partition-top-n to physical partition-top-n.
@@ -27,14 +34,23 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalPartitionTopN().then(partitionTopN -> new PhysicalPartitionTopN<>(
-            partitionTopN.getFunction(),
-            partitionTopN.getPartitionKeys(),
-            partitionTopN.getOrderKeys(),
-            partitionTopN.hasGlobalLimit(),
-            partitionTopN.getPartitionLimit(),
-            partitionTopN.getLogicalProperties(),
-            partitionTopN.child())
-        ).toRule(RuleType.LOGICAL_PARTITION_TOP_N_TO_PHYSICAL_PARTITION_TOP_N_RULE);
+        return logicalPartitionTopN().then(partitionTopN -> {
+            List<OrderKey> orderKeys = Lists.newArrayList();
+            if (!partitionTopN.getOrderKeys().isEmpty()) {
+                orderKeys.addAll(partitionTopN.getOrderKeys().stream()
+                        .map(OrderExpression::getOrderKey)
+                        .collect(Collectors.toList())
+                );
+            }
+
+            return new PhysicalPartitionTopN<>(
+                    partitionTopN.getFunction(),
+                    partitionTopN.getPartitionKeys(),
+                    orderKeys,
+                    partitionTopN.hasGlobalLimit(),
+                    partitionTopN.getPartitionLimit(),
+                    partitionTopN.getLogicalProperties(),
+                    partitionTopN.child());
+        }).toRule(RuleType.LOGICAL_PARTITION_TOP_N_TO_PHYSICAL_PARTITION_TOP_N_RULE);
     }
 }
