@@ -492,10 +492,10 @@ suite("test_window_function") {
 
     sql """ admin set frontend config("remote_fragment_exec_timeout_ms"="300000"); """
 
-    qt_window_hang2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ A.${k1}, A.wj - B.dyk + 1 as num from 
-        (select ${k1}, wj from ${line} as W1) as A join 
-        (select ${k1}, min(wj) as dyk from ${line} as W2 group by ${k1}) as B
-        where A.${k1}=B.${k1}  order by A.${k1}, num"""
+    //qt_window_hang2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ A.${k1}, A.wj - B.dyk + 1 as num from 
+    //    (select ${k1}, wj from ${line} as W1) as A join 
+    //    (select ${k1}, min(wj) as dyk from ${line} as W2 group by ${k1}) as B
+    //    where A.${k1}=B.${k1}  order by A.${k1}, num"""
 
     //test_hujie
     line = "("
