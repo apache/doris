@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
+import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -288,6 +289,30 @@ public class StatisticsRepository {
 
     public static void persistTableStats(Map<String, String> params) throws Exception {
         StatisticsUtil.execUpdate(PERSIST_TABLE_STATS_TEMPLATE, params);
+    }
+
+    public static void alterTableStatistics(AlterTableStatsStmt alterTableStatsStmt) throws Exception {
+        TableName tableName = alterTableStatsStmt.getTableName();
+        DBObjects objects = StatisticsUtil.convertTableNameToObjects(tableName);
+        String rowCount = alterTableStatsStmt.getValue(StatsType.ROW_COUNT);
+        TableStatisticBuilder builder = new TableStatisticBuilder();
+        builder.setRowCount(Long.parseLong(rowCount));
+        builder.setLastAnalyzeTimeInMs(0);
+        TableStatistic tableStatistic = builder.build();
+        Map<String, String> params = new HashMap<>();
+        String id = StatisticsUtil.constructId(objects.table.getId(), -1);
+        params.put("id", id);
+        params.put("catalogId", String.valueOf(objects.catalog.getId()));
+        params.put("dbId", String.valueOf(objects.db.getId()));
+        params.put("tblId", String.valueOf(objects.table.getId()));
+        params.put("indexId", "-1");
+        params.put("partId", "NULL");
+        params.put("rowCount", String.valueOf(tableStatistic.rowCount));
+        params.put("lastAnalyzeTimeInMs", "0");
+        StatisticsUtil.execUpdate(PERSIST_TABLE_STATS_TEMPLATE, params);
+        // TODO update statistics cache
+        // Env.getCurrentEnv().getStatisticsCache()
+        //         .updateColStatsCache(objects.table.getId(), -1, builder.build());
     }
 
     public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
