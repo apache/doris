@@ -317,13 +317,6 @@ public class TypeCoercionUtils {
     @Developing
     public static Optional<Expression> characterLiteralTypeCoercion(String value, DataType dataType) {
         Expression ret = null;
-        if (Config.enable_date_conversion) {
-            if (dataType instanceof DateType) {
-                dataType = DateV2Type.INSTANCE;
-            } else if (dataType instanceof DateTimeType) {
-                dataType = DateTimeV2Type.MAX;
-            }
-        }
         try {
             if (dataType instanceof BooleanType) {
                 if ("true".equalsIgnoreCase(value)) {
@@ -360,7 +353,7 @@ public class TypeCoercionUtils {
             } else if (dataType instanceof StringType) {
                 ret = new StringLiteral(value);
             } else if (dataType.isDateTimeV2Type()) {
-                ret = new DateTimeV2Literal(((DateTimeV2Type) dataType), value);
+                ret = new DateTimeV2Literal(value);
             } else if (dataType.isDateTimeType()) {
                 ret = new DateTimeLiteral(value);
             } else if (dataType.isDateV2Type()) {
@@ -631,7 +624,7 @@ public class TypeCoercionUtils {
         if (leftType.isDateV2Type() && timestampArithmetic.getTimeUnit().isDateTimeUnit()) {
             leftType = DateTimeV2Type.SYSTEM_DEFAULT;
         }
-        if (!left.getDataType().isNullType()) {
+        if (!left.getDataType().isDateLikeType() && !left.getDataType().isNullType()) {
             checkCanCastTo(left.getDataType(), leftType);
             left = castIfNotSameType(left, leftType);
         }
