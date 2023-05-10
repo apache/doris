@@ -510,7 +510,7 @@ public:
 
     template <typename T>
     [[nodiscard]] Status merge(T&& block) {
-        RETURN_IF_CATCH_EXCEPTION(merge_impl(block));
+        RETURN_IF_CATCH_EXCEPTION(return merge_impl<T>(block););
     }
 
     template <typename T>
