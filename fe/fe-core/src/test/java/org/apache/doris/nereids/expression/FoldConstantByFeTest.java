@@ -35,7 +35,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class TestFoldConstantByFe implements MemoPatternMatchSupported {
+public class FoldConstantByFeTest implements MemoPatternMatchSupported {
 
     @Test
     public void testDateTypeDateTimeArithmeticFunctions() {
@@ -168,7 +168,7 @@ public class TestFoldConstantByFe implements MemoPatternMatchSupported {
 
     @Test
     public void testDateTimeV2TypeDateTimeArithmeticFunctions() {
-        DateTimeV2Literal dateLiteral = new DateTimeV2Literal(DateTimeV2Type.MAX, "1999-12-31 23:59:59");
+        DateTimeV2Literal dateLiteral = new DateTimeV2Literal(DateTimeV2Type.SYSTEM_DEFAULT, "1999-12-31 23:59:59");
         IntegerLiteral integerLiteral = new IntegerLiteral(30);
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 

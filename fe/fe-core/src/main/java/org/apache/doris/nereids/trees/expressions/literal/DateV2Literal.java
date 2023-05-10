@@ -23,6 +23,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.LocalDateTime;
 
@@ -47,6 +48,18 @@ public class DateV2Literal extends DateLiteral {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitDateV2Literal(this, context);
+    }
+
+    public Expression plusDays(int days) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days));
+    }
+
+    public Expression plusMonths(int months) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months));
+    }
+
+    public Expression plusYears(int years) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years));
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
