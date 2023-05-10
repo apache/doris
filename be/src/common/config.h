@@ -483,7 +483,7 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
 // The configuration is used to enable lazy open feature, and the default value is true.
 // When there is mixed deployment in the upgraded version, it needs to be set to false.
-CONF_Bool(enable_lazy_open_partition, "true");
+DECLARE_mBool(enable_lazy_open_partition);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
 DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);

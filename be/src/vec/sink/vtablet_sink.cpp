@@ -1286,6 +1286,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
         // open partition
         if (config::enable_lazy_open_partition) {
+            // aysnc open operation,don't block send operation
             _open_partition(partition);
         }
     }
