@@ -86,6 +86,14 @@ enum class FileCachePolicy : uint8_t;
 
 namespace doris::vectorized {
 
+static const char* ACID_EVENT_FIELD_NAMES[] = {"operation", "originalTransaction", "bucket",
+                                               "rowId",     "currentTransaction",  "row"};
+
+static const char* ACID_EVENT_FIELD_NAMES_LOWER_CASE[] = {
+        "operation", "originaltransaction", "bucket", "rowid", "currenttransaction", "row"};
+
+static const int ACID_ROW_OFFSET = 5;
+
 #define FOR_FLAT_ORC_COLUMNS(M)                            \
     M(TypeIndex::Int8, Int8, orc::LongVectorBatch)         \
     M(TypeIndex::UInt8, UInt8, orc::LongVectorBatch)       \
@@ -243,7 +251,7 @@ Status OrcReader::init_reader(
 Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
                                     std::vector<TypeDescriptor>* col_types) {
     RETURN_IF_ERROR(_create_file_reader());
-    auto& root_type = _reader->getType();
+    auto& root_type = _remove_acid(_reader->getType());
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(_get_field_name_lower_case(&root_type, i));
         col_types->emplace_back(_convert_to_doris_type(root_type.getSubtype(i)));
@@ -255,23 +263,32 @@ Status OrcReader::_init_read_columns() {
     auto& root_type = _reader->getType();
     std::vector<std::string> orc_cols;
     std::vector<std::string> orc_cols_lower_case;
-    for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        orc_cols.emplace_back(root_type.getFieldName(i));
-        orc_cols_lower_case.emplace_back(_get_field_name_lower_case(&root_type, i));
-    }
+    _init_orc_cols(root_type, orc_cols, orc_cols_lower_case);
+
+    bool is_acid = _check_acid_schema(root_type);
     for (auto& col_name : _column_names) {
         if (_is_hive) {
             auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
             DCHECK(iter != _scan_params.slot_name_to_schema_pos.end());
             int pos = iter->second;
-            orc_cols_lower_case[pos] = iter->first;
+            if (is_acid) {
+                orc_cols_lower_case[ACID_ROW_OFFSET + 1 + pos] = iter->first;
+            } else {
+                orc_cols_lower_case[pos] = iter->first;
+            }
         }
         auto iter = std::find(orc_cols_lower_case.begin(), orc_cols_lower_case.end(), col_name);
         if (iter == orc_cols_lower_case.end()) {
             _missing_cols.emplace_back(col_name);
         } else {
             int pos = std::distance(orc_cols_lower_case.begin(), iter);
-            _read_cols.emplace_back(orc_cols[pos]);
+            if (is_acid) {
+                auto read_col = fmt::format("{}.{}", ACID_EVENT_FIELD_NAMES[ACID_ROW_OFFSET],
+                                            orc_cols[pos]);
+                _read_cols.emplace_back(read_col);
+            } else {
+                _read_cols.emplace_back(orc_cols[pos]);
+            }
             _read_cols_lower_case.emplace_back(col_name);
             // For hive engine, store the orc column name to schema column name map.
             // This is for Hive 1.x orc file with internal column name _col0, _col1...
@@ -282,6 +299,44 @@ Status OrcReader::_init_read_columns() {
         }
     }
     return Status::OK();
+}
+
+void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
+                               std::vector<std::string>& orc_cols_lower_case) {
+    for (int i = 0; i < type.getSubtypeCount(); ++i) {
+        orc_cols.emplace_back(type.getFieldName(i));
+        orc_cols_lower_case.emplace_back(_get_field_name_lower_case(&type, i));
+        const orc::Type* sub_type = type.getSubtype(i);
+        if (sub_type->getKind() == orc::TypeKind::STRUCT) {
+            _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case);
+        }
+    }
+}
+
+bool OrcReader::_check_acid_schema(const orc::Type& type) {
+    if (orc::TypeKind::STRUCT == type.getKind()) {
+        if (type.getSubtypeCount() != std::size(ACID_EVENT_FIELD_NAMES)) {
+            return false;
+        }
+        for (uint64_t i = 0; i < type.getSubtypeCount(); ++i) {
+            const std::string& field_name = type.getFieldName(i);
+            std::string field_name_lower_case = field_name;
+            std::transform(field_name.begin(), field_name.end(), field_name_lower_case.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            if (field_name_lower_case != ACID_EVENT_FIELD_NAMES_LOWER_CASE[i]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+const orc::Type& OrcReader::_remove_acid(const orc::Type& type) {
+    if (_check_acid_schema(type)) {
+        return *(type.getSubtype(ACID_ROW_OFFSET));
+    } else {
+        return type;
+    }
 }
 
 //  orc only support LONG, FLOAT, STRING, DATE, DECIMAL, TIMESTAMP, BOOLEAN to push down predicates
@@ -676,18 +731,27 @@ Status OrcReader::set_fill_columns(
         return Status::InternalError("Failed to create orc row reader. reason = {}", e.what());
     }
     auto& selected_type = _row_reader->getSelectedType();
-    _col_orc_type.resize(selected_type.getSubtypeCount());
-    for (int i = 0; i < selected_type.getSubtypeCount(); ++i) {
+    int idx = 0;
+    _init_select_types(selected_type, idx);
+    return Status::OK();
+}
+
+Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
+    for (int i = 0; i < type.getSubtypeCount(); ++i) {
         std::string name;
         // For hive engine, translate the column name in orc file to schema column name.
         // This is for Hive 1.x which use internal column name _col0, _col1...
         if (_is_hive) {
-            name = _file_col_to_schema_col[selected_type.getFieldName(i)];
+            name = _file_col_to_schema_col[type.getFieldName(i)];
         } else {
-            name = _get_field_name_lower_case(&selected_type, i);
+            name = _get_field_name_lower_case(&type, i);
         }
-        _colname_to_idx[name] = i;
-        _col_orc_type[i] = selected_type.getSubtype(i);
+        _colname_to_idx[name] = idx++;
+        const orc::Type* sub_type = type.getSubtype(i);
+        _col_orc_type.push_back(sub_type);
+        if (sub_type->getKind() == orc::TypeKind::STRUCT) {
+            _init_select_types(*sub_type, idx);
+        }
     }
     return Status::OK();
 }
@@ -1129,7 +1193,10 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 return Status::OK();
             }
         }
-        const auto& batch_vec = down_cast<orc::StructVectorBatch*>(_batch.get())->fields;
+
+        std::vector<orc::ColumnVectorBatch*> batch_vec;
+        _fill_batch_vec(batch_vec, _batch.get(), 0);
+
         for (auto& col_name : _lazy_read_ctx.all_read_columns) {
             auto& column_with_type_and_name = block->get_by_name(col_name);
             auto& column_ptr = column_with_type_and_name.column;
@@ -1162,6 +1229,16 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         }
     }
     return Status::OK();
+}
+
+void OrcReader::_fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
+                                orc::ColumnVectorBatch* batch, int idx) {
+    for (auto* field : down_cast<orc::StructVectorBatch*>(batch)->fields) {
+        result.push_back(field);
+        if (_col_orc_type[idx++]->getKind() == orc::TypeKind::STRUCT) {
+            _fill_batch_vec(result, field, idx);
+        }
+    }
 }
 
 Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size, void* arg) {
