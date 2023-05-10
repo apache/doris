@@ -508,7 +508,12 @@ public:
     }
 
     template <typename T>
-    Status merge(T&& block) {
+    [[nodiscard]] Status merge(T&& block) {
+        RETURN_IF_CATCH_EXCEPTION(merge_impl(block));
+    }
+
+    template <typename T>
+    [[nodiscard]] Status merge_impl(T&& block) {
         // merge is not supported in dynamic block
         if (_columns.size() == 0 && _data_types.size() == 0) {
             _data_types = block.get_data_types();
