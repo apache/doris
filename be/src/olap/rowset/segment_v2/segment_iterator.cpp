@@ -1513,7 +1513,7 @@ void SegmentIterator::_replace_version_col(size_t num_rows) {
     // we can't write data to __DORIS_VERSION_COL__ in segment writer, the value
     // is 0 by default.
     // So we need to replace the value to real version while reading.
-    if (_opts.version.first != _opts.version.second) {
+    if (_opts.rowset_version.first != _opts.rowset_version.second) {
         return;
     }
     auto cids = _schema.column_ids();
@@ -1528,7 +1528,7 @@ void SegmentIterator::_replace_version_col(size_t num_rows) {
     DCHECK(_schema.column(version_idx)->type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
     auto col_ptr = reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(column.get());
     for (size_t j = 0; j < num_rows; j++) {
-        col_ptr->insert_value(_opts.version.second);
+        col_ptr->insert_value(_opts.rowset_version.second);
     }
     _current_return_columns[version_idx] = std::move(column);
     VLOG_DEBUG << "replaced version column in segment iterator, version_col_idx:" << version_idx;

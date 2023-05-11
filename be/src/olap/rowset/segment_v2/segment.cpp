@@ -124,6 +124,13 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
         if (_column_readers.count(uid) < 1 || !_column_readers.at(uid)->has_zone_map()) {
             continue;
         }
+        // version column is empty after data is loaded, it's set to correct value when
+        // compaction, so if the rowset is not compacted, we can't use the zonemap of the
+        // version column.
+        if (schema.version_col_idx() == column_id &&
+            read_options.rowset_version.first == read_options.rowset_version.second) {
+            continue;
+        }
         if (read_options.col_id_to_predicates.count(column_id) > 0 &&
             !_column_readers.at(uid)->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
