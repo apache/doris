@@ -387,7 +387,7 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool e
 
     if (block->rows() != 0) {
         _mem_used += block->allocated_bytes();
-        _mutable_block.merge(*block);
+        RETURN_IF_ERROR(_mutable_block.merge(*block));
     }
 
     if (eos || _mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
