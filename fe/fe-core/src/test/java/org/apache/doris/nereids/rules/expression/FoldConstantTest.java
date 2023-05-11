@@ -586,6 +586,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteExpression("'a' not in ('d', 'c')", "TRUE");
         assertRewriteExpression("'d' in ('d', 'c')", "TRUE");
         assertRewriteExpression("'d' not in ('d', 'c')", "FALSE");
+        assertRewriteExpression("1 in (2, NULL, 3)", "NULL");
     }
 
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {
