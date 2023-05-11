@@ -71,7 +71,7 @@ struct AggregateFunctionAvgData {
     ResultT result() const {
         if constexpr (std::is_floating_point_v<ResultT>) {
             if constexpr (std::numeric_limits<ResultT>::is_iec559) {
-                return assert_cast<ResultT>(sum) / count; /// allow division by zero
+                return static_cast<ResultT>(sum) / count; /// allow division by zero
             }
         }
 
@@ -82,12 +82,12 @@ struct AggregateFunctionAvgData {
         // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
         if constexpr (IsDecimalV2<T> && IsDecimalV2<ResultT>) {
             DecimalV2Value decimal_val_count(count, 0);
-            DecimalV2Value decimal_val_sum(assert_cast<Int128>(sum));
+            DecimalV2Value decimal_val_sum(sum);
             DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
             Decimal128 ret(cal_ret.value());
             return ret;
         } else {
-            return assert_cast<ResultT>(sum) / count;
+            return static_cast<ResultT>(sum) / count;
         }
     }
 

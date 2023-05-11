@@ -55,15 +55,15 @@ struct AggregateFunctionProductData<Decimal128> {
     Decimal128 product {};
 
     void add(Decimal128 value, Decimal128) {
-        DecimalV2Value decimal_product(assert_cast<Int128>(product));
-        DecimalV2Value decimal_value(assert_cast<Int128>(value));
+        DecimalV2Value decimal_product(product);
+        DecimalV2Value decimal_value(value);
         DecimalV2Value ret = decimal_product * decimal_value;
         memcpy(&product, &ret, sizeof(Decimal128));
     }
 
     void merge(const AggregateFunctionProductData& other, Decimal128) {
-        DecimalV2Value decimal_product(assert_cast<Int128>(product));
-        DecimalV2Value decimal_value(assert_cast<Int128>(other.product));
+        DecimalV2Value decimal_product(product);
+        DecimalV2Value decimal_value(other.product);
         DecimalV2Value ret = decimal_product * decimal_value;
         memcpy(&product, &ret, sizeof(Decimal128));
     }
