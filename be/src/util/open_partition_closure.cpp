@@ -37,7 +37,7 @@ OpenPartitionClosure::~OpenPartitionClosure() {};
 void OpenPartitionClosure::Run() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     if (cntl.Failed()) {
-        if (retry_count < _max_retry_count) {
+        if (retry_count < max_retry_count) {
             vnode_channel->open_partition(partition_id, ++retry_count);
         } else {
             std::stringstream ss;

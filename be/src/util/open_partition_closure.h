@@ -42,9 +42,7 @@ public:
     IndexChannel* index_channel;
     int64_t partition_id;
     int64_t retry_count;
-
-private:
-    int64_t _max_retry_count = 3;
+    int64_t max_retry_count = 3;
 };
 
 } // namespace doris
