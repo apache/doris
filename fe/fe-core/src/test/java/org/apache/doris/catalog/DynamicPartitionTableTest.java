@@ -847,7 +847,7 @@ public class DynamicPartitionTableTest {
         createTable(createOlapTblStmt);
         emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
             .getDbOrAnalysisException("default_cluster:test")
-            .getTableOrAnalysisException("month_dynamic_partition");
+            .getTableOrAnalysisException("year_dynamic_partition");
         Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
