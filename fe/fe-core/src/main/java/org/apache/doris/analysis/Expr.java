@@ -477,6 +477,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     protected Type[] collectChildReturnTypes() {
         Type[] childTypes = new Type[children.size()];
         for (int i = 0; i < children.size(); ++i) {
+            if (children.get(i) instanceof LiteralExpr) {
+                childTypes[i] = LiteralExpr.convertToDateLikeV2(children.get(i).type);
+                continue;
+            }
             childTypes[i] = children.get(i).type;
         }
         return childTypes;

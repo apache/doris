@@ -24,10 +24,12 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.mysql.MysqlProto;
 
 import com.google.common.base.Preconditions;
+import org.apache.kerby.config.Conf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -192,6 +194,17 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             default:
                 throw new AnalysisException("Invalid data type for creating infinity: " + type);
         }
+    }
+
+    public static Type convertToDateLikeV2(Type type) {
+        if (Config.enable_date_conversion) {
+            if (type.isDate()) {
+                return Type.DATEV2;
+            } else if (type.isDatetime()) {
+                return Type.DATETIMEV2;
+            }
+        }
+        return type;
     }
 
     @Override
