@@ -269,30 +269,16 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
 }
 template <bool is_final>
 void MemTable::_collect_vskiplist_results() {
-    VecTable::Iterator it(_vec_skip_list.get());
-    vectorized::Block in_block = _input_mutable_block.to_block();
     if (_keys_type == KeysType::DUP_KEYS) {
-        vectorized::MutableBlock mutable_block =
-                vectorized::MutableBlock::build_mutable_block(&in_block);
-        _vec_row_comparator->set_block(&mutable_block);
-        std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
-                  [this](const RowInBlock* l, const RowInBlock* r) -> bool {
-                      auto value = (*(this->_vec_row_comparator))(l, r);
-                      if (value == 0) {
-                          return l->_row_pos > r->_row_pos;
-                      } else {
-                          return value < 0;
-                      }
-                  });
-        std::vector<int> row_pos_vec;
-        DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
-        row_pos_vec.reserve(in_block.rows());
-        for (int i = 0; i < _row_in_blocks.size(); i++) {
-            row_pos_vec.emplace_back(_row_in_blocks[i]->_row_pos);
+        if (_schema->num_key_columns() > 0) {
+            _collect_dup_table_with_keys();
+        } else {
+            // skip sort if the table is dup table without keys
+            _collect_dup_table_without_keys();
         }
-        _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
-                                       row_pos_vec.data() + in_block.rows());
     } else {
+        VecTable::Iterator it(_vec_skip_list.get());
+        vectorized::Block in_block = _input_mutable_block.to_block();
         size_t idx = 0;
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
             auto& block_data = in_block.get_columns_with_type_and_name();
@@ -341,6 +327,34 @@ void MemTable::_collect_vskiplist_results() {
     if (is_final) {
         _vec_skip_list.reset();
     }
+}
+
+void MemTable::_collect_dup_table_with_keys() {
+    vectorized::Block in_block = _input_mutable_block.to_block();
+    vectorized::MutableBlock mutable_block =
+            vectorized::MutableBlock::build_mutable_block(&in_block);
+    _vec_row_comparator->set_block(&mutable_block);
+    std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
+              [this](const RowInBlock* l, const RowInBlock* r) -> bool {
+                  auto value = (*(this->_vec_row_comparator))(l, r);
+                  if (value == 0) {
+                      return l->_row_pos > r->_row_pos;
+                  } else {
+                      return value < 0;
+                  }
+              });
+    std::vector<int> row_pos_vec;
+    DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
+    row_pos_vec.reserve(in_block.rows());
+    for (int i = 0; i < _row_in_blocks.size(); i++) {
+        row_pos_vec.emplace_back(_row_in_blocks[i]->_row_pos);
+    }
+    _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
+                                   row_pos_vec.data() + in_block.rows());
+}
+
+void MemTable::_collect_dup_table_without_keys() {
+    _output_mutable_block.swap(_input_mutable_block);
 }
 
 void MemTable::shrink_memtable_by_agg() {
