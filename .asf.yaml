@@ -91,6 +91,7 @@ github:
     - platoneko
     - Lchangliang
     - freemandealer
+    - nanfeng1999
 
 notifications:
     pullrequests_status:  commits@doris.apache.org
