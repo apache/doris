@@ -1357,11 +1357,6 @@ public class FunctionCallExpr extends Expr {
             if (assignmentCompatibleType.isDatetimeV2()) {
                 fn.setReturnType(assignmentCompatibleType);
             }
-            for (int i = 1; i < children.size(); ++i) {
-                if (!children.get(i).getType().matchesType(childTypes[i])) {
-                    castChild(childTypes[i], i);
-                }
-            }
         } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                 fnName.getFunction().toLowerCase())) {
             // order by elements add as child like windows function. so if we get the
