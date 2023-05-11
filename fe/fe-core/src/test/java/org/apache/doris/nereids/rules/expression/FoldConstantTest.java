@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.rules.expression.rules.NormalizeInPredicateRule;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -63,15 +64,16 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testInFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
+        executor = new ExpressionRuleExecutor(
+                ImmutableList.of(NormalizeInPredicateRule.INSTANCE, FoldConstantRuleOnFE.INSTANCE));
         assertRewriteAfterTypeCoercion("1 in (1,2,3,4)", "true");
         // Type Coercion trans all to string.
         assertRewriteAfterTypeCoercion("3 in ('1',2 + 8 / 2,3,4)", "true");
         assertRewriteAfterTypeCoercion("4 / 2 * 1 - (5/2) in ('1',2 + 8 / 2,3,4)", "false");
         assertRewriteAfterTypeCoercion("null in ('1',2 + 8 / 2,3,4)", "null");
         assertRewriteAfterTypeCoercion("3 in ('1',null,3,4)", "true");
-        assertRewriteAfterTypeCoercion("TA in (1,null,3,4)", "TA in (1, null, 3, 4)");
-        assertRewriteAfterTypeCoercion("IA in (IB,IC,null)", "IA in (IB,IC,null)");
+        assertRewriteAfterTypeCoercion("TA in (1,null,3,4)", "TA in (1, 3, 4)");
+        assertRewriteAfterTypeCoercion("IA in (IB,IC,null)", "IA in (IB,IC)");
     }
 
     @Test

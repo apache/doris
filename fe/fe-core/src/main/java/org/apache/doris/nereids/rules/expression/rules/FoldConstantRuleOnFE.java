@@ -392,7 +392,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
                 return BooleanLiteral.TRUE;
             }
         }
-        return inPredicate;
+        return BooleanLiteral.FALSE;
     }
 
     @Override
