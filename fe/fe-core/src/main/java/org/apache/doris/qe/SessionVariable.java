@@ -303,6 +303,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
+    public static final String DUMP_NEREIDS = "dump_nereids";
+
+    public static final String TRACE_NEREIDS = "trace_nereids";
+
+    public static final String PLAN_NEREIDS_DUMP = "plan_nereids_dump";
+
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
@@ -853,6 +859,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
     public boolean dumpNereidsMemo = false;
+
+    @VariableMgr.VarAttr(name = DUMP_NEREIDS)
+    public boolean dumpNereids = false;
+
+    @VariableMgr.VarAttr(name = TRACE_NEREIDS)
+    public boolean traceNereids = false;
+
+    @VariableMgr.VarAttr(name = PLAN_NEREIDS_DUMP)
+    public boolean planNereidsDump = false;
 
     // If set to true, all query will be executed without returning result
     @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
@@ -1850,8 +1865,7 @@ public class SessionVariable implements Serializable, Writable {
         return tResult;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
+    public JSONObject toJson() throws IOException {
         JSONObject root = new JSONObject();
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
@@ -1886,16 +1900,22 @@ public class SessionVariable implements Serializable, Writable {
         } catch (Exception e) {
             throw new IOException("failed to write session variable: " + e.getMessage());
         }
+        return root;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        JSONObject root = toJson();
         Text.writeString(out, root.toString());
     }
 
 
     public void readFields(DataInput in) throws IOException {
-        readFromJson(in);
+        String json = Text.readString(in);
+        readFromJson(json);
     }
 
-    private void readFromJson(DataInput in) throws IOException {
-        String json = Text.readString(in);
+    public void readFromJson(String json) throws IOException {
         JSONObject root = (JSONObject) JSONValue.parse(json);
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
@@ -2055,6 +2075,30 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return "";
+    }
+
+    public boolean isDumpNereids() {
+        return dumpNereids;
+    }
+
+    public void setDumpNereids(boolean dumpNereids) {
+        this.dumpNereids = dumpNereids;
+    }
+
+    public boolean isTraceNereids() {
+        return traceNereids;
+    }
+
+    public void setTraceNereids(boolean traceNereids) {
+        this.traceNereids = traceNereids;
+    }
+
+    public boolean isPlayNereidsDump() {
+        return planNereidsDump;
+    }
+
+    public void setPlanNereidsDump(boolean planNereidsDump) {
+        this.planNereidsDump = planNereidsDump;
     }
 
     public boolean isDumpNereidsMemo() {
