@@ -56,7 +56,6 @@
 #include "io/fs/stream_load_pipe.h"
 #include "opentelemetry/trace/scope.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "pipeline/task_scheduler.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -810,7 +809,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         if (status.ok()) {
             auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
                     task_group_info);
-            _exec_env->pipeline_task_group_scheduler()->try_update_task_group(task_group_info, tg);
+            query_ctx->query_mem_tracker->add_to_task_group(tg);
             query_ctx->set_task_group(tg);
             LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id)
                       << " use task group: " << tg->debug_string();
