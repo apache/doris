@@ -17,15 +17,19 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import com.alibaba.google.common.collect.ImmutableSet;
+import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
@@ -36,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Push down the 'filter' into the 'window'.
@@ -73,45 +78,17 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
         return logicalFilter(logicalWindow()).then(filter -> {
             LogicalWindow<Plan> window = filter.child();
 
-            // TODO: Check whether the child is already PartitionTopN
+            // We have already done such optimization rule, so just ignore it.
             if (window.child(0) instanceof LogicalPartitionTopN) {
                 return filter;
             }
 
-            // Check the filter conditions. Now, we currently only support
-            // simple conditions of the form 'column </<= constant'.
-            // TODO: Support more complex situations in filter conditions.
-            Set<Expression> conjuncts = filter.getConjuncts();
-            if (conjuncts.size() != 1) {
-                return filter;
-            }
-
-            Expression conjunct = conjuncts.iterator().next();
-            if (!(conjunct instanceof LessThan || conjunct instanceof LessThanEqual)) {
-                return filter;
-            }
-
-            BinaryOperator op = (BinaryOperator) conjunct;
-            Expression leftChild = op.children().get(0);
-            Expression rightChild = op.children().get(1);
-            if (!(leftChild instanceof SlotReference) || !(rightChild instanceof IntegerLikeLiteral)) {
-                return filter;
-            }
-
-            // Adjust the value for 'limitVal' based on the comparison operators.
-            long limitVal = ((IntegerLikeLiteral) rightChild).getLongValue();
-            if (conjunct instanceof LessThan) {
-                limitVal--;
-            }
-            if (limitVal < 0) {
-                return new LogicalEmptyRelation(filter.getOutput());
-            }
-
             // Check the window function. There are some restrictions for window function:
-            // 1. The number of window function should be 1.
-            // 2. The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
-            // 3. The window type should be 'ROW'.
-            // 4. The window frame should be 'UNBOUNDED' to 'CURRENT'.
+            // * The number of window function should be 1.
+            // * The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
+            // * The window type should be 'ROW'.
+            // * The window frame should be 'UNBOUNDED' to 'CURRENT'.
+            // * The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
             List<NamedExpression> windowExprs = window.getWindowExpressions();
             if (windowExprs.size() != 1) {
                 return filter;
@@ -121,19 +98,13 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                 return filter;
             }
 
-            // Check the column in filter conditions.
-            // The column used in the filter condition must match the slot
-            // reference for the window function result used as the alias.
-            if (!checkSlotReferenceMatch(leftChild, windowExpr)) {
-                return filter;
-            }
-
             WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
             // Check the window function name.
             if (!LogicalWindow.checkWindowFuncName4PartitionLimit(windowFunc)) {
                 return filter;
             }
 
+            // Check the partition key and order key.
             if (!LogicalWindow.checkWindowPartitionAndOrderKey4PartitionLimit(windowFunc)) {
                 return filter;
             }
@@ -143,15 +114,87 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                 return filter;
             }
 
+            // Check the filter conditions. Now, we currently only support simple conditions of the form
+            // 'column </ <=/ = constant'. We will extract some related conjuncts and do some check.
+            // Only all the related conjuncts are met the condition we will handle it.
+            Set<Expression> conjuncts = filter.getConjuncts();
+            boolean existsOrInConjuncts = conjuncts.stream().anyMatch(this::existOR);
+            if (existsOrInConjuncts) {
+                return filter;
+            }
+
+            Set<Expression> relatedConjuncts = extractRelatedConjuncts(conjuncts, windowExpr.getExprId());
+
+            boolean hasPartitionLimit = false;
+            long partitionLimit = Long.MAX_VALUE;
+
+            for (Expression conjunct : relatedConjuncts) {
+                Preconditions.checkArgument(conjunct instanceof BinaryOperator);
+                BinaryOperator op = (BinaryOperator) conjunct;
+                Expression leftChild = op.children().get(0);
+                Expression rightChild = op.children().get(1);
+
+                Preconditions.checkArgument(leftChild instanceof SlotReference && rightChild instanceof IntegerLikeLiteral);
+
+                long limitVal = ((IntegerLikeLiteral) rightChild).getLongValue();
+                // Adjust the value for 'limitVal' based on the comparison operators.
+                if (conjunct instanceof LessThan) {
+                    limitVal--;
+                }
+                if (limitVal < 0) {
+                    return new LogicalEmptyRelation(filter.getOutput());
+                }
+                if (hasPartitionLimit) {
+                    partitionLimit = Math.min(partitionLimit, limitVal);
+                }
+                hasPartitionLimit = true;
+            }
+
+            if (!hasPartitionLimit) {
+                return filter;
+            }
             // return PartitionTopN -> Window -> Filter
             return filter.withChildren(window.withChildren(
-                new LogicalPartitionTopN<>(windowFunc, false, limitVal, window.child(0))));
+                new LogicalPartitionTopN<>(windowFunc, false, partitionLimit, window.child(0))));
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_WINDOW);
     }
 
-    private boolean checkSlotReferenceMatch(Expression slotRefInFilterExpr, NamedExpression windowExpr) {
-        ExprId filterExprID = ((SlotReference) slotRefInFilterExpr).getExprId();
-        ExprId windowExprID = windowExpr.getExprId();
-        return filterExprID == windowExprID;
+    private boolean existOR(Expression conjunct) {
+        if (conjunct instanceof Or) {
+            return true;
+        }
+
+        for (Expression child : conjunct.children()) {
+            if (existOR(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<Expression> extractRelatedConjuncts(Set<Expression> conjuncts, ExprId slotRefID) {
+        Predicate<Expression> condition = conjunct -> {
+            if (conjunct instanceof BinaryOperator) {
+                return false;
+            }
+            BinaryOperator op = (BinaryOperator) conjunct;
+            Expression leftChild = op.children().get(0);
+            Expression rightChild = op.children().get(1);
+
+            if (!(conjunct instanceof LessThan || conjunct instanceof LessThanEqual || conjunct instanceof EqualTo)) {
+                return false;
+            }
+
+            if (!(leftChild instanceof SlotReference) || !(rightChild instanceof IntegerLikeLiteral)) {
+                return false;
+            }
+            return ((SlotReference) leftChild).getExprId() == slotRefID;
+        };
+
+        Set<Expression> relatedConjuncts = conjuncts.stream()
+            .filter(condition)
+            .collect(ImmutableSet.toImmutableSet());
+        return relatedConjuncts;
+
     }
 }

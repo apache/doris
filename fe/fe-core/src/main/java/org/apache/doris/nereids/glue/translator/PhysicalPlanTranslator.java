@@ -920,7 +920,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // 3. fill in SortInfo members
         SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
 
-        Expr function = ExpressionTranslator.translate(partitionTopN.getFunction(), context);
+        String function = partitionTopN.getFunction().toString();
         List<Expr> partitionExprs = partitionTopN.getPartitionKeys().stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());

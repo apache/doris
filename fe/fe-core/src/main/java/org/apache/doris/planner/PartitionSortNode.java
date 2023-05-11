@@ -59,7 +59,7 @@ import java.util.Set;
 public class PartitionSortNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(PartitionSortNode.class);
     List<Expr> resolvedTupleExprs;
-    private final Expr function;
+    private final String function;
     private final List<Expr> partitionExprs;
     private final SortInfo info;
     private final boolean hasGlobalLimit;
@@ -71,7 +71,7 @@ public class PartitionSortNode extends PlanNode {
     /**
      * Constructor.
      */
-    public PartitionSortNode(PlanNodeId id, PlanNode input, Expr function, List<Expr> partitionExprs,
+    public PartitionSortNode(PlanNodeId id, PlanNode input, String function, List<Expr> partitionExprs,
                              SortInfo info, boolean hasGlobalLimit, long partitionLimit) {
         super(id, "PartitionTopN", StatisticalType.PARTITION_TOPN_MODE);
         this.function = function;
@@ -100,13 +100,34 @@ public class PartitionSortNode extends PlanNode {
     }
 
     @Override
-    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         if (detailLevel == TExplainLevel.BRIEF) {
             return "";
         }
 
         StringBuilder output = new StringBuilder();
-        output.append(detailPrefix).append("order by: ");
+
+        // Add the function name.
+        output.append(prefix).append("functions: ").append(function).append("\n");
+
+        // Add the partition expr.
+        List<String> strings = Lists.newArrayList();
+        if (!partitionExprs.isEmpty()) {
+            output.append(prefix).append("partition by: ");
+
+            for (Expr partitionExpr : partitionExprs) {
+                strings.add(partitionExpr.toSql());
+            }
+
+            output.append(Joiner.on(", ").join(strings));
+            output.append("\n");
+        }
+
+        output.append(Joiner.on(", ").join(strings));
+        output.append("\n");
+
+        // Add the order by.
+        output.append(prefix).append("order by: ");
         Iterator<Expr> expr = info.getOrderingExprs().iterator();
         Iterator<Boolean> isAsc = info.getIsAscOrder().iterator();
         boolean start = true;
@@ -120,6 +141,11 @@ public class PartitionSortNode extends PlanNode {
             output.append(isAsc.next() ? "ASC" : "DESC");
         }
         output.append("\n");
+
+        // Add the limit information;
+        output.append("has global limit: ").append(hasGlobalLimit).append("\n");
+        output.append("partition limit: ").append(partitionLimit).append("\n");
+
         return output.toString();
     }
 
@@ -229,11 +255,10 @@ public class PartitionSortNode extends PlanNode {
             sortInfo.setSlotExprsNullabilityChangedFlags(nullabilityChangedFlags);
         }
 
-        String funcName = function.getFn().functionName();
         TopNAlgorithm topNAlgorithm;
-        if (Objects.equals(funcName, "row_number")) {
+        if (Objects.equals(function, "row_number")) {
             topNAlgorithm = TopNAlgorithm.ROW_NUMBER;
-        } else if (Objects.equals(funcName, "rank")) {
+        } else if (Objects.equals(function, "rank")) {
             topNAlgorithm = TopNAlgorithm.RANK;
         } else {
             topNAlgorithm = TopNAlgorithm.DENSE_RANK;

@@ -67,7 +67,10 @@ public class PushdownLimit implements RewriteRuleFactory {
                 .then(limit -> {
                     LogicalWindow<Plan> window = limit.child();
 
-                    // TODO: Check whther this is already has the partitionTopN
+                    // We have already done such optimization rule, so just ignore it.
+                    if (window.child(0) instanceof LogicalPartitionTopN) {
+                        return limit;
+                    }
 
                     List<NamedExpression> windowExprs = window.getWindowExpressions();
                     if (windowExprs.size() != 1) {
@@ -84,9 +87,8 @@ public class PushdownLimit implements RewriteRuleFactory {
                         return limit;
                     }
 
-                    // Check the 'Partition By' and 'Order By' item.
-                    // The window only contain the order keys can use this rule.
-                    if (windowFunc.getPartitionKeys().size() > 0 || windowFunc.getOrderKeys().size() == 0) {
+                    // Check the partition key and order key.
+                    if (!LogicalWindow.checkWindowPartitionAndOrderKey4PartitionLimit(windowFunc)) {
                         return limit;
                     }
 
@@ -96,7 +98,7 @@ public class PushdownLimit implements RewriteRuleFactory {
                     }
 
                     return limit.withChildren(window.withChildren(
-                        new LogicalPartitionTopN<>(windowFunc, false, limit.getLimit(), window.child(0))));
+                        new LogicalPartitionTopN<>(windowFunc, true, limit.getLimit(), window.child(0))));
                 })
                 .toRule(RuleType.PUSH_LIMIT_THROUGH_JOIN),
 
