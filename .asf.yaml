@@ -92,6 +92,7 @@ github:
     - Lchangliang
     - freemandealer
     - nanfeng1999
+    - gitccl
 
 notifications:
     pullrequests_status:  commits@doris.apache.org
