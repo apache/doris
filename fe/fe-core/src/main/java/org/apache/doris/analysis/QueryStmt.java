@@ -198,9 +198,6 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
             throw new AnalysisException("OFFSET requires an ORDER BY clause: "
                     + limitElement.toSql().trim());
         }
-        if (limitElement.hasLimit() && limitElement.hasOffset() && orderByElements == null) {
-            analyzer.setNeedAddOrderBy(true);
-        }
         limitElement.analyze(analyzer);
     }
 

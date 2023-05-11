@@ -964,5 +964,10 @@ public class SelectStmtTest {
         explainString = dorisAssert.query(sql).explainQuery();
         Assert.assertTrue(explainString.contains("order by: <slot 6> `k1` ASC, <slot 7> `k2` ASC, <slot 8> `siteid` ASC,"
                 + " <slot 9> `citycode` ASC, <slot 10> `username` ASC"));
+
+        sql = "select min(pv) from db1.baseall join db1.table1 on k1=siteid limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainString.contains("order by: <slot 6> `k1` ASC, <slot 7> `k2` ASC, <slot 8> `siteid` ASC,"
+                + " <slot 9> `citycode` ASC, <slot 10> `username` ASC"));
     }
 }

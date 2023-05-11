@@ -181,8 +181,6 @@ public class Analyzer {
     // The runtime filter that is expected to be used
     private final List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
 
-    private boolean isNeedAddOrderBy = false;
-
     public void setIsSubquery() {
         isSubquery = true;
         isFirstScopeInSubquery = true;
@@ -247,14 +245,6 @@ public class Analyzer {
 
     public long getAutoBroadcastJoinThreshold() {
         return globalState.autoBroadcastJoinThreshold;
-    }
-
-    public void setNeedAddOrderBy(boolean needAddOrderBy) {
-        isNeedAddOrderBy = needAddOrderBy;
-    }
-
-    public boolean isNeedAddOrderBy() {
-        return isNeedAddOrderBy;
     }
 
     private static class InferPredicateState {
