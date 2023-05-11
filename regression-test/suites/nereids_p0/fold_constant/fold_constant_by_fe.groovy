@@ -133,7 +133,7 @@ suite("test_fold_constant_by_fe") {
 
     for (year in test_year) {
         for (integer in test_int) {
-            res = sql "explain select makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year * year * integer})"
+            res = sql "explain select makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year / 10 * year * integer})"
             res = res.split('VUNION')[1]
             assertFalse(res.contains("makedate") || res.contains("from"))
         }
