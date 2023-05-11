@@ -572,6 +572,7 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
 
 Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts) {
     DCHECK(_origin_iters.size() == _iterator_init_flags.size());
+    DCHECK(_keys_type == KeysType::DUP_KEYS);
     _record_rowids = opts.record_rowids;
     if (_origin_iters.empty()) {
         return Status::OK();
