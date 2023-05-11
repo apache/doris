@@ -266,6 +266,7 @@ public class PartitionSortNode extends PlanNode {
 
         TPartitionSortNode partitionSortNode = new TPartitionSortNode();
         partitionSortNode.setTopNAlgorithm(topNAlgorithm);
+        partitionSortNode.setPartitionExprs(Expr.treesToThrift(partitionExprs));
         partitionSortNode.setSortInfo(sortInfo);
         partitionSortNode.setHasGlobalLimit(hasGlobalLimit);
         partitionSortNode.setPartitionInnerLimit(partitionLimit);

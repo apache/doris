@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import com.alibaba.google.common.collect.ImmutableSet;
-import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -37,6 +35,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
@@ -134,7 +135,8 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                 Expression leftChild = op.children().get(0);
                 Expression rightChild = op.children().get(1);
 
-                Preconditions.checkArgument(leftChild instanceof SlotReference && rightChild instanceof IntegerLikeLiteral);
+                Preconditions.checkArgument(leftChild instanceof SlotReference
+                        && rightChild instanceof IntegerLikeLiteral);
 
                 long limitVal = ((IntegerLikeLiteral) rightChild).getLongValue();
                 // Adjust the value for 'limitVal' based on the comparison operators.
@@ -192,8 +194,8 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
         };
 
         Set<Expression> relatedConjuncts = conjuncts.stream()
-            .filter(condition)
-            .collect(ImmutableSet.toImmutableSet());
+                .filter(condition)
+                .collect(ImmutableSet.toImmutableSet());
         return relatedConjuncts;
 
     }
