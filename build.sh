@@ -417,10 +417,6 @@ if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("hive-udf")
 fi
-if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
-    modules+=("fe-common")
-    modules+=("java-udf")
-fi
 FE_MODULES="$(
     IFS=','
     echo "${modules[*]}"
@@ -643,6 +639,19 @@ if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/audit_loader"/*
     cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
+    cd "${DORIS_HOME}"
+fi
+
+if [[ "${BUILD_JAVA_UDF}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 ]]; then
+    install -d "${DORIS_OUTPUT}/be/lib"
+
+    rm -rf "${DORIS_OUTPUT}/be/lib/java-udf-jar-with-dependencies.jar"
+
+    java_udf_path="${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar"
+    if [[ -f "${java_udf_path}" ]]; then
+        cp "${java_udf_path}" "${DORIS_OUTPUT}/be/lib"/
+    fi
+
     cd "${DORIS_HOME}"
 fi
 
