@@ -950,6 +950,7 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DECLARE_String(file_cache_path);
+DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
