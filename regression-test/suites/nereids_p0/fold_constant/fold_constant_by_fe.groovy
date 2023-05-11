@@ -131,7 +131,6 @@ suite("test_fold_constant_by_fe") {
         assertFalse(res.contains("day") || res.contains("date"))
     }
 
-    test_year = [2001, 2013, 4214, 1324, 5321]
     for (year in test_year) {
         for (integer in test_int) {
             res = sql "explain select makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year * year * integer})"
