@@ -50,7 +50,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -248,9 +247,9 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 for (Map.Entry<String, TStreamLoadRecord> entry : streamLoadRecordBatch.entrySet()) {
                     TStreamLoadRecord streamLoadItem = entry.getValue();
                     String startTime = TimeUtils.longToTimeString(streamLoadItem.getStartTime(),
-                            new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
+                            TimeUtils.DATETIME_MS_FORMAT);
                     String finishTime = TimeUtils.longToTimeString(streamLoadItem.getFinishTime(),
-                            new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
+                            TimeUtils.DATETIME_MS_FORMAT);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("receive stream load record info from backend: {}."
                                         + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"

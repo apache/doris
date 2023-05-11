@@ -41,7 +41,10 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -139,8 +142,8 @@ public class PartitionRange {
     }
 
     public static class PartitionKeyType {
-        private SimpleDateFormat df8 = new SimpleDateFormat("yyyyMMdd");
-        private SimpleDateFormat df10 = new SimpleDateFormat("yyyy-MM-dd");
+        private DateTimeFormatter df8 = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneId.systemDefault());
+        private DateTimeFormatter df10 = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault());
 
         public KeyType keyType = KeyType.DEFAULT;
         public long value;
@@ -150,7 +153,8 @@ public class PartitionRange {
             switch (type.getPrimitiveType()) {
                 case DATE:
                     try {
-                        date = df10.parse(str);
+                        date = Date.from(
+                                LocalDate.parse(str, df10).atStartOfDay().atZone(ZoneId.systemDefault()).toInstant());
                     } catch (Exception e) {
                         LOG.warn("parse error str{}.", str);
                         return false;
@@ -226,7 +230,7 @@ public class PartitionRange {
             if (keyType == KeyType.DEFAULT) {
                 return "";
             } else if (keyType == KeyType.DATE) {
-                return df10.format(date);
+                return df10.format(LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault()));
             } else {
                 return String.valueOf(value);
             }
@@ -234,7 +238,7 @@ public class PartitionRange {
 
         public long realValue() {
             if (keyType == KeyType.DATE) {
-                return Long.parseLong(df8.format(date));
+                return Long.parseLong(df8.format(LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault())));
             } else {
                 return value;
             }
@@ -244,7 +248,8 @@ public class PartitionRange {
             value = expr.getLongValue() / 1000000;
             Date dt = null;
             try {
-                dt = df8.parse(String.valueOf(value));
+                dt = Date.from(LocalDate.parse(String.valueOf(value), df8).atStartOfDay().atZone(ZoneId.systemDefault())
+                        .toInstant());
             } catch (Exception e) {
                 // CHECKSTYLE IGNORE THIS LINE
             }
