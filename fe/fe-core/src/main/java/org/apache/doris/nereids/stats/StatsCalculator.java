@@ -83,6 +83,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
@@ -275,6 +276,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalWindow(PhysicalWindow window, Void context) {
         return computeWindow(window);
+    }
+
+    @Override
+    public Statistics visitPhysicalPartitionTopN(PhysicalPartitionTopN partitionTopN, Void context) {
+        return computePartitionTopN(partitionTopN);
     }
 
     @Override

@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Physical partition-top-N plan.
@@ -135,7 +136,13 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
     // TODO: need to check what to return
     @Override
     public List<? extends Expression> getExpressions() {
-        return null;
+        return new ImmutableList.Builder<Expression>()
+            .add(function)
+            .addAll(partitionKeys)
+            .addAll(orderKeys.stream()
+                .map(OrderKey::getExpr)
+                .collect(Collectors.toList()))
+            .build();
     }
 
     @Override

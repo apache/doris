@@ -33,10 +33,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TPartitionSortNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TSortInfo;
-import org.apache.doris.thrift.TSortNode;
+import org.apache.doris.thrift.TopNAlgorithm;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -49,6 +50,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -215,10 +217,10 @@ public class PartitionSortNode extends PlanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
-        msg.node_type = TPlanNodeType.SORT_NODE;
+        msg.node_type = TPlanNodeType.PARTITION_SORT_NODE;
 
         TSortInfo sortInfo = info.toThrift();
-        Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
+        Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in PartitionSortNode");
         removeUnusedExprs();
         if (resolvedTupleExprs != null) {
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
@@ -226,11 +228,23 @@ public class PartitionSortNode extends PlanNode {
             // remove the following line after nereids online
             sortInfo.setSlotExprsNullabilityChangedFlags(nullabilityChangedFlags);
         }
-        TSortNode sortNode = new TSortNode(sortInfo, true);
 
-        msg.sort_node = sortNode;
-        msg.sort_node.setOffset(offset);
-        msg.sort_node.setUseTopnOpt(true);
+        String funcName = function.getFn().functionName();
+        TopNAlgorithm topNAlgorithm;
+        if (Objects.equals(funcName, "row_number")) {
+            topNAlgorithm = TopNAlgorithm.ROW_NUMBER;
+        } else if (Objects.equals(funcName, "rank")) {
+            topNAlgorithm = TopNAlgorithm.RANK;
+        } else {
+            topNAlgorithm = TopNAlgorithm.DENSE_RANK;
+        }
+
+        TPartitionSortNode partitionSortNode = new TPartitionSortNode();
+        partitionSortNode.setTopNAlgorithm(topNAlgorithm);
+        partitionSortNode.setSortInfo(sortInfo);
+        partitionSortNode.setHasGlobalLimit(hasGlobalLimit);
+        partitionSortNode.setPartitionInnerLimit(partitionLimit);
+        msg.partition_sort_node = partitionSortNode;
     }
 
     @Override

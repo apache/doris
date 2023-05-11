@@ -137,7 +137,11 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     // TODO: implement this function
     @Override
     public List<? extends Expression> getExpressions() {
-        return null;
+        return new ImmutableList.Builder<Expression>()
+            .add(function)
+            .addAll(partitionKeys)
+            .addAll(orderKeys)
+            .build();
     }
 
     @Override
