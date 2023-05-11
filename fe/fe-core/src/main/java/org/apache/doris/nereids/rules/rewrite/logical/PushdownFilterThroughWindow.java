@@ -148,6 +148,8 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                 }
                 if (hasPartitionLimit) {
                     partitionLimit = Math.min(partitionLimit, limitVal);
+                } else {
+                    partitionLimit = limitVal;
                 }
                 hasPartitionLimit = true;
             }
@@ -176,7 +178,7 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
 
     private Set<Expression> extractRelatedConjuncts(Set<Expression> conjuncts, ExprId slotRefID) {
         Predicate<Expression> condition = conjunct -> {
-            if (conjunct instanceof BinaryOperator) {
+            if (!(conjunct instanceof BinaryOperator)) {
                 return false;
             }
             BinaryOperator op = (BinaryOperator) conjunct;

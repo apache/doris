@@ -373,11 +373,6 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         private final List<OrderExpression> orderKeys;
         private final WindowFrame windowFrame;
 
-        /**
-         * Creates a new WindowFrameGroup for the given window alias.
-         *
-         * @param windowAlias the NamedExpression representing the window alias
-         */
         public WindowFrameGroup(NamedExpression windowAlias) {
             WindowExpression window = (WindowExpression) (windowAlias.child(0));
             partitionKeys = ImmutableSet.copyOf(window.getPartitionKeys());

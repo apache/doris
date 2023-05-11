@@ -123,9 +123,6 @@ public class PartitionSortNode extends PlanNode {
             output.append("\n");
         }
 
-        output.append(Joiner.on(", ").join(strings));
-        output.append("\n");
-
         // Add the order by.
         output.append(prefix).append("order by: ");
         Iterator<Expr> expr = info.getOrderingExprs().iterator();
@@ -143,8 +140,8 @@ public class PartitionSortNode extends PlanNode {
         output.append("\n");
 
         // Add the limit information;
-        output.append("has global limit: ").append(hasGlobalLimit).append("\n");
-        output.append("partition limit: ").append(partitionLimit).append("\n");
+        output.append(prefix).append("has global limit: ").append(hasGlobalLimit).append("\n");
+        output.append(prefix).append("partition limit: ").append(partitionLimit).append("\n");
 
         return output.toString();
     }

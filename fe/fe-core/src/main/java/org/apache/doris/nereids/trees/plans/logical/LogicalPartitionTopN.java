@@ -60,7 +60,7 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     /**
-     * Constructor for LogicalSort.
+     * Constructor for LogicalPartitionTopN.
      */
     public LogicalPartitionTopN(Expression function, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
                                 Boolean hasGlobalLimit, long partitionLimit, Optional<GroupExpression> groupExpression,

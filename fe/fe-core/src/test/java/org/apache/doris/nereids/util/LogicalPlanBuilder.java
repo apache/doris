@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
-import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -181,10 +180,5 @@ public class LogicalPlanBuilder {
     public LogicalPlanBuilder agg(List<Expression> groupByKeys, List<NamedExpression> outputExprsList) {
         LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan);
         return from(agg);
-    }
-
-    public LogicalPlanBuilder window(List<NamedExpression> windowExpressions) {
-        LogicalWindow<Plan> window = new LogicalWindow<>(windowExpressions, this.plan);
-        return from(window);
     }
 }
