@@ -32,6 +32,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
@@ -41,6 +42,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
@@ -212,8 +214,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         TFileType locationType = getLocationType();
         params.setFileType(locationType);
         TFileFormatType fileFormatType = getFileFormatType();
-        params.setFormatType(getFileFormatType());
-        if (fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN || fileFormatType == TFileFormatType.FORMAT_JSON) {
+        params.setFormatType(fileFormatType);
+        TFileCompressType fileCompressType = getFileCompressType(inputSplit);
+        params.setCompressType(fileCompressType);
+        if (Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON) {
             params.setFileAttributes(getFileAttributes());
         }
 
@@ -316,6 +320,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected TFileFormatType getFileFormatType() throws UserException {
         throw new NotImplementedException("");
+    }
+
+    protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        return Util.getFileCompressType(fileSplit.getPath().toString());
     }
 
     protected TFileAttributes getFileAttributes() throws UserException {
