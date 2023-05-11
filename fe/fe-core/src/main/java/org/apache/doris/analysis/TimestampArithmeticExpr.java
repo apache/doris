@@ -146,10 +146,6 @@ public class TimestampArithmeticExpr extends Expr {
         if (t1 == PrimitiveType.DATEV2) {
             return Type.DATEV2;
         }
-        if (Config.enable_date_conversion
-                && PrimitiveType.isImplicitCast(t1, PrimitiveType.DATETIMEV2)) {
-            return Type.DATETIMEV2;
-        }
         if (PrimitiveType.isImplicitCast(t1, PrimitiveType.DATETIME)) {
             return Type.DATETIME;
         }
