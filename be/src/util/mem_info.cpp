@@ -138,7 +138,7 @@ bool MemInfo::process_minor_gc() {
     // TODO add freed_mem
     SegmentLoader::instance()->prune();
 
-    if (config::enable_query_memroy_overcommit) {
+    if (!config::enable_query_memroy_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
     }
@@ -184,7 +184,7 @@ bool MemInfo::process_full_gc() {
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
-    if (config::enable_query_memroy_overcommit) {
+    if (!config::enable_query_memroy_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
                 _s_process_full_gc_size - freed_mem, vm_rss_str, mem_available_str);
         if (freed_mem > _s_process_full_gc_size) {
