@@ -67,7 +67,6 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.text.SimpleDateFormat;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -647,8 +646,7 @@ public class BackupJob extends AbstractJob {
     }
 
     private void saveMetaInfo() {
-        String createTimeStr = TimeUtils.longToTimeString(createTime, new SimpleDateFormat(
-                "yyyy-MM-dd-HH-mm-ss"));
+        String createTimeStr = TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
         // local job dir: backup/label__createtime/
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
                                     label + "__" + createTimeStr).normalize();

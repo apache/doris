@@ -49,13 +49,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.sql.Timestamp;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.Month;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Comparator;
@@ -320,7 +321,7 @@ public class DynamicPartitionUtil {
 
         List<Range> reservedHistoryPeriodsToRangeList = convertStringToPeriodsList(reservedHistoryPeriods, timeUnit);
         Integer sizeOfPeriods = reservedHistoryPeriods.split("],\\[").length;
-        SimpleDateFormat sdf = getSimpleDateFormat(timeUnit);
+        DateTimeFormatter sdf = getDateTimeFormatter(timeUnit);
 
         if (reservedHistoryPeriodsToRangeList.size() != sizeOfPeriods) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID,
@@ -338,7 +339,7 @@ public class DynamicPartitionUtil {
                                 + " \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.");
                     }
                 }
-            } catch (ParseException e) {
+            } catch (DateTimeParseException e) {
                 throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS
                         + " value. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\""
                         + " while time_unit is DAY/WEEK/MONTH "
@@ -377,11 +378,11 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static SimpleDateFormat getSimpleDateFormat(String timeUnit) {
+    private static DateTimeFormatter getDateTimeFormatter(String timeUnit) {
         if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
-            return new SimpleDateFormat(DATETIME_FORMAT);
+            return TimeUtils.DATETIME_FORMAT;
         } else {
-            return new SimpleDateFormat(DATE_FORMAT);
+            return TimeUtils.DATE_FORMAT;
         }
     }
 
@@ -721,8 +722,10 @@ public class DynamicPartitionUtil {
             formattedDateStr = formattedDateStr.substring(0, 8);
             Calendar calendar = Calendar.getInstance(tz);
             try {
-                calendar.setTime(new SimpleDateFormat("yyyyMMdd").parse(formattedDateStr));
-            } catch (ParseException e) {
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
+                calendar.setTime(Date.from(
+                        LocalDate.parse(formattedDateStr, formatter).atStartOfDay().atZone(tz.toZoneId()).toInstant()));
+            } catch (DateTimeParseException e) {
                 LOG.warn("Format dynamic partition name error. Error={}", e.getMessage());
                 return formattedDateStr;
             }
@@ -756,20 +759,27 @@ public class DynamicPartitionUtil {
     public static String getHistoryPartitionRangeString(DynamicPartitionProperty dynamicPartitionProperty,
             String time, String format) throws AnalysisException {
         ZoneId zoneId = dynamicPartitionProperty.getTimeZone().toZoneId();
-        Date date = null;
+        LocalDateTime dateTime = null;
         Timestamp timestamp = null;
         String timeUnit = dynamicPartitionProperty.getTimeUnit();
         DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.s").withZone(zoneId);
-        SimpleDateFormat simpleDateFormat = getSimpleDateFormat(timeUnit);
         try {
-            date = simpleDateFormat.parse(time);
-        } catch (ParseException e) {
+            dateTime = getDateTimeByTimeUnit(time, timeUnit);
+        } catch (DateTimeParseException e) {
             LOG.warn("Parse dynamic partition periods error. Error={}", e.getMessage());
             throw new AnalysisException("Parse dynamic partition periods error. Error=" + e.getMessage());
         }
-        timestamp = new Timestamp(date.getTime());
+        timestamp = Timestamp.valueOf(dateTime);
         return getFormattedTimeWithoutMinuteSecond(
                 ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
+    }
+
+    private static LocalDateTime getDateTimeByTimeUnit(String time, String timeUnit) {
+        if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
+            return LocalDateTime.parse(time, TimeUtils.DATETIME_FORMAT);
+        } else {
+            return LocalDate.from(TimeUtils.DATE_FORMAT.parse(time)).atStartOfDay();
+        }
     }
 
     /**
