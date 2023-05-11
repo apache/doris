@@ -88,6 +88,9 @@ github:
     - Yukang-Lian
     - xiaokang
     - TangSiyang2001
+    - platoneko
+    - Lchangliang
+    - freemandealer
 
 notifications:
     pullrequests_status:  commits@doris.apache.org
