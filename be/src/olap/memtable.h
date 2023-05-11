@@ -113,7 +113,6 @@ private:
 
 private:
     // for vectorized
-    void _insert_one_row_from_block(RowInBlock* row_in_block);
     void _aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist);
 
     Status _generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
@@ -159,7 +158,6 @@ private:
 
     size_t _schema_size;
 
-    std::unique_ptr<VecTable> _vec_skip_list;
     VecTable::Hint _vec_hint;
     void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                             const TupleDescriptor* tuple_desc);
@@ -180,10 +178,10 @@ private:
     vectorized::MutableBlock _output_mutable_block;
     size_t _last_sorted_pos = 0;
 
+    //return number of same keys
+    int _sort_row_in_blocks();
     template <bool is_final>
-    void _collect_vskiplist_results();
-    void _collect_dup_table_with_keys();
-    void _collect_dup_table_without_keys();
+    void _merge_row_in_blocks();
     void _add_rows_from_block(vectorized::Block& in_block);
     bool _is_first_insertion;
 
