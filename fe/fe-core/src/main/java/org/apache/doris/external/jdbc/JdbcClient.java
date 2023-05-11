@@ -51,6 +51,8 @@ public class JdbcClient {
 
     private static final int HTTP_TIMEOUT_MS = 10000;
 
+    public static final int JDBC_DATETIME_SCALE = 6;
+
     private String dbType;
     private String jdbcUser;
 
@@ -524,7 +526,8 @@ public class JdbcClient {
             case "TIMESTAMP":
             case "DATETIME":
             case "DATETIMEV2": // for jdbc catalog connecting Doris database
-                return ScalarType.createDatetimeV2Type(0);
+                // mysql can support microsecond
+                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
@@ -592,7 +595,8 @@ public class JdbcClient {
                 return charType;
             case "timestamp":
             case "timestamptz":
-                return ScalarType.createDatetimeV2Type(0);
+                // postgres can support microsecond
+                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
             case "date":
                 return ScalarType.createDateV2Type();
             case "bool":
@@ -643,7 +647,13 @@ public class JdbcClient {
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
         } else if (ckType.startsWith("DateTime")) {
-            return ScalarType.createDatetimeV2Type(6);
+            // DateTime with second precision, DateTime64 with [0~9] precision
+            if (ckType.equals("DateTime")) {
+                return ScalarType.createDatetimeV2Type(0);
+            } else {
+                // will lose precision
+                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+            }
         } else if (ckType.startsWith("Array")) {
             String cktype = ckType.substring(6, ckType.length() - 1);
             fieldSchema.setDataTypeName(cktype);
@@ -691,7 +701,8 @@ public class JdbcClient {
             if (oracleType.equals("TIMESTAMPTZ") || oracleType.equals("TIMESTAMPLTZ")) {
                 return Type.UNSUPPORTED;
             }
-            return ScalarType.createDatetimeV2Type(0);
+            // oracle can support nanosecond, will lose precision
+            return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
         }
         switch (oracleType) {
             /**
@@ -740,6 +751,7 @@ public class JdbcClient {
             case "FLOAT":
                 return Type.DOUBLE;
             case "DATE":
+                // can save date and time with second precision
                 return ScalarType.createDatetimeV2Type(0);
             case "VARCHAR2":
             case "NVARCHAR2":
@@ -790,9 +802,14 @@ public class JdbcClient {
             case "date":
                 return ScalarType.createDateV2Type();
             case "datetime":
+                // datetime with millisecond precision
+                return ScalarType.createDatetimeV2Type(3);
             case "datetime2":
-            case "smalldatetime":
+                // datetime2 with 100 nanoseconds precision, will lose precision
                 return ScalarType.createDatetimeV2Type(6);
+            case "smalldatetime":
+                // smalldatetime with second precision
+                return ScalarType.createDatetimeV2Type(0);
             case "char":
             case "varchar":
             case "nchar":
@@ -832,8 +849,11 @@ public class JdbcClient {
             case "DOUBLE":
                 return Type.DOUBLE;
             case "TIMESTAMP":
-            case "SECONDDATE":
+                // TIMESTAMP with 100 nanoseconds precision, will lose precision
                 return ScalarType.createDatetimeV2Type(6);
+            case "SECONDDATE":
+                // SECONDDATE with second precision
+                return ScalarType.createDatetimeV2Type(0);
             case "DATE":
                 return ScalarType.createDateV2Type();
             case "BOOLEAN":
@@ -876,7 +896,8 @@ public class JdbcClient {
             charType.setLength(fieldSchema.columnSize);
             return charType;
         } else if (trinoType.startsWith("timestamp")) {
-            return ScalarType.createDatetimeV2Type(6);
+            // timestamp with picoseconds precision, will lose precision
+            return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
         } else if (trinoType.startsWith("array")) {
             String trinoArrType = trinoType.substring(6, trinoType.length() - 1);
             fieldSchema.setDataTypeName(trinoArrType);
