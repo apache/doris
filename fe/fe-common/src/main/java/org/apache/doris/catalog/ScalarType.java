@@ -140,6 +140,8 @@ public class ScalarType extends Type {
                 return createDecimalV3Type(precision, scale);
             case DECIMALV2:
                 return createDecimalType(precision, scale);
+            case DATETIMEV2:
+                return createDatetimeV2Type(scale);
             default:
                 return createType(type);
         }
