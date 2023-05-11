@@ -580,8 +580,8 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteExpression("makedate(year('2010-04-10'), dayofyear('2010-04-11'))", "2010-04-11");
         assertRewriteExpression("null in ('d', null)", "NULL");
         assertRewriteExpression("null not in ('d', null)", "NULL");
-        assertRewriteExpression("'a' in ('d', null)", "FALSE");
-        assertRewriteExpression("'a' not in ('d', null)", "TRUE");
+        assertRewriteExpression("'a' in ('d', null)", "NULL");
+        assertRewriteExpression("'a' not in ('d', null)", "NULL");
         assertRewriteExpression("'a' in ('d', 'c')", "FALSE");
         assertRewriteExpression("'a' not in ('d', 'c')", "TRUE");
         assertRewriteExpression("'d' in ('d', 'c')", "TRUE");
