@@ -61,6 +61,8 @@ public:
 
     std::string debug_string() const;
 
+    uint64_t task_group_id() const;
+
 private:
     // TODO pipeline use MLFQ
     std::queue<pipeline::PipelineTask*> _queue;
