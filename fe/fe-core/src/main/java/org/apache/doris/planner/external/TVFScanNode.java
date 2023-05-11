@@ -111,23 +111,12 @@ public class TVFScanNode extends FileQueryScanNode {
             Path path = new Path(fileStatus.getPath());
             try {
                 splits.addAll(splitFile(path, fileStatus.getBlockSize(), null, fileStatus.getSize(),
-                        fileStatus.isSplitable, null));
+                        fileStatus.getModificationTime(), fileStatus.isSplitable, null));
             } catch (IOException e) {
                 LOG.warn("get file split failed for TVF: {}", path, e);
                 throw new UserException(e);
             }
         }
         return splits;
-    }
-
-    private void addFileSplits(Path path, long fileSize, long splitSize, List<Split> splits) {
-        long bytesRemaining;
-        for (bytesRemaining = fileSize; (double) bytesRemaining / (double) splitSize > 1.1D;
-                bytesRemaining -= splitSize) {
-            splits.add(new FileSplit(path, fileSize - bytesRemaining, splitSize, fileSize, new String[0], null));
-        }
-        if (bytesRemaining != 0L) {
-            splits.add(new FileSplit(path, fileSize - bytesRemaining, bytesRemaining, fileSize, new String[0], null));
-        }
     }
 }

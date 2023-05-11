@@ -118,7 +118,7 @@ public class RestBaseController extends BaseController {
         if (!env.isReady()) {
             throw new Exception("Node catalog is not ready, please wait for a while.");
         }
-        return redirectTo(request, new TNetworkAddress(env.getMasterIp(), env.getMasterHttpPort()));
+        return redirectTo(request, new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
     }
 
     public Object redirectToMaster(HttpServletRequest request, HttpServletResponse response) {

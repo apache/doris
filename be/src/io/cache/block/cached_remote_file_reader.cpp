@@ -42,17 +42,22 @@ namespace doris {
 namespace io {
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
-                                               const std::string& cache_path)
+                                               const std::string& cache_path,
+                                               const long modification_time)
         : _remote_file_reader(std::move(remote_file_reader)) {
-    _cache_key = IFileCache::hash(cache_path);
+    // Use path and modification time to build cache key
+    std::string unique_path = fmt::format("{}:{}", cache_path, modification_time);
+    _cache_key = IFileCache::hash(unique_path);
     _cache = FileCacheFactory::instance().get_by_path(_cache_key);
 }
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const std::string& cache_base_path,
-                                               const std::string& cache_path)
+                                               const std::string& cache_path,
+                                               const long modification_time)
         : _remote_file_reader(std::move(remote_file_reader)) {
-    _cache_key = IFileCache::hash(cache_path);
+    std::string unique_path = fmt::format("{}:{}", cache_path, modification_time);
+    _cache_key = IFileCache::hash(unique_path);
     _cache = FileCacheFactory::instance().get_by_path(cache_base_path);
     if (_cache == nullptr) {
         LOG(WARNING) << "Can't get cache from base path: " << cache_base_path

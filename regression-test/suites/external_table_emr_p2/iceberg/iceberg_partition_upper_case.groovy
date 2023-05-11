@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_partition_upper_case", "p0") {
+suite("iceberg_partition_upper_case", "p2") {
     def orc_upper1 = """select * from iceberg_partition_upper_case_orc order by k1;"""
     def orc_upper2 = """select k1, city from iceberg_partition_upper_case_orc order by k1;"""
     def orc_upper3 = """select k1, k2 from iceberg_partition_upper_case_orc order by k1;"""

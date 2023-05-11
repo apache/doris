@@ -31,43 +31,31 @@ import java.io.IOException;
 
 public class MasterInfo implements Writable {
 
-    @SerializedName("ip")
-    private String ip;
-    @SerializedName("hostName")
-    private String hostName;
+    @SerializedName(value = "host", alternate = {"ip"})
+    private String host;
     @SerializedName("httpPort")
     private int httpPort;
     @SerializedName("rpcPort")
     private int rpcPort;
 
     public MasterInfo() {
-        this.ip = "";
-        this.hostName = "";
+        this.host = "";
         this.httpPort = 0;
         this.rpcPort = 0;
     }
 
-    public MasterInfo(String ip, String hostName, int httpPort, int rpcPort) {
-        this.ip = ip;
-        this.hostName = hostName;
+    public MasterInfo(String host, int httpPort, int rpcPort) {
+        this.host = host;
         this.httpPort = httpPort;
         this.rpcPort = rpcPort;
     }
 
-    public String getIp() {
-        return this.ip;
+    public String getHost() {
+        return this.host;
     }
 
-    public void setIp(String ip) {
-        this.ip = ip;
-    }
-
-    public String getHostName() {
-        return hostName;
-    }
-
-    public void setHostName(String hostName) {
-        this.hostName = hostName;
+    public void setHost(String host) {
+        this.host = host;
     }
 
     public int getHttpPort() {
@@ -89,8 +77,7 @@ public class MasterInfo implements Writable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("MasterInfo: ip=").append(ip)
-                .append(" hostName=").append(hostName)
+        sb.append("MasterInfo: host=").append(host)
                 .append(" httpPort=").append(httpPort)
                 .append(" rpcPort=").append(rpcPort);
         return sb.toString();
@@ -104,7 +91,7 @@ public class MasterInfo implements Writable {
 
     @Deprecated
     private void readFields(DataInput in) throws IOException {
-        ip = Text.readString(in);
+        host = Text.readString(in);
         httpPort = in.readInt();
         rpcPort = in.readInt();
     }

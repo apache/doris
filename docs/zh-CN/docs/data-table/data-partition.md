@@ -40,7 +40,7 @@ under the License.
 
 - Column： 用于描述一行数据中不同的字段。
 
-  Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。从聚合模型的角度来说，Key 列相同的行，会聚合成一行。其中 Value 列的聚合方式由用户在建表时指定。关于更多聚合模型的介绍，可以参阅 [Doris 数据模型](data-model.md)。
+  Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。Doris的key列是建表语句中指定的列，建表语句中的关键字'unique key'或'aggregate key'或'duplicate key'后面的列就是key列，除了key列剩下的就是value列。从聚合模型的角度来说，Key 列相同的行，会聚合成一行。其中 Value 列的聚合方式由用户在建表时指定。关于更多聚合模型的介绍，可以参阅 [Doris 数据模型](data-model.md)。
 
 ### Tablet & Partition
 
@@ -143,7 +143,7 @@ AGGREGATE KEY 数据模型中，所有没有指定聚合方式（SUM、REPLACE�
 
 Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 List 的划分方式。第二层是 Bucket（Tablet），仅支持 Hash 的划分方式。
 
-也可以仅使用一层分区。使用一层分区时，只支持 Bucket 划分。下面我们来分别介绍下分区以及分桶：
+也可以仅使用一层分区，建表时如果不写分区的语句即可，此时Doris会生成一个默认的分区，对用户是透明的。使用一层分区时，只支持 Bucket 划分。下面我们来分别介绍下分区以及分桶：
 
 1. **Partition**
 
