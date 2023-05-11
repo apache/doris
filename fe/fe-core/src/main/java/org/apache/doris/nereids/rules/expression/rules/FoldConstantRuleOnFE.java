@@ -182,14 +182,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         not = rewriteChildren(not, context);
         Optional<Expression> checkedExpr = preProcess(not);
         if (checkedExpr.isPresent()) {
-            // if not(InPredicate) and options in InPredicate contains NullLiteral after folding constant
-            // handle expr not in (value1, value2, null) => null.
-            if (not.child() instanceof InPredicate) {
-                InPredicate inPredicate = ((InPredicate) not.child());
-                if (inPredicate.getOptions().stream().anyMatch(Expression::isNullLiteral)) {
-                    return new NullLiteral(BooleanType.INSTANCE);
-                }
-            }
             return checkedExpr.get();
         }
         return BooleanLiteral.of(!((BooleanLiteral) not.child()).getValue());
@@ -378,15 +370,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        // NullLiteral generated in rewriting children.
-        if (argsHasNullLiteral(inPredicate)) {
-            return inPredicate;
-        }
-        // after running the rule: NormalizeInPredicate, the InPredicate is ensured: expr in (value1, value2, ...)
-        // expr is not NullLiteral, and values in options is not NullLiteral, then we run fold constant.
+        // now the inPredicate contains literal only.
         Expression value = inPredicate.child(0);
-        Preconditions.checkArgument(value.isLiteral(), "compareExpr in InPredicate is not Literal"
-                + " when folding constant");
+        if (value.isNullLiteral()) {
+            return new NullLiteral(BooleanType.INSTANCE);
+        }
         for (Expression item : inPredicate.getOptions()) {
             if (value.equals(item)) {
                 return BooleanLiteral.TRUE;

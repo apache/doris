@@ -53,7 +53,7 @@ public class InPredicateToEqualToRule extends AbstractExpressionRewriteRule {
         Expression cmpExpr = inPredicate.getCompareExpr();
         List<Expression> options = inPredicate.getOptions();
         Preconditions.checkArgument(options.size() > 0, "InPredicate.options should not be empty");
-        if (options.size() > 2) {
+        if (options.size() > 2 || isOptionContainNullLiteral(options)) {
             return new InPredicate(cmpExpr.accept(this, context), options);
         }
         Expression newCmpExpr = cmpExpr.accept(this, context);
@@ -61,5 +61,9 @@ public class InPredicateToEqualToRule extends AbstractExpressionRewriteRule {
                 .map(option -> new EqualTo(newCmpExpr, option.accept(this, context)))
                 .collect(Collectors.toList());
         return disjunction.isEmpty() ? BooleanLiteral.FALSE : ExpressionUtils.or(disjunction);
+    }
+
+    private boolean isOptionContainNullLiteral(List<Expression> options) {
+        return options.stream().anyMatch(Expression::isNullLiteral);
     }
 }
