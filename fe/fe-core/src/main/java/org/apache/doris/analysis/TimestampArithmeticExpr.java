@@ -267,6 +267,7 @@ public class TimestampArithmeticExpr extends Expr {
                 }
             }
         }
+        fn.setNullableMode(NullableMode.ALWAYS_NULLABLE);
         LOG.debug("fn is {} name is {}", fn, funcOpName);
     }
 
