@@ -29,7 +29,6 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.mysql.MysqlProto;
 
 import com.google.common.base.Preconditions;
-import org.apache.kerby.config.Conf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
