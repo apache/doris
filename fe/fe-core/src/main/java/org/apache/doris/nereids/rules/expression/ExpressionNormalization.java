@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.rules.expression.rules.NormalizeInPredicateRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
@@ -46,6 +47,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
             NormalizeBinaryPredicatesRule.INSTANCE,
             BetweenToCompoundRule.INSTANCE,
             InPredicateDedup.INSTANCE,
+            NormalizeInPredicateRule.INSTANCE,
             InPredicateToEqualToRule.INSTANCE,
             SimplifyNotExprRule.INSTANCE,
             SimplifyArithmeticRule.INSTANCE,

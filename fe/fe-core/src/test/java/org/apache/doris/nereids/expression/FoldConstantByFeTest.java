@@ -17,25 +17,30 @@
 
 package org.apache.doris.nereids.expression;
 
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PlanChecker;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class FoldConstantByFeTest implements MemoPatternMatchSupported {
+public class FoldConstantByFeTest {
 
     @Test
     public void testDateTypeDateTimeArithmeticFunctions() {
@@ -320,26 +325,24 @@ public class FoldConstantByFeTest implements MemoPatternMatchSupported {
 
     @Test
     public void testFoldNestedExpression() {
-        String sql = "select makedate(year('2010-04-10'), dayofyear('2010-04-11'))";
-        PlanChecker.from(MemoTestUtils.createCascadesContext(sql))
-                .analyze(sql)
-                .applyBottomUp(new ExpressionNormalization())
-                .matches(
-                        logicalOneRowRelation().when(
-                                r -> r.getProjects().size() == 1
-                                        && r.getProjects().get(0).child(0).equals(new DateLiteral("2010-04-11"))
-                        )
-                );
+        assertRewriteExpression("makedate(year('2010-04-10'), dayofyear('2010-04-11'))", "2010-04-11");
+        assertRewriteExpression("null in ('d', null)", "NULL");
+        assertRewriteExpression("null not in ('d', null)", "NULL");
+        assertRewriteExpression("'a' in ('d', null)", "FALSE");
+        assertRewriteExpression("'a' not in ('d', null)", "NULL");
+        assertRewriteExpression("'a' in ('d', 'c')", "FALSE");
+        assertRewriteExpression("'a' not in ('d', 'c')", "TRUE");
+        assertRewriteExpression("'d' in ('d', 'c')", "TRUE");
+        assertRewriteExpression("'d' not in ('d', 'c')", "FALSE");
+    }
 
-        sql = "select IF(true, DAYOFWEEK('2022-12-06 17:48:46'), 1) + 1";
-        PlanChecker.from(MemoTestUtils.createCascadesContext(sql))
-                .analyze(sql)
-                .applyBottomUp(new ExpressionNormalization())
-                .matches(
-                        logicalOneRowRelation().when(
-                                r -> r.getProjects().size() == 1
-                                        && r.getProjects().get(0).child(0).equals(new BigIntLiteral(4))
-                        )
-                );
+    private void assertRewriteExpression(String actualExpression, String expectedExpression) {
+        ExpressionRewriteContext context = new ExpressionRewriteContext(
+                MemoTestUtils.createCascadesContext(new UnboundRelation(new ObjectId(1), ImmutableList.of("test_table"))));
+
+        NereidsParser parser = new NereidsParser();
+        Expression e1 = parser.parseExpression(actualExpression);
+        e1 = new ExpressionNormalization().rewrite(FunctionBinder.INSTANCE.rewrite(e1, context), context);
+        Assertions.assertEquals(e1.toSql(), expectedExpression);
     }
 }

@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -227,7 +228,9 @@ public class TypeCoercionUtils {
      * cast input type if input's datatype is not same with dateType.
      */
     public static Expression castIfNotSameType(Expression input, DataType targetType) {
-        if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)
+        if (input.isNullLiteral()) {
+            return new NullLiteral(targetType);
+        } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)
                 || (isVarCharOrStringType(input.getDataType())
                         && isVarCharOrStringType(targetType))) {
             return input;
