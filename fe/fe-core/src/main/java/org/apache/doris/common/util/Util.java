@@ -562,8 +562,8 @@ public class Util {
     }
 
     public static TFileCompressType getFileCompressType(String compressType) {
-        final String lowerCaseType = compressType.toUpperCase();
-        return TFileCompressType.valueOf(lowerCaseType);
+        final String upperCaseType = compressType.toUpperCase();
+        return TFileCompressType.valueOf(upperCaseType);
     }
 
     /**
