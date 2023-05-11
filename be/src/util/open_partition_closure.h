@@ -19,10 +19,6 @@
 
 #include <google/protobuf/stubs/common.h>
 
-#include <atomic>
-
-#include "runtime/exec_env.h"
-#include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "vec/sink/vtablet_sink.h"
 
@@ -30,40 +26,18 @@ namespace doris {
 
 using namespace stream_load;
 
-template <typename T>
 class OpenPartitionClosure : public google::protobuf::Closure {
 public:
     OpenPartitionClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel,
-                         int64_t partition_id, int64_t retry_count)
-            : vnode_channel(vnode_channel),
-              index_channel(index_channel),
-              partition_id(partition_id),
-              retry_count(retry_count) {}
+                         int64_t partition_id, int64_t retry_count) {}
     ~OpenPartitionClosure() = default;
 
-    void Run() override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
-        if (cntl.Failed()) {
-            if (retry_count < _max_retry_count) {
-                vnode_channel->open_partition(partition_id, ++retry_count);
-            } else {
-                std::stringstream ss;
-                ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
-                   << ", error_text=" << this->cntl.ErrorText();
-                LOG(WARNING) << ss.str() << " " << vnode_channel->channel_info();
-                vnode_channel->cancel("Open partition error");
-                index_channel->mark_as_failed(vnode_channel->node_id(), vnode_channel->host(),
-                                              fmt::format("{}, open failed, err: {}",
-                                                          vnode_channel->channel_info(), ss.str()),
-                                              -1);
-            }
-        }
-    }
+    void Run() override {}
 
-    void join() { brpc::Join(cntl.call_id()); }
+    void join() {}
 
     brpc::Controller cntl;
-    T result;
+    PartitionOpenResult result;
     VNodeChannel* vnode_channel;
     IndexChannel* index_channel;
     int64_t partition_id;

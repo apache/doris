@@ -79,7 +79,6 @@ class TupleDescriptor;
 template <typename T>
 class RefCountClosure;
 
-template <typename T>
 class OpenPartitionClosure;
 
 namespace vectorized {
@@ -317,7 +316,8 @@ protected:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
-    std::unordered_set<OpenPartitionClosure<PartitionOpenResult>*> _open_partition_closures;
+    std::unordered_set<std::unique_ptr<OpenPartitionClosure>> _open_partition_closures;
+    SpinLock _open_partition_lock;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in

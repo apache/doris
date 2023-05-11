@@ -493,18 +493,20 @@ void VNodeChannel::open_partition(int64_t partition_id, int64_t retry_count) {
         }
     }
 
-    OpenPartitionClosure<PartitionOpenResult>* open_partition_closure =
-            new OpenPartitionClosure<PartitionOpenResult>(this, _index_channel, partition_id,
-                                                          retry_count);
-    _open_partition_closures.insert(open_partition_closure);
+    auto open_partition_closure =
+            std::make_unique<OpenPartitionClosure>(this, _index_channel, partition_id, retry_count);
 
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         remain_ms = config::min_load_rpc_timeout_ms;
     }
     open_partition_closure->cntl.set_timeout_ms(remain_ms);
-    _stub->open_partition(&open_partition_closure->cntl, &request, &open_partition_closure->result,
-                          open_partition_closure);
+    _stub->open_partition(&open_partition_closure.get()->cntl, &request,
+                          &open_partition_closure.get()->result, open_partition_closure.get());
+    {
+        std::lock_guard<SpinLock> l(_open_partition_lock);
+        _open_partition_closures.insert(std::move(open_partition_closure));
+    }
     request.release_id();
 }
 
@@ -846,7 +848,6 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     for (auto& open_partition_closure : _open_partition_closures) {
         open_partition_closure->join();
-        delete open_partition_closure;
     }
     // set _is_closed to true finally
     Defer set_closed {[&]() {
