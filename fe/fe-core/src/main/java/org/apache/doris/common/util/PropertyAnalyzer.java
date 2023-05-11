@@ -776,12 +776,10 @@ public class PropertyAnalyzer {
 
     public static boolean analyzeUniqueKeyMergeOnWrite(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return false;
+            // enable merge on write by default
+            return true;
         }
-        String value = properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
-        if (value == null) {
-            return false;
-        }
+        String value = properties.getOrDefault(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
         if (value.equals("true")) {
             return true;

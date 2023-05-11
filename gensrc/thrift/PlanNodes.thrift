@@ -348,6 +348,8 @@ struct TFileRangeDesc {
     7: optional list<string> columns_from_path_keys;
     // For data lake table format
     8: optional TTableFormatFileDesc table_format_params
+    // Use modification time to determine whether the file is changed
+    9: optional i64 modification_time
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.

@@ -91,7 +91,7 @@ public class SimpleSchedulerTest {
                     for (int i = 0; i < 1000; i++) {
                         TNetworkAddress address = SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
                         Assert.assertNotNull(address);
-                        if (!foundCandidate && address.getHostname().equals(be2.getIp())) {
+                        if (!foundCandidate && address.getHostname().equals(be2.getHost())) {
                             foundCandidate = true;
                         }
                     }

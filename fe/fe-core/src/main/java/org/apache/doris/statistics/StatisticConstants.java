@@ -51,11 +51,6 @@ public class StatisticConstants {
     public static final int STATISTIC_CLEAN_INTERVAL_IN_HOURS = 24 * 2;
 
     /**
-     * The max cached item in `StatisticsCache`.
-     */
-    public static final long STATISTICS_RECORDS_CACHE_SIZE = 100000;
-
-    /**
      * If analysis job execution time exceeds this time, it would be cancelled.
      */
     public static final long STATISTICS_TASKS_TIMEOUT_IN_MS = TimeUnit.MINUTES.toMillis(10);

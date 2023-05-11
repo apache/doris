@@ -171,6 +171,7 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
@@ -1525,10 +1526,34 @@ public class ShowExecutor {
 
     private void handleShowPartitions() throws AnalysisException {
         ShowPartitionsStmt showStmt = (ShowPartitionsStmt) stmt;
-        ProcNodeInterface procNodeI = showStmt.getNode();
-        Preconditions.checkNotNull(procNodeI);
-        List<List<String>> rows = ((PartitionsProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
-                showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
+        if (showStmt.getCatalog().isInternalCatalog()) {
+            ProcNodeInterface procNodeI = showStmt.getNode();
+            Preconditions.checkNotNull(procNodeI);
+            List<List<String>> rows = ((PartitionsProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+                    showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
+            resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+        } else {
+            handleShowHMSTablePartitions(showStmt);
+        }
+    }
+
+    private void handleShowHMSTablePartitions(ShowPartitionsStmt showStmt) {
+        HMSExternalCatalog catalog = (HMSExternalCatalog) (showStmt.getCatalog());
+        List<List<String>> rows = new ArrayList<>();
+        String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
+        List<String> partitionNames = catalog.getClient().listPartitionNames(dbName,
+                showStmt.getTableName().getTbl());
+        for (String partition : partitionNames) {
+            List<String> list = new ArrayList<>();
+            list.add(partition);
+            rows.add(list);
+        }
+
+        // sort by partition name
+        rows.sort((x, y) -> {
+            return x.get(0).compareTo(y.get(0));
+        });
+
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -2377,7 +2402,7 @@ public class ShowExecutor {
         List<List<String>> resultRowSet = Lists.newArrayList();
         for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isQueryAvailable() && be.isLoadAvailable()) {
-                AgentClient client = new AgentClient(be.getIp(), be.getBePort());
+                AgentClient client = new AgentClient(be.getHost(), be.getBePort());
                 TCheckStorageFormatResult result = client.checkStorageFormat();
                 if (result == null) {
                     throw new AnalysisException("get tablet data from backend: " + be.getId() + "error.");
@@ -2579,7 +2604,7 @@ public class ShowExecutor {
             List<String> row = Lists.newArrayList();
             row.add(String.valueOf(tabletId));
             row.add(String.valueOf(backendId));
-            row.add(be.getIp());
+            row.add(be.getHost());
             row.add(task.getResultSnapshotPath());
             row.add(String.valueOf(copyStmt.getExpirationMinutes()));
             row.add(createTableStmt.get(0));

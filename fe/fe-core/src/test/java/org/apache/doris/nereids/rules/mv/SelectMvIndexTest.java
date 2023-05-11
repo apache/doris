@@ -744,7 +744,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
                 + "k2;";
         createMv(createK1MV);
         String query = "select * from " + TEST_TABLE_NAME + ";";
-        singleTableTest(query, TEST_TABLE_NAME, false);
+        singleTableTest(query, TEST_TABLE_NAME, true);
     }
 
     /**

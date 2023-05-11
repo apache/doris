@@ -418,6 +418,13 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
 
 Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
                                                  PFragmentRequestVersion version, bool compact) {
+    // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
+    // If BE execute this fragment, it will core when it wants to get some property from master info.
+    if (ExecEnv::GetInstance()->master_info() == nullptr) {
+        return Status::InternalError(
+                "Have not receive the first heartbeat message from master, not ready to provide "
+                "service");
+    }
     if (version == PFragmentRequestVersion::VERSION_1) {
         // VERSION_1 should be removed in v1.2
         TExecPlanFragmentParams t_request;
