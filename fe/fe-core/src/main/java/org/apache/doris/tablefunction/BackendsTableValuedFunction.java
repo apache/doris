@@ -110,9 +110,9 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
         resColumns.add(new Column("BrpcPort", ScalarType.createType(PrimitiveType.INT)));
         resColumns.add(new Column("LastStartTime", ScalarType.createStringType()));
         resColumns.add(new Column("LastHeartbeat", ScalarType.createStringType()));
-        resColumns.add(new Column("Alive", ScalarType.createStringType()));
-        resColumns.add(new Column("SystemDecommissioned", ScalarType.createStringType()));
-        resColumns.add(new Column("ClusterDecommissioned", ScalarType.createStringType()));
+        resColumns.add(new Column("Alive", ScalarType.createType(PrimitiveType.BOOLEAN)));
+        resColumns.add(new Column("SystemDecommissioned", ScalarType.createType(PrimitiveType.BOOLEAN)));
+        resColumns.add(new Column("ClusterDecommissioned", ScalarType.createType(PrimitiveType.BOOLEAN)));
         resColumns.add(new Column("TabletNum", ScalarType.createType(PrimitiveType.BIGINT)));
         resColumns.add(new Column("DataUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT)));
         resColumns.add(new Column("AvailCapacity", ScalarType.createType(PrimitiveType.BIGINT)));

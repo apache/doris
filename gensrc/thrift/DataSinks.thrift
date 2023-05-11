@@ -35,6 +35,7 @@ enum TDataSinkType {
     ODBC_TABLE_SINK,
     RESULT_FILE_SINK,
     JDBC_TABLE_SINK,
+    MULTI_CAST_DATA_STREAM_SINK,
 }
 
 enum TResultSinkType {
@@ -109,6 +110,16 @@ struct TMemoryScratchSink {
 
 }
 
+// Specification of one output destination of a plan fragment
+struct TPlanFragmentDestination {
+  // the globally unique fragment instance id
+  1: required Types.TUniqueId fragment_instance_id
+
+  // ... which is being executed on this server
+  2: required Types.TNetworkAddress server
+  3: optional Types.TNetworkAddress brpc_server
+}
+
 // Sink which forwards data to a remote plan fragment,
 // according to the given output partition specification
 // (ie, the m:1 part of an m:n data stream)
@@ -122,6 +133,11 @@ struct TDataStreamSink {
   2: required Partitions.TDataPartition output_partition
 
   3: optional bool ignore_not_found
+}
+
+struct TMultiCastDataStreamSink {
+    1: optional list<TDataStreamSink> sinks;
+    2: optional list<list<TPlanFragmentDestination>> destinations;
 }
 
 struct TResultSink {
@@ -203,5 +219,6 @@ struct TDataSink {
   9: optional TOdbcTableSink odbc_table_sink
   10: optional TResultFileSink result_file_sink
   11: optional TJdbcTableSink jdbc_table_sink
+  12: optional TMultiCastDataStreamSink multi_cast_stream_sink
 }
 

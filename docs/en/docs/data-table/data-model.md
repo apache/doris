@@ -32,7 +32,7 @@ This topic introduces the data models in Doris from a logical perspective so you
 
 In Doris, data is logically described in the form of tables. A table consists of rows and columns. Row is a row of user data. Column is used to describe different fields in a row of data.
 
-Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and indicator columns, respectively.
+Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and indicator columns, respectively. The key column of Doris is the column specified in the table creation statement. The column after the keyword 'unique key' or 'aggregate key' or 'duplicate key' in the table creation statement is the key column, and the rest except the key column is the value column .
 
 Data models in Doris fall into three types:
 
@@ -107,6 +107,20 @@ Suppose that you have the following import data (raw data):
 | 10004 | 2017-10-01 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
 | 10004 | 2017-10-03 | Shenzhen | 35 | 0 | 2017-10-03 10:20:22 | 11 | 6 | 6|
 
+
+And you can import data with the following sql:
+
+```sql
+insert into example_db.example_tbl_agg values
+(10000,"2017-10-01","Beijing",20,0,"2017-10-01 06:00:00",20,10,10),
+(10000,"2017-10-01","Beijing",20,0,"2017-10-01 07:00:00",15,2,2),
+(10001,"2017-10-01","Beijing",30,1,"2017-10-01 17:05:45",2,22,22),
+(10002,"2017-10-02","Shanghai",20,1,"2017-10-02 12:59:12",200,5,5),
+(10003,"2017-10-02","Guangzhou",32,0,"2017-10-02 11:20:00",30,11,11),
+(10004,"2017-10-01","Shenzhen",35,0,"2017-10-01 10:00:15",100,3,3),
+(10004,"2017-10-03","Shenzhen",35,0,"2017-10-03 10:20:22",11,6,6);
+```
+
 Assume that this is a table recording the user behaviors when visiting a certain commodity page. The first row of data, for example, is explained as follows:
 
 | Data | Description|
@@ -154,7 +168,7 @@ Here is a modified version of the table schema in Example 1:
 | --------------- | ------------ | --------------- | ------------------------------------------------------------ |
 | user_id         | LARGEINT     |                 | User ID                                                      |
 | date            | DATE         |                 | Date when the data are imported                              |
-| time stamp      | DATETIME     |                 | Date and time when the data are imported (with second-level accuracy) |
+| timestamp      | DATETIME     |                 | Date and time when the data are imported (with second-level accuracy) |
 | city            | VARCHAR (20) |                 | User location city                                           |
 | age             | SMALLINT     |                 | User age                                                     |
 | sex             | TINYINT      |                 | User gender                                                  |
@@ -176,6 +190,19 @@ Suppose that the import data are as follows:
 | 10003   | 2017-10-02 | 2017-10-02 13:15:00 | Guangzhou | 32   | 0    | 2017-10-02 11:20:00 | 30   | 11               | 11               |
 | 10004   | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen  | 35   | 0    | 2017-10-01 10:00:15 | 100  | 3                | 3                |
 | 10004   | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen  | 35   | 0    | 2017-10-03 10:20:22 | 11   | 6                | 6                |
+
+And you can import data with the following sql:
+
+```sql
+insert into example_db.example_tbl values
+(10000,"2017-10-01","2017-10-01 08:00:05","Beijing",20,0,"2017-10-01 06:00:00",20,10,10),
+(10000,"2017-10-01","2017-10-01 09:00:05","Beijing",20,0,"2017-10-01 07:00:00",15,2,2),
+(10001,"2017-10-01","2017-10-01 18:12:10","Beijing",30,1,"2017-10-01 17:05:45",2,22,22),
+(10002,"2017-10-02","2017-10-02 13:10:00","Shanghai",20,1,"2017-10-02 12:59:12",200,5,5),
+(10003,"2017-10-02","2017-10-02 13:15:00","Guangzhou",32,0,"2017-10-02 11:20:00",30,11,11),
+(10004,"2017-10-01","2017-10-01 12:12:48","Shenzhen",35,0,"2017-10-01 10:00:15",100,3,3),
+(10004,"2017-10-03","2017-10-03 12:38:20","Shenzhen",35,0,"2017-10-03 10:20:22",11,6,6);
+```
 
 After importing, this batch of data will be stored in Doris as follows:
 
@@ -210,6 +237,14 @@ Now you need to import a new batch of data:
 | ------- | ---------- | -------- | ---- | ---- | ------------------- | ---- | ---------------- | ---------------- |
 | 10004   | 2017-10-03 | Shenzhen | 35   | 0    | 2017-10-03 11:22:00 | 44   | 19               | 19               |
 | 10005   | 2017-10-03 | Changsha | 29   | 1    | 2017-10-03 18:11:02 | 3    | 1                | 1                |
+
+And you can import data with the following sql:
+
+```sql
+insert into example_db.example_tbl_agg values
+(10004,"2017-10-03","Shenzhen",35,0,"2017-10-03 11:22:00",44,19,19),
+(10005,"2017-10-03","Changsha",29,1,"2017-10-03 18:11:02",3,1,1);
+```
 
 After importing, the data stored in Doris will be updated as follows:
 

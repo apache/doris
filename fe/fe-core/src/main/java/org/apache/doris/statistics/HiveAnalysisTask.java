@@ -57,21 +57,63 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
     public static final String TIMESTAMP = "transient_lastDdlTime";
     public static final String DELIMITER = "-";
 
+    private final boolean isTableLevelTask;
+
     public HiveAnalysisTask(AnalysisTaskInfo info) {
         super(info);
+        isTableLevelTask = info.externalTableLevelTask;
     }
 
-    private static final String ANALYZE_PARTITION_SQL_TEMPLATE = "INSERT INTO "
+    private static final String ANALYZE_TABLE_COLUMN_SQL_TEMPLATE = "INSERT INTO "
+            + "${internalDB}.${columnStatTbl}"
+            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '${colId}', NULL, "
+            + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
+
+    private static final String ANALYZE_PARTITION_COLUMN_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '${colId}', '${partId}', "
             + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
 
     private static final String ANALYZE_TABLE_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
-            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '${colId}', NULL, "
-            + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
+            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '', NULL, "
+            + "${numRows}, 0, 0, '', '', ${dataSize}, '${update_time}')";
 
     @Override
+    protected void getStatsByMeta() throws Exception {
+        if (isTableLevelTask) {
+            getTableStatsByMeta();
+        } else {
+            getColumnStatsByMeta();
+        }
+    }
+
+    protected void getTableStatsByMeta() throws Exception {
+        Map<String, String> params = new HashMap<>();
+        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
+        params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+        params.put("catalogId", String.valueOf(catalog.getId()));
+        params.put("dbId", String.valueOf(db.getId()));
+        params.put("tblId", String.valueOf(tbl.getId()));
+        params.put("colId", "");
+
+        // Get table level information.
+        Map<String, String> parameters = table.getRemoteTable().getParameters();
+        // Collect table level row count, null number and timestamp.
+        setParameterData(parameters, params);
+        if (parameters.containsKey(TOTAL_SIZE)) {
+            params.put("dataSize", parameters.get(TOTAL_SIZE));
+        }
+        params.put("id", genColumnStatId(tbl.getId(), -1, "", null));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(ANALYZE_TABLE_SQL_TEMPLATE);
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
+            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            this.stmtExecutor.execute();
+        }
+    }
+
     protected void getColumnStatsByMeta() throws Exception {
         List<String> columns = new ArrayList<>();
         columns.add(col.getName());
@@ -89,16 +131,17 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
         setParameterData(parameters, params);
         params.put("id", genColumnStatId(tbl.getId(), -1, col.getName(), null));
         List<ColumnStatisticsObj> tableStats = table.getHiveTableColumnStats(columns);
+        long rowCount = parameters.containsKey(NUM_ROWS) ? Long.parseLong(parameters.get(NUM_ROWS)) : 0;
         // Collect table level ndv, nulls, min and max. tableStats contains at most 1 item;
         for (ColumnStatisticsObj tableStat : tableStats) {
             if (!tableStat.isSetStatsData()) {
                 continue;
             }
             ColumnStatisticsData data = tableStat.getStatsData();
-            getStatData(data, params);
+            getStatData(data, params, rowCount);
         }
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String sql = stringSubstitutor.replace(ANALYZE_TABLE_SQL_TEMPLATE);
+        String sql = stringSubstitutor.replace(ANALYZE_TABLE_COLUMN_SQL_TEMPLATE);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
@@ -128,11 +171,12 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
             if (!stat.isSetStatsData()) {
                 continue;
             }
+            rowCount = parameters.containsKey(NUM_ROWS) ? Long.parseLong(parameters.get(NUM_ROWS)) : 0;
             // Collect ndv, nulls, min and max for different data type.
             ColumnStatisticsData data = stat.getStatsData();
-            getStatData(data, params);
+            getStatData(data, params, rowCount);
             stringSubstitutor = new StringSubstitutor(params);
-            partitionAnalysisSQLs.add(stringSubstitutor.replace(ANALYZE_PARTITION_SQL_TEMPLATE));
+            partitionAnalysisSQLs.add(stringSubstitutor.replace(ANALYZE_PARTITION_COLUMN_SQL_TEMPLATE));
         }
         // Update partition level stats for this column.
         for (String partitionSql : partitionAnalysisSQLs) {
@@ -145,11 +189,15 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
         Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(tbl.getId(), -1, col.getName());
     }
 
-    private void getStatData(ColumnStatisticsData data, Map<String, String> params) {
+    private void getStatData(ColumnStatisticsData data, Map<String, String> params, long rowCount) {
         long ndv = 0;
         long nulls = 0;
         String min = "";
         String max = "";
+        long colSize = 0;
+        if (!data.isSetStringStats()) {
+            colSize = rowCount * col.getType().getSlotSize();
+        }
         // Collect ndv, nulls, min and max for different data type.
         if (data.isSetLongStats()) {
             LongColumnStatsData longStats = data.getLongStats();
@@ -161,6 +209,8 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
             StringColumnStatsData stringStats = data.getStringStats();
             ndv = stringStats.getNumDVs();
             nulls = stringStats.getNumNulls();
+            double avgColLen = stringStats.getAvgColLen();
+            colSize = Math.round(avgColLen * rowCount);
         } else if (data.isSetDecimalStats()) {
             DecimalColumnStatsData decimalStats = data.getDecimalStats();
             ndv = decimalStats.getNumDVs();
@@ -211,25 +261,21 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
         params.put("nulls", String.valueOf(nulls));
         params.put("min", min);
         params.put("max", max);
+        params.put("dataSize", String.valueOf(colSize));
     }
 
     private void setParameterData(Map<String, String> parameters, Map<String, String> params) {
-        long numRows = 0;
-        long timestamp = 0;
-        long dataSize = 0;
+        String numRows = "";
+        String timestamp = "";
         if (parameters.containsKey(NUM_ROWS)) {
-            numRows = Long.parseLong(parameters.get(NUM_ROWS));
+            numRows = parameters.get(NUM_ROWS);
         }
         if (parameters.containsKey(TIMESTAMP)) {
-            timestamp = Long.parseLong(parameters.get(TIMESTAMP));
+            timestamp = parameters.get(TIMESTAMP);
         }
-        if (parameters.containsKey(TOTAL_SIZE)) {
-            dataSize = Long.parseLong(parameters.get(TOTAL_SIZE));
-        }
-        params.put("dataSize", String.valueOf(dataSize));
-        params.put("numRows", String.valueOf(numRows));
+        params.put("numRows", numRows);
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        params.put("update_time", sdf.format(new Date(timestamp * 1000)));
+        params.put("update_time", sdf.format(new Date(Long.parseLong(timestamp) * 1000)));
     }
 
     private String genColumnStatId(long tableId, long indexId, String columnName, String partitionName) {

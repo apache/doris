@@ -61,7 +61,7 @@ CELLARS=(
     wget
     pcre
     maven
-    llvm@15
+    llvm@16
 )
 for cellar in "\${CELLARS[@]}"; do
     EXPORT_CELLARS="\${HOMEBREW_REPO_PREFIX}/opt/\${cellar}/bin:\${EXPORT_CELLARS}"
@@ -263,3 +263,4 @@ export GENERATOR
 export BUILD_SYSTEM
 
 export PKG_CONFIG_PATH="${DORIS_HOME}/thirdparty/installed/lib64/pkgconfig:${PKG_CONFIG_PATH}"
+export CCACHE_SLOPPINESS="time_macros pch_defines"

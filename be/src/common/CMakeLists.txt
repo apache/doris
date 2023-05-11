@@ -23,8 +23,9 @@ add_library(Common STATIC
   status.cpp
   resource_tls.cpp
   logconfig.cpp
-  configbase.cpp
+  config.cpp
   exception.cpp
+  version_internal.cpp
 )
 
 pch_reuse(Common)
