@@ -17,7 +17,7 @@
 
 suite("test_dytable_alter_default_value") {
     def test_alter_default_value = { table_name, column_name, src_type, src_value, dst_type, dst_value -> 
-        sql "CREATE DATABASDE test IF NOT EXISTS"
+        sql "CREATE DATABASE test IF NOT EXISTS"
         sql "USE test"
         sql "DROP TABLE ${table_name} IF EXISTS"
         sql """
