@@ -131,6 +131,8 @@ role_list is the list of roles to be assigned, separated by commas,the specified
    ```sql
    GRANT USAGE_PRIV ON RESOURCE 'spark_resource' TO ROLE 'my_role';
    ````
+   
+<version since="2.0.0"></version>
 
 7. Grant the specified role to a user
 
