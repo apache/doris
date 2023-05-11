@@ -1495,6 +1495,7 @@ public class SingleNodePlanner {
             slotDesc.setType(resultExpr.getType());
             // slotDesc.setStats(ColumnStats.fromExpr(resultExpr));
             slotDesc.setIsMaterialized(true);
+            slotDesc.setIsNullable(resultExpr.isNullable());
         }
         tupleDesc.computeStatAndMemLayout();
         return tupleDesc;
