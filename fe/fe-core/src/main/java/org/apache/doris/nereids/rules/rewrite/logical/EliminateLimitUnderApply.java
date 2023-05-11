@@ -34,10 +34,11 @@ public class EliminateLimitUnderApply extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalApply(any(), logicalLimit()).then(apply -> {
-            if (apply.right().child() instanceof LogicalSort
+            if (!apply.isCorrelated() && apply.isIn() && (apply.right().child() instanceof LogicalSort
                     || (apply.right().child().children().size() > 0
-                            && apply.right().child().child(0) instanceof LogicalSort)) {
-                // must keep the limit if it's a limit on sort ( order by xx limit yy )
+                    && apply.right().child().child(0) instanceof LogicalSort))) {
+                // must keep the limit if it's an uncorrelated in-subquery with limit on sort
+                // select a from t1 where a in ( select b from t2 order by xx limit yy )
                 return null;
             }
             List<Plan> children = new ImmutableList.Builder<Plan>()
