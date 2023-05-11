@@ -22,6 +22,7 @@
 #include <type_traits>
 
 #include "gutil/casts.h"
+#include "vec/columns/column_const.h"
 
 namespace doris {
 namespace vectorized {
@@ -44,6 +45,26 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
                              array_builder->type()->name());
         }
     }
+}
+template <bool is_binary_format>
+Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
+        int end, int scale, bool col_const) const {
+    auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
+    int buf_ret = 0;
+    for (ssize_t i = start; i < end; ++i) {
+        if (0 != buf_ret) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+        const auto col_index = index_check_const(i, col_const);
+        auto time_num = data[col_index];
+        char buf[64];
+        DateV2Value<DateTimeV2ValueType> date_val =
+                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(time_num);
+        char* pos = date_val.to_string(buf, scale);
+        buf_ret = result[i].push_string(buf, pos - buf - 1);
+    }
+    return Status::OK();
 }
 } // namespace vectorized
 } // namespace doris

@@ -49,6 +49,21 @@ class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<UInt64> {
                                 int end, const cctz::time_zone& ctz) const override {
         LOG(FATAL) << "not support read arrow array to uint64 column";
     }
+    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
+                                 int start, int end, int scale, bool col_const) const override {
+        return _write_column_to_mysql(column, result, start, end, scale, col_const);
+    }
+
+    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
+                                 int start, int end, int scale, bool col_const) const override {
+        return _write_column_to_mysql(column, result, start, end, scale, col_const);
+    }
+
+private:
+    template <bool is_binary_format>
+    Status _write_column_to_mysql(const IColumn& column,
+                                  std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
+                                  int end, int scale, bool col_const) const;
 };
 } // namespace vectorized
 } // namespace doris

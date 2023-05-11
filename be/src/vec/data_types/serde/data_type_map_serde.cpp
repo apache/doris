@@ -19,6 +19,8 @@
 
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_map.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
@@ -51,6 +53,37 @@ void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Arra
                                               int start, int end,
                                               const cctz::time_zone& ctz) const {
     LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
+}
+template <bool is_binary_format>
+Status DataTypeMapSerDe::_write_column_to_mysql(
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
+        int end, int scale, bool col_const) const {
+    int buf_ret = 0;
+    auto& map_column = assert_cast<const ColumnMap&>(column);
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+    auto& offsets = map_column.get_offsets();
+    for (ssize_t i = start; i < end; ++i) {
+        if (0 != buf_ret) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+        const auto col_index = index_check_const(i, col_const);
+        result[i].open_dynamic_mode();
+        buf_ret = result[i].push_string("{", 1);
+        for (auto j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
+            if (j != offsets[col_index - 1]) {
+                buf_ret = result[i].push_string(", ", 2);
+            }
+            RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result, j, j + 1,
+                                                             scale, col_const));
+            buf_ret = result[i].push_string(":", 1);
+            RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
+                                                               j + 1, scale, col_const));
+        }
+        buf_ret = result[i].push_string("}", 1);
+        result[i].close_dynamic_mode();
+    }
+    return Status::OK();
 }
 } // namespace vectorized
 } // namespace doris

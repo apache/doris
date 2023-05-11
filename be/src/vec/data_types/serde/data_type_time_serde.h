@@ -16,45 +16,25 @@
 // under the License.
 
 #pragma once
-
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <stddef.h>
 #include <stdint.h>
 
-#include "common/status.h"
-#include "data_type_serde.h"
-#include "util/jsonb_writer.h"
+#include "data_type_number_serde.h"
+#include "vec/core/types.h"
 
 namespace doris {
-class PValues;
-class JsonbValue;
+class JsonbOutStream;
 
 namespace vectorized {
-class IColumn;
 class Arena;
 
-class DataTypeBitMapSerDe : public DataTypeSerDe {
-public:
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override;
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
-
-    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 int32_t col_id, int row_num) const override;
-
-    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
-    void write_column_to_arrow(const IColumn& column, const UInt8* null_bytemap,
-                               arrow::ArrayBuilder* array_builder, int start,
-                               int end) const override {
-        LOG(FATAL) << "Not support write bitmap column to arrow";
-    }
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                int end, const cctz::time_zone& ctz) const override {
-        LOG(FATAL) << "Not support read bitmap column from arrow";
-    }
+class DataTypeTimeSerDe : public DataTypeNumberSerDe<Float64> {
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
                                  int start, int end, int scale, bool col_const) const override {
         return _write_column_to_mysql(column, result, start, end, scale, col_const);
     }
-
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
                                  int start, int end, int scale, bool col_const) const override {
         return _write_column_to_mysql(column, result, start, end, scale, col_const);

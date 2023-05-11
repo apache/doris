@@ -35,6 +35,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_number_base.h"
 #include "vec/data_types/serde/data_type_number_serde.h"
+#include "vec/data_types/serde/data_type_time_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
@@ -74,7 +75,7 @@ public:
         return std::make_shared<PromotedType>();
     }
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeNumberSerDe<Float64>>();
+        return std::make_shared<DataTypeTimeSerDe>();
     };
     TypeIndex get_type_id() const override { return TypeIndex::Time; }
 };

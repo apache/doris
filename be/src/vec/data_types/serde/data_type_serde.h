@@ -25,6 +25,7 @@
 #include "arrow/status.h"
 #include "common/status.h"
 #include "util/jsonb_writer.h"
+#include "util/mysql_row_buffer.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/types.h"
 
@@ -71,6 +72,13 @@ public:
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
 
     // MySQL serializer and deserializer
+    virtual Status write_column_to_mysql(const IColumn& column,
+                                         std::vector<MysqlRowBuffer<false>>& result, int start,
+                                         int end, int scale, bool col_const) const = 0;
+
+    virtual Status write_column_to_mysql(const IColumn& column,
+                                         std::vector<MysqlRowBuffer<true>>& result, int start,
+                                         int end, int scale, bool col_const) const = 0;
 
     // Thrift serializer and deserializer
 
