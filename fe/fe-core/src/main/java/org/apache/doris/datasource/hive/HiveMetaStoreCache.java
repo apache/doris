@@ -514,9 +514,8 @@ public class HiveMetaStoreCache {
     }
 
     // partition name format: nation=cn/city=beijing
-    public void addPartitionsCache(String dbName, String tblName, List<String> partitionNames,
-            List<Type> partitionColumnTypes) {
-        PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, partitionColumnTypes);
+    public void addPartitionsCache(String dbName, String tblName, List<String> partitionNames) {
+        PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, null);
         HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
         if (partitionValues == null) {
             return;
@@ -571,8 +570,8 @@ public class HiveMetaStoreCache {
     }
 
     public void dropPartitionsCache(String dbName, String tblName, List<String> partitionNames,
-            List<Type> partitionColumnTypes, boolean invalidPartitionCache) {
-        PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, partitionColumnTypes);
+                                    boolean invalidPartitionCache) {
+        PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, null);
         HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
         if (partitionValues == null) {
             return;

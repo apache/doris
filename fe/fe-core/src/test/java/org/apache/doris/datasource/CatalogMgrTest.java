@@ -450,8 +450,7 @@ public class CatalogMgrTest extends TestWithFeService {
         HivePartitionValues hivePartitionValues = loadPartitionValues(partitionValueCacheKey,
                 Lists.newArrayList("y=2020/m=1", "y=2020/m=2"), metaStoreCache);
         metaStoreCache.putPartitionValuesCacheForTest(partitionValueCacheKey, hivePartitionValues);
-        metaStoreCache.addPartitionsCache("hiveDb", "hiveTable", Lists.newArrayList("y=2020/m=3", "y=2020/m=4"),
-                partitionValueCacheKey.getTypes());
+        metaStoreCache.addPartitionsCache("hiveDb", "hiveTable", Lists.newArrayList("y=2020/m=3", "y=2020/m=4"));
         HivePartitionValues partitionValues = metaStoreCache.getPartitionValues(partitionValueCacheKey);
         Assert.assertEquals(partitionValues.getPartitionNameToIdMap().size(), 4);
     }
@@ -466,7 +465,7 @@ public class CatalogMgrTest extends TestWithFeService {
                 Lists.newArrayList("y=2020/m=1", "y=2020/m=2"), metaStoreCache);
         metaStoreCache.putPartitionValuesCacheForTest(partitionValueCacheKey, hivePartitionValues);
         metaStoreCache.dropPartitionsCache("hiveDb", "hiveTable", Lists.newArrayList("y=2020/m=1", "y=2020/m=2"),
-                partitionValueCacheKey.getTypes(), false);
+                false);
         HivePartitionValues partitionValues = metaStoreCache.getPartitionValues(partitionValueCacheKey);
         Assert.assertEquals(partitionValues.getPartitionNameToIdMap().size(), 0);
     }
@@ -480,8 +479,7 @@ public class CatalogMgrTest extends TestWithFeService {
         HivePartitionValues hivePartitionValues = loadPartitionValues(partitionValueCacheKey,
                 Lists.newArrayList("m=1", "m=2"), metaStoreCache);
         metaStoreCache.putPartitionValuesCacheForTest(partitionValueCacheKey, hivePartitionValues);
-        metaStoreCache.addPartitionsCache("hiveDb", "hiveTable", Lists.newArrayList("m=3", "m=4"),
-                partitionValueCacheKey.getTypes());
+        metaStoreCache.addPartitionsCache("hiveDb", "hiveTable", Lists.newArrayList("m=3", "m=4"));
         HivePartitionValues partitionValues = metaStoreCache.getPartitionValues(partitionValueCacheKey);
         Assert.assertEquals(partitionValues.getPartitionNameToIdMap().size(), 4);
     }
@@ -496,7 +494,7 @@ public class CatalogMgrTest extends TestWithFeService {
                 Lists.newArrayList("m=1", "m=2"), metaStoreCache);
         metaStoreCache.putPartitionValuesCacheForTest(partitionValueCacheKey, hivePartitionValues);
         metaStoreCache.dropPartitionsCache("hiveDb", "hiveTable", Lists.newArrayList("m=1", "m=2"),
-                partitionValueCacheKey.getTypes(), false);
+                false);
         HivePartitionValues partitionValues = metaStoreCache.getPartitionValues(partitionValueCacheKey);
         Assert.assertEquals(partitionValues.getPartitionNameToIdMap().size(), 0);
     }
@@ -515,8 +513,7 @@ public class CatalogMgrTest extends TestWithFeService {
                 pNames, metaStoreCache);
         metaStoreCache.putPartitionValuesCacheForTest(partitionValueCacheKey, hivePartitionValues);
         long start = System.currentTimeMillis();
-        metaStoreCache.addPartitionsCache("hiveDb", "hiveTable", Lists.newArrayList("m=100001"),
-                partitionValueCacheKey.getTypes());
+        metaStoreCache.addPartitionsCache("hiveDb", "hiveTable", Lists.newArrayList("m=100001"));
         //387 in 4c16g
         System.out.println("testAddPartitionsCacheToLargeTable use time mills:" + (System.currentTimeMillis() - start));
         HivePartitionValues partitionValues = metaStoreCache.getPartitionValues(partitionValueCacheKey);
