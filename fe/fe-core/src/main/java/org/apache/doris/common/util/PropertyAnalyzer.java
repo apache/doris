@@ -127,6 +127,8 @@ public class PropertyAnalyzer {
 
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
+    private static final String BLANK = " ";
+    private static final String TABS = "\t";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
 
@@ -794,6 +796,14 @@ public class PropertyAnalyzer {
      */
     public static void checkCatalogProperties(Map<String, String> properties, boolean isAlter)
             throws AnalysisException {
+        // firstly, check if the property's key contains empty character
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            String key = entry.getKey();
+            if (key.contains(BLANK) || key.contains(TABS)) {
+                throw new AnalysisException("property key contains ' ' or '\t' character");
+            }
+        }
+
         // validate the properties of es catalog
         if ("es".equalsIgnoreCase(properties.get("type"))) {
             try {
