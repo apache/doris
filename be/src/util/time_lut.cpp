@@ -112,14 +112,10 @@ uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
         // 0, 0, 3, 3, 4, 4, 5, 5, 5,  6,  7,  8
         delsum -= (month * 4 + 23) / 10;
     }
-    // 'y == -1' means year is 0000 and month <= 2
-    if (y == -1) {
-        return delsum;
-    }
 
     // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.\
     // because 0000 is leap year, so we need (y / 4 + 1)
-    return delsum + (y / 4 + 1) - y / 100 + y / 400;
+    return delsum + y / 4 - y / 100 + y / 400;
 }
 
 uint32_t year_week(uint16_t yy, uint8_t month, uint8_t day) {

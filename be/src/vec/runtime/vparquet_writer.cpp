@@ -624,8 +624,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     }
                     col_writer->WriteBatch(sz, def_level.data(), nullptr,
                                            reinterpret_cast<const int64_t*>(tmp_data));
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnVector<Int64>>(col)) {
+                } else if (check_and_get_column<const ColumnVector<Int64>>(col)) {
                     VecDateTimeValue epoch_date;
                     if (!epoch_date.from_date_str(epoch_date_str.c_str(),
                                                   epoch_date_str.length())) {
