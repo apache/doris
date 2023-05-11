@@ -106,12 +106,9 @@ suite("test_all_types", "types") {
     }
 
     def uuid = UUID.randomUUID().toString().replace("-", "0")
-
     def outFilePath = """${context.file.parent}/test_all_types"""
-
     def columns = "k2, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k17, k19, k22, k24, k25, k1, k3, k14, k15, k16, k18, k20, k21, k23"
     String columns_str = ("$columns" != "") ? "($columns)" : "";
-
     def loadLabel = TableName + '_' + uuid
 
     // aggModel s3 load
@@ -250,7 +247,6 @@ suite("test_all_types", "types") {
 
     // uniModel_read s3 load
     loadLabel = TableName + '_' + uuid
-
     sql """
             LOAD LABEL $loadLabel (
                 DATA INFILE("s3://$bucket/regression/datatypes/ALLTESTCASE.txt")
@@ -517,7 +513,6 @@ suite("test_all_types", "types") {
     }
 
     // DupModel s3 load
-
     loadLabel = TableName + '_' + uuid
     sql """
             LOAD LABEL $loadLabel (
