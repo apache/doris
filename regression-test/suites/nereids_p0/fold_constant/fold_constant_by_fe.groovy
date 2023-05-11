@@ -64,7 +64,7 @@ suite("test_fold_constant_by_fe") {
     test_year = [2001, 2013, 123, 1969, 2023]
     for (year in test_year) {
         for (integer in test_int) {
-            qt_sql "select makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year * year * integer})"
+            qt_sql "select makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year / 10 * year * integer})"
         }
     }
 
@@ -72,7 +72,7 @@ suite("test_fold_constant_by_fe") {
         qt_sql "select unix_timestamp('${date}')"
     }
 
-    String res;
+    String res
 
     // check fold constant
     for (date in test_date) {
