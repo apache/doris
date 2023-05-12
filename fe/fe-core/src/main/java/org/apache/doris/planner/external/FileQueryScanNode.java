@@ -217,8 +217,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params.setFormatType(fileFormatType);
         TFileCompressType fileCompressType = getFileCompressType(inputSplit);
         params.setCompressType(fileCompressType);
-        boolean isCsvFormat = Util.isCsvFormat(fileFormatType);
-        if (isCsvFormat || fileFormatType == TFileFormatType.FORMAT_JSON) {
+        boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
+        if (isCsvOrJson) {
             params.setFileAttributes(getFileAttributes());
         }
 
@@ -246,10 +246,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             FileSplit fileSplit = (FileSplit) split;
 
             TFileScanRangeParams scanRangeParams;
-            if (!isCsvFormat) {
+            if (!isCsvOrJson) {
                 scanRangeParams = params;
             } else {
-                // If fileFormatType is csv format, uncompressed files may be coexists with compressed files
+                // If fileFormatType is csv/json format, uncompressed files may be coexists with compressed files
                 // So we need set compressType separately
                 scanRangeParams = new TFileScanRangeParams(params);
                 scanRangeParams.setCompressType(getFileCompressType(fileSplit));
