@@ -596,15 +596,18 @@ public class HiveMetaStoreCache {
             partitionValuesMap.remove(partitionId);
             List<UniqueId> uniqueIds = idToUniqueIdsMapBefore.remove(partitionId);
             for (UniqueId uniqueId : uniqueIds) {
-                Range<PartitionKey> range = uidToPartitionRangeBefore.remove(uniqueId);
-                if (range != null) {
-                    rangeToIdBefore.remove(range);
+                if (uidToPartitionRangeBefore != null) {
+                    Range<PartitionKey> range = uidToPartitionRangeBefore.remove(uniqueId);
+                    if (range != null) {
+                        rangeToIdBefore.remove(range);
+                    }
                 }
-            }
-            for (UniqueId uniqueId : uniqueIds) {
-                Range<ColumnBound> range = singleUidToColumnRangeMapBefore.remove(uniqueId);
-                if (range != null) {
-                    singleColumnRangeMapBefore.remove(range);
+
+                if (singleUidToColumnRangeMapBefore != null) {
+                    Range<ColumnBound> range = singleUidToColumnRangeMapBefore.remove(uniqueId);
+                    if (range != null) {
+                        singleColumnRangeMapBefore.remove(range);
+                    }
                 }
             }
 
