@@ -1030,25 +1030,24 @@ public class FunctionCallExpr extends Expr {
                     }
                     if (!aesModes.contains(blockEncryptionMode.toUpperCase())) {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
-
                     }
                     if (children.size() == 2) {
-                        if (!blockEncryptionMode.toUpperCase().equals("AES_128_ECB")
-                                && !blockEncryptionMode.toUpperCase().equals("AES_192_ECB")
-                                && !blockEncryptionMode.toUpperCase().equals("AES_256_ECB")) {
-                            if (fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")) {
+                        boolean isECB = blockEncryptionMode.equalsIgnoreCase("AES_128_ECB")
+                                || blockEncryptionMode.equalsIgnoreCase("AES_192_ECB")
+                                || blockEncryptionMode.equalsIgnoreCase("AES_256_ECB");
+                        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")) {
+                            if (!isECB) {
                                 throw new AnalysisException(
                                         "Incorrect parameter count in the call to native function 'aes_decrypt'");
-                            } else if (fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")) {
+                            }
+                        } else if (fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")) {
+                            if (!isECB) {
                                 throw new AnalysisException(
                                         "Incorrect parameter count in the call to native function 'aes_encrypt'");
-                            } else {
-                                blockEncryptionMode = "AES_128_ECB";
                             }
-                        } else if ((blockEncryptionMode.toUpperCase().equals("AES_192_ECB")
-                                || blockEncryptionMode.toUpperCase().equals("AES_256_ECB"))
-                                && !fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
-                                && !fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")) {
+                        } else {
+                            // if there are only 2 params, we need set encryption mode to AES_128_ECB
+                            // this keeps the behavior consistent with old doris ver.
                             blockEncryptionMode = "AES_128_ECB";
                         }
                     }
@@ -1063,7 +1062,6 @@ public class FunctionCallExpr extends Expr {
                     if (!sm4Modes.contains(blockEncryptionMode.toUpperCase())) {
                         throw new AnalysisException(
                                 "session variable block_encryption_mode is invalid with sm4");
-
                     }
                     if (children.size() == 2) {
                         if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")) {
@@ -1073,7 +1071,11 @@ public class FunctionCallExpr extends Expr {
                             throw new AnalysisException(
                                     "Incorrect parameter count in the call to native function 'sm4_encrypt'");
                         } else {
-                            blockEncryptionMode = "AES_128_ECB";
+                            // if there are only 2 params, we need add an empty string as the third param
+                            // and set encryption mode to SM4_128_ECB
+                            // this keeps the behavior consistent with old doris ver.
+                            children.add(new StringLiteral(""));
+                            blockEncryptionMode = "SM4_128_ECB";
                         }
                     }
                 }
