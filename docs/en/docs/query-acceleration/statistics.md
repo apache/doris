@@ -74,7 +74,7 @@ In Doris, an equi-height Histogram is built for each table-specific column. The 
 
 ### Manual collection
 
-The user triggers a manual collection task through a statement `ANALYZE` to collect statistics for the specified table or column based on the supplied parameters.
+The user triggers a manual collection job through a statement `ANALYZE` to collect statistics for the specified table or column based on the supplied parameters.
 
 Column statistics collection syntax:
 
@@ -99,12 +99,12 @@ Explanation:
 
 - Table\_name: The target table for the specified. It can be a `db_name.table_name` form.
 - Column\_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
-- Sync: Synchronizes the collection of statistics. Return after collection. If not specified, it will be executed asynchronously and the task ID will be returned.
+- Sync: Synchronizes the collection of statistics. Return after collection. If not specified, it will be executed asynchronously and the job ID will be returned.
 - Incremental: Incrementally gather statistics. Incremental collection of histogram statistics is not supported.
 - Period: Collect statistics periodically. The unit is seconds, and when specified, the appropriate statistics are collected periodically.
 - Sample percent | rows: Sample collection statistics. You can specify a sampling ratio or the number of rows to sample.
 - Buckets: Specifies the maximum number of buckets generated when collecting histogram statistics. The default is 128 when not specified.
-- Properties: used to configure statistical tasks. Currently, only the following configuration items are supported
+- Properties: used to configure statistics job. Currently, only the following configuration items are supported
     - `"sync" = "true"`: Equivalent `with sync`
     - `"incremental" = "true"`: Equivalent `with incremental`
     - `"sample.percent" = "50"`: Equivalent `with percent 50`
@@ -381,7 +381,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH SAMPLE ROWS 5;
 
 #### Synchronous collection
 
-Generally, after executing `ANALYZE` the statement, the system will start an asynchronous task to collect statistics and return the statistics task ID immediately. If you want to wait for the statistics collection to finish and return, you can use synchronous collection.
+Generally, after executing `ANALYZE` the statement, the system will start an asynchronous job to collect statistics and return the statistics job ID immediately. If you want to wait for the statistics collection to finish and return, you can use synchronous collection.
 
 Example:
 
@@ -403,7 +403,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH SYNC;
 
 ### Automatic collection
 
-Automatic collection means that the system will automatically generate a task to collect statistics when the user specifies `PERIOD` `AUTO` keywords or performs related configuration when executing `ANALYZE` a statement.
+Automatic collection means that the system will automatically generate a job to collect statistics when the user specifies `PERIOD` `AUTO` keywords or performs related configuration when executing `ANALYZE` a statement.
 
 #### Periodic collection
 
@@ -446,11 +446,11 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH PERIOD 86400;
 
 To be added.
 
-### Manage tasks
+### Manage job
 
-#### View statistical tasks
+#### View statistics job
 
-Collect information for the task by `SHOW ANALYZE` viewing the statistics.
+Collect information for the job by `SHOW ANALYZE` viewing the statistics.
 
 The syntax is as follows:
 
@@ -463,8 +463,8 @@ SHOW ANALYZE [ table_name | job_id ]
 
 Explanation:
 
-- Table\_name: The table name. After it is specified, the statistical task information corresponding to the table can be viewed. It can be a `db_name.table_name` form. Return all statistical task information if not specified.
-- Job\_ID: The statistics task ID `ANALYZE`. The value returned when the asynchronous collection of statistics is performed. Return all statistical task information if not specified.
+- Table\_name: The table name. After it is specified, the statistical job information corresponding to the table can be viewed. It can be a `db_name.table_name` form. Return all statistics job information if not specified.
+- Job\_ID: The statistics job ID `ANALYZE`. The value returned when the asynchronous collection of statistics is performed. Return all statistics job information if not specified.
 
 Currently `SHOW ANALYZE`, 11 columns are output, as follows:
 
@@ -482,11 +482,11 @@ Currently `SHOW ANALYZE`, 11 columns are output, as follows:
 | `state`                | job state           |
 | `schedule_type`        | Scheduling method   |
 
-> In the system, the statistics task contains multiple subtasks, each of which collects a separate column of statistics.
+> In the system, the statistics job contains multiple subtasks, each of which collects a separate column of statistics.
 
 Example:
 
-- View statistics task information with ID `68603`, using the following syntax:
+- View statistics job information with ID `68603`, using the following syntax:
 
 ```SQL
 mysql> SHOW ANALYZE 68603;
@@ -506,7 +506,7 @@ mysql> SHOW ANALYZE 68603;
 +--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
 ```
 
-- To view `example_tbl` statistical task information for a table, use the following syntax:
+- To view `example_tbl` statistics job information for a table, use the following syntax:
 
 ```SQL
 mysql> SHOW ANALYZE stats_test.example_tbl;
@@ -536,7 +536,7 @@ mysql> SHOW ANALYZE stats_test.example_tbl;
 +--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
 ```
 
-- View all statistical task information, and return the first 3 pieces of information in descending order of the last completion time, using the following syntax:
+- View all statistics job information, and return the first 3 pieces of information in descending order of the last completion time, using the following syntax:
 
 ```SQL
 mysql> SHOW ANALYZE WHERE state = "FINISHED" ORDER BY last_exec_time_in_ms DESC LIMIT 3;
@@ -549,9 +549,9 @@ mysql> SHOW ANALYZE WHERE state = "FINISHED" ORDER BY last_exec_time_in_ms DESC 
 +--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
 ```
 
-#### Terminate the statistics task
+#### Terminate the statistics job
 
-To `KILL ANALYZE` terminate a running statistics task.
+To `KILL ANALYZE` terminate a running statistics job.
 
 The syntax is as follows:
 
@@ -561,11 +561,11 @@ KILL ANALYZE job_id;
 
 Explanation:
 
-- Job\_ID: Statistics task ID. The value returned when an asynchronous collection of statistics is performed `ANALYZE`, which can also be obtained by a `SHOW ANALYZE` statement.
+- Job\_ID: Statistics job ID. The value returned when an asynchronous collection of statistics is performed `ANALYZE`, which can also be obtained by a `SHOW ANALYZE` statement.
 
 Example:
 
-- Stop the statistics task whose ID is the 52357.
+- Stop the statistics job whose ID is the 52357.
 
 ```SQL
 mysql> KILL ANALYZE 52357;
@@ -861,7 +861,7 @@ Explanation:
 
 - Table\_name: The table to which you want to delete the statistics. It can be a `db_name.table_name` form.
 - Column\_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
-- Expired: statistics cleanup. Table cannot be specified. Invalid statistics and out-of-date statistics task information in the system will be deleted.
+- Expired: statistics cleanup. Table cannot be specified. Invalid statistics and out-of-date statistics jobs information in the system will be deleted.
 
 Example:
 
