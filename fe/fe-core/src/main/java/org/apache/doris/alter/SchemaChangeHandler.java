@@ -2808,8 +2808,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     continue;
                 }
 
-                if (hasInvertedIndexJobOnPartition(db.getId(), olapTable.getId(), partitionName,
-                        alterInvertedIndexes, isDropOp)) {
+                if (hasInvertedIndexJobOnPartition(originIndexId, db.getId(), olapTable.getId(),
+                        partitionName, alterInvertedIndexes, isDropOp)) {
                     throw new DdlException("partition " + partitionName + " has been built specified index."
                                            + " please check your build stmt.");
                 }
@@ -2828,11 +2828,12 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     public boolean hasInvertedIndexJobOnPartition(
-            long dbId, long tableId, String partitionName,
+            long originIndexId, long dbId, long tableId, String partitionName,
             List<Index> alterInvertedIndexes, boolean isDrop) {
         // TODO: this is temporary methods
         for (InvertedIndexJob invertedIndexJob : ImmutableList.copyOf(invertedIndexJobs.values())) {
-            if (invertedIndexJob.getDbId() == dbId
+            if (invertedIndexJob.getOriginIndexId() == originIndexId
+                    && invertedIndexJob.getDbId() == dbId
                     && invertedIndexJob.getTableId() == tableId
                     && invertedIndexJob.getPartitionName().equals(partitionName)
                     && invertedIndexJob.hasSameAlterInvertedIndex(isDrop, alterInvertedIndexes)

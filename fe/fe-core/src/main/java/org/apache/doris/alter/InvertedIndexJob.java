@@ -121,6 +121,10 @@ public class InvertedIndexJob implements Writable {
         return jobId;
     }
 
+    public long getOriginIndexId() {
+        return originIndexId;
+    }
+
     public JobState getJobState() {
         return jobState;
     }
