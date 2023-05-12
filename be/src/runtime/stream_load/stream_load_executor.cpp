@@ -17,6 +17,9 @@
 
 #include "runtime/stream_load/stream_load_executor.h"
 
+#include <bvar/bvar.h>
+#include <bvar/latency_recorder.h>
+
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
@@ -24,8 +27,6 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <stdint.h>
-#include <bvar/bvar.h>
-#include <bvar/latency_recorder.h>
 
 #include <future>
 #include <map>
