@@ -127,7 +127,8 @@ enum TFileCompressType {
     LZO,
     BZ2,
     LZ4FRAME,
-    DEFLATE
+    DEFLATE,
+    LZOP,
 }
 
 struct THdfsConf {

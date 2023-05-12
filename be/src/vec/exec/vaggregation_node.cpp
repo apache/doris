@@ -502,7 +502,8 @@ Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
     // because during prepare and open thread is not the same one,
     // this could cause unable to get JVM
     if (_probe_expr_ctxs.empty()) {
-        _create_agg_status(_agg_data->without_key);
+        // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
+        RETURN_IF_CATCH_EXCEPTION(_create_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = true;
     }
 

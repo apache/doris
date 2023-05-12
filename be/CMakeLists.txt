@@ -658,7 +658,7 @@ include_directories(
 )
 
 if ("${DORIS_JAVA_HOME}" STREQUAL "") 
-    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}/include")
+    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
 endif()
 
 include_directories(${DORIS_JAVA_HOME}/include)

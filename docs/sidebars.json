@@ -310,6 +310,7 @@
                                 "sql-manual/sql-functions/array-functions/array_cum_sum",
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
+                                "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"

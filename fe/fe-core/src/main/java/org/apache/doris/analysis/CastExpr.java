@@ -453,6 +453,11 @@ public class CastExpr extends Expr {
         Expr targetExpr;
         try {
             targetExpr = castTo((LiteralExpr) value);
+            if (targetTypeDef != null) {
+                targetExpr.setType(targetTypeDef.getType());
+            } else {
+                targetExpr.setType(type);
+            }
         } catch (AnalysisException ae) {
             targetExpr = this;
         } catch (NumberFormatException nfe) {

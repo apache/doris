@@ -130,13 +130,10 @@ import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
 import java.nio.charset.StandardCharsets;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -155,8 +152,6 @@ import java.util.stream.Collectors;
 
 public class Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
-
-    private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     private static final String localIP = FrontendOptions.getLocalHostAddress();
 
@@ -336,7 +331,7 @@ public class Coordinator {
 
         setFromUserProperty(context);
 
-        this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+        this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         this.queryGlobals.setLoadZeroTolerance(false);
@@ -365,7 +360,7 @@ public class Coordinator {
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
-        this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+        this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
