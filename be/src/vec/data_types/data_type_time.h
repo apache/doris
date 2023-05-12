@@ -34,9 +34,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_number_base.h"
-#include "vec/data_types/serde/data_type_number_serde.h"
-#include "vec/data_types/serde/data_type_time_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/data_types/serde/data_type_time_serde.h"
 
 namespace doris {
 namespace vectorized {
@@ -74,9 +73,7 @@ public:
         using PromotedType = DataTypeNumber<NearestFieldType<Float64>>;
         return std::make_shared<PromotedType>();
     }
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeTimeSerDe>();
-    };
+    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeTimeSerDe>(); };
     TypeIndex get_type_id() const override { return TypeIndex::Time; }
 };
 

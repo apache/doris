@@ -148,8 +148,8 @@ Status DataTypeNullableSerDe::_write_column_to_mysql(
             buf_ret = result[i].push_null();
             continue;
         }
-        RETURN_IF_ERROR(nested_serde->write_column_to_mysql(nested_col, result, i, i + 1, scale,
-                                                            col_const));
+        RETURN_IF_ERROR(nested_serde->write_column_to_mysql(nested_col, result, col_index,
+                                                            col_index + 1, scale, col_const));
     }
     return Status::OK();
 }

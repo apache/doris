@@ -16,25 +16,6 @@
 // under the License.
 
 #include "data_type_time_serde.h"
-
-#include "vec/columns/column_const.h"
-
 namespace doris {
-namespace vectorized {
-template <bool is_binary_format>
-Status DataTypeTimeSerDe::_write_column_to_mysql(
-        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
-        int end, int scale, bool col_const) const {
-    int buf_ret = 0;
-    auto& data = static_cast<const ColumnVector<Float64>&>(column).get_data();
-    for (int i = start; i < end; ++i) {
-        if (0 != buf_ret) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-        const auto col_index = index_check_const(i, col_const);
-        buf_ret = result[i].push_time(data[col_index]);
-    }
-    return Status::OK();
-}
-} // namespace vectorized
+namespace vectorized {} // namespace vectorized
 } // namespace doris

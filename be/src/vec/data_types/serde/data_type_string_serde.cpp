@@ -144,7 +144,9 @@ Status DataTypeStringSerDe::_write_column_to_mysql(
                 buf_ret = result[i].push_null();
             }
         } else {
+            buf_ret = result[i].push_string("\"", 1);
             buf_ret = result[i].push_string(string_val.data, string_val.size);
+            buf_ret = result[i].push_string("\"", 1);
         }
     }
     return Status::OK();
