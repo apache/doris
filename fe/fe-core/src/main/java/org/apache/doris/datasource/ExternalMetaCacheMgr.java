@@ -131,8 +131,10 @@ public class ExternalMetaCacheMgr {
         }
         String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
-        // before invoke getPartitionColumnTypes we should check if the table exist now
-        // otherwise PooledHiveMetaStoreClient#getCient will throw an exception if table not exist
+        // Before invoking getPartitionColumnTypes we should check if the table exists now.
+        // Otherwise PooledHiveMetaStoreClient.getTable() will throw an exception if table not exists.
+        // Because this is not an atomic process, now we can just try to avoid the exception as much as possible.
+        // TODO: don't invoke any methods in PooledHiveMetaStoreClient when processing hms events
         if (metaCache != null && ((HMSExternalTable) table).exists()) {
             metaCache.addPartitionsCache(dbName, table.getName(), partitionNames,
                     ((HMSExternalTable) table).getPartitionColumnTypes());
