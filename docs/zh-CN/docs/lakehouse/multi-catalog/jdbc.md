@@ -257,10 +257,10 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 > 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。
 >
 > `include_database_list`:
-> 当`only_specified_database=true`时，指定需要同步的 database，以','分割。默认为''，即不做任何过滤，同步所有database。db名称是大小写敏感的
+> 仅在`only_specified_database=true`时生效，指定需要同步的 database，以','分割，db名称是大小写敏感的。
 >
 > `exclude_database_list`:
-> 当`only_specified_database=true`时，指定不需要同步的多个database，以','分割。默认为''，即不做任何过滤，同步所有database。db名称是大小写敏感的。
+> 仅在`only_specified_database=true`时生效，指定不需要同步的多个database，以','分割，db名称是大小写敏感的。
 >
 > 当 `include_database_list` 和 `exclude_database_list` 有重合的database配置时，`exclude_database_list`会优先生效。
 >
