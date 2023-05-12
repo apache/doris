@@ -319,7 +319,7 @@ public class PartitionInfo implements Writable {
         out.writeInt(idToDataProperty.size());
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             out.writeLong(entry.getKey());
-            if (entry.getValue().equals(new DataProperty(TStorageMedium.HDD))) {
+            if (entry.getValue().equals(DataProperty.DEFAULT_HDD_DATA_PROPERTY)) {
                 out.writeBoolean(true);
             } else {
                 out.writeBoolean(false);
@@ -339,7 +339,7 @@ public class PartitionInfo implements Writable {
             long partitionId = in.readLong();
             boolean isDefaultHddDataProperty = in.readBoolean();
             if (isDefaultHddDataProperty) {
-                idToDataProperty.put(partitionId, new DataProperty(TStorageMedium.HDD));
+                idToDataProperty.put(partitionId, new DataProperty(DataProperty.DEFAULT_HDD_DATA_PROPERTY));
             } else {
                 idToDataProperty.put(partitionId, DataProperty.read(in));
             }
