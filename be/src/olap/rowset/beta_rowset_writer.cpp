@@ -132,11 +132,7 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
         return Status::OK();
     }
     if (UNLIKELY(_segment_writer == nullptr)) {
-<<<<<<< HEAD
-        RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, block));
-=======
-        RETURN_NOT_OK(_create_segment_writer(&_segment_writer, nullptr));
->>>>>>> 830b688256 (Dynamic table fix)
+        RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, nullptr));
     }
     return _add_block(block, &_segment_writer);
 }
@@ -421,13 +417,8 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
         auto max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
         if (UNLIKELY(max_row_add < 1)) {
             // no space for another single row, need flush now
-<<<<<<< HEAD
             RETURN_IF_ERROR(_flush_segment_writer(segment_writer));
-            RETURN_IF_ERROR(_create_segment_writer(segment_writer, block));
-=======
-            RETURN_NOT_OK(_flush_segment_writer(segment_writer));
-            RETURN_NOT_OK(_create_segment_writer(segment_writer, flush_ctx));
->>>>>>> 830b688256 (Dynamic table fix)
+            RETURN_IF_ERROR(_create_segment_writer(segment_writer, flush_ctx));
             max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }

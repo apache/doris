@@ -116,15 +116,15 @@ suite("regression_test_dynamic_table", "dynamic_table"){
         load_json_data.call(table_name, 'true', 'json', 'true', src_json, 'true')
         sleep(1000)
     }
-    // json_load("btc_transactions.json", "test_btc_json")
-    // json_load("ghdata_sample.json", "test_ghdata_json")
-    // json_load("nbagames_sample.json", "test_nbagames_json")
-    // json_load_nested("es_nested.json", "test_es_nested_json")
-    // json_load_unique("btc_transactions.json", "test_btc_json")
-    // json_load_unique("ghdata_sample.json", "test_ghdata_json")
-    // json_load_unique("nbagames_sample.json", "test_nbagames_json")
-    // sql """insert into test_ghdata_json_unique select * from test_ghdata_json"""
-    // sql """insert into test_btc_json_unique select * from test_btc_json"""
+    json_load("btc_transactions.json", "test_btc_json")
+    json_load("ghdata_sample.json", "test_ghdata_json")
+    json_load("nbagames_sample.json", "test_nbagames_json")
+    json_load_nested("es_nested.json", "test_es_nested_json")
+    json_load_unique("btc_transactions.json", "test_btc_json")
+    json_load_unique("ghdata_sample.json", "test_ghdata_json")
+    json_load_unique("nbagames_sample.json", "test_nbagames_json")
+    sql """insert into test_ghdata_json_unique select * from test_ghdata_json"""
+    sql """insert into test_btc_json_unique select * from test_btc_json"""
 
     // abnormal cases
     table_name = "abnormal_cases" 
@@ -134,6 +134,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 qid bigint,
+                XXXX bigint,
 		        ...
             )
             DUPLICATE KEY(`qid`)

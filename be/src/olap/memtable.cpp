@@ -45,6 +45,7 @@
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
+#include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
@@ -533,12 +534,26 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
                 column, column.is_nullable());
         // Dynamic generated columns does not appear in original tablet schema
         if (_tablet_schema->field_index(column.name()) < 0) {
-            _rowset_writer->mutable_schema_change_recorder()->add_extended_columns(
-                    column, schema_view.schema_version);
             flush_schema->append_column(column);
             flush_block.insert({data_type->create_column(), data_type, column.name()});
         }
     }
+
+    // Ensure column are all present at this schema version.Otherwise there will be some senario:
+    //  Load1 -> version(10) with schema [a, b, c, d, e], d & e is new added columns and schema version became 10
+    //  Load2 -> version(10) with schema [a, b, c] and has no extended columns and fetched the schema at version 10
+    //  Load2 will persist meta with [a, b, c] but Load1 will persist meta with [a, b, c, d, e]
+    // So we should make sure that rowset at the same schema version alawys contain the same size of columns.
+    // so that all columns at schema_version is in either _tablet_schema or schema_change_recorder
+    for (const auto& [name, column] : schema_view.column_name_to_column) {
+        if (_tablet_schema->field_index(name) == -1) {
+            const auto& tcolumn = schema_view.column_name_to_column[name];
+            TabletColumn new_column(tcolumn);
+            _rowset_writer->mutable_schema_change_recorder()->add_extended_columns(
+                    column, schema_view.schema_version);
+        }
+    }
+
     // Last schema alignment before flush to disk, due to the schema maybe variant before this procedure
     // Eg. add columnA(INT) -> drop ColumnA -> add ColumnA(Double), then columnA could be type of `Double`,
     // unfold will cast to Double type
