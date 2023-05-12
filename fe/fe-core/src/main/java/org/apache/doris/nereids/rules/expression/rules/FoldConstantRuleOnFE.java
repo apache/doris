@@ -231,9 +231,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         if (nonTrueLiteral.isEmpty()) {
             return BooleanLiteral.TRUE;
         }
-        if (nonTrueLiteral.size() == and.arity()) {
-            return and;
-        }
         if (nonTrueLiteral.size() == 1) {
             return nonTrueLiteral.get(0);
         }
@@ -255,9 +252,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         }
         if (nonFalseLiteral.isEmpty()) {
             return BooleanLiteral.FALSE;
-        }
-        if (nonFalseLiteral.size() == or.arity()) {
-            return or;
         }
         if (nonFalseLiteral.size() == 1) {
             return nonFalseLiteral.get(0);
