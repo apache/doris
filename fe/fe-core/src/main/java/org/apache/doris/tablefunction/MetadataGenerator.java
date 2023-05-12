@@ -117,8 +117,8 @@ public class MetadataGenerator {
                     LocalDateTime committedAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(
                             snapshot.timestampMillis()), TimeUtils.getTimeZone().toZoneId());
                     long encodedDatetime = convertToDateTimeV2(committedAt.getYear(), committedAt.getMonthValue(),
-                            committedAt.getDayOfMonth(), committedAt.getHour(),
-                            committedAt.getMinute(), committedAt.getSecond());
+                            committedAt.getDayOfMonth(), committedAt.getHour(), committedAt.getMinute(),
+                            committedAt.getSecond(), committedAt.getNano() / 1000);
 
                     trow.addToColumnValue(new TCell().setLongVal(encodedDatetime));
                     trow.addToColumnValue(new TCell().setLongVal(snapshot.snapshotId()));
@@ -303,8 +303,9 @@ public class MetadataGenerator {
         return hiveCatalog.loadTable(TableIdentifier.of(db, tbl));
     }
 
-    private static long convertToDateTimeV2(int year, int month, int day, int hour, int minute, int second) {
-        return (long) second << 20 | (long) minute << 26 | (long) hour << 32
+    private static long convertToDateTimeV2(
+            int year, int month, int day, int hour, int minute, int second, int microsecond) {
+        return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 }

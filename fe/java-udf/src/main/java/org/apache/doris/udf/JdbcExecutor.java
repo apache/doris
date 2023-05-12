@@ -1110,7 +1110,8 @@ public class JdbcExecutor {
                     LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
                     UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                             UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
-                                    date.getDayOfMonth(), date.getHour(), date.getMinute(), date.getSecond()));
+                                    date.getDayOfMonth(), date.getHour(), date.getMinute(),
+                                    date.getSecond(), date.getNano() / 1000));
                 }
             }
         } else {
@@ -1118,7 +1119,7 @@ public class JdbcExecutor {
                 LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
                 UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                         UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                                date.getHour(), date.getMinute(), date.getSecond()));
+                                date.getHour(), date.getMinute(), date.getSecond(), date.getNano() / 1000));
             }
         }
     }
@@ -1133,7 +1134,8 @@ public class JdbcExecutor {
                     LocalDateTime date = ((oracle.sql.TIMESTAMP) column[i]).timestampValue().toLocalDateTime();
                     UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                             UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
-                                    date.getDayOfMonth(), date.getHour(), date.getMinute(), date.getSecond()));
+                                    date.getDayOfMonth(), date.getHour(), date.getMinute(),
+                                    date.getSecond(), date.getNano() / 1000));
                 }
             }
         } else {
@@ -1141,7 +1143,7 @@ public class JdbcExecutor {
                 LocalDateTime date = ((oracle.sql.TIMESTAMP) column[i]).timestampValue().toLocalDateTime();
                 UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                         UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                                date.getHour(), date.getMinute(), date.getSecond()));
+                                date.getHour(), date.getMinute(), date.getSecond(), date.getNano() / 1000));
             }
         }
     }
