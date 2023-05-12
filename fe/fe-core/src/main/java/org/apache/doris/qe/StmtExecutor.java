@@ -425,8 +425,10 @@ public class StmtExecutor {
     }
 
     private boolean checkBlockRules() throws AnalysisException {
-        Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
-                originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
+        if (originStmt != null) {
+            Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
+                    originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
+        }
 
         // limitations: partition_num, tablet_num, cardinality
         if (planner != null) {
@@ -452,12 +454,10 @@ public class StmtExecutor {
         context.setStartTime();
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
-        if (!parsedStmt.isExplain()) {
-            if (checkBlockRules()) {
-                return;
-            }
-        }
 
+        if (checkBlockRules()) {
+            return;
+        }
         parseByNereids();
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
@@ -512,7 +512,6 @@ public class StmtExecutor {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt);
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
             }
-
             profile.getSummaryProfile().setQueryPlanFinishTime();
             handleQueryWithRetry(queryId);
         }
@@ -641,11 +640,9 @@ public class StmtExecutor {
                 return;
             }
 
-            if (!parsedStmt.isExplain()) {
-                // sql/sqlHash block
-                if (checkBlockRules()) {
-                    return;
-                }
+            // sql/sqlHash block
+            if (checkBlockRules()) {
+                return;
             }
             if (parsedStmt instanceof QueryStmt) {
                 handleQueryWithRetry(queryId);

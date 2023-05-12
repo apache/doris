@@ -32,7 +32,7 @@ CREATE SQL BLOCK RULE
 
 ### Description
 
-This statement creates a SQL blocking rule. it can restrict any kind of sql statements(no matter DDL or DML statement), but not the explain statements.
+This statement creates a SQL blocking rule. it can restrict any kind of sql statements(no matter DDL or DML statement).
 
 Supports configuring SQL blacklists by user:
 

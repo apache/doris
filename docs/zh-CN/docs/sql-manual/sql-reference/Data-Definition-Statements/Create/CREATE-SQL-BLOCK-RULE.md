@@ -32,7 +32,7 @@ CREATE SQL BLOCK RULE
 
 ### Description
 
-该语句创建SQL阻止规则，该功能可用于限制任何sql语句（包括 DDL 和 DML 语句），除了explain语句。
+该语句创建SQL阻止规则，该功能可用于限制任何sql语句（包括 DDL 和 DML 语句）。
 
 支持按用户配置SQL黑名单：
 
