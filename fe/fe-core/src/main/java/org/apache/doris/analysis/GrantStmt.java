@@ -110,7 +110,7 @@ public class GrantStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (userIdent != null) {
             userIdent.analyze(analyzer.getClusterName());
