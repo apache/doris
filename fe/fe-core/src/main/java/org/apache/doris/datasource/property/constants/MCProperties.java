@@ -15,41 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.datasource.property.constants;
 
-public enum StatisticalType {
-    DEFAULT,
-    AGG_NODE,
-    ANALYTIC_EVAL_NODE,
-    ASSERT_NUM_ROWS_NODE,
-    BROKER_SCAN_NODE,
-    NESTED_LOOP_JOIN_NODE,
-    EMPTY_SET_NODE,
-    ES_SCAN_NODE,
-    EXCEPT_NODE,
-    EXCHANGE_NODE,
-    HASH_JOIN_NODE,
-    HIVE_SCAN_NODE,
-    ICEBERG_SCAN_NODE,
-    HUDI_SCAN_NODE,
-    TVF_SCAN_NODE,
-    INTERSECT_NODE,
-    LOAD_SCAN_NODE,
-    MYSQL_SCAN_NODE,
-    ODBC_SCAN_NODE,
-    OLAP_SCAN_NODE,
-    REPEAT_NODE,
-    SELECT_NODE,
-    SET_OPERATION_NODE,
-    SCHEMA_SCAN_NODE,
-    SORT_NODE,
-    STREAM_LOAD_SCAN_NODE,
-    TABLE_FUNCTION_NODE,
-    UNION_NODE,
-    TABLE_VALUED_FUNCTION_NODE,
-    FILE_SCAN_NODE,
-    MAX_COMPUTE_SCAN_NODE,
-    METADATA_SCAN_NODE,
-    JDBC_SCAN_NODE,
-    TEST_EXTERNAL_TABLE,
+import org.apache.doris.datasource.credentials.CloudCredential;
+
+import java.util.Map;
+
+/**
+ * properties for aliyun max compute
+ */
+public class MCProperties extends BaseProperties {
+    public static final String REGION = "mc.region";
+    public static final String PROJECT = "mc.default.project";
+    public static final String ACCESS_KEY = "mc.access_key";
+    public static final String SECRET_KEY = "mc.secret_key";
+    public static final String SESSION_TOKEN = "mc.session_token";
+
+    public static CloudCredential getCredential(Map<String, String> props) {
+        return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
+    }
 }

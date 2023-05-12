@@ -26,6 +26,7 @@ import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
+import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -440,6 +441,8 @@ public abstract class ExternalCatalog
                 return new JdbcExternalDatabase(this, dbId, dbName);
             case ICEBERG:
                 return new IcebergExternalDatabase(this, dbId, dbName);
+            case MAX_COMPUTE:
+                return new MaxComputeExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
             default:

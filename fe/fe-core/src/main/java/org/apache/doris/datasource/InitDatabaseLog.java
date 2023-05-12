@@ -37,6 +37,7 @@ public class InitDatabaseLog implements Writable {
         ICEBERG,
         ES,
         JDBC,
+        MAX_COMPUTE,
         TEST,
         UNKNOWN;
     }
