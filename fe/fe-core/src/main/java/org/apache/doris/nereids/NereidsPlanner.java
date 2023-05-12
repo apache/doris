@@ -350,10 +350,10 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getParsedStatement() != null) {
             Plan parsedStmt = ((LogicalPlanAdapter) statementContext.getParsedStatement()).getLogicalPlan();
             if (parsedStmt instanceof ExplainCommand) {
-                parsedStmt = ((ExplainCommand) plan).getLogicalPlan();
+                parsedStmt = ((ExplainCommand) parsedStmt).getLogicalPlan();
             }
             if (parsedStmt instanceof InsertIntoTableCommand) {
-                properties = ((InsertIntoTableCommand) plan).calculatePhysicalProperties(parsedStmt.getOutput());
+                properties = ((InsertIntoTableCommand) parsedStmt).calculatePhysicalProperties(plan.getOutput());
             }
         }
         if (properties == null) {

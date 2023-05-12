@@ -143,7 +143,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             partitionIds = partitions.stream().map(pn -> {
                 Partition p = table.getPartition(pn);
                 if (p == null) {
-                    throw new AnalysisException(String.format("Unknown partition: %s in table: %s", pn, table.getName()));
+                    throw new AnalysisException(String.format("Unknown partition: %s in table: %s", pn,
+                            table.getName()));
                 }
                 return p.getId();
             }).collect(Collectors.toList());
