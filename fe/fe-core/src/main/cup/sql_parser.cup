@@ -2272,7 +2272,7 @@ load_stmt ::=
     :}
     | KW_LOAD mysql_data_desc:desc opt_properties:properties opt_comment:comment
     {:
-        RESULT = new LoadStmt(desc, properties, comment);
+        RESULT = new UnifiedLoadStmt(desc, properties, comment, LoadType.MYSQL_LOAD);
     :}
     ;
 

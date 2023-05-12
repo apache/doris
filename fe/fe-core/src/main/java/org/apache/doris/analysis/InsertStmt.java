@@ -117,7 +117,7 @@ public abstract class InsertStmt extends DdlStmt {
     // ---------------------------- for old insert stmt ----------------------------
 
     public boolean isValuesOrConstantSelect() {
-        throw new UnsupportedOperationException("only invoked in NativeInsertStmt");
+        return false;
     }
 
     public Table getTargetTable() {

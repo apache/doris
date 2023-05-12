@@ -32,8 +32,22 @@ public class UnifiedLoadStmt extends DdlStmt {
 
     private final StatementBase proxyStmt;
 
+    public UnifiedLoadStmt(DataDescription dataDescription, Map<String, String> properties,
+                           String comment, LoadType loadType) {
+        final ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
+            if (loadType != LoadType.MYSQL_LOAD) {
+                throw new IllegalStateException("does not support load type: " + loadType);
+            }
+            proxyStmt = new MysqlLoadStmt(dataDescription, properties, comment);
+        } else {
+            proxyStmt = new LoadStmt(dataDescription, properties, comment);
+        }
+    }
+
     public UnifiedLoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-            BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment, LoadType loadType) {
+                           BrokerDesc brokerDesc, String cluster, Map<String, String> properties,
+                           String comment, LoadType loadType) {
         final ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
             switch (loadType) {

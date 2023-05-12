@@ -1794,8 +1794,11 @@ public class StmtExecutor {
                 throw new DdlException("Unknown load job type");
             }
             LoadManagerAdapter loadManagerAdapter = context.getEnv().getLoadManagerAdapter();
-            loadManagerAdapter.startLoadFromInsertStmt(insertStmt);
-            context.getState().setOk();
+            loadManagerAdapter.submitLoadFromInsertStmt(context, insertStmt);
+            // when complete
+            if (loadManagerAdapter.getMysqlLoadId() != null) {
+                this.mysqlLoadId = loadManagerAdapter.getMysqlLoadId();
+            }
         } catch (UserException e) {
             // Return message to info client what happened.
             LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
