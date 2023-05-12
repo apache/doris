@@ -57,7 +57,7 @@ class PTabletInfo;
 class PTabletWriterOpenRequest;
 class PUniqueId;
 class TupleDescriptor;
-class PartitionOpenRequest;
+class OpenPartitionRequest;
 
 struct TabletsChannelKey {
     UniqueId id;
@@ -91,7 +91,7 @@ public:
     Status open(const PTabletWriterOpenRequest& request);
 
     // Open specific partition all writers
-    Status open_all_writers_for_partition(const PartitionOpenRequest& request);
+    Status open_all_writers_for_partition(const OpenPartitionRequest& request);
 
     // no-op when this channel has been closed or cancelled
     Status add_batch(const PTabletWriterAddBlockRequest& request,

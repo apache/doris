@@ -390,7 +390,7 @@ Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
 }
 
 // The method will called by open partition rpc.
-Status TabletsChannel::open_all_writers_for_partition(const PartitionOpenRequest& request) {
+Status TabletsChannel::open_all_writers_for_partition(const OpenPartitionRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
     for (auto& index : _schema->indexes()) {

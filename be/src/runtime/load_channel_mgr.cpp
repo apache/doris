@@ -134,7 +134,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-Status LoadChannelMgr::open_partition(const PartitionOpenRequest& params) {
+Status LoadChannelMgr::open_partition(const OpenPartitionRequest& params) {
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> channel;
     auto it = _load_channels.find(load_id);

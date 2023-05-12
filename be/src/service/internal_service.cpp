@@ -246,8 +246,8 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
 }
 
 void PInternalServiceImpl::open_partition(google::protobuf::RpcController* controller,
-                                          const PartitionOpenRequest* request,
-                                          PartitionOpenResult* response,
+                                          const OpenPartitionRequest* request,
+                                          OpenPartitionResult* response,
                                           google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         VLOG_RPC << "partition open"

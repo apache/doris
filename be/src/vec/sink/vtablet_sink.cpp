@@ -99,6 +99,7 @@ public:
             : vnode_channel(vnode_channel),
               index_channel(index_channel),
               partition_id(partition_id) {};
+
     ~OpenPartitionClosure() = default;
 
     void Run() override {
@@ -119,7 +120,7 @@ public:
     void join() { brpc::Join(cntl.call_id()); }
 
     brpc::Controller cntl;
-    PartitionOpenResult result;
+    OpenPartitionResult result;
     VNodeChannel* vnode_channel;
     IndexChannel* index_channel;
     int64_t partition_id;
@@ -515,7 +516,7 @@ Status VNodeChannel::open_wait() {
 void VNodeChannel::open_partition(int64_t partition_id) {
     _timeout_watch.reset();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    PartitionOpenRequest request;
+    OpenPartitionRequest request;
     auto load_id = std::make_shared<PUniqueId>(_parent->_load_id);
     request.set_allocated_id(load_id.get());
     request.set_index_id(_index_channel->_index_id);

@@ -85,7 +85,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-Status LoadChannel::open_partition(const PartitionOpenRequest& params) {
+Status LoadChannel::open_partition(const OpenPartitionRequest& params) {
     int64_t index_id = params.index_id();
     std::shared_ptr<TabletsChannel> channel;
     {
