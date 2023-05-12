@@ -28,7 +28,7 @@ under the License.
 
 ## Introduction to statistics information
 
-In SQL databases, the quality of the query optimizer has a significant impact on system performance. The optimizer needs to estimate the query cost according to the statistical information, especially in the equal-value query scenario, it is very important to estimate the cardinality accurately, which can help the optimizer to select the optimal query plan, thereby improving the query performance.
+In SQL databases, the quality of the query optimizer has a significant impact on system performance. The optimizer needs to estimate the query cost according to the statistics information, especially in the equal-value query scenario, it is very important to estimate the cardinality accurately, which can help the optimizer to select the optimal query plan, thereby improving the query performance.
 
 When executing a query, an insufficiently optimized execution plan and an optimized execution plan can result in a large difference in execution time, which can be several times greater. Therefore, it is very important for the SQL query optimizer to collect and analyze statistics so that the optimizer can accurately evaluate the cost of different execution plans and select the best one.
 
@@ -36,14 +36,14 @@ The Doris query optimizer uses statistics to determine the most efficient execut
 
 Table Statistics:
 
-| Information         | Description                                                         |
-| :------------------ | :------------------------------------------------------------------ |
-| `row_count`         | Number of rows in the table                                         |
-| `data_size`         | Table size (in bytes)                                               |
-| `update_rows`       | The number of rows updated after collecting statistical information |
-| `healthy`           | The health of the table                                             |
-| `update_time`       | The time of the latest update                                       |
-| `last_analyze_time` | The time when the last statistical information was collected        |
+| Information         | Description                                                        |
+| :------------------ | :----------------------------------------------------------------- |
+| `row_count`         | Number of rows in the table                                        |
+| `data_size`         | Table size (in bytes)                                              |
+| `update_rows`       | The number of rows updated after collecting statistics information |
+| `healthy`           | The health of the table                                            |
+| `update_time`       | The time of the latest update                                      |
+| `last_analyze_time` | The time when the last statistics information was collected        |
 
 > Table Health: Indicates the health of the table statistics. When it `update_rows` is greater than or equal to `row_count`, the health degree is 0; when it `update_rows` is less than `row_count`, the health degree is `100 * (1 - update_rows/ row_count)`.
 
@@ -60,7 +60,7 @@ Column Statistics:
 | `null_count`    | Number of columns null                |
 | `histogram`     | Column Histogram                      |
 
-Next, we will briefly introduce the histogram and other data structures, as well as the collection and maintenance of statistical information in detail.
+Next, we will briefly introduce the histogram and other data structures, as well as the collection and maintenance of statistics information in detail.
 
 ## Introduction to Histograms
 
@@ -80,37 +80,32 @@ Column statistics collection syntax:
 
 ```SQL
 ANALYZE [ SYNC ] TABLE table_name
-    [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] ]
-    [ PROPERTIES ("key" = "value", ...) ];
+    [ (column_name [, ...]) ]    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] ]    [ PROPERTIES ("key" = "value", ...) ];
 ```
 
 Column histogram collection syntax:
 
 ```SQL
 ANALYZE [ SYNC ] TABLE table_name
-    [ (column_name [, ...]) ]
-    UPDATE HISTOGRAM
-    [ [ WITH SYNC] [ WITH SAMPLE PERCENT | ROWS ][ WITH BUCKETS ] [ WITH PERIOD ] ]
-    [ PROPERTIES ("key" = "value", ...) ];
+    [ (column_name [, ...]) ]    UPDATE HISTOGRAM    [ [ WITH SYNC] [ WITH SAMPLE PERCENT | ROWS ][ WITH BUCKETS ] [ WITH PERIOD ] ]    [ PROPERTIES ("key" = "value", ...) ];
 ```
 
 Explanation:
 
-- Table\_name: The target table for the specified. It can be a `db_name.table_name` form.
-- Column\_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
+- Table_name: The target table for the specified. It can be a `db_name.table_name` form.
+- Column_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
 - Sync: Synchronizes the collection of statistics. Return after collection. If not specified, it will be executed asynchronously and the job ID will be returned.
 - Incremental: Incrementally gather statistics. Incremental collection of histogram statistics is not supported.
 - Period: Collect statistics periodically. The unit is seconds, and when specified, the appropriate statistics are collected periodically.
 - Sample percent | rows: Sample collection statistics. You can specify a sampling ratio or the number of rows to sample.
 - Buckets: Specifies the maximum number of buckets generated when collecting histogram statistics. The default is 128 when not specified.
 - Properties: used to configure statistics job. Currently, only the following configuration items are supported
-    - `"sync" = "true"`: Equivalent `with sync`
-    - `"incremental" = "true"`: Equivalent `with incremental`
-    - `"sample.percent" = "50"`: Equivalent `with percent 50`
-    - `"sample.rows" = "1000"`: Equivalent `with rows 1000`
-    - `"num.buckets" = "10"`: Equivalent `with buckets 10`
-    - `"period.seconds" = "300"`: Equivalent `with period 300`
+  - `"sync" = "true"`: Equivalent `with sync`
+  - `"incremental" = "true"`: Equivalent `with incremental`
+  - `"sample.percent" = "50"`: Equivalent `with percent 50`
+  - `"sample.rows" = "1000"`: Equivalent `with rows 1000`
+  - `"num.buckets" = "10"`: Equivalent `with buckets 10`
+  - `"period.seconds" = "300"`: Equivalent `with period 300`
 
 Next, we will use a table `stats_test.example_tbl` as an example to explain how to collect statistics. `stats_test.example_tbl` The structure is as follows:
 
@@ -128,9 +123,8 @@ Next, we will use a table `stats_test.example_tbl` as an example to explain how 
 
 Connect Doris:
 
-```Bash
-mysql -uroot -P9030 -h192.168.xxx.xxx
-```
+````Bash
+mysql -uroot -P9030 -h192.168.xxx.xxx```
 
 Create a data table:
 
@@ -138,42 +132,14 @@ Create a data table:
 mysql> CREATE DATABASE IF NOT EXISTS stats_test;
 
 mysql> CREATE TABLE IF NOT EXISTS stats_test.example_tbl (
-        `user_id` LARGEINT NOT NULL,
-        `date` DATEV2 NOT NULL,
-        `city` VARCHAR(20),
-        `age` SMALLINT,
-        `sex` TINYINT,
-        `last_visit_date` DATETIME REPLACE,
-        `cost` BIGINT SUM,
-        `max_dwell_time` INT MAX,
-        `min_dwell_time` INT MIN
-    ) ENGINE=OLAP
-    AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
-    PARTITION BY LIST(`date`)
-    (
-        PARTITION `p_201701` VALUES IN ("2017-10-01"),
-        PARTITION `p_201702` VALUES IN ("2017-10-02"),
-        PARTITION `p_201703` VALUES IN ("2017-10-03")
-    )
-    DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
-    PROPERTIES (
-        "replication_num" = "1"
-    );
-```
+        `user_id` LARGEINT NOT NULL,        `date` DATEV2 NOT NULL,        `city` VARCHAR(20),        `age` SMALLINT,        `sex` TINYINT,        `last_visit_date` DATETIME REPLACE,        `cost` BIGINT SUM,        `max_dwell_time` INT MAX,        `min_dwell_time` INT MIN    ) ENGINE=OLAP    AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)    PARTITION BY LIST(`date`)    (        PARTITION `p_201701` VALUES IN ("2017-10-01"),        PARTITION `p_201702` VALUES IN ("2017-10-02"),        PARTITION `p_201703` VALUES IN ("2017-10-03")    )    DISTRIBUTED BY HASH(`user_id`) BUCKETS 1    PROPERTIES (        "replication_num" = "1"    );
+````
 
 Import data:
 
 ```SQL
 mysql> INSERT INTO stats_test.example_tbl (`user_id`, `date`, `city`, `age`,
-                                    `sex`, `last_visit_date`, `cost`,
-                                    `max_dwell_time`, `min_dwell_time`)
-    VALUES (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 07:00:00", 15, 2, 2),
-        (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 06:00:00", 20, 10, 10),
-        (10001, "2017-10-01", "Beijing", 30, 1, "2017-10-01 17:05:45", 2, 22, 22),
-        (10002, "2017-10-02", "Shanghai", 20, 1, "2017-10-02 12:59:12", 200, 5, 5),
-        (10003, "2017-10-02", "Guangzhou", 32, 0, "2017-10-02 11:20:00", 30, 11, 11),
-        (10004, "2017-10-01", "Shenzhen", 35, 0, "2017-10-01 10:00:15", 100, 3, 3),
-        (10004, "2017-10-03", "Shenzhen", 35, 0, "2017-10-03 10:20:22", 11, 6, 6);
+                                    `sex`, `last_visit_date`, `cost`,                                    `max_dwell_time`, `min_dwell_time`)    VALUES (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 07:00:00", 15, 2, 2),        (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 06:00:00", 20, 10, 10),        (10001, "2017-10-01", "Beijing", 30, 1, "2017-10-01 17:05:45", 2, 22, 22),        (10002, "2017-10-02", "Shanghai", 20, 1, "2017-10-02 12:59:12", 200, 5, 5),        (10003, "2017-10-02", "Guangzhou", 32, 0, "2017-10-02 11:20:00", 30, 11, 11),        (10004, "2017-10-01", "Shenzhen", 35, 0, "2017-10-01 10:00:15", 100, 3, 3),        (10004, "2017-10-03", "Shenzhen", 35, 0, "2017-10-03 10:20:22", 11, 6, 6);
 ```
 
 To view data results:
@@ -192,7 +158,7 @@ mysql> SELECT * FROM stats_test.example_tbl;
 +---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
 ```
 
-For the convenience of description, column statistical information is hereinafter referred to as statistical information, which stores the number of rows, the maximum value, the minimum value, the number of NULL values, and the like of a column; and a column histogram is referred to as histogram statistical information.
+For the convenience of description, column statistics information is hereinafter referred to as statistics information, which stores the number of rows, the maximum value, the minimum value, the number of NULL values, and the like of a column; and a column histogram is referred to as histogram statistics information.
 
 #### Full collection
 
@@ -291,7 +257,7 @@ Incremental collection is appropriate for tables with monotonic non-decreasing c
 Notice：
 
 - Histogram statistics do not support incremental collection.
-- When using incremental collection, you must ensure that the statistical information of table inventory is available (that is, other historical partition data does not change). Otherwise, the statistical information will be inaccurate.
+- When using incremental collection, you must ensure that the statistics information of table inventory is available (that is, other historical partition data does not change). Otherwise, the statistics information will be inaccurate.
 
 Example:
 
@@ -456,27 +422,25 @@ The syntax is as follows:
 
 ```SQL
 SHOW ANALYZE [ table_name | job_id ]
-    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ]
-    [ ORDER BY ... ]
-    [ LIMIT OFFSET ];
+    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ]    [ ORDER BY ... ]    [ LIMIT OFFSET ];
 ```
 
 Explanation:
 
-- Table\_name: The table name. After it is specified, the statistical job information corresponding to the table can be viewed. It can be a `db_name.table_name` form. Return all statistics job information if not specified.
-- Job\_ID: The statistics job ID `ANALYZE`. The value returned when the asynchronous collection of statistics is performed. Return all statistics job information if not specified.
+- Table_name: The table name. After it is specified, the statistics job information corresponding to the table can be viewed. It can be a `db_name.table_name` form. Return all statistics job information if not specified.
+- Job_ID: The statistics job ID `ANALYZE`. The value returned when the asynchronous collection of statistics is performed. Return all statistics job information if not specified.
 
 Currently `SHOW ANALYZE`, 11 columns are output, as follows:
 
 | Column Name            | Description         |
 | :--------------------- | :------------------ |
-| `job_id`               | Statistical job ID  |
+| `job_id`               | statistics job ID   |
 | `catalog_name`         | Catalog name        |
 | `db_name`              | Database name       |
 | `tbl_name`             | Variable name       |
 | `col_name`             | Column name         |
 | `job_type`             | job type            |
-| `analysis_type`        | Statistical type    |
+| `analysis_type`        | statistics type     |
 | `message`              | job information     |
 | `last_exec_time_in_ms` | Last execution time |
 | `state`                | job state           |
@@ -561,7 +525,7 @@ KILL ANALYZE job_id;
 
 Explanation:
 
-- Job\_ID: Statistics job ID. The value returned when an asynchronous collection of statistics is performed `ANALYZE`, which can also be obtained by a `SHOW ANALYZE` statement.
+- Job_ID: Statistics job ID. The value returned when an asynchronous collection of statistics is performed `ANALYZE`, which can also be obtained by a `SHOW ANALYZE` statement.
 
 Example:
 
@@ -587,19 +551,19 @@ SHOW TABLE STATS table_name [ PARTITION (partition_name) ];
 
 Explanation:
 
-- Table\_name: The table to which the data is imported. It can be a `db_name.table_name` form.
-- Partition\_name: The specified target partition. Must be `table_name` a partition that exists in. Only one partition can be specified.
+- Table_name: The table to which the data is imported. It can be a `db_name.table_name` form.
+- Partition_name: The specified target partition. Must be `table_name` a partition that exists in. Only one partition can be specified.
 
 Currently `SHOW TABLE STATS`, 6 columns are output, as follows:
 
-| Column Name       | Description                                          |
-| :---------------- | :--------------------------------------------------- |
-| row_count         | Number of rows                                       |
-| update_rows       | Number of rows updated                               |
-| data_size         | Data size. Unit: bytes                               |
-| healthy           | Health                                               |
-| update_time       | Update time                                          |
-| last_analyze_time | Time when statistical information was last collected |
+| Column Name       | Description                                         |
+| :---------------- | :-------------------------------------------------- |
+| row_count         | Number of rows                                      |
+| update_rows       | Number of rows updated                              |
+| data_size         | Data size. Unit: bytes                              |
+| healthy           | Health                                              |
+| update_time       | Update time                                         |
+| last_analyze_time | Time when statistics information was last collected |
 
 Example:
 
@@ -637,9 +601,9 @@ SHOW COLUMN STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_na
 
 Explanation:
 
-- Table\_name: The target table for collecting statistics. It can be a `db_name.table_name` form.
-- Column\_name: Specified destination column. `table_name` Must be a column that exists in. Multiple column names are separated by commas.
-- Partition\_name: The specified target partition `table_name` must exist in. Only one partition can be specified.
+- Table_name: The target table for collecting statistics. It can be a `db_name.table_name` form.
+- Column_name: Specified destination column. `table_name` Must be a column that exists in. Multiple column names are separated by commas.
+- Partition_name: The specified target partition `table_name` must exist in. Only one partition can be specified.
 
 Currently `SHOW COLUMN STATS`, 10 columns are output, as follows:
 
@@ -732,8 +696,8 @@ SHOW COLUMN HISTOGRAM table_name [ (column_name [, ...]) ];
 
 Explanation:
 
-- Table\_name: The table to which the data is imported. It can be a `db_name.table_name` form.
-- Column\_name: Specified destination column. `table_name` Must be a column that exists in. Multiple column names are separated by commas.
+- Table_name: The table to which the data is imported. It can be a `db_name.table_name` form.
+- Column_name: Specified destination column. `table_name` Must be a column that exists in. Multiple column names are separated by commas.
 
 Currently `SHOW COLUMN HISTOGRAM`, 5 columns are output, and each bucket contains 5 attributes, as follows:
 
@@ -790,8 +754,7 @@ Buckets description:
 
 ```JSON
 [
-    {
-        "lower_expr": 2,
+    {        "lower_expr": 2,
         "upper_expr": 7,
         "count": 6,
         "pre_sum": 0,
@@ -809,7 +772,7 @@ Buckets description:
 
 ## Modify the statistics
 
-Users can modify the statistical information through statements `ALTER`, and modify the corresponding statistical information of the column according to the provided parameters.
+Users can modify the statistics information through statements `ALTER`, and modify the corresponding statistics information of the column according to the provided parameters.
 
 ```SQL
 ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...);
@@ -817,8 +780,8 @@ ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_
 
 Explanation:
 
-- Table\_name: The table to which the statistics are dropped. It can be a `db_name.table_name` form.
-- Column\_name: Specified target column. `table_name` Must be a column that exists in. Statistics can only be modified one column at a time.
+- Table_name: The table to which the statistics are dropped. It can be a `db_name.table_name` form.
+- Column_name: Specified target column. `table_name` Must be a column that exists in. Statistics can only be modified one column at a time.
 - Stat _ name and stat _ value: The corresponding stat name and the value of the stat info. Multiple stats are comma separated. Statistics that can be modified include `row_count`, `ndv`, `num_nulls` `min_value` `max_value`, and `data_size`.
 
 Example:
@@ -859,8 +822,8 @@ DROP [ EXPIRED ] STATS [ table_name [ (column_name [, ...]) ] ];
 
 Explanation:
 
-- Table\_name: The table to which you want to delete the statistics. It can be a `db_name.table_name` form.
-- Column\_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
+- Table_name: The table to which you want to delete the statistics. It can be a `db_name.table_name` form.
+- Column_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
 - Expired: statistics cleanup. Table cannot be specified. Invalid statistics and out-of-date statistics jobs information in the system will be deleted.
 
 Example:
