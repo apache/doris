@@ -32,10 +32,10 @@ under the License.
 
 ## 使用限制
 
-1. hive 支持 1/2/3 版本。
-2. 支持 Managed Table 和 External Table。
-3. 可以识别 Hive Metastore 中存储的 hive、iceberg、hudi 元数据。
-4. 支持数据存储在 Juicefs 上的 hive 表，用法如下（需要把juicefs-hadoop-x.x.x.jar放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下）。
+1. 需将 core-site.xml，hdfs-site.xml 放到 FE 和 BE 的 conf 目录下。
+2. hive 支持 1/2/3 版本。
+3. 支持 Managed Table 和 External Table。
+4. 可以识别 Hive Metastore 中存储的 hive、iceberg、hudi 元数据。
 
 ## 创建 Catalog
 
@@ -53,11 +53,6 @@ CREATE CATALOG hive PROPERTIES (
 ```
 
 除了 `type` 和 `hive.metastore.uris` 两个必须参数外，还可以通过更多参数来传递连接所需要的信息。
-
-> `specified_database_list`:
->
-> 支持只同步指定的同步多个database，以','分隔。默认为''，同步所有database。db名称是大小写敏感的。
->
 
 如提供 HDFS HA 信息，示例如下：
 
@@ -109,6 +104,8 @@ CREATE CATALOG hive PROPERTIES (
 ### Hive On JuiceFS
 
 数据存储在JuiceFS，示例如下：
+
+（需要把 `juicefs-hadoop-x.x.x.jar` 放在 `fe/lib/` 和 `apache_hdfs_broker/lib/` 下）
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
@@ -220,8 +217,8 @@ CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
 	'key' = 'value'
 );
 ```
-<version since="dev"></version>
 创建 Catalog 时可以采用参数 `file.meta.cache.ttl-second` 来设置 File Cache 自动失效时间，也可以将该值设置为 0 来禁用 File Cache。时间单位为：秒。示例如下：
+
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
@@ -235,7 +232,6 @@ CREATE CATALOG hive PROPERTIES (
     'file.meta.cache.ttl-second' = '60'
 );
 ```
-
 
 我们也可以直接将 hive-site.xml 放到 FE 和 BE 的 conf 目录下，系统也会自动读取 hive-site.xml 中的信息。信息覆盖的规则如下：
 
@@ -277,83 +273,82 @@ CREATE CATALOG hive PROPERTIES (
 | `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 暂不支持嵌套，Type1, Type2, ... 需要为基础类型 |
 | other | unsupported | |
 
-## 使用Ranger进行权限校验
-
-<version since="dev">
+## 使用 Ranger 进行权限校验
 
 Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以及全方位数据安全访问管理的安全框架。
 
 目前doris支持ranger的库、表、列权限，不支持加密、行权限等。
 
-</version>
-
 ### 环境配置
 
 连接开启 Ranger 权限校验的 Hive Metastore 需要增加配置 & 配置环境：
+
 1. 创建 Catalog 时增加：
 
 ```sql
 "access_controller.properties.ranger.service.name" = "hive",
 "access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
 ```
+
 2. 配置所有 FE 环境：
 
-    1. 将 HMS conf 目录下的配置文件ranger-hive-audit.xml,ranger-hive-security.xml,ranger-policymgr-ssl.xml复制到 <doris_home>/conf 目录下。
+    1. 将 HMS conf 目录下的配置文件ranger-hive-audit.xml,ranger-hive-security.xml,ranger-policymgr-ssl.xml复制到 FE 的 conf 目录下。
 
     2. 修改 ranger-hive-security.xml 的属性,参考配置如下：
 
-    ```sql
-    <?xml version="1.0" encoding="UTF-8"?>
-    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
-    <configuration>
-        #The directory for caching permission data, needs to be writable
-        <property>
-            <name>ranger.plugin.hive.policy.cache.dir</name>
-            <value>/mnt/datadisk0/zhangdong/rangerdata</value>
-        </property>
-        #The time interval for periodically pulling permission data
-        <property>
-            <name>ranger.plugin.hive.policy.pollIntervalMs</name>
-            <value>30000</value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.policy.rest.client.connection.timeoutMs</name>
-            <value>60000</value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.policy.rest.client.read.timeoutMs</name>
-            <value>60000</value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.policy.rest.ssl.config.file</name>
-            <value></value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.policy.rest.url</name>
-            <value>http://172.21.0.32:6080</value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.policy.source.impl</name>
-            <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.service.name</name>
-            <value>hive</value>
-        </property>
-    
-        <property>
-            <name>xasecure.hive.update.xapolicies.on.grant.revoke</name>
-            <value>true</value>
-        </property>
-    
-    </configuration>
-    ```
+        ```sql
+        <?xml version="1.0" encoding="UTF-8"?>
+        <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+        <configuration>
+            #The directory for caching permission data, needs to be writable
+            <property>
+                <name>ranger.plugin.hive.policy.cache.dir</name>
+                <value>/mnt/datadisk0/zhangdong/rangerdata</value>
+            </property>
+            #The time interval for periodically pulling permission data
+            <property>
+                <name>ranger.plugin.hive.policy.pollIntervalMs</name>
+                <value>30000</value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.policy.rest.client.connection.timeoutMs</name>
+                <value>60000</value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.policy.rest.client.read.timeoutMs</name>
+                <value>60000</value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.policy.rest.ssl.config.file</name>
+                <value></value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.policy.rest.url</name>
+                <value>http://172.21.0.32:6080</value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.policy.source.impl</name>
+                <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.service.name</name>
+                <value>hive</value>
+            </property>
+        
+            <property>
+                <name>xasecure.hive.update.xapolicies.on.grant.revoke</name>
+                <value>true</value>
+            </property>
+        
+        </configuration>
+        ```
+
     3. 为获取到 Ranger 鉴权本身的日志，可在 <doris_home>/conf 目录下添加配置文件 log4j.properties。
 
     4. 重启 FE。
@@ -367,7 +362,5 @@ Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以�
 3.在doris创建同名用户user1，user1将直接拥有db1.table1.col1的查询权限
 
 4.在doris创建同名角色role1，并将role1分配给user1，user1将同时拥有db1.table1.col1和col2的查询权限
-
-
 
 
