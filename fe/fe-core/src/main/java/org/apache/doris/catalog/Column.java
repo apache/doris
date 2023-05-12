@@ -122,8 +122,6 @@ public class Column implements Writable, GsonPostProcessable {
     @SerializedName(value = "uniqueId")
     private int uniqueId;
 
-    private boolean isCompoundKey = false;
-
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -207,7 +205,6 @@ public class Column implements Writable, GsonPostProcessable {
         this.aggregationType = column.getAggregationType();
         this.isAggregationTypeImplicit = column.isAggregationTypeImplicit();
         this.isKey = column.isKey();
-        this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
         this.defaultValue = column.getDefaultValue();
         this.realDefaultValue = column.realDefaultValue;
@@ -817,14 +814,6 @@ public class Column implements Writable, GsonPostProcessable {
         if (bfColumns != null && bfColumns.contains(tColumn.getColumnName())) {
             tColumn.setIsBloomFilterColumn(true);
         }
-    }
-
-    public boolean isCompoundKey() {
-        return isCompoundKey;
-    }
-
-    public void setCompoundKey(boolean compoundKey) {
-        isCompoundKey = compoundKey;
     }
 
     public boolean hasDefaultValue() {

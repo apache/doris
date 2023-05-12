@@ -155,6 +155,9 @@ public class SessionVariable implements Serializable, Writable {
     // if the right table is greater than this value in the hash join,  we will ignore IN filter
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
 
+    public static final String ENABLE_MIN_MAX_RUNTIME_FILTER_ON_FIRST_KEY =
+            "ENABLE_MIN_MAX_RUNTIME_FILTER_ON_FIRST_KEY";
+
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
 
@@ -622,6 +625,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
     private int runtimeFilterMaxInNum = 102400;
+
+    @VariableMgr.VarAttr(name = ENABLE_MIN_MAX_RUNTIME_FILTER_ON_FIRST_KEY)
+    private boolean enableMinMaxRuntimeFilterOnFirstKey = true;
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
@@ -1486,6 +1492,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setRuntimeFilterMaxInNum(int runtimeFilterMaxInNum) {
         this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
+    }
+
+    public boolean isEnableMinMaxRuntimeFilterOnFirstKey() {
+        return enableMinMaxRuntimeFilterOnFirstKey;
+    }
+
+    public void setEnableMinMaxRuntimeFilterOnFirstKey(boolean enable) {
+        this.enableMinMaxRuntimeFilterOnFirstKey = enable;
     }
 
     public boolean enablePipelineEngine() {
