@@ -326,6 +326,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
             if (!(child instanceof LiteralExpr) && literalExpr.equals(replaceExpr(child, key, literalExpr))) {
                 literalExpr.setId(child.getId());
                 expr.setChild(i, literalExpr);
+                break;
             }
         }
         return expr;
