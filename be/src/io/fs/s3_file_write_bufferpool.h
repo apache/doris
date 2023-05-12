@@ -38,7 +38,7 @@ struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     using Callback = std::function<void()>;
 
     S3FileBuffer() = default;
-    ~S3FileBuffer() = default;
+    ~S3FileBuffer() { on_finished(); }
 
     void rob_buffer(std::shared_ptr<S3FileBuffer>& other) {
         _buf = std::move(other->_buf);

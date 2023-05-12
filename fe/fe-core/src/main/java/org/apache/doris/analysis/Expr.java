@@ -1486,6 +1486,21 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     /**
+     * Assuming it can cast to the targetType, use for convert literal value to
+     * target type without a cast node.
+     */
+    public static Expr convertLiteral(Expr expr, Type targetType) throws AnalysisException {
+        if (!(expr instanceof LiteralExpr)) {
+            return expr;
+        }
+        Expr newExpr = expr.uncheckedCastTo(targetType);
+        if (newExpr instanceof CastExpr) {
+            return ((LiteralExpr) newExpr.getChild(0)).convertTo(targetType);
+        }
+        return newExpr;
+    }
+
+    /**
      * Add a cast expression above child.
      * If child is a literal expression, we attempt to
      * convert the value of the child directly, and not insert a cast node.

@@ -86,7 +86,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -635,10 +634,11 @@ public class Analyzer {
      * Create query global parameters to be set in each TPlanExecRequest.
      */
     public static TQueryGlobals createQueryGlobals() {
-        SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSSSSSSS");
         TQueryGlobals queryGlobals = new TQueryGlobals();
         Calendar currentDate = Calendar.getInstance();
-        String nowStr = formatter.format(currentDate.getTime());
+        LocalDateTime localDateTime = LocalDateTime.ofInstant(currentDate.toInstant(),
+                currentDate.getTimeZone().toZoneId());
+        String nowStr = localDateTime.format(TimeUtils.DATETIME_NS_FORMAT);
         queryGlobals.setNowString(nowStr);
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         return queryGlobals;

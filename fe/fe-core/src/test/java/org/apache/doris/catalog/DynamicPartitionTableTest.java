@@ -39,7 +39,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
@@ -506,9 +508,10 @@ public class DynamicPartitionTableTest {
         Collections.sort(partNames);
 
         int partitionCount = 0;
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
+        DateTimeFormatter sdf = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneId.systemDefault());
         for (String partName : partNames) {
-            Date partitionDate = sdf.parse(partName);
+            Date partitionDate = Date.from(
+                    LocalDate.parse(partName, sdf).atStartOfDay().atZone(ZoneId.systemDefault()).toInstant());
             Date date = new Date();
             Calendar calendar = new GregorianCalendar();
             calendar.setTime(date);
@@ -562,9 +565,10 @@ public class DynamicPartitionTableTest {
         Collections.sort(partNames);
 
         int partitionCount = -3;
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
+        DateTimeFormatter sdf = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneId.systemDefault());
         for (String partName : partNames) {
-            Date partitionDate = sdf.parse(partName);
+            Date partitionDate = Date.from(
+                    LocalDate.parse(partName, sdf).atStartOfDay().atZone(ZoneId.systemDefault()).toInstant());
             Date date = new Date();
             Calendar calendar = new GregorianCalendar();
             calendar.setTime(date);
@@ -1405,7 +1409,7 @@ public class DynamicPartitionTableTest {
                 + ");";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "errCode = 2, detailMessage = Invalid dynamic_partition.reserved_history_periods value. "
-                        + "It must be correct DATE value "
+                        + "It must be like "
                         + "\"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH or "
                         + "\"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.",
                 () -> createTable(createOlapTblStmt2));
