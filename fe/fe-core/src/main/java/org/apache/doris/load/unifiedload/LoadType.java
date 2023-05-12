@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.load.unifiedload;
 
 import org.apache.doris.load.EtlJobType;
 
@@ -30,8 +30,8 @@ public enum LoadType {
     BROKER_LOAD,
     SPARK_LOAD,
     MYSQL_LOAD,
-    ROUTINE_LOAD,
-    STREAM_LOAD;
+    STREAM_LOAD,
+    ROUTINE_KAFKA_LOAD;
 
     private static final EnumMap<LoadType, EtlJobType> LOAD_TYPE_TO_ETL_TYPE = new EnumMap<>(LoadType.class);
 
@@ -46,5 +46,4 @@ public enum LoadType {
     public static EtlJobType getEtlJobType(LoadType loadType) {
         return Preconditions.checkNotNull(LOAD_TYPE_TO_ETL_TYPE.get(loadType));
     }
-
 }

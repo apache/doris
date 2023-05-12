@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.load.unifiedload.LoadType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;

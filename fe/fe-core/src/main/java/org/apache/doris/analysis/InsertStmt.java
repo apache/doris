@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.unifiedload.LoadType;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 

@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.load.unifiedload.LoadType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;

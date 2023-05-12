@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.unifiedload.LoadType;
 
 import com.google.common.collect.Maps;
 

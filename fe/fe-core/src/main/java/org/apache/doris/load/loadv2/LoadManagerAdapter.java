@@ -18,9 +18,9 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.InsertStmt;
-import org.apache.doris.analysis.LoadType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.load.unifiedload.LoadType;
 import org.apache.doris.qe.StmtExecutor;
 
 /**
@@ -41,7 +41,7 @@ public class LoadManagerAdapter {
             case MYSQL_LOAD:
                 // TODO: implement
                 break;
-            case ROUTINE_LOAD:
+            case ROUTINE_KAFKA_LOAD:
                 // TODO: implement
                 break;
             case STREAM_LOAD:
