@@ -981,23 +981,32 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public void refreshExternalPartitions(String catalogName, String dbName, String tableName,
-            List<String> partitionNames)
+            List<String> partitionNames, boolean ignoreIfNotExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
-            throw new DdlException("No catalog found with name: " + catalogName);
+            if (!ignoreIfNotExists) {
+                throw new DdlException("No catalog found with name: " + catalogName);
+            }
+            return;
         }
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+            if (!ignoreIfNotExists) {
+                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+            }
+            return;
         }
 
         TableIf table = db.getTableNullable(tableName);
         if (table == null) {
-            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+            if (!ignoreIfNotExists) {
+                throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+            }
+            return;
         }
 
         ExternalObjectLog log = new ExternalObjectLog();
