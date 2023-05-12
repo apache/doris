@@ -58,41 +58,35 @@ import java.util.stream.Collectors;
 
 /**
  * insert into select command implementation
- *
  * insert into select command support the grammer: explain? insert into table columns? partitions? hints? query
  * InsertIntoTableCommand is a command to represent insert the answer of a query into a table.
  * class structure's:
  *  InsertIntoTableCommand(Query())
- *  InsertIntoTableCommand(ExplainCommand(Query()))
+ *  ExplainCommand(InsertIntoTableCommand(Query()))
  */
 public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
-    private final List<String> tableName;
+
+    private final List<String> nameParts;
     private final List<String> colNames;
     private final LogicalPlan logicalQuery;
     private final String labelName;
-    private Database database;
     private Table table;
     private NereidsPlanner planner;
-    private TupleDescriptor olapTuple;
-    private List<String> partitions;
-    private List<String> hints;
-    private List<Column> targetColumns;
-    private List<Long> partitionIds = null;
+    private final List<String> partitions;
 
     /**
      * constructor
      */
-    public InsertIntoTableCommand(List<String> tableName, String labelName, List<String> colNames,
-            List<String> partitions, List<String> hints, LogicalPlan logicalQuery) {
-        super(PlanType.INSERT_INTO_SELECT_COMMAND);
-        Preconditions.checkArgument(tableName != null, "tableName cannot be null in insert-into-select command");
-        Preconditions.checkArgument(logicalQuery != null, "logicalQuery cannot be null in insert-into-select command");
-        this.tableName = tableName;
+    public InsertIntoTableCommand(List<String> nameParts, String labelName, List<String> colNames,
+            List<String> partitions, LogicalPlan logicalQuery) {
+        super(PlanType.INSERT_INTO_TABLE_COMMAND);
+        Preconditions.checkArgument(nameParts != null, "tableName cannot be null in InsertIntoTableCommand");
+        Preconditions.checkArgument(logicalQuery != null, "logicalQuery cannot be null in InsertIntoTableCommand");
+        this.nameParts = nameParts;
         this.labelName = labelName;
         this.colNames = colNames;
         this.partitions = partitions;
-        this.hints = hints;
         this.logicalQuery = logicalQuery;
     }
 
@@ -103,20 +97,21 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (ctx.isTxnModel()) {
-            // in original planner and in txn model, we can execute sql like: insert into t select 1, 2, 3
+            // in original planner with txn model, we can execute sql like: insert into t select 1, 2, 3
             // but no data will be inserted, now we adjust forbid it.
             throw new AnalysisException("insert into table command is not supported in txn model");
         }
 
         // Check database and table
-        List<String> qualifier = RelationUtil.getQualifierName(ctx, tableName);
-        String catalogName = qualifier.get(0);
-        String dbName = qualifier.get(1);
-        String tableName = qualifier.get(2);
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
+        String catalogName = qualifiedTableName.get(0);
+        String dbName = qualifiedTableName.get(1);
+        String tableName = qualifiedTableName.get(2);
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (catalog == null) {
             throw new AnalysisException(String.format("Catalog %s does not exist.", catalogName));
         }
+        Database database;
         try {
             database = ((Database) catalog.getDb(dbName).orElseThrow(() ->
                     new AnalysisException("Database [" + dbName + "] does not exist.")));
@@ -127,17 +122,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         }
 
         // collect column
+        List<Column> targetColumns;
         if (colNames == null) {
-            this.targetColumns = table.getFullSchema();
+            targetColumns = table.getFullSchema();
         } else {
-            this.targetColumns = Lists.newArrayList();
+            targetColumns = Lists.newArrayList();
             for (String colName : colNames) {
                 Column col = table.getColumn(colName);
                 if (col == null) {
                     throw new AnalysisException(String.format("Column: %s is not in table: %s",
                             colName, table.getName()));
                 }
-                this.targetColumns.add(col);
+                targetColumns.add(col);
             }
         }
 
@@ -145,7 +141,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         if (partitions == null) {
             return;
         }
-        partitionIds = partitions.stream().map(pn -> {
+        List<Long> partitionIds = partitions.stream().map(pn -> {
             Partition p = table.getPartition(pn);
             if (p == null) {
                 throw new AnalysisException(String.format("Unknown partition: %s in table: %s", pn, table.getName()));
@@ -160,7 +156,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
 
         // create insert target table's tupledesc.
-        olapTuple = planner.getDescTable().createTupleDescriptor();
+        TupleDescriptor olapTuple = planner.getDescTable().createTupleDescriptor();
 
         for (Column col : targetColumns) {
             SlotDescriptor slotDesc = planner.getDescTable().addSlotDescriptor(olapTuple);
@@ -195,10 +191,17 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
         }
 
-        Transaction txn;
-        DataSink sink = createDataSink(ctx, root);
+        DataSink sink;
+        if (table instanceof OlapTable) {
+            sink = new OlapTableSink((OlapTable) table, olapTuple, partitionIds,
+                    ctx.getSessionVariable().isEnableSingleReplicaInsert());
+        } else {
+            sink = DataSink.createDataSink(table);
+        }
         Preconditions.checkArgument(sink instanceof OlapTableSink, "olap table sink is expected when"
                 + " running insert into select");
+
+        Transaction txn;
         txn = new Transaction(ctx, database, table, label, planner);
 
         OlapTableSink olapTableSink = ((OlapTableSink) sink);
@@ -212,18 +215,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
 
     public LogicalPlan extractQueryPlan() {
         return logicalQuery;
-    }
-
-    private DataSink createDataSink(ConnectContext ctx, PlanFragment root)
-            throws org.apache.doris.common.AnalysisException {
-        DataSink dataSink;
-        if (table instanceof OlapTable) {
-            dataSink = new OlapTableSink((OlapTable) table, olapTuple, partitionIds,
-                    ctx.getSessionVariable().isEnableSingleReplicaInsert());
-        } else {
-            dataSink = DataSink.createDataSink(table);
-        }
-        return dataSink;
     }
 
     /**
