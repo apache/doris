@@ -144,6 +144,9 @@ public abstract class LoadPlanner {
             UserIdentity userInfo) throws UserException {
         ScanNode scanNode;
         scanNode = new FileLoadScanNode(new PlanNodeId(nextNodeId), scanTupleDesc);
+        if (fileStatusesList == null) {
+            LOG.warn("fileStatusesList should be set.");
+        }
         ((FileLoadScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
                 fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
         scanNode.init(analyzer);
