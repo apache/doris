@@ -138,16 +138,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         }
 
         // collect partitions
+        List<Long> partitionIds = null;
         if (partitions == null) {
-            return;
+            partitionIds = partitions.stream().map(pn -> {
+                Partition p = table.getPartition(pn);
+                if (p == null) {
+                    throw new AnalysisException(String.format("Unknown partition: %s in table: %s", pn, table.getName()));
+                }
+                return p.getId();
+            }).collect(Collectors.toList());
         }
-        List<Long> partitionIds = partitions.stream().map(pn -> {
-            Partition p = table.getPartition(pn);
-            if (p == null) {
-                throw new AnalysisException(String.format("Unknown partition: %s in table: %s", pn, table.getName()));
-            }
-            return p.getId();
-        }).collect(Collectors.toList());
 
         ctx.getStatementContext().getInsertIntoContext().setTargetSchema(targetColumns);
 
