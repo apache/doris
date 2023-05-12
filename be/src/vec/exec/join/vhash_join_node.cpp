@@ -816,7 +816,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
 
         if (in_block->rows() != 0) {
             SCOPED_TIMER(_build_side_merge_block_timer);
-            RETURN_IF_CATCH_EXCEPTION(_build_side_mutable_block.merge(*in_block));
+            RETURN_IF_ERROR(_build_side_mutable_block.merge(*in_block));
         }
 
         if (UNLIKELY(_build_side_mem_used - _build_side_last_mem_used > BUILD_BLOCK_MAX_SIZE)) {

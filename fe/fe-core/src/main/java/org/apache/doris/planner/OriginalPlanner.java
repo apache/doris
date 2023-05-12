@@ -245,7 +245,7 @@ public class OriginalPlanner extends QueryPlanner {
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());
             insertStmt.complete();
-            ArrayList<Expr> exprs = ((InsertStmt) statement).getResultExprs();
+            List<Expr> exprs = statement.getResultExprs();
             List<Expr> resExprs = Expr.substituteList(
                     exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
             rootFragment.setOutputExprs(resExprs);

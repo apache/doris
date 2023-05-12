@@ -75,19 +75,14 @@ VExpr::VExpr(const doris::TExprNode& node)
     if (node.__isset.is_nullable) {
         is_nullable = node.is_nullable;
     }
+    // If we define null literal ,should make nullable data type to get correct field instead of undefined ptr
+    if (node.node_type == TExprNodeType::NULL_LITERAL) {
+        CHECK(is_nullable);
+    }
     _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
 
-VExpr::VExpr(const VExpr& vexpr)
-        : _node_type(vexpr._node_type),
-          _opcode(vexpr._opcode),
-          _type(vexpr._type),
-          _data_type(vexpr._data_type),
-          _children(vexpr._children),
-          _fn(vexpr._fn),
-          _fn_context_index(vexpr._fn_context_index),
-          _constant_col(vexpr._constant_col),
-          _prepared(vexpr._prepared) {}
+VExpr::VExpr(const VExpr& vexpr) = default;
 
 VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
         : _opcode(TExprOpcode::INVALID_OPCODE),

@@ -196,7 +196,42 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                 decimal_slot.value());
         break;
     }
-
+    case TYPE_DECIMAL32: {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        int32_t value = StringParser::string_to_decimal<int32_t>(
+                data, len, slot_desc->type().precision, slot_desc->type().scale, &result);
+        if (result != StringParser::PARSE_SUCCESS) {
+            parse_result = StringParser::PARSE_FAILURE;
+            break;
+        }
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(
+                value);
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        int64_t value = StringParser::string_to_decimal<int64_t>(
+                data, len, slot_desc->type().precision, slot_desc->type().scale, &result);
+        if (result != StringParser::PARSE_SUCCESS) {
+            parse_result = StringParser::PARSE_FAILURE;
+            break;
+        }
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
+                value);
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        vectorized::Int128 value = StringParser::string_to_decimal<vectorized::Int128>(
+                data, len, slot_desc->type().precision, slot_desc->type().scale, &result);
+        if (result != StringParser::PARSE_SUCCESS) {
+            parse_result = StringParser::PARSE_FAILURE;
+            break;
+        }
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(
+                value);
+        break;
+    }
     default:
         DCHECK(false) << "bad slot type: " << slot_desc->type();
         break;

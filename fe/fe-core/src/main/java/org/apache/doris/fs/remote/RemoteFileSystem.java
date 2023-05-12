@@ -58,8 +58,8 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
         List<RemoteFile> locations = new ArrayList<>();
         while (locatedFiles.hasNext()) {
             LocatedFileStatus fileStatus = locatedFiles.next();
-            RemoteFile location = new RemoteFile(fileStatus.getPath(), fileStatus.isDirectory(),
-                    fileStatus.getLen(), fileStatus.getBlockSize(), fileStatus.getBlockLocations());
+            RemoteFile location = new RemoteFile(fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
+                    fileStatus.getBlockSize(), fileStatus.getModificationTime(), fileStatus.getBlockLocations());
             locations.add(location);
         }
         return new RemoteFiles(locations);

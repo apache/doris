@@ -109,8 +109,12 @@ NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
     for (const auto& arg : args) {
         const auto& elem = block.get_by_position(arg);
 
-        if (!res.has_nullable) res.has_nullable = elem.type->is_nullable();
-        if (!res.has_null_constant) res.has_null_constant = elem.type->only_null();
+        if (!res.has_nullable) {
+            res.has_nullable = elem.type->is_nullable();
+        }
+        if (!res.has_null_constant) {
+            res.has_null_constant = elem.type->only_null();
+        }
     }
 
     return res;
@@ -120,8 +124,12 @@ NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
     NullPresence res;
 
     for (const auto& elem : args) {
-        if (!res.has_nullable) res.has_nullable = elem.type->is_nullable();
-        if (!res.has_null_constant) res.has_null_constant = elem.type->only_null();
+        if (!res.has_nullable) {
+            res.has_nullable = elem.type->is_nullable();
+        }
+        if (!res.has_null_constant) {
+            res.has_null_constant = elem.type->only_null();
+        }
     }
 
     return res;
@@ -266,27 +274,14 @@ Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
 Status PreparedFunctionImpl::execute(FunctionContext* context, Block& block,
                                      const ColumnNumbers& args, size_t result,
                                      size_t input_rows_count, bool dry_run) {
-    //    if (use_default_implementation_for_low_cardinality_columns()) {
-    //        auto& res = block.safe_get_by_position(result);
-    //        Block block_without_low_cardinality = block.clone_without_columns();
-    //
-    //        for (auto arg : args)
-    //            block_without_low_cardinality.safe_get_by_position(arg).column =
-    //                    block.safe_get_by_position(arg).column;
-    //
-    //        {
-    //            RETURN_IF_ERROR(execute_without_low_cardinality_columns(
-    //                    context, block_without_low_cardinality, args, result, input_rows_count,
-    //                    dry_run));
-    //            res.column = block_without_low_cardinality.safe_get_by_position(result).column;
-    //        }
-    //    } else
     return execute_without_low_cardinality_columns(context, block, args, result, input_rows_count,
                                                    dry_run);
 }
 
 void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) const {
-    if (is_variadic()) return;
+    if (is_variadic()) {
+        return;
+    }
 
     size_t expected_number_of_arguments = get_number_of_arguments();
 
@@ -325,8 +320,9 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
 
         for (ColumnWithTypeAndName& arg : args_without_low_cardinality) {
             bool is_const = arg.column && is_column_const(*arg.column);
-            if (is_const)
+            if (is_const) {
                 arg.column = assert_cast<const ColumnConst&>(*arg.column).remove_low_cardinality();
+            }
         }
 
         auto type_without_low_cardinality =

@@ -233,6 +233,7 @@ public class HiveMetaStoreClientHelper {
                     brokerFileStatus.setIsDir(fileLocation.isDirectory());
                     brokerFileStatus.setIsSplitable(true);
                     brokerFileStatus.setSize(fileLocation.getSize());
+                    brokerFileStatus.setModificationTime(fileLocation.getModificationTime());
                     // filePath.toUri().getPath() = "/path/to/partition/file_name"
                     // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse
                     //     + /dae.db/customer/state=CA/city=SanJose/000000_0

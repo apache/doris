@@ -33,6 +33,7 @@ static const std::string PRIORITY_CIDR_SEPARATOR = ";";
 
 std::string BackendOptions::_s_localhost;
 std::vector<CIDR> BackendOptions::_s_priority_cidrs;
+TBackend BackendOptions::_backend;
 bool BackendOptions::_bind_ipv6 = false;
 const char* _service_bind_address = "0.0.0.0";
 
@@ -89,6 +90,17 @@ bool BackendOptions::init() {
 
 const std::string& BackendOptions::get_localhost() {
     return _s_localhost;
+}
+
+TBackend BackendOptions::get_local_backend() {
+    _backend.__set_host(_s_localhost);
+    _backend.__set_be_port(config::be_port);
+    _backend.__set_http_port(config::webserver_port);
+    return _backend;
+}
+
+void BackendOptions::set_localhost(const std::string& host) {
+    _s_localhost = host;
 }
 
 bool BackendOptions::is_bind_ipv6() {

@@ -56,7 +56,7 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
 
 
     @Override
-    protected void getColumnStatsByMeta() throws Exception {
+    protected void getStatsByMeta() throws Exception {
         Table icebergTable = getIcebergTable();
         TableScan tableScan = icebergTable.newScan().includeColumnStats();
         for (FileScanTask task : tableScan.planFiles()) {

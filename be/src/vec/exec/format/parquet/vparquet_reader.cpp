@@ -69,7 +69,8 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache)
+                             io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache,
+                             bool enable_lazy_mat)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -79,19 +80,21 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _ctz(ctz),
           _io_ctx(io_ctx),
           _state(state),
-          _kv_cache(kv_cache) {
+          _kv_cache(kv_cache),
+          _enable_lazy_mat(enable_lazy_mat) {
     _init_profile();
     _init_system_properties();
     _init_file_description();
 }
 
 ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                             io::IOContext* io_ctx, RuntimeState* state)
+                             io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
           _io_ctx(io_ctx),
-          _state(state) {
+          _state(state),
+          _enable_lazy_mat(enable_lazy_mat) {
     _init_system_properties();
     _init_file_description();
 }
@@ -206,6 +209,8 @@ Status ParquetReader::_open_file() {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
+        reader_options.modification_time =
+                _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, &_file_system, &_file_reader,
                 io::DelegateReader::AccessMode::RANDOM, reader_options, _io_ctx));
@@ -410,7 +415,8 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!_has_complex_type && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
+    if (!_has_complex_type && _enable_lazy_mat &&
+        _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }

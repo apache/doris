@@ -690,7 +690,7 @@ public class JdbcExecutor {
 
     private void bigIntegerPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, int startRowForNullable) {
-        if (isNullable == true) {
+        if (isNullable) {
             for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
@@ -723,19 +723,49 @@ public class JdbcExecutor {
         }
     }
 
-    private void clickHouseUInt64ToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+    private void stringPutToBigInteger(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, int startRowForNullable) {
+        BigInteger[] data = new BigInteger[numRows];
+        for (int i = 0; i < numRows; i++) {
+            if (column[i] == null) {
+                data[i] = null;
+                UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+            } else {
+                data[i] = new BigInteger((String) column[i]);
+            }
+        }
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16, startRowForNullable);
+    }
+
+    private void clickHouseUInt64ToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, int startRowForNullable) {
         if (isNullable) {
             for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 16L), ((UnsignedLong) column[i]).longValue());
+                    UnsignedLong columnValue = (UnsignedLong) column[i];
+                    BigInteger bigIntValue = columnValue.bigIntegerValue();
+                    byte[] bytes = UdfUtils.convertByteOrder(bigIntValue.toByteArray());
+                    byte[] value = new byte[16];
+                    if (bigIntValue.signum() == -1) {
+                        Arrays.fill(value, (byte) -1);
+                    }
+                    System.arraycopy(bytes, 0, value, 0, Math.min(bytes.length, value.length));
+                    UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * 16L), 16);
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putLong(columnAddr + (i * 16L), ((UnsignedLong) column[i]).longValue());
+                UnsignedLong columnValue = (UnsignedLong) column[i];
+                BigInteger bigIntValue = columnValue.bigIntegerValue();
+                byte[] bytes = UdfUtils.convertByteOrder(bigIntValue.toByteArray());
+                byte[] value = new byte[16];
+                if (bigIntValue.signum() == -1) {
+                    Arrays.fill(value, (byte) -1);
+                }
+                System.arraycopy(bytes, 0, value, 0, Math.min(bytes.length, value.length));
+                UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * 16L), 16);
             }
         }
     }
@@ -754,8 +784,10 @@ public class JdbcExecutor {
             bigDecimalPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof BigInteger) {
             bigIntegerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof String) {
+            stringPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof com.clickhouse.data.value.UnsignedLong) {
-            clickHouseUInt64ToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+            clickHouseUInt64ToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 

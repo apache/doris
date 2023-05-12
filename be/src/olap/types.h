@@ -739,6 +739,12 @@ template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE> {
     using CppType = Slice;
 };
+
+template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE> {
+    using CppType = Slice;
+};
+
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_STRUCT> {
     using CppType = StructValue;
@@ -1408,6 +1414,10 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_OBJECT>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
 
 // Instantiate this template to get static access to the type traits.

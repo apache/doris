@@ -60,6 +60,10 @@ public:
 
     Field get_default() const override { return String(); }
 
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for DataTypeFixedLengthObject";
+    }
+
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,

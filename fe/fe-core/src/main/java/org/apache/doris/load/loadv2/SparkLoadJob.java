@@ -502,7 +502,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                         Backend backend = Env.getCurrentEnv().getCurrentSystemInfo()
                                                 .getBackend(backendId);
                                         FsBroker fsBroker = Env.getCurrentEnv().getBrokerMgr().getBroker(
-                                                brokerDesc.getName(), backend.getIp());
+                                                brokerDesc.getName(), backend.getHost());
                                         tBrokerScanRange.getBrokerAddresses().add(
                                                 new TNetworkAddress(fsBroker.ip, fsBroker.port));
 

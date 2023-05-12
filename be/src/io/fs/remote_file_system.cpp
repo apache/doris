@@ -97,9 +97,11 @@ Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOption
         if (reader_options.has_cache_base_path) {
             // from query session variable: file_cache_base_path
             *reader = std::make_shared<CachedRemoteFileReader>(
-                    std::move(raw_reader), reader_options.cache_base_path, cache_path);
+                    std::move(raw_reader), reader_options.cache_base_path, cache_path,
+                    reader_options.modification_time);
         } else {
-            *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path);
+            *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path,
+                                                               reader_options.modification_time);
         }
         break;
     }
