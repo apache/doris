@@ -178,57 +178,24 @@ public:
     // notify the worker. currently for task/disk/tablet report thread
     void notify_thread();
 
-private:
+protected:
+    virtual void _set_callback_and_worker_count();
+
+protected:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
     uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
                                   TPriority::type priority);
-
-    void _create_tablet_worker_thread_callback();
-    void _drop_tablet_worker_thread_callback();
-    void _push_worker_thread_callback();
-    void _publish_version_worker_thread_callback();
-    void _clear_transaction_task_worker_thread_callback();
-    void _alter_tablet_worker_thread_callback();
-    void _alter_inverted_index_worker_thread_callback();
-    void _clone_worker_thread_callback();
-    void _storage_medium_migrate_worker_thread_callback();
-    void _check_consistency_worker_thread_callback();
-    void _report_task_worker_thread_callback();
-    void _report_disk_state_worker_thread_callback();
-    void _report_tablet_worker_thread_callback();
-    void _upload_worker_thread_callback();
-    void _download_worker_thread_callback();
-    void _make_snapshot_thread_callback();
-    void _release_snapshot_thread_callback();
-    void _move_dir_thread_callback();
-    void _update_tablet_meta_worker_thread_callback();
-    void _submit_table_compaction_worker_thread_callback();
-    void _push_cooldown_conf_worker_thread_callback();
-    void _push_storage_policy_worker_thread_callback();
-
-    void _alter_inverted_index(const TAgentTaskRequest& alter_inverted_index_request,
-                               int64_t signature, const TTaskType::type task_type,
-                               TFinishTaskRequest* finish_task_request);
-
-    void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
-                       const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
     void _handle_report(const TReportRequest& request, ReportType type);
 
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                             int64_t signature, TTabletInfo* tablet_info);
 
-    Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id,
-                     bool overwrite);
-
-    Status _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
-                                  DataDir** dest_store);
-
     // random sleep 1~second seconds
     void _random_sleep(int second);
 
-private:
+protected:
     std::string _name;
 
     // Reference to the ExecEnv::_master_info
@@ -255,6 +222,7 @@ private:
     // Always 1 when _thread_model is SINGLE_THREAD
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
+    std::function<void()> _cb;
 
     static std::atomic_ulong _s_report_version;
 
@@ -263,4 +231,237 @@ private:
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 }; // class TaskWorkerPool
+
+class CreateTableTaskPool : public TaskWorkerPool {
+public:
+    CreateTableTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _create_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(CreateTableTaskPool);
+};
+
+class DropTableTaskPool : public TaskWorkerPool {
+public:
+    DropTableTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _drop_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(DropTableTaskPool);
+};
+
+class PushTaskPool : public TaskWorkerPool {
+public:
+    PushTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _push_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(PushTaskPool);
+};
+
+// class RealTimePushTaskPool : public TaskWorkerPool {
+// public:
+//     RealTimePushTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+//     void _set_callback_and_worker_count() override;
+
+//     DISALLOW_COPY_AND_ASSIGN(RealTimePushTaskPool);
+// };
+
+class PublishVersionTaskPool : public TaskWorkerPool {
+public:
+    PublishVersionTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _publish_version_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(PublishVersionTaskPool);
+};
+
+class ClearTransactionTaskPool : public TaskWorkerPool {
+public:
+    ClearTransactionTaskPool(ExecEnv* env, const TMasterInfo& master_info,
+                             ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _clear_transaction_task_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(ClearTransactionTaskPool);
+};
+
+class DeleteTaskPool : public TaskWorkerPool {
+public:
+    DeleteTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _push_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(DeleteTaskPool);
+};
+
+class AlterTableTaskPool : public TaskWorkerPool {
+public:
+    AlterTableTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
+                       const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
+    void _alter_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(AlterTableTaskPool);
+};
+
+class AlterInvertedIndexTaskPool : public TaskWorkerPool {
+public:
+    AlterInvertedIndexTaskPool(ExecEnv* env, const TMasterInfo& master_info,
+                               ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _alter_inverted_index(const TAgentTaskRequest& alter_inverted_index_request,
+                               int64_t signature, const TTaskType::type task_type,
+                               TFinishTaskRequest* finish_task_request);
+    void _alter_inverted_index_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(AlterInvertedIndexTaskPool);
+};
+
+class CloneTaskPool : public TaskWorkerPool {
+public:
+    CloneTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _clone_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(CloneTaskPool);
+};
+
+class StorageMediumMigrateTaskPool : public TaskWorkerPool {
+public:
+    StorageMediumMigrateTaskPool(ExecEnv* env, const TMasterInfo& master_info,
+                                 ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    Status _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
+                                  DataDir** dest_store);
+    void _storage_medium_migrate_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(StorageMediumMigrateTaskPool);
+};
+
+class CheckConsistencyTaskPool : public TaskWorkerPool {
+public:
+    CheckConsistencyTaskPool(ExecEnv* env, const TMasterInfo& master_info,
+                             ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _check_consistency_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(CheckConsistencyTaskPool);
+};
+
+class ReportTaskTaskPool : public TaskWorkerPool {
+public:
+    ReportTaskTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _report_task_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(ReportTaskTaskPool);
+};
+
+class ReportDiskStateTaskPool : public TaskWorkerPool {
+public:
+    ReportDiskStateTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _report_disk_state_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(ReportDiskStateTaskPool);
+};
+
+class ReportOlapStateTaskPool : public TaskWorkerPool {
+public:
+    ReportOlapStateTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _report_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(ReportOlapStateTaskPool);
+};
+
+class UploadTaskPool : public TaskWorkerPool {
+public:
+    UploadTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _upload_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(UploadTaskPool);
+};
+
+class DownloadTaskPool : public TaskWorkerPool {
+public:
+    DownloadTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _download_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(DownloadTaskPool);
+};
+
+class MakeSnapshotTaskPool : public TaskWorkerPool {
+public:
+    MakeSnapshotTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _make_snapshot_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(MakeSnapshotTaskPool);
+};
+
+class ReleaseSnapshotTaskPool : public TaskWorkerPool {
+public:
+    ReleaseSnapshotTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _release_snapshot_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(ReleaseSnapshotTaskPool);
+};
+
+class MoveTaskPool : public TaskWorkerPool {
+public:
+    MoveTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id,
+                     bool overwrite);
+    void _move_dir_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(MoveTaskPool);
+};
+
+class UpdateTabletMetaInfoTaskPool : public TaskWorkerPool {
+public:
+    UpdateTabletMetaInfoTaskPool(ExecEnv* env, const TMasterInfo& master_info,
+                                 ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _update_tablet_meta_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(UpdateTabletMetaInfoTaskPool);
+};
+
+class SubmitTableCompactionTaskPool : public TaskWorkerPool {
+public:
+    SubmitTableCompactionTaskPool(ExecEnv* env, const TMasterInfo& master_info,
+                                  ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _submit_table_compaction_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(SubmitTableCompactionTaskPool);
+};
+
+class PushStoragePolicyTaskPool : public TaskWorkerPool {
+public:
+    PushStoragePolicyTaskPool(ExecEnv* env, const TMasterInfo& master_info,
+                              ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _push_storage_policy_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(PushStoragePolicyTaskPool);
+};
+
+class PushCooldownConfTaskPool : public TaskWorkerPool {
+public:
+    PushCooldownConfTaskPool(ExecEnv* env, const TMasterInfo& master_info,
+                             ThreadModel thread_model);
+    void _set_callback_and_worker_count() override;
+    void _push_cooldown_conf_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(PushCooldownConfTaskPool);
+};
+
 } // namespace doris

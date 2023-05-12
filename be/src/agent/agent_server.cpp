@@ -68,46 +68,46 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     // to make code to be more readable.
 
 #ifndef BE_TEST
-#define CREATE_AND_START_POOL(type, pool_name)                                                    \
-    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, exec_env,            \
-                                       master_info, TaskWorkerPool::ThreadModel::MULTI_THREADS)); \
+#define CREATE_AND_START_POOL(task_worker_pool_type, pool_name)                             \
+    pool_name.reset(new task_worker_pool_type(exec_env, master_info,                        \
+                                              TaskWorkerPool::ThreadModel::MULTI_THREADS)); \
     pool_name->start();
 
-#define CREATE_AND_START_THREAD(type, pool_name)                                                  \
-    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, exec_env,            \
-                                       master_info, TaskWorkerPool::ThreadModel::SINGLE_THREAD)); \
+#define CREATE_AND_START_THREAD(task_worker_pool_type, pool_name)                           \
+    pool_name.reset(new task_worker_pool_type(exec_env, master_info,                        \
+                                              TaskWorkerPool::ThreadModel::SINGLE_THREAD)); \
     pool_name->start();
 #else
-#define CREATE_AND_START_POOL(type, pool_name)
-#define CREATE_AND_START_THREAD(type, pool_name)
+#define CREATE_AND_START_POOL(task_worker_pool_type, pool_name)
+#define CREATE_AND_START_THREAD(task_worker_pool_type, pool_name)
 #endif // BE_TEST
 
-    CREATE_AND_START_POOL(CREATE_TABLE, _create_tablet_workers);
-    CREATE_AND_START_POOL(DROP_TABLE, _drop_tablet_workers);
+    CREATE_AND_START_POOL(CreateTableTaskPool, _create_tablet_workers);
+    CREATE_AND_START_POOL(DropTableTaskPool, _drop_tablet_workers);
 
     // Both PUSH and REALTIME_PUSH type use _push_workers
-    CREATE_AND_START_POOL(PUSH, _push_workers);
-    CREATE_AND_START_POOL(PUBLISH_VERSION, _publish_version_workers);
-    CREATE_AND_START_POOL(CLEAR_TRANSACTION_TASK, _clear_transaction_task_workers);
-    CREATE_AND_START_POOL(DELETE, _delete_workers);
-    CREATE_AND_START_POOL(ALTER_TABLE, _alter_tablet_workers);
-    CREATE_AND_START_POOL(ALTER_INVERTED_INDEX, _alter_inverted_index_workers);
-    CREATE_AND_START_POOL(CLONE, _clone_workers);
-    CREATE_AND_START_POOL(STORAGE_MEDIUM_MIGRATE, _storage_medium_migrate_workers);
-    CREATE_AND_START_POOL(CHECK_CONSISTENCY, _check_consistency_workers);
-    CREATE_AND_START_POOL(UPLOAD, _upload_workers);
-    CREATE_AND_START_POOL(DOWNLOAD, _download_workers);
-    CREATE_AND_START_POOL(MAKE_SNAPSHOT, _make_snapshot_workers);
-    CREATE_AND_START_POOL(RELEASE_SNAPSHOT, _release_snapshot_workers);
-    CREATE_AND_START_POOL(MOVE, _move_dir_workers);
-    CREATE_AND_START_POOL(UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers);
-    CREATE_AND_START_THREAD(PUSH_COOLDOWN_CONF, _push_cooldown_conf_workers);
+    CREATE_AND_START_POOL(PushTaskPool, _push_workers);
+    CREATE_AND_START_POOL(PublishVersionTaskPool, _publish_version_workers);
+    CREATE_AND_START_POOL(ClearTransactionTaskPool, _clear_transaction_task_workers);
+    CREATE_AND_START_POOL(DeleteTaskPool, _delete_workers);
+    CREATE_AND_START_POOL(AlterTableTaskPool, _alter_tablet_workers);
+    CREATE_AND_START_POOL(AlterInvertedIndexTaskPool, _alter_inverted_index_workers);
+    CREATE_AND_START_POOL(CloneTaskPool, _clone_workers);
+    CREATE_AND_START_POOL(StorageMediumMigrateTaskPool, _storage_medium_migrate_workers);
+    CREATE_AND_START_POOL(CheckConsistencyTaskPool, _check_consistency_workers);
+    CREATE_AND_START_POOL(UploadTaskPool, _upload_workers);
+    CREATE_AND_START_POOL(DownloadTaskPool, _download_workers);
+    CREATE_AND_START_POOL(MakeSnapshotTaskPool, _make_snapshot_workers);
+    CREATE_AND_START_POOL(ReleaseSnapshotTaskPool, _release_snapshot_workers);
+    CREATE_AND_START_POOL(MoveTaskPool, _move_dir_workers);
+    CREATE_AND_START_POOL(UpdateTabletMetaInfoTaskPool, _update_tablet_meta_info_workers);
+    CREATE_AND_START_THREAD(PushCooldownConfTaskPool, _push_cooldown_conf_workers);
 
-    CREATE_AND_START_THREAD(REPORT_TASK, _report_task_workers);
-    CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
-    CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
-    CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
-    CREATE_AND_START_POOL(PUSH_STORAGE_POLICY, _push_storage_policy_workers);
+    CREATE_AND_START_THREAD(ReportTaskTaskPool, _report_task_workers);
+    CREATE_AND_START_THREAD(ReportDiskStateTaskPool, _report_disk_state_workers);
+    CREATE_AND_START_THREAD(ReportOlapStateTaskPool, _report_tablet_workers);
+    CREATE_AND_START_POOL(SubmitTableCompactionTaskPool, _submit_table_compaction_workers);
+    CREATE_AND_START_POOL(PushStoragePolicyTaskPool, _push_storage_policy_workers);
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
