@@ -139,7 +139,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
 
         // collect partitions
         List<Long> partitionIds = null;
-        if (partitions == null) {
+        if (partitions != null) {
             partitionIds = partitions.stream().map(pn -> {
                 Partition p = table.getPartition(pn);
                 if (p == null) {
