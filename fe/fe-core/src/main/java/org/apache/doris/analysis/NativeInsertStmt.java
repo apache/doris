@@ -640,6 +640,9 @@ public class NativeInsertStmt extends InsertStmt {
                 }
                 expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
             }
+            if (expr instanceof Subquery) {
+                throw new AnalysisException("Insert values can not be query");
+            }
 
             expr.analyze(analyzer);
 
