@@ -514,8 +514,9 @@ public class HiveMetaStoreCache {
     }
 
     // partition name format: nation=cn/city=beijing
-    public void addPartitionsCache(String dbName, String tblName, List<String> partitionNames) {
-        PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, null);
+    public void addPartitionsCache(String dbName, String tblName, List<String> partitionNames,
+            List<Type> partitionColumnTypes) {
+        PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, partitionColumnTypes);
         HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
         if (partitionValues == null) {
             return;
@@ -594,17 +595,19 @@ public class HiveMetaStoreCache {
             idToPartitionItemBefore.remove(partitionId);
             partitionValuesMap.remove(partitionId);
             List<UniqueId> uniqueIds = idToUniqueIdsMapBefore.remove(partitionId);
-            if (key.types.size() > 1) {
-                for (UniqueId uniqueId : uniqueIds) {
-                    Range<PartitionKey> range = uidToPartitionRangeBefore.remove(uniqueId);
+            for (UniqueId uniqueId : uniqueIds) {
+                Range<PartitionKey> range = uidToPartitionRangeBefore.remove(uniqueId);
+                if (range != null) {
                     rangeToIdBefore.remove(range);
                 }
-            } else {
-                for (UniqueId uniqueId : uniqueIds) {
-                    Range<ColumnBound> range = singleUidToColumnRangeMapBefore.remove(uniqueId);
+            }
+            for (UniqueId uniqueId : uniqueIds) {
+                Range<ColumnBound> range = singleUidToColumnRangeMapBefore.remove(uniqueId);
+                if (range != null) {
                     singleColumnRangeMapBefore.remove(range);
                 }
             }
+
             if (invalidPartitionCache) {
                 invalidatePartitionCache(dbName, tblName, partitionName);
             }
