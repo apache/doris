@@ -129,7 +129,7 @@ public class BeSelectionPolicy {
         // Compute node is only used when preferComputeNode is set.
         if (!preferComputeNode && backend.isComputeNode()) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Backend [{}] is not match by ComputeNode rule, policy: [{}]", backend.getIp(), this);
+                LOG.debug("Backend [{}] is not match by ComputeNode rule, policy: [{}]", backend.getHost(), this);
             }
             return false;
         }
@@ -139,7 +139,7 @@ public class BeSelectionPolicy {
                 backend.getLocationTag()) || storageMedium != null && !backend.hasSpecifiedStorageMedium(
                 storageMedium)) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Backend [{}] is not match by Other rules, policy: [{}]", backend.getIp(), this);
+                LOG.debug("Backend [{}] is not match by Other rules, policy: [{}]", backend.getHost(), this);
             }
             return false;
         }
@@ -147,14 +147,15 @@ public class BeSelectionPolicy {
         if (checkDiskUsage) {
             if (storageMedium == null && backend.diskExceedLimit()) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Backend [{}] is not match by diskExceedLimit rule, policy: [{}]", backend.getIp(), this);
+                    LOG.debug("Backend [{}] is not match by diskExceedLimit rule, policy: [{}]", backend.getHost(),
+                            this);
                 }
                 return false;
             }
             if (storageMedium != null && backend.diskExceedLimitByStorageMedium(storageMedium)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Backend [{}] is not match by diskExceedLimitByStorageMedium rule, policy: [{}]",
-                            backend.getIp(), this);
+                            backend.getHost(), this);
                 }
                 return false;
             }
