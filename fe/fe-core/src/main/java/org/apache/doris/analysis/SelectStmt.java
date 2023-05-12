@@ -632,11 +632,7 @@ public class SelectStmt extends QueryStmt {
         }
 
         // if the query contains limit clause but not order by clause, order by keys by default.
-        if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable() != null
-                && ConnectContext.get().getSessionVariable().isEnableDefaultOrder()
-                && getTableRefs().size() == 1
-                && aggInfo == null) {
+        if (isAddDefaultOrderBy()) {
             orderByElements = Lists.newArrayList();
             for (TableRef ref : getTableRefs()) {
                 if (ref instanceof BaseTableRef
@@ -2650,5 +2646,17 @@ public class SelectStmt extends QueryStmt {
         } else {
             return null;
         }
+    }
+
+    private boolean isAddDefaultOrderBy() {
+        if (ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable() == null
+                || !ConnectContext.get().getSessionVariable().isEnableDefaultOrder()) {
+            return false;
+        }
+        if (getTableRefs().size() != 1 || groupByClause != null) {
+            return false;
+        }
+        return hasLimit() && hasOffset() && orderByElements == null;
     }
 }
