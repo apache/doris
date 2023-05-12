@@ -183,6 +183,7 @@
                 "query-acceleration/nereids",
                 "query-acceleration/hight-concurrent-point-query",
                 "query-acceleration/materialized-view",
+                "query-acceleration/statistics",
                 {
                     "type": "category",
                     "label": "Join Optimization",
