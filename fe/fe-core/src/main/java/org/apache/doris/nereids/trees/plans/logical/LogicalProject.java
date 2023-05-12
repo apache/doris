@@ -34,6 +34,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Objects;
@@ -214,5 +215,23 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withProjects(prunedOutputs);
+    }
+
+    @Override
+    public JSONObject toJson() {
+        JSONObject logicalProject = super.toJson();
+        JSONObject properties = new JSONObject();
+        properties.put("Projects", projects.toString());
+        properties.put("Excepts", excepts.toString());
+        properties.put("CanEliminate", canEliminate);
+        properties.put("IsDistinct", isDistinct);
+        logicalProject.put("Properties", properties);
+        return logicalProject;
+    }
+
+    public LogicalProject<Plan> readFromJson(JSONObject logicalProject) {
+
+        return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
+            null, null, isDistinct);
     }
 }

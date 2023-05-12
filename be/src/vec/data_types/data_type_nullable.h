@@ -76,6 +76,13 @@ public:
 
     Field get_default() const override;
 
+    Field get_field(const TExprNode& node) const override {
+        if (node.node_type == TExprNodeType::NULL_LITERAL) {
+            return Null();
+        }
+        return nested_data_type->get_field(node);
+    }
+
     bool equals(const IDataType& rhs) const override;
 
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {

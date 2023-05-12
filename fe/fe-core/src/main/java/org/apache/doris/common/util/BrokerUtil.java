@@ -102,6 +102,7 @@ public class BrokerUtil {
             if (r.isFile()) {
                 TBrokerFileStatus status = new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile());
                 status.setBlockSize(r.getBlockSize());
+                status.setModificationTime(r.getModificationTime());
                 fileStatuses.add(status);
             }
         }

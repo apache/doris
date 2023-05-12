@@ -46,6 +46,7 @@ Usage: $0 <options>
      --audit            build audit loader. Default ON.
      --spark-dpp        build Spark DPP application. Default ON.
      --hive-udf         build Hive UDF library for Spark Load. Default ON.
+     --java-udf         build Java UDF. Default ON.
      --clean            clean and build target
      -j                 build Backend parallel
 
@@ -115,6 +116,7 @@ if ! OPTS="$(getopt \
     -l 'meta-tool' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
+    -l 'java-udf' \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
@@ -185,6 +187,10 @@ else
             BUILD_HIVE_UDF=1
             shift
             ;;
+        --java-udf)
+            BUILD_JAVA_UDF=1
+            shift
+            ;;
         --clean)
             CLEAN=1
             shift
@@ -246,17 +252,18 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
     fi
 fi
 
-if [[ ! -f "${DORIS_HOME}/be/src/apache-orc/README.md" ]]; then
-    echo "apache-orc not exists, need to update submodules ..."
-    set +e
-    cd "${DORIS_HOME}"
-    git submodule update --init --recursive be/src/apache-orc
-    exit_code=$?
-    set -e
-    if [[ "${exit_code}" -ne 0 ]]; then
-        mkdir -p "${DORIS_HOME}/be/src/apache-orc"
-        curl -L https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz | tar -xz -C "${DORIS_HOME}/be/src/apache-orc" --strip-components=1
-    fi
+echo "Update apache-orc ..."
+set +e
+cd "${DORIS_HOME}"
+echo "Update apache-orc submodule ..."
+git submodule update --init --recursive be/src/apache-orc
+exit_code=$?
+set -e
+if [[ "${exit_code}" -ne 0 ]]; then
+    echo "Update apache-orc submodule failed, start to download and extract apache-orc package ..."
+    rm -rf "${DORIS_HOME}/be/src/apache-orc"
+    mkdir -p "${DORIS_HOME}/be/src/apache-orc"
+    curl -L https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz | tar -xz -C "${DORIS_HOME}/be/src/apache-orc" --strip-components=1
 fi
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
@@ -632,6 +639,19 @@ if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/audit_loader"/*
     cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
+    cd "${DORIS_HOME}"
+fi
+
+if [[ "${BUILD_JAVA_UDF}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 ]]; then
+    install -d "${DORIS_OUTPUT}/be/lib"
+
+    rm -rf "${DORIS_OUTPUT}/be/lib/java-udf-jar-with-dependencies.jar"
+
+    java_udf_path="${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar"
+    if [[ -f "${java_udf_path}" ]]; then
+        cp "${java_udf_path}" "${DORIS_OUTPUT}/be/lib"/
+    fi
+
     cd "${DORIS_HOME}"
 fi
 

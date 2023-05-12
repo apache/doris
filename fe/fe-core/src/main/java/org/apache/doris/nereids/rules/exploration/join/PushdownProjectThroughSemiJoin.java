@@ -20,8 +20,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
-import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -29,58 +28,68 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * rule for pushdown project through left-semi/anti join
+ * Rule for pushdown project through left-semi/anti join
+ * Just push down project inside join to avoid to push the top of Join-Cluster.
+ * <pre>
+ *     Join                     Join
+ *      |                        |
+ *    Project                   Join
+ *      |            ──►       /   \
+ *     Join                Project  B
+ *    /   \                   |
+ *   A     B                  A
+ * </pre>
  */
-public class PushdownProjectThroughSemiJoin extends OneExplorationRuleFactory {
+public class PushdownProjectThroughSemiJoin implements ExplorationRuleFactory {
     public static final PushdownProjectThroughSemiJoin INSTANCE = new PushdownProjectThroughSemiJoin();
 
-    /*
-     *    Project                   Join
-     *      |            ──►       /   \
-     *     Join                Project  B
-     *    /   \                   |
-     *   A     B                  A
-     */
     @Override
-    public Rule build() {
-        return logicalProject(logicalJoin())
-            .when(project -> project.child().getJoinType().isLeftSemiOrAntiJoin())
-            // Just pushdown project with non-column expr like (t.id + 1)
-            .whenNot(LogicalProject::isAllSlots)
-            .whenNot(project -> project.child().hasJoinHint())
-            .then(project -> {
-                LogicalJoin<GroupPlan, GroupPlan> join = project.child();
-                Set<Slot> conditionLeftSlots = CBOUtils.joinChildConditionSlots(join, true);
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalJoin(logicalProject(logicalJoin()), group())
+                    .when(j -> j.left().child().getJoinType().isLeftSemiOrAntiJoin())
+                    // Just pushdown project with non-column expr like (t.id + 1)
+                    .whenNot(j -> j.left().isAllSlots())
+                    .whenNot(j -> j.left().child().hasJoinHint())
+                    .then(topJoin -> {
+                        LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.left();
+                        Plan newLeft = pushdownProject(project);
+                        return topJoin.withChildren(newLeft, topJoin.right());
+                    }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN),
 
-                List<NamedExpression> newProject = new ArrayList<>(project.getProjects());
-                Set<Slot> projectUsedSlots = project.getProjects().stream().map(NamedExpression::toSlot)
-                        .collect(Collectors.toSet());
-                conditionLeftSlots.stream().filter(slot -> !projectUsedSlots.contains(slot)).forEach(newProject::add);
-                Plan newLeft = CBOUtils.projectOrSelf(newProject, join.left());
-
-                Plan newJoin = join.withChildrenNoContext(newLeft, join.right());
-                return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
-            }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN);
+                logicalJoin(group(), logicalProject(logicalJoin()))
+                    .when(j -> j.right().child().getJoinType().isLeftSemiOrAntiJoin())
+                    // Just pushdown project with non-column expr like (t.id + 1)
+                    .whenNot(j -> j.right().isAllSlots())
+                    .whenNot(j -> j.right().child().hasJoinHint())
+                    .then(topJoin -> {
+                        LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.right();
+                        Plan newRight = pushdownProject(project);
+                        return topJoin.withChildren(topJoin.left(), newRight);
+                    }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN)
+                );
     }
 
-    List<NamedExpression> sort(List<NamedExpression> projects, Plan sortPlan) {
-        List<ExprId> orderExprIds = sortPlan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toList());
-        // map { project input slot expr id -> project output expr }
-        Map<ExprId, NamedExpression> map = projects.stream()
-                .collect(Collectors.toMap(expr -> expr.getInputSlots().iterator().next().getExprId(), expr -> expr));
-        List<NamedExpression> newProjects = new ArrayList<>();
-        for (ExprId exprId : orderExprIds) {
-            if (map.containsKey(exprId)) {
-                newProjects.add(map.get(exprId));
-            }
-        }
-        return newProjects;
+    private Plan pushdownProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
+        LogicalJoin<GroupPlan, GroupPlan> join = project.child();
+        Set<Slot> conditionLeftSlots = CBOUtils.joinChildConditionSlots(join, true);
+
+        List<NamedExpression> newProject = new ArrayList<>(project.getProjects());
+        Set<Slot> projectUsedSlots = project.getProjects().stream().map(NamedExpression::toSlot)
+                .collect(Collectors.toSet());
+        conditionLeftSlots.stream().filter(slot -> !projectUsedSlots.contains(slot))
+                .forEach(newProject::add);
+        Plan newLeft = CBOUtils.projectOrSelf(newProject, join.left());
+
+        Plan newJoin = join.withChildren(newLeft, join.right());
+        return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
     }
 }

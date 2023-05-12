@@ -303,9 +303,13 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
     if (!tcolumn.is_key) {
         column->set_is_key(false);
-        string aggregation_type;
-        EnumToString(TAggregationType, tcolumn.aggregation_type, aggregation_type);
-        column->set_aggregation(aggregation_type);
+        if (tcolumn.__isset.aggregation) {
+            column->set_aggregation(tcolumn.aggregation);
+        } else {
+            string aggregation_type;
+            EnumToString(TAggregationType, tcolumn.aggregation_type, aggregation_type);
+            column->set_aggregation(aggregation_type);
+        }
     } else {
         column->set_is_key(true);
         column->set_aggregation("NONE");
@@ -317,19 +321,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
     }
-    if (tcolumn.column_type.type == TPrimitiveType::STRUCT) {
-        for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
-            ColumnPB* children_column = column->add_children_columns();
-            init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
-        }
-    } else if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
+    for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
         ColumnPB* children_column = column->add_children_columns();
-        init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
-    } else if (tcolumn.column_type.type == TPrimitiveType::MAP) {
-        ColumnPB* key_column = column->add_children_columns();
-        init_column_from_tcolumn(0, tcolumn.children_column[0], key_column);
-        ColumnPB* val_column = column->add_children_columns();
-        init_column_from_tcolumn(0, tcolumn.children_column[1], val_column);
+        init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
     }
 }
 

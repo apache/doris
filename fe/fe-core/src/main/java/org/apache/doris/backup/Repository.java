@@ -57,7 +57,6 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.text.SimpleDateFormat;
 import java.util.List;
 
 /*
@@ -136,7 +135,7 @@ public class Repository implements Writable {
             return PREFIX_JOB_INFO;
         } else {
             return PREFIX_JOB_INFO
-                    + TimeUtils.longToTimeString(createTime, new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss"));
+                    + TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
         }
     }
 
@@ -589,7 +588,7 @@ public class Repository implements Writable {
         // get proper broker for this backend
         FsBroker brokerAddr = null;
         try {
-            brokerAddr = env.getBrokerMgr().getBroker(fileSystem.getName(), be.getIp());
+            brokerAddr = env.getBrokerMgr().getBroker(fileSystem.getName(), be.getHost());
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
                     + fileSystem.getName() + " when try to send upload snapshot task: "

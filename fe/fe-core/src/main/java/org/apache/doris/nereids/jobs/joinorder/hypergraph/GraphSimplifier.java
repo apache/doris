@@ -82,7 +82,7 @@ public class GraphSimplifier {
         }
         for (Node node : graph.getNodes()) {
             cacheStats.put(node.getNodeMap(), node.getGroup().getStatistics());
-            cacheCost.put(node.getNodeMap(), Cost.withRowCount(node.getRowCount()));
+            cacheCost.put(node.getNodeMap(), Cost.withRowCount(node.getRowCount(), false));
         }
         circleDetector = new CircleDetector(edgeSize);
 
@@ -427,7 +427,7 @@ public class GraphSimplifier {
             Statistics leftStats, Statistics rightStats) {
         LogicalJoin join = edge.getJoin();
         PlanContext planContext = new PlanContext(stats, leftStats, rightStats);
-        Cost cost = Cost.zero();
+        Cost cost = Cost.zero(false);
         if (JoinUtils.shouldNestedLoopJoin(join)) {
             PhysicalNestedLoopJoin nestedLoopJoin = new PhysicalNestedLoopJoin<>(
                     join.getJoinType(),

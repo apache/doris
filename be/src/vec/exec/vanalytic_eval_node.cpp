@@ -28,6 +28,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
@@ -207,7 +208,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     }
     _fn_place_ptr = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
                                                    _align_aggregate_states);
-    _create_agg_status();
+    RETURN_IF_CATCH_EXCEPTION(_create_agg_status());
     _executor.insert_result =
             std::bind<void>(&VAnalyticEvalNode::_insert_result_info, this, std::placeholders::_1);
     _executor.execute =

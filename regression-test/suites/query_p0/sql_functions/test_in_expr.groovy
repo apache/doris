@@ -113,4 +113,15 @@ suite("test_in_expr", "query") {
     sql """DROP TABLE IF EXISTS ${nullTableName}"""
     sql """DROP TABLE IF EXISTS ${notNullTableName}"""
 
+    // from https://github.com/apache/doris/issues/19374
+    sql """DROP TABLE IF EXISTS t11"""
+    sql """
+            CREATE TABLE t11(c0 CHAR(109) NOT NULL) DISTRIBUTED BY HASH (c0) BUCKETS 13 PROPERTIES ("replication_num" = "1");
+        """
+    sql """
+        insert into t11 values ('1'), ('1'), ('2'), ('2'), ('3'), ('4');
+        """
+    
+    qt_select "select t11.c0 from t11 group by t11.c0 having not ('1' in (t11.c0)) order by t11.c0;"
+    qt_select "select t11.c0 from t11 group by t11.c0 having ('1' not in (t11.c0)) order by t11.c0;"
 }

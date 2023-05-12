@@ -119,7 +119,7 @@ public class UpdateStmt extends DdlStmt {
                 LimitElement.NO_LIMIT
         );
 
-        insertStmt = new InsertStmt(
+        insertStmt = new NativeInsertStmt(
                 new InsertTarget(tableName, null),
                 null,
                 cols,

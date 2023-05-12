@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
@@ -53,7 +54,7 @@ public class StatisticsCache {
 
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<ColumnStatistic>> columnStatisticsCache =
             Caffeine.newBuilder()
-                    .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
+                    .maximumSize(Config.stats_cache_size)
                     .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
                     .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
                     .executor(threadPool)
@@ -61,7 +62,7 @@ public class StatisticsCache {
 
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<Histogram>> histogramCache =
             Caffeine.newBuilder()
-                    .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
+                    .maximumSize(Config.stats_cache_size)
                     .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
                     .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
                     .executor(threadPool)

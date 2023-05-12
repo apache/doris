@@ -1679,6 +1679,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static long max_hive_partition_cache_num = 100000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {"Hive表到分区名列表缓存的最大数量。",
+        "Max cache number of hive table to partition names list."})
+    public static long max_hive_table_catch_num = 1000;
+
+    @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
+        "Max number of hive partition values to return while list partitions, -1 means no limitation."})
+    public static short max_hive_list_partition_num = -1;
+
     /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
@@ -1924,6 +1932,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
 
+    /*
+     * "max_instance_num" is used to set the maximum concurrency. When the value set
+     * by "parallel_fragment_exec_instance_num" is greater than "max_instance_num",
+     * an error will be reported.
+     */
+    @ConfField(mutable = true)
+    public static int max_instance_num = 128;
+
+
     /**
      * This config used for export/outfile.
      * Whether delete all files in the directory specified by export/outfile.
@@ -1931,5 +1948,17 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false)
     public static boolean enable_delete_existing_files  = false;
+    /*
+     * The actual memory size taken by stats cache highly depends on characteristics of data, since on the different
+     * dataset and scenarios the max/min literal's average size and buckets count of histogram would be highly
+     * different. Besides, JVM version etc. also has influence on it, though not much as data itself.
+     * Here I would give the mem size taken by stats cache with 10_0000 items.Each item's avg length of max/min literal
+     * is 32, and the avg column name length is 16, and each column has a histogram with 128 buckets
+     * In this case, stats cache takes total 911.954833984MiB mem.
+     * If without histogram, stats cache takes total 61.2777404785MiB mem.
+     * It's strongly discourage analyzing a column with a very large STRING value in the column, since it would cause
+     * FE OOM.
+     */
+    @ConfField
+    public static long stats_cache_size = 10_0000;
 }
-

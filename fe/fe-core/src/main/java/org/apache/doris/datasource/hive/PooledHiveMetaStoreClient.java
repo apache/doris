@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -25,25 +26,39 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import org.apache.hadoop.hive.common.ValidTxnList;
+import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
+import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.LockComponentBuilder;
+import org.apache.hadoop.hive.metastore.LockRequestBuilder;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
+import org.apache.hadoop.hive.metastore.api.DataOperationType;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.LockComponent;
+import org.apache.hadoop.hive.metastore.api.LockResponse;
+import org.apache.hadoop.hive.metastore.api.LockState;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
+import org.apache.hadoop.hive.metastore.txn.TxnUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Queue;
 
 /**
@@ -53,7 +68,8 @@ public class PooledHiveMetaStoreClient {
     private static final Logger LOG = LogManager.getLogger(PooledHiveMetaStoreClient.class);
 
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = t -> null;
-    private static final short MAX_LIST_PARTITION_NUM = 10000;
+    // -1 means no limit on the partitions returned.
+    private static final short MAX_LIST_PARTITION_NUM = Config.max_hive_list_partition_num;
 
     private Queue<CachedClient> clientPool = new LinkedList<>();
     private final int poolSize;
@@ -171,6 +187,111 @@ public class PooledHiveMetaStoreClient {
             throw new MetastoreNotificationFetchException(
                     "Failed to get next notification based on last event id: " + lastEventId + ". msg: " + e
                             .getMessage());
+        }
+    }
+
+    public long openTxn(String user) {
+        try (CachedClient client = getClient()) {
+            return client.client.openTxn(user);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to open transaction", e);
+        }
+    }
+
+    public void commitTxn(long txnId) {
+        try (CachedClient client = getClient()) {
+            client.client.commitTxn(txnId);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to commit transaction " + txnId, e);
+        }
+    }
+
+    public void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
+            List<String> partitionNames, long timeoutMs) {
+        LockRequestBuilder request = new LockRequestBuilder(queryId).setTransactionId(txnId).setUser(user);
+        List<LockComponent> lockComponents = createLockComponentsForRead(tblName, partitionNames);
+        for (LockComponent component : lockComponents) {
+            request.addLockComponent(component);
+        }
+        try (CachedClient client = getClient()) {
+            LockResponse response = client.client.lock(request.build());
+            long start = System.currentTimeMillis();
+            while (response.getState() == LockState.WAITING) {
+                long lockId = response.getLockid();
+                if (System.currentTimeMillis() - start > timeoutMs) {
+                    throw new RuntimeException(
+                            "acquire lock timeout for txn " + txnId + " of query " + queryId + ", timeout(ms): "
+                                    + timeoutMs);
+                }
+                response = checkLock(lockId);
+            }
+
+            if (response.getState() != LockState.ACQUIRED) {
+                throw new RuntimeException("failed to acquire lock, lock in state " + response.getState());
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("failed to commit transaction " + txnId, e);
+        }
+    }
+
+    public ValidWriteIdList getValidWriteIds(String fullTableName, long currentTransactionId) {
+        try (CachedClient client = getClient()) {
+            // Pass currentTxn as 0L to get the recent snapshot of valid transactions in Hive
+            // Do not pass currentTransactionId instead as it will break Hive's listing of delta directories if major compaction
+            // deletes delta directories for valid transactions that existed at the time transaction is opened
+            ValidTxnList validTransactions = client.client.getValidTxns();
+            List<TableValidWriteIds> tableValidWriteIdsList = client.client.getValidWriteIds(
+                    Collections.singletonList(fullTableName), validTransactions.toString());
+            if (tableValidWriteIdsList.size() != 1) {
+                throw new Exception("tableValidWriteIdsList's size should be 1");
+            }
+            ValidTxnWriteIdList validTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(currentTransactionId,
+                    tableValidWriteIdsList);
+            ValidWriteIdList writeIdList = validTxnWriteIdList.getTableValidWriteIdList(fullTableName);
+            return writeIdList;
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "failed to get valid write ids for " + fullTableName + ", transaction " + currentTransactionId, e);
+        }
+    }
+
+    private LockResponse checkLock(long lockId) {
+        try (CachedClient client = getClient()) {
+            return client.client.checkLock(lockId);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to check lock " + lockId, e);
+        }
+    }
+
+    private static List<LockComponent> createLockComponentsForRead(TableName tblName, List<String> partitionNames) {
+        List<LockComponent> components = Lists.newArrayListWithCapacity(
+                partitionNames.isEmpty() ? 1 : partitionNames.size());
+        if (partitionNames.isEmpty()) {
+            components.add(createLockComponentForRead(tblName, Optional.empty()));
+        } else {
+            for (String partitionName : partitionNames) {
+                components.add(createLockComponentForRead(tblName, Optional.of(partitionName)));
+            }
+        }
+        return components;
+    }
+
+    private static LockComponent createLockComponentForRead(TableName tblName, Optional<String> partitionName) {
+        LockComponentBuilder builder = new LockComponentBuilder();
+        builder.setShared();
+        builder.setOperationType(DataOperationType.SELECT);
+        builder.setDbName(tblName.getDb());
+        builder.setTableName(tblName.getTbl());
+        partitionName.ifPresent(builder::setPartitionName);
+        builder.setIsTransactional(true);
+        return builder.build();
+    }
+
+    public void heartbeatForTxn(long txnId) {
+        try (CachedClient client = getClient()) {
+            client.client.heartbeat(txnId, txnId);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to do heartbeat for transaction " + txnId, e);
         }
     }
 

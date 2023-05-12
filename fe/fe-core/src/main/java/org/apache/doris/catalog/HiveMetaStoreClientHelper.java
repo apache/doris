@@ -75,8 +75,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TException;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Deque;
@@ -220,7 +222,7 @@ public class HiveMetaStoreClientHelper {
         while (queue.peek() != null) {
             RemoteFiles locs = queue.poll();
             try {
-                for (RemoteFile fileLocation : locs.locations()) {
+                for (RemoteFile fileLocation : locs.files()) {
                     Path filePath = fileLocation.getPath();
                     // hdfs://host:port/path/to/partition/file_name
                     String fullUri = filePath.toString();
@@ -233,6 +235,7 @@ public class HiveMetaStoreClientHelper {
                     brokerFileStatus.setIsDir(fileLocation.isDirectory());
                     brokerFileStatus.setIsSplitable(true);
                     brokerFileStatus.setSize(fileLocation.getSize());
+                    brokerFileStatus.setModificationTime(fileLocation.getModificationTime());
                     // filePath.toUri().getPath() = "/path/to/partition/file_name"
                     // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse
                     //     + /dae.db/customer/state=CA/city=SanJose/000000_0
@@ -544,7 +547,8 @@ public class HiveMetaStoreClientHelper {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+                    .withZone(ZoneId.systemDefault());
             StringBuilder sb = new StringBuilder();
             sb.append(dateLiteral.getYear())
                     .append(dateLiteral.getMonth())
@@ -554,8 +558,9 @@ public class HiveMetaStoreClientHelper {
                     .append(dateLiteral.getSecond());
             Date date;
             try {
-                date = formatter.parse(sb.toString());
-            } catch (ParseException e) {
+                date = Date.from(
+                        LocalDateTime.parse(sb.toString(), formatter).atZone(ZoneId.systemDefault()).toInstant());
+            } catch (DateTimeParseException e) {
                 return null;
             }
             return date.getTime();

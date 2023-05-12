@@ -23,7 +23,6 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
-#include <gen_cpp/version.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <opentelemetry/trace/span.h>
 #include <opentelemetry/trace/span_context.h>
@@ -39,6 +38,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/version_internal.h"
 #include "exec/data_sink.h"
 #include "exec/exec_node.h"
 #include "exec/scan_node.h"
@@ -224,7 +224,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up profile counters
     profile()->add_child(_plan->runtime_profile(), true, nullptr);
-    profile()->add_info_string("DoriBeVersion", DORIS_BUILD_SHORT_HASH);
+    profile()->add_info_string("DoriBeVersion", version::doris_build_short_hash());
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
@@ -371,7 +371,11 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
 
 void PlanFragmentExecutor::_collect_query_statistics() {
     _query_statistics->clear();
-    _plan->collect_query_statistics(_query_statistics.get());
+    Status status = _plan->collect_query_statistics(_query_statistics.get());
+    if (!status.ok()) {
+        LOG(INFO) << "collect query statistics failed, st=" << status;
+        return;
+    }
     _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
     if (_runtime_state->backend_id() != -1) {
         _collect_node_statistics();

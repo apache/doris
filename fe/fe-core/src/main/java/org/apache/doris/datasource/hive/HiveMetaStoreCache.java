@@ -60,8 +60,10 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
@@ -70,6 +72,9 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.security.PrivilegedExceptionAction;
 import java.util.HashMap;
 import java.util.List;
@@ -91,6 +96,8 @@ public class HiveMetaStoreCache {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreCache.class);
     private static final int MIN_BATCH_FETCH_PARTITION_NUM = 50;
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
+    // After hive 3, transactional table's will have file '_orc_acid_version' with value >= '2'.
+    public static final String HIVE_ORC_ACID_VERSION_FILE = "_orc_acid_version";
 
     private HMSExternalCatalog catalog;
 
@@ -112,7 +119,7 @@ public class HiveMetaStoreCache {
     }
 
     private void init() {
-        partitionValuesCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_partition_cache_num)
+        partitionValuesCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_table_catch_num)
                 .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
                 .build(CacheLoader.asyncReloading(
                         new CacheLoader<PartitionValueCacheKey, HivePartitionValues>() {
@@ -210,6 +217,12 @@ public class HiveMetaStoreCache {
         Map<Long, List<UniqueId>> idToUniqueIdsMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
         long idx = 0;
         for (String partitionName : partitionNames) {
+            try {
+                partitionName = URLDecoder.decode(partitionName, StandardCharsets.UTF_8.name());
+            } catch (UnsupportedEncodingException e) {
+                // It should not be here
+                throw new RuntimeException(e);
+            }
             long partitionId = idx++;
             ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types);
             idToPartitionItem.put(partitionId, listPartitionItem);
@@ -274,7 +287,7 @@ public class HiveMetaStoreCache {
         result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
         RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
         RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
-        locatedFiles.locations().forEach(result::addFile);
+        locatedFiles.files().forEach(result::addFile);
         result.setPartitionValues(partitionValues);
         return result;
     }
@@ -315,6 +328,7 @@ public class HiveMetaStoreCache {
                     // Convert the hadoop split to Doris Split.
                     for (int i = 0; i < splits.length; i++) {
                         org.apache.hadoop.mapred.FileSplit fs = ((org.apache.hadoop.mapred.FileSplit) splits[i]);
+                        // todo: get modification time
                         result.addSplit(new FileSplit(fs.getPath(), fs.getStart(), fs.getLength(), -1, null, null));
                     }
                 }
@@ -638,6 +652,52 @@ public class HiveMetaStoreCache {
         return fileCacheRef;
     }
 
+    public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds) {
+        List<FileCacheValue> fileCacheValues = Lists.newArrayList();
+        JobConf jobConf = getJobConf();
+        String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
+        try {
+            for (HivePartition partition : partitions) {
+                FileCacheValue fileCacheValue = new FileCacheValue();
+                AcidUtils.Directory directory;
+                if (!Strings.isNullOrEmpty(remoteUser)) {
+                    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
+                    directory = ugi.doAs((PrivilegedExceptionAction<AcidUtils.Directory>) () -> AcidUtils.getAcidState(
+                            new Path(partition.getPath()), jobConf, validWriteIds, false, true));
+                } else {
+                    directory = AcidUtils.getAcidState(new Path(partition.getPath()), jobConf, validWriteIds, false,
+                            true);
+                }
+                if (!directory.getOriginalFiles().isEmpty()) {
+                    throw new Exception("Original non-ACID files in transactional tables are not supported");
+                }
+
+                // delta directories
+                for (AcidUtils.ParsedDelta delta : directory.getCurrentDirectories()) {
+                    String location = delta.getPath().toString();
+                    RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
+                    RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
+                    locatedFiles.files().stream().filter(f -> !f.getName().equals(HIVE_ORC_ACID_VERSION_FILE))
+                            .forEach(fileCacheValue::addFile);
+                }
+
+                // base
+                if (directory.getBaseDirectory() != null) {
+                    String location = directory.getBaseDirectory().toString();
+                    RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
+                    RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
+                    locatedFiles.files().stream().filter(f -> !f.getName().equals(HIVE_ORC_ACID_VERSION_FILE))
+                            .forEach(fileCacheValue::addFile);
+                }
+                fileCacheValues.add(fileCacheValue);
+            }
+        } catch (Exception e) {
+            throw new CacheException("failed to get input splits for write ids %s in catalog %s", e,
+                    validWriteIds.toString(), catalog.getName());
+        }
+        return fileCacheValues;
+    }
+
     /**
      * The Key of hive partition value cache
      */
@@ -793,6 +853,7 @@ public class HiveMetaStoreCache {
             status.setPath(file.getPath());
             status.length = file.getSize();
             status.blockSize = file.getBlockSize();
+            status.modificationTime = file.getModificationTime();
             files.add(status);
         }
 
@@ -814,6 +875,7 @@ public class HiveMetaStoreCache {
         Path path;
         long length;
         long blockSize;
+        long modificationTime;
     }
 
     @Data
