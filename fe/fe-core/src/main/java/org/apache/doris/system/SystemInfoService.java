@@ -35,6 +35,8 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend.BackendState;
+import org.apache.doris.thrift.TNodeInfo;
+import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -155,6 +157,15 @@ public class SystemInfoService {
             }
         }
     };
+
+    public static TPaloNodesInfo createAliveNodesInfo() {
+        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
+        for (Long id : getBackendIds(true /*need alive*/)) {
+            Backend backend = systemInfoService.getBackend(id);
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
+        }
+        return nodesInfo;
+    }
 
     // for deploy manager
     public void addBackends(List<HostInfo> hostInfos, boolean isFree)

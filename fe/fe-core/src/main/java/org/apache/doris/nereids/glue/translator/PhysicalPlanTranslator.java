@@ -38,6 +38,7 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -235,6 +236,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (needFetch && fragment.getSink() instanceof ResultSink) {
                 TFetchOption fetchOption = new TFetchOption();
                 fetchOption.setFetchRowStore(fetchOlapTable.storeRowColumn());
+                fetchOption.setUseTwoPhaseFetch(true);
+                fetchOption.setNodesInfo(Env.getCurrentSystemInfo().createAliveNodesInfo());
                 ((ResultSink) fragment.getSink()).setFetchOption(fetchOption);
                 break;
             }

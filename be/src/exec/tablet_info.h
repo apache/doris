@@ -270,6 +270,7 @@ public:
         }
     }
     void setNodes(const TPaloNodesInfo& t_nodes) {
+        _nodes.clear();
         for (auto& node : t_nodes.nodes) {
             _nodes.emplace(node.id, node);
         }

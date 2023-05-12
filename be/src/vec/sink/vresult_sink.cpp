@@ -113,6 +113,7 @@ Status VResultSink::open(RuntimeState* state) {
 
 Status VResultSink::second_phase_fetch_data(RuntimeState* state, Block* final_block) {
     auto row_id_col = final_block->get_by_position(final_block->columns() - 1);
+    CHECK(row_id_col.name == BeConsts::ROWID_COL);
     auto tuple_desc = _row_desc.tuple_descriptors()[0];
     FetchOption fetch_option;
     fetch_option.desc = tuple_desc;

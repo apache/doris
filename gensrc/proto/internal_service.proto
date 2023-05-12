@@ -1,4 +1,5 @@
 // Licensed to the Apache Software Foundation (ASF) under one
+
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -603,7 +604,7 @@ message PFetchTableSchemaResult {
   repeated PTypeDesc column_types = 4;
 }
 
-message RowId {
+message PRowLocation {
     optional int64 tablet_id = 1;
     optional string rowset_id = 2;
     optional uint64 segment_id = 3;
@@ -611,7 +612,7 @@ message RowId {
 }
 
 message PMultiGetRequest {
-    repeated RowId rowids = 1;
+    repeated PRowLocation row_locs = 1;
     optional PTupleDescriptor desc = 2;
     repeated PSlotDescriptor slots = 3;
     // for compability
@@ -631,7 +632,7 @@ message PMultiGetResponse {
     optional RowFormat format = 3;
     repeated bytes binary_row_data = 4;
     // for sorting rows
-    repeated RowId row_ids = 5;
+    repeated PRowLocation row_locs = 5;
 };
 
 message PFetchColIdsRequest {

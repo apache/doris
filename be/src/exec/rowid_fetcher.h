@@ -60,7 +60,7 @@ private:
     Status _merge_rpc_results(const PMultiGetRequest& request,
                               const std::vector<PMultiGetResponse>& rsps,
                               const std::vector<brpc::Controller>& cntls,
-                              vectorized::Block* output_block, std::vector<RowId>* rows_id) const;
+                              vectorized::Block* output_block, std::vector<PRowLocation>* rows_id) const;
 
     std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
     FetchOption _fetch_option;

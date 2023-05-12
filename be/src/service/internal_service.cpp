@@ -1431,19 +1431,14 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
     }
 
     // read row by row
-    for (size_t i = 0; i < request.rowids_size(); ++i) {
-        const auto& row_id = request.rowids(i);
+    for (size_t i = 0; i < request.row_locs_size(); ++i) {
+        const auto& row_loc = request.row_locs(i);
         MonotonicStopWatch watch;
         watch.start();
-        Defer _defer([&]() {
-            LOG_EVERY_N(INFO, 100)
-                    << "multiget_data single_row, cost(us):" << watch.elapsed_time() / 1000;
-            *response->add_row_ids() = row_id;
-        });
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                row_id.tablet_id(), true /*include deleted*/);
+                row_loc.tablet_id(), true /*include deleted*/);
         RowsetId rowset_id;
-        rowset_id.init(row_id.rowset_id());
+        rowset_id.init(row_loc.rowset_id());
         if (!tablet) {
             continue;
         }
@@ -1453,6 +1448,13 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
             LOG(INFO) << "no such rowset " << rowset_id;
             continue;
         }
+        size_t row_size = 0;
+        Defer _defer([&]() {
+            LOG_EVERY_N(INFO, 100)
+                    << "multiget_data single_row, cost(us):" << watch.elapsed_time() / 1000
+                    << ", row_size:" << row_size;
+            *response->add_row_locs() = row_loc;
+        });
         const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
         VLOG_DEBUG << "get tablet schema column_num:" << tablet_schema->num_columns()
                    << ", version:" << tablet_schema->schema_version()
@@ -1462,27 +1464,28 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         // find segment
         auto it = std::find_if(segment_cache.get_segments().begin(),
                                segment_cache.get_segments().end(),
-                               [&row_id](const segment_v2::SegmentSharedPtr& seg) {
-                                   return seg->id() == row_id.segment_id();
+                               [&row_loc](const segment_v2::SegmentSharedPtr& seg) {
+                                   return seg->id() == row_loc.segment_id();
                                });
         if (it == segment_cache.get_segments().end()) {
             continue;
         }
         segment_v2::SegmentSharedPtr segment = *it;
-        GlobalRowLoacation row_location(row_id.tablet_id(), rowset->rowset_id(),
-                                        row_id.segment_id(), row_id.ordinal_id());
+        GlobalRowLoacation row_location(row_loc.tablet_id(), rowset->rowset_id(),
+                                        row_loc.segment_id(), row_loc.ordinal_id());
         // fetch by row store, more effcient way
         if (request.fetch_row_store()) {
             CHECK(tablet->tablet_schema()->store_row_column());
-            RowLocation loc(rowset_id, segment->id(), row_id.ordinal_id());
+            RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
             string* value = response->add_binary_row_data();
             RETURN_IF_ERROR(tablet->lookup_row_data({}, loc, rowset, &desc, stats, *value));
+            row_size = value->size();
             continue;
         }
 
         // fetch by column store
         if (result_block.is_empty_column()) {
-            result_block = vectorized::Block(desc.slots(), request.rowids().size());
+            result_block = vectorized::Block(desc.slots(), request.row_locs().size());
         }
         for (int x = 0; x < desc.slots().size(); ++x) {
             int index = tablet_schema->field_index(desc.slots()[x]->col_unique_id());
@@ -1503,9 +1506,9 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
             opt.stats = &stats;
             opt.use_page_cache = !config::disable_storage_page_cache;
             column_iterator->init(opt);
-            std::vector<segment_v2::rowid_t> rowids {
-                    static_cast<segment_v2::rowid_t>(row_id.ordinal_id())};
-            RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column));
+            std::vector<segment_v2::rowid_t> single_row_loc {
+                    static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
+            RETURN_IF_ERROR(column_iterator->read_by_rowids(single_row_loc.data(), 1, column));
         }
     }
     // serialize block if not empty

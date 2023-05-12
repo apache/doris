@@ -512,6 +512,8 @@ public class OriginalPlanner extends Planner {
             if (injected && fragment.getSink() instanceof ResultSink) {
                 TFetchOption fetchOption = new TFetchOption();
                 fetchOption.setFetchRowStore(olapTable.storeRowColumn());
+                fetchOption.setUseTwoPhaseFetch(true);
+                fetchOption.setNodesInfo(Env.getCurrentSystemInfo().createAliveNodesInfo());
                 ((ResultSink) fragment.getSink()).setFetchOption(fetchOption);
                 break;
             }

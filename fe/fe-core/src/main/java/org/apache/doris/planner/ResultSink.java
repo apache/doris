@@ -17,16 +17,11 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFetchOption;
-import org.apache.doris.thrift.TNodeInfo;
-import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TResultSink;
 
 /**
@@ -69,8 +64,6 @@ public class ResultSink extends DataSink {
         TDataSink result = new TDataSink(TDataSinkType.RESULT_SINK);
         TResultSink tResultSink = new TResultSink();
         if (fetchOption != null) {
-            fetchOption.setUseTwoPhaseFetch(true);
-            fetchOption.setNodesInfo(createNodesInfo());
             tResultSink.setFetchOption(fetchOption);
         }
         result.setResultSink(tResultSink);
@@ -85,19 +78,5 @@ public class ResultSink extends DataSink {
     @Override
     public DataPartition getOutputPartition() {
         return null;
-    }
-
-    /**
-    * Set the parameters used to fetch data by rowid column
-    * after init().
-    */
-    private TPaloNodesInfo createNodesInfo() {
-        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
-        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getBackendIds(true /*need alive*/)) {
-            Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
-        }
-        return nodesInfo;
     }
 }
