@@ -64,6 +64,10 @@ import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.system.BackendHbResponse;
+import org.apache.doris.system.BrokerHbResponse;
+import org.apache.doris.system.FrontendHbResponse;
+import org.apache.doris.system.HeartbeatResponse;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -190,12 +194,18 @@ public class GsonUtils {
             .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
-                    TableIf.class, "clazz")
-            .registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
+                    TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
             .registerSubtype(EsExternalTable.class, EsExternalTable.class.getSimpleName())
             .registerSubtype(HMSExternalTable.class, HMSExternalTable.class.getSimpleName())
             .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName())
             .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName());
+
+    // runtime adapter for class "HeartbeatResponse"
+    private static RuntimeTypeAdapterFactory<HeartbeatResponse> hbResponseTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(HeartbeatResponse.class, "clazz")
+            .registerSubtype(BackendHbResponse.class, BackendHbResponse.class.getSimpleName())
+            .registerSubtype(FrontendHbResponse.class, FrontendHbResponse.class.getSimpleName())
+            .registerSubtype(BrokerHbResponse.class, BrokerHbResponse.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
@@ -210,10 +220,9 @@ public class GsonUtils {
             .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory)
             .registerTypeAdapterFactory(syncJobTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
-            .registerTypeAdapterFactory(policyTypeAdapterFactory)
-            .registerTypeAdapterFactory(dsTypeAdapterFactory)
-            .registerTypeAdapterFactory(dbTypeAdapterFactory)
-            .registerTypeAdapterFactory(tblTypeAdapterFactory)
+            .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
+            .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
+            .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
 
