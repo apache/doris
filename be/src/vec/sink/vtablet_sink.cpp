@@ -963,9 +963,7 @@ void VNodeChannel::mark_close() {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool),
-          _input_row_desc(row_desc),
-          _filter_bitmap(1024) {
+        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(pool, texprs, &_output_vexpr_ctxs);
     _name = "VOlapTableSink";
@@ -1163,11 +1161,11 @@ void VOlapTableSink::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    while(true) {
+    while (true) {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num, this]
-                                                 (const std::shared_ptr<VNodeChannel>& ch) {
+            index_channel->for_each_node_channel([&running_channels_num,
+                                                  this](const std::shared_ptr<VNodeChannel>& ch) {
                 running_channels_num +=
                         ch->try_send_and_fetch_status(_state, this->_send_batch_thread_pool_token);
             });
