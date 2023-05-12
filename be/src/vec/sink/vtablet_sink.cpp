@@ -29,6 +29,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <google/protobuf/stubs/common.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <sys/param.h>
 #include <sys/types.h>
@@ -51,13 +52,13 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "service/brpc.h"
 #include "util/binary_cast.hpp"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
-#include "util/open_partition_closure.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
 #include "util/telemetry/telemetry.h"
@@ -90,6 +91,39 @@ namespace doris {
 class TExpr;
 
 namespace stream_load {
+
+class OpenPartitionClosure : public google::protobuf::Closure {
+public:
+    OpenPartitionClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel,
+                         int64_t partition_id)
+            : vnode_channel(vnode_channel),
+              index_channel(index_channel),
+              partition_id(partition_id) {};
+    ~OpenPartitionClosure() = default;
+
+    void Run() override {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        if (cntl.Failed()) {
+            std::stringstream ss;
+            ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
+               << ", error_text=" << this->cntl.ErrorText();
+            LOG(WARNING) << ss.str() << " " << vnode_channel->channel_info();
+            vnode_channel->cancel("Open partition error");
+            index_channel->mark_as_failed(vnode_channel->node_id(), vnode_channel->host(),
+                                          fmt::format("{}, open failed, err: {}",
+                                                      vnode_channel->channel_info(), ss.str()),
+                                          -1);
+        }
+    }
+
+    void join() { brpc::Join(cntl.call_id()); }
+
+    brpc::Controller cntl;
+    PartitionOpenResult result;
+    VNodeChannel* vnode_channel;
+    IndexChannel* index_channel;
+    int64_t partition_id;
+};
 
 IndexChannel::~IndexChannel() {
     if (_where_clause != nullptr) {
@@ -478,7 +512,7 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-void VNodeChannel::open_partition(int64_t partition_id, int64_t retry_count) {
+void VNodeChannel::open_partition(int64_t partition_id) {
     _timeout_watch.reset();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     PartitionOpenRequest request;
@@ -494,7 +528,7 @@ void VNodeChannel::open_partition(int64_t partition_id, int64_t retry_count) {
     }
 
     auto open_partition_closure =
-            std::make_unique<OpenPartitionClosure>(this, _index_channel, partition_id, retry_count);
+            std::make_unique<OpenPartitionClosure>(this, _index_channel, partition_id);
 
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
@@ -503,10 +537,9 @@ void VNodeChannel::open_partition(int64_t partition_id, int64_t retry_count) {
     open_partition_closure->cntl.set_timeout_ms(remain_ms);
     _stub->open_partition(&open_partition_closure.get()->cntl, &request,
                           &open_partition_closure.get()->result, open_partition_closure.get());
-    {
-        std::lock_guard<SpinLock> l(_open_partition_lock);
-        _open_partition_closures.insert(std::move(open_partition_closure));
-    }
+
+    _open_partition_closures.insert(std::move(open_partition_closure));
+
     request.release_id();
 }
 
@@ -1112,7 +1145,7 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
             for (const auto& tid : partition->indexes[j].tablets) {
                 auto it = _channels[j]->_channels_by_tablet.find(tid);
                 for (const auto& channel : it->second) {
-                    channel->open_partition(partition->id, 0);
+                    channel->open_partition(partition->id);
                 }
             }
         }

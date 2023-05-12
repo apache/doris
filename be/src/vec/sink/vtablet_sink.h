@@ -79,13 +79,13 @@ class TupleDescriptor;
 template <typename T>
 class RefCountClosure;
 
-class OpenPartitionClosure;
-
 namespace vectorized {
 class VExprContext;
 }
 
 namespace stream_load {
+
+class OpenPartitionClosure;
 
 // The counter of add_batch rpc of a single node
 struct AddBatchCounter {
@@ -213,7 +213,7 @@ public:
 
     void open();
 
-    void open_partition(int64_t partition_id, int64_t retry_count);
+    void open_partition(int64_t partition_id);
 
     Status init(RuntimeState* state);
 
@@ -317,7 +317,6 @@ protected:
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
     std::unordered_set<std::unique_ptr<OpenPartitionClosure>> _open_partition_closures;
-    SpinLock _open_partition_lock;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in
