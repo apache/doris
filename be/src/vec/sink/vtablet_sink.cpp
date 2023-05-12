@@ -71,6 +71,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
@@ -1726,26 +1727,45 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                 assert_cast<const vectorized::ColumnArray*>(real_column_ptr.get());
         DCHECK(type.children.size() == 1);
         auto nested_type = type.children[0];
-        if (nested_type.type == TYPE_ARRAY || nested_type.type == TYPE_CHAR ||
-            nested_type.type == TYPE_VARCHAR || nested_type.type == TYPE_STRING) {
-            const auto& offsets = column_array->get_offsets();
-            vectorized::IColumn::Permutation permutation(offsets.back());
-            for (size_t r = 0; r < offsets.size(); ++r) {
-                for (size_t c = offsets[r - 1]; c < offsets[r]; ++c) {
-                    permutation[c] = rows ? (*rows)[r] : r;
-                }
+        const auto& offsets = column_array->get_offsets();
+        vectorized::IColumn::Permutation permutation(offsets.back());
+        for (size_t r = 0; r < offsets.size(); ++r) {
+            for (size_t c = offsets[r - 1]; c < offsets[r]; ++c) {
+                permutation[c] = rows ? (*rows)[r] : r;
             }
-            fmt::format_to(error_prefix, "ARRAY type failed: ");
-            RETURN_IF_ERROR(_validate_column(
-                    state, nested_type, type.contains_nulls[0], column_array->get_data_ptr(),
-                    slot_index, filter_bitmap, stop_processing, error_prefix, &permutation));
         }
+        fmt::format_to(error_prefix, "ARRAY type failed: ");
+        RETURN_IF_ERROR(_validate_column(state, nested_type, type.contains_nulls[0],
+                                         column_array->get_data_ptr(), slot_index, filter_bitmap,
+                                         stop_processing, error_prefix, &permutation));
+        break;
+    }
+    case TYPE_MAP: {
+        const auto column_map = assert_cast<const vectorized::ColumnMap*>(real_column_ptr.get());
+        DCHECK(type.children.size() == 2);
+        auto key_type = type.children[0];
+        auto val_type = type.children[1];
+        const auto& offsets = column_map->get_offsets();
+        vectorized::IColumn::Permutation permutation(offsets.back());
+        for (size_t r = 0; r < offsets.size(); ++r) {
+            for (size_t c = offsets[r - 1]; c < offsets[r]; ++c) {
+                permutation[c] = rows ? (*rows)[r] : r;
+            }
+        }
+        fmt::format_to(error_prefix, "MAP type failed: ");
+        RETURN_IF_ERROR(_validate_column(state, key_type, type.contains_nulls[0],
+                                         column_map->get_keys_ptr(), slot_index, filter_bitmap,
+                                         stop_processing, error_prefix, &permutation));
+        RETURN_IF_ERROR(_validate_column(state, val_type, type.contains_nulls[1],
+                                         column_map->get_values_ptr(), slot_index, filter_bitmap,
+                                         stop_processing, error_prefix, &permutation));
         break;
     }
     case TYPE_STRUCT: {
         const auto column_struct =
                 assert_cast<const vectorized::ColumnStruct*>(real_column_ptr.get());
         DCHECK(type.children.size() == column_struct->tuple_size());
+        fmt::format_to(error_prefix, "STRUCT type failed: ");
         for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
             RETURN_IF_ERROR(_validate_column(state, type.children[sc], type.contains_nulls[sc],
                                              column_struct->get_column_ptr(sc), slot_index,

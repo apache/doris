@@ -745,6 +745,9 @@ public class Env {
 
     // use this to get correct env's journal version
     public static int getCurrentEnvJournalVersion() {
+        if (MetaContext.get() == null) {
+            return FeMetaVersion.VERSION_CURRENT;
+        }
         return MetaContext.get().getMetaVersion();
     }
 
@@ -3444,8 +3447,10 @@ public class Env {
                             DataProperty hddProperty = new DataProperty(TStorageMedium.HDD);
                             partitionInfo.setDataProperty(partition.getId(), hddProperty);
                             storageMediumMap.put(partitionId, TStorageMedium.HDD);
-                            LOG.debug("partition[{}-{}-{}] storage medium changed from SSD to HDD", dbId, tableId,
-                                    partitionId);
+                            LOG.info("partition[{}-{}-{}] storage medium changed from SSD to HDD. "
+                                            + "cooldown time: {}. current time: {}", dbId, tableId, partitionId,
+                                    TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()),
+                                    TimeUtils.longToTimeString(currentTimeMs));
 
                             // log
                             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(),

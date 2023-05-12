@@ -33,6 +33,7 @@ under the License.
     <disallow pkg="com.alibaba.fastjson2" />
     <disallow pkg="org.apache.log4j.LogManager" />
     <disallow pkg="org.apache.log4j.Logger" />
+    <disallow pkg="java.text.SimpleDateFormat"/>
     <subpackage name="nereids">
         <allow pkg="org.junit.jupiter"/>
         <disallow pkg="org.junit"/>

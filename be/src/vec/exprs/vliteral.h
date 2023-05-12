@@ -51,6 +51,8 @@ public:
 
     std::string value() const;
 
+    const ColumnPtr& get_column_ptr() const { return _column_ptr; }
+
 protected:
     ColumnPtr _column_ptr;
     std::string _expr_name;
