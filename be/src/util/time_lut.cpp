@@ -113,8 +113,7 @@ uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
         delsum -= (month * 4 + 23) / 10;
     }
 
-    // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.\
-    // because 0000 is leap year, so we need (y / 4 + 1)
+    // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
     return delsum + y / 4 - y / 100 + y / 400;
 }
 
