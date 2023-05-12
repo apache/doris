@@ -116,13 +116,9 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = getExplainLevel(queryStmt.getExplainOptions());
 
         LogicalPlan parsedPlan = logicalPlanAdapter.getLogicalPlan();
-        Plan resultPlan = plan(parsedPlan, explainLevel);
         NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
-        PhysicalProperties requireProperties = buildInitRequireProperties(parsedPlan);
-        PhysicalProperties requireProperties = buildInitRequireProperties(
-                ((LogicalPlanAdapter) statementContext.getParsedStatement()).getLogicalPlan());
-        Plan resultPlan = plan(parsedPlan, requireProperties, explainLevel);
+        Plan resultPlan = plan(parsedPlan, explainLevel);
         setOptimizedPlan(resultPlan);
         if (explainLevel.isPlanLevel) {
             return;
@@ -256,8 +252,6 @@ public class NereidsPlanner extends Planner {
                 LOG.info(memo);
             }
 
-            int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
-            PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
             int nth = ConnectContext.get().getSessionVariable().getNthOptimizedPlan();
             PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), cascadesContext.getProperties(), nth);
 
@@ -289,11 +283,6 @@ public class NereidsPlanner extends Planner {
         return new PlanPreprocessors(statementContext).process(logicalPlan);
     }
 
-    private void initCascadesContext(LogicalPlan plan, PhysicalProperties requireProperties) {
-        cascadesContext = CascadesContext.newRewriteContext(statementContext, plan, requireProperties);
-        if (statementContext.getConnectContext().getTables() != null) {
-            cascadesContext.setTables(statementContext.getConnectContext().getTables());
-        }
     private void initCascadesContext(LogicalPlan plan) {
         cascadesContext = CascadesContext.newRewriteContext(statementContext, plan);
     }
