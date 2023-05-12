@@ -1086,7 +1086,7 @@ public class JdbcExecutor {
                     UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                             UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
                                     date.getDayOfMonth(), date.getHour(), date.getMinute(),
-                                    date.getSecond()));
+                                    date.getSecond(), date.getNano() / 1000));
                 }
             }
         } else {
@@ -1095,7 +1095,7 @@ public class JdbcExecutor {
                 UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                         UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
                                 date.getDayOfMonth(), date.getHour(), date.getMinute(),
-                                date.getSecond()));
+                                date.getSecond(), date.getNano() / 1000));
             }
         }
     }
@@ -1195,7 +1195,7 @@ public class JdbcExecutor {
         int[] offsets = new int[numRows];
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
-        if (isNullable == true) {
+        if (isNullable) {
             // Here can not loop from startRowForNullable,
             // because byteRes will be used later
             for (int i = 0; i < numRows; i++) {
@@ -1203,14 +1203,36 @@ public class JdbcExecutor {
                     byteRes[i] = emptyBytes;
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    byteRes[i] = column[i].toString().getBytes(StandardCharsets.UTF_8);
+                    String result = column[i].toString();
+                    if (column[i] instanceof java.sql.Time) {
+                        // the default toString() method doesn't format the milliseconds in Time.
+                        long milliseconds = ((java.sql.Time) column[i]).getTime() % 1000L;
+                        if (milliseconds > 0) {
+                            result = String.format("%s.%03d", column[i].toString(), milliseconds);
+                        }
+                    }
+                    byteRes[i] = result.getBytes(StandardCharsets.UTF_8);
                 }
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
         } else {
+            boolean isTime = numRows > 0 && column[0] instanceof java.sql.Time;
             for (int i = 0; i < numRows; i++) {
-                byteRes[i] = column[i].toString().getBytes(StandardCharsets.UTF_8);
+                String result = column[i].toString();
+                if (isTime) {
+                    // Doc https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-reference-type-conversions.html
+                    // shows that jdbc API use java.sql.Time to hold the TIME type,
+                    // but java.sql.Time can only have millisecond precision.
+                    // the default toString() method doesn't format the milliseconds in Time.
+                    // Doc https://dev.mysql.com/doc/refman/8.0/en/time.html shows that MySQL supports time[0~6],
+                    // so time[4~6] will lose precision
+                    long milliseconds = ((java.sql.Time) column[i]).getTime() % 1000L;
+                    if (milliseconds > 0) {
+                        result = String.format("%s.%03d", column[i].toString(), milliseconds);
+                    }
+                }
+                byteRes[i] = result.getBytes(StandardCharsets.UTF_8);
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
@@ -1232,7 +1254,7 @@ public class JdbcExecutor {
         int[] offsets = new int[numRows];
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
-        if (isNullable == true) {
+        if (isNullable) {
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
                     byteRes[i] = emptyBytes;
@@ -1390,7 +1412,7 @@ public class JdbcExecutor {
 
     private void copyBatchDecimalResult(BigInteger[] column, boolean isNullable, int numRows,
             long columnAddr, int typeLen, int startRowForNullable) {
-        if (isNullable == true) {
+        if (isNullable) {
             for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] != null) {
                     byte[] bytes = UdfUtils.convertByteOrder(column[i].toByteArray());
@@ -1426,7 +1448,7 @@ public class JdbcExecutor {
         int[] offsets = new int[numRows];
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
-        if (isNullable == true) {
+        if (isNullable) {
             // Here can not loop from startRowForNullable,
             // because byteRes will be used later
             for (int i = 0; i < numRows; i++) {
@@ -1463,7 +1485,7 @@ public class JdbcExecutor {
         int[] offsets = new int[numRows];
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
-        if (isNullable == true) {
+        if (isNullable) {
             // Here can not loop from startRowForNullable,
             // because byteRes will be used later
             for (int i = 0; i < numRows; i++) {
