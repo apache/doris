@@ -326,7 +326,6 @@ public abstract class PlanVisitor<R, C> {
         return visitAbstractPhysicalSort(topN, context);
     }
 
-    // TODO: finish corresponding overrides functions
     public R visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, C context) {
         return visit(partitionTopN, context);
     }

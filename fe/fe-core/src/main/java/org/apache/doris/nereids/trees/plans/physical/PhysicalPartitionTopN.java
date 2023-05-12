@@ -89,6 +89,7 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
         return function;
     }
 
+    @Override
     public List<Expression> getPartitionKeys() {
         return partitionKeys;
     }
@@ -97,10 +98,12 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
         return orderKeys;
     }
 
+    @Override
     public boolean hasGlobalLimit() {
         return hasGlobalLimit;
     }
 
+    @Override
     public long getPartitionLimit() {
         return partitionLimit;
     }
@@ -133,7 +136,6 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
         return visitor.visitPhysicalPartitionTopN(this, context);
     }
 
-    // TODO: need to check what to return
     @Override
     public List<? extends Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()

@@ -73,7 +73,6 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         this.partitionLimit = partitionLimit;
     }
 
-    // TODO: need to implement the computeOutput for PartitionTopN
     @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
@@ -83,6 +82,7 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         return function;
     }
 
+    @Override
     public List<Expression> getPartitionKeys() {
         return partitionKeys;
     }
@@ -91,10 +91,12 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         return orderKeys;
     }
 
+    @Override
     public boolean hasGlobalLimit() {
         return hasGlobalLimit;
     }
 
+    @Override
     public long getPartitionLimit() {
         return partitionLimit;
     }
@@ -134,7 +136,6 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         return visitor.visitLogicalPartitionTopN(this, context);
     }
 
-    // TODO: implement this function
     @Override
     public List<? extends Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()

@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -60,7 +59,6 @@ public class ImplementationTest {
             .put(LogicalFilter.class.getName(), (new LogicalFilterToPhysicalFilter()).build())
             .put(LogicalSort.class.getName(), (new LogicalSortToPhysicalQuickSort()).build())
             .put(LogicalTopN.class.getName(), (new LogicalTopNToPhysicalTopN()).build())
-            .put(LogicalPartitionTopN.class.getName(), (new LogicalPartitionTopNToPhysicalPartitionTopN()).build())
             .put(LogicalLimit.class.getName(), (new LogicalLimitToPhysicalLimit()).build())
             .build();
     @Mocked

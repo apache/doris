@@ -159,14 +159,14 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return Objects.hash(windowExpressions, isChecked);
     }
 
-    public static boolean checkWindowFuncName4PartitionLimit(WindowExpression windowFunc) {
+    public static boolean checkWindowFuncName4PartitionTopN(WindowExpression windowFunc) {
         return windowFunc.getFunction() instanceof RowNumber
             || windowFunc.getFunction() instanceof Rank
             || windowFunc.getFunction() instanceof DenseRank;
     }
 
-    public static boolean checkWindowPartitionAndOrderKey4PartitionLimit(WindowExpression windowFunc) {
-        return !windowFunc.getPartitionKeys().isEmpty() || !windowFunc.getOrderKeys().isEmpty();
+    public static boolean checkWindowPartitionAndOrderKey4PartitionTopN(WindowExpression windowFunc) {
+        return !(windowFunc.getPartitionKeys().isEmpty() && windowFunc.getOrderKeys().isEmpty());
     }
 
     /**
@@ -174,7 +174,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
      * @param windowFunc the window expression to be checked
      * @return true if the window frame is valid, false otherwise
      */
-    public static boolean checkWindowFrame4PartitionLimit(WindowExpression windowFunc) {
+    public static boolean checkWindowFrame4PartitionTopN(WindowExpression windowFunc) {
         Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
         if (windowFrame.isPresent()) {
             WindowFrame frame = windowFrame.get();

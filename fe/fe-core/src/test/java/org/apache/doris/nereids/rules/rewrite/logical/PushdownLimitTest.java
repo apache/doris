@@ -19,16 +19,26 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
+import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -38,12 +48,14 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -245,35 +257,46 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                         )
                 );
     }
-    //    @Test
-    //    public void testLimitPushWindow() {
-    //        NamedExpression grade = scanScore.getOutput().get(2).toSlot();
-    //
-    //        List<Expression> partitionKeyList = ImmutableList.of();
-    //        List<OrderExpression> orderKeyList = ImmutableList.of(new OrderExpression(
-    //                new OrderKey(grade, true, true)));
-    //        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
-    //                WindowFrame.FrameBoundary.newPrecedingBoundary(),
-    //                WindowFrame.FrameBoundary.newCurrentRowBoundary());
-    //        WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList, windowFrame);
-    //        Alias windowAlias1 = new Alias(window1, window1.toSql());
-    //        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
-    //        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scanScore);
-    //
-    //        LogicalPlan plan = new LogicalPlanBuilder(window)
-    //                .limit(100)
-    //                .build();
-    //
-    //        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-    //                .rewrite()
-    //                .matches(
-    //                    logicalLimit(
-    //                        logicalWindow(
-    //                            logicalOlapScan()
-    //                        ).when(logicalWindow -> logicalWindow.getPartitionLimit() == 100)
-    //                    ).when(limit -> limit.getLimit() == 100)
-    //                );
-    //    }
+
+    @Test
+    public void testLimitPushWindow() {
+        NamedExpression grade = scanScore.getOutput().get(2).toSlot();
+
+        List<Expression> partitionKeyList = ImmutableList.of();
+        List<OrderExpression> orderKeyList = ImmutableList.of(new OrderExpression(
+                new OrderKey(grade, true, true)));
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList, windowFrame);
+        Alias windowAlias1 = new Alias(window1, window1.toSql());
+        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scanScore);
+
+        LogicalPlan plan = new LogicalPlanBuilder(window)
+                .limit(100)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .rewrite()
+                .matches(
+                    logicalLimit(
+                        logicalWindow(
+                            logicalPartitionTopN(
+                                logicalOlapScan()
+                            ).when(logicalPartitionTopN -> {
+                                String funName = logicalPartitionTopN.getFunction().toString();
+                                List<Expression> partitionKeys = logicalPartitionTopN.getPartitionKeys();
+                                List<OrderExpression> orderKeys = logicalPartitionTopN.getOrderKeys();
+                                boolean hasGlobalLimit = logicalPartitionTopN.hasGlobalLimit();
+                                long partitionLimit = logicalPartitionTopN.getPartitionLimit();
+                                return Objects.equals(funName, "row_number()") && partitionKeys.equals(partitionKeyList)
+                                    && orderKeys.equals(orderKeyList) && hasGlobalLimit && partitionLimit == 100;
+                            })
+                        )
+                    ).when(limit -> limit.getLimit() == 100)
+                );
+    }
 
     private void test(JoinType joinType, boolean hasProject, PatternDescriptor<? extends Plan> pattern) {
         Plan plan = generatePlan(joinType, hasProject);

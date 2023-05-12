@@ -480,7 +480,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private Statistics computePartitionTopN(PartitionTopN partitionTopN) {
         Statistics stats = groupExpression.childStatistics(0);
         long rowCount = partitionTopN.getPartitionLimit();
-        // TODO: need to calculate the row count
+        List<Expression> partitionKeys = partitionTopN.getPartitionKeys();
+        if (!partitionTopN.hasGlobalLimit() && !partitionKeys.isEmpty()) {
+            // TODO: Need use the NDV for the partition key
+        }
         return stats.withRowCount(rowCount);
     }
 

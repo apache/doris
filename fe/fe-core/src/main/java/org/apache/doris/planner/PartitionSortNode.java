@@ -157,21 +157,8 @@ public class PartitionSortNode extends PlanNode {
         cardinality = (long) statsDeriveResult.getRowCount();
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Sort: cardinality=" + cardinality);
+            LOG.debug("stats Partition Sort: cardinality=" + cardinality);
         }
-    }
-
-    @Override
-    protected void computeOldCardinality() {
-        cardinality = getChild(0).cardinality;
-        if (hasLimit()) {
-            if (cardinality == -1) {
-                cardinality = limit;
-            } else {
-                cardinality = Math.min(cardinality, limit);
-            }
-        }
-        LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
     }
 
     public void init(Analyzer analyzer) throws UserException {
@@ -212,8 +199,8 @@ public class PartitionSortNode extends PlanNode {
         info.substituteOrderingExprs(outputSmap, analyzer);
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("sort id " + tupleIds.get(0).toString() + " smap: " + outputSmap.debugString());
-            LOG.debug("sort input exprs: " + Expr.debugString(resolvedTupleExprs));
+            LOG.debug("partition sort id " + tupleIds.get(0).toString() + " smap: " + outputSmap.debugString());
+            LOG.debug("partition sort input exprs: " + Expr.debugString(resolvedTupleExprs));
         }
     }
 

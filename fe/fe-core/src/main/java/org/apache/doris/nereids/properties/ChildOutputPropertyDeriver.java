@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
@@ -129,6 +130,14 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     childOutputProperty.getOrderSpec());
         }
         return new PhysicalProperties(DistributionSpecGather.INSTANCE, childOutputProperty.getOrderSpec());
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN,
+                                                         PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
+        return new PhysicalProperties(childOutputProperty.getDistributionSpec());
     }
 
     @Override

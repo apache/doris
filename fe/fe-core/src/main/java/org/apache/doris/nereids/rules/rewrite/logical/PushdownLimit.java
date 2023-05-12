@@ -83,17 +83,17 @@ public class PushdownLimit implements RewriteRuleFactory {
 
                     WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
                     // Check the window function name.
-                    if (!LogicalWindow.checkWindowFuncName4PartitionLimit(windowFunc)) {
+                    if (!LogicalWindow.checkWindowFuncName4PartitionTopN(windowFunc)) {
                         return limit;
                     }
 
                     // Check the partition key and order key.
-                    if (!LogicalWindow.checkWindowPartitionAndOrderKey4PartitionLimit(windowFunc)) {
+                    if (!LogicalWindow.checkWindowPartitionAndOrderKey4PartitionTopN(windowFunc)) {
                         return limit;
                     }
 
                     // Check the window type and window frame.
-                    if (!LogicalWindow.checkWindowFrame4PartitionLimit(windowFunc)) {
+                    if (!LogicalWindow.checkWindowFrame4PartitionTopN(windowFunc)) {
                         return limit;
                     }
 

@@ -17,6 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+import java.util.List;
+
 /**
  * Common interface for logical/physical PartitionTopN.
  */
@@ -24,4 +28,6 @@ public interface PartitionTopN {
     long getPartitionLimit();
 
     boolean hasGlobalLimit();
+
+    List<Expression> getPartitionKeys();
 }

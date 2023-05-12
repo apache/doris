@@ -45,7 +45,7 @@ import java.util.function.Predicate;
 
 /**
  * Push down the 'filter' into the 'window'.
- * It will convert the filter condition to the 'limit value' and embed it to the 'window'.
+ * It will convert the filter condition to the 'limit value' and push down below the 'window'.
  * But there are some restrictions, the details are explained below.
  * For example:
  * 'SELECT * FROM (
@@ -67,7 +67,9 @@ import java.util.function.Predicate;
  *                   |
  *                filter (row_number <= 100)
  *                   |
- *                window (PARTITION BY a ORDER BY b) [Limit: 100]
+ *                window (PARTITION BY a ORDER BY b)
+ *                   |
+ *                partition_topn(PARTITION BY: a, ORDER BY b, Partition Limit: 100)
  *                   |
  *                 any_node
  */
@@ -101,26 +103,25 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
 
             WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
             // Check the window function name.
-            if (!LogicalWindow.checkWindowFuncName4PartitionLimit(windowFunc)) {
+            if (!LogicalWindow.checkWindowFuncName4PartitionTopN(windowFunc)) {
                 return filter;
             }
 
             // Check the partition key and order key.
-            if (!LogicalWindow.checkWindowPartitionAndOrderKey4PartitionLimit(windowFunc)) {
+            if (!LogicalWindow.checkWindowPartitionAndOrderKey4PartitionTopN(windowFunc)) {
                 return filter;
             }
 
             // Check the window type and window frame.
-            if (!LogicalWindow.checkWindowFrame4PartitionLimit(windowFunc)) {
+            if (!LogicalWindow.checkWindowFrame4PartitionTopN(windowFunc)) {
                 return filter;
             }
 
             // Check the filter conditions. Now, we currently only support simple conditions of the form
             // 'column </ <=/ = constant'. We will extract some related conjuncts and do some check.
-            // Only all the related conjuncts are met the condition we will handle it.
             Set<Expression> conjuncts = filter.getConjuncts();
-            boolean existsOrInConjuncts = conjuncts.stream().anyMatch(this::existOR);
-            if (existsOrInConjuncts) {
+            boolean existsORConditionsInConjuncts = conjuncts.stream().anyMatch(this::existOR);
+            if (existsORConditionsInConjuncts) {
                 return filter;
             }
 
@@ -150,8 +151,8 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                     partitionLimit = Math.min(partitionLimit, limitVal);
                 } else {
                     partitionLimit = limitVal;
+                    hasPartitionLimit = true;
                 }
-                hasPartitionLimit = true;
             }
 
             if (!hasPartitionLimit) {
@@ -189,16 +190,15 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                 return false;
             }
 
+            // Now, we only support the column on the left side.
             if (!(leftChild instanceof SlotReference) || !(rightChild instanceof IntegerLikeLiteral)) {
                 return false;
             }
             return ((SlotReference) leftChild).getExprId() == slotRefID;
         };
 
-        Set<Expression> relatedConjuncts = conjuncts.stream()
+        return conjuncts.stream()
                 .filter(condition)
                 .collect(ImmutableSet.toImmutableSet());
-        return relatedConjuncts;
-
     }
 }
