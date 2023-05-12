@@ -352,11 +352,30 @@ Status BuildInvertedIndex::handle_inverted_index_data() {
 }
 
 Status BuildInvertedIndex::do_build_inverted_index() {
+    std::unique_lock<std::mutex> schema_change_lock(_tablet->get_schema_change_lock(), std::try_to_lock);
+    if (!schema_change_lock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("try schema_change_lock failed");
+    }
+    // Check executing serially with compaction task.
+    std::unique_lock<std::mutex> base_compaction_lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
+    if (!base_compaction_lock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("try base_compaction_lock failed");
+    }
+    std::unique_lock<std::mutex> cumu_compaction_lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
+    if (!cumu_compaction_lock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("try cumu_compaction_lock failed");
+    }
+
+    std::unique_lock<std::mutex> cold_compaction_lock(_tablet->get_cold_compaction_lock(), std::try_to_lock);
+    if (!cold_compaction_lock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("try cold_compaction_lock failed");
+    }
+
+    LOG(INFO) << "begine to do_build_inverted_index, tablet=" << _tablet->tablet_id()
+             << ", is_drop_op=" << _is_drop_op;
     if (_alter_inverted_indexes.empty()) {
         return Status::OK();
     }
-    LOG(INFO) << "begine to do_build_inverted_index, tablet=" << _tablet->tablet_id()
-             << ", is_drop_op=" << _is_drop_op;
 
     std::unique_lock<std::mutex> build_inverted_index_lock(_tablet->get_build_inverted_index_lock(),
                                                            std::try_to_lock);
@@ -366,10 +385,6 @@ Status BuildInvertedIndex::do_build_inverted_index() {
         return Status::Error<ErrorCode::TRY_LOCK_FAILED>();
     }
 
-    std::lock_guard base_compaction_lock(_tablet->get_base_compaction_lock());
-    std::lock_guard cumulative_compaction_lock(_tablet->get_cumulative_compaction_lock());
-    std::lock_guard cold_compaction_lock(_tablet->get_cold_compaction_lock());
-    std::lock_guard schema_change_lock(_tablet->get_schema_change_lock());
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
         return Status::Error<ErrorCode::BE_CLONE_OCCURRED>();

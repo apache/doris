@@ -2808,6 +2808,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     continue;
                 }
 
+                if (hasInvertedIndexJobOnPartition(db.getId(), olapTable.getId(), partitionName,
+                        alterInvertedIndexes, isDropOp)) {
+                    throw new DdlException("partition " + partitionName + " has been built specified index."
+                                           + " please check your build stmt.");
+                }
+
                 invertedIndexJob.setPartitionId(partitionId);
                 invertedIndexJob.setPartitionName(partitionName);
 
@@ -2819,6 +2825,23 @@ public class SchemaChangeHandler extends AlterHandler {
                         olapTable.getName(), partitionName, jobId);
             } // end for partition
         } // end for index
+    }
+
+    public boolean hasInvertedIndexJobOnPartition(
+            long dbId, long tableId, String partitionName,
+            List<Index> alterInvertedIndexes, boolean isDrop) {
+        // TODO: this is temporary methods
+        for (InvertedIndexJob invertedIndexJob : ImmutableList.copyOf(invertedIndexJobs.values())) {
+            if (invertedIndexJob.getDbId() == dbId
+                    && invertedIndexJob.getTableId() == tableId
+                    && invertedIndexJob.getPartitionName().equals(partitionName)
+                    && invertedIndexJob.hasSameAlterInvertedIndex(isDrop, alterInvertedIndexes)
+                    && invertedIndexJob.getJobState() != InvertedIndexJob.JobState.CANCELLED) {
+                // if JobState is CANCELLED, also allow user to create job again
+                return true;
+            }
+        }
+        return false;
     }
 
     public void replayInvertedIndexJob(InvertedIndexJob invertedIndexJob) throws MetaNotFoundException {

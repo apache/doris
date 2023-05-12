@@ -2714,7 +2714,9 @@ public class ShowExecutor {
         ShowBuildIndexStmt showStmt = (ShowBuildIndexStmt) stmt;
         ProcNodeInterface procNodeI = showStmt.getNode();
         Preconditions.checkNotNull(procNodeI);
-        List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResult().getRows();
+        // List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResult().getRows();
+        List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 }

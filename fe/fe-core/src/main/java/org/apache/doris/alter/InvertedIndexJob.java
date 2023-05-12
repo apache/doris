@@ -41,6 +41,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterInvertedIndexTask;
 import org.apache.doris.thrift.TColumn;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -145,6 +146,19 @@ public class InvertedIndexJob implements Writable {
         this.alterInvertedIndexes = alterInvertedIndexes;
     }
 
+    public boolean hasSameAlterInvertedIndex(boolean isDropOp, List<Index> inputAlterInvertedIndexes) {
+        if (this.isDropOp == isDropOp) {
+            for (Index inputIndex : inputAlterInvertedIndexes) {
+                for (Index existIndex : this.alterInvertedIndexes) {
+                    if (inputIndex.getIndexId() == existIndex.getIndexId()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     public long getDbId() {
         return dbId;
     }
@@ -155,6 +169,10 @@ public class InvertedIndexJob implements Writable {
 
     public String getTableName() {
         return tableName;
+    }
+
+    public String getPartitionName() {
+        return partitionName;
     }
 
     public boolean isExpire() {
@@ -342,6 +360,18 @@ public class InvertedIndexJob implements Writable {
         Text.writeString(out, json);
     }
 
+    public String getAlterInvertedIndexesInfo() {
+        String info = null;
+        List<String> infoList = Lists.newArrayList();
+        String invertedIndexChangeInfo = "";
+        for (Index invertedIndex : alterInvertedIndexes) {
+            invertedIndexChangeInfo += "[" + (isDropOp ? "DROP " : "ADD ") + invertedIndex.toString() + "], ";
+        }
+        infoList.add(invertedIndexChangeInfo);
+        info = Joiner.on(", ").join(infoList.subList(0, infoList.size()));
+        return info;
+    }
+
     public void getInfo(List<List<Comparable>> infos) {
         // calc progress first. all index share the same process
         String progress = FeConstants.null_string;
@@ -353,6 +383,7 @@ public class InvertedIndexJob implements Writable {
         info.add(jobId);
         info.add(tableName);
         info.add(partitionName);
+        info.add(getAlterInvertedIndexesInfo());
         info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
         info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
         info.add(watershedTxnId);

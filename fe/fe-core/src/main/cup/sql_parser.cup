@@ -4019,10 +4019,10 @@ show_param ::=
     {:
         RESULT = new ShowQueryStatsStmt(dbTblName, true, true);
     :}
-    /* show build inverted index job */
-    | KW_INVERTED from_or_in table_name:dbTblName opt_db:dbName
+    /* show build index job */
+    | KW_BUILD KW_INDEX opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowBuildIndexStmt(dbName, dbTblName);
+        RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
     ;
 

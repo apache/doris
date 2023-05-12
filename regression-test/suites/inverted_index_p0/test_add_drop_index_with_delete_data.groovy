@@ -37,6 +37,29 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
+    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+            expected_finished_num = alter_res.size();
+            finished_num = 0;
+            for (int i = 0; i < expected_finished_num; i++) {
+                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
+                if (alter_res[i][7] == "FINISHED") {
+                    ++finished_num;
+                }
+            }
+            if (finished_num == expected_finished_num) {
+                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+                break
+            } else {
+                finished_num = 0;
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
+    }
+
     def indexTbName1 = "test_add_drop_inverted_index3"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -105,7 +128,7 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     sql "build index idx_desc on ${indexTbName1}"
-    sleep(3000)
+    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
 
     // show index after add index
     show_result = sql "show index from ${indexTbName1}"
@@ -205,7 +228,7 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     sql "build index idx_desc on ${indexTbName1}"
-    sleep(3000)
+    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
 
     // show index after add index
     show_result = sql "show index from ${indexTbName1}"
