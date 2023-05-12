@@ -160,9 +160,10 @@ public class SystemInfoService {
 
     public static TPaloNodesInfo createAliveNodesInfo() {
         TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
-        for (Long id : getBackendIds(true /*need alive*/)) {
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        for (Long id : systemInfoService.getBackendIds(true /*need alive*/)) {
             Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
         return nodesInfo;
     }

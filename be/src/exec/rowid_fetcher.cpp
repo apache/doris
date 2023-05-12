@@ -86,6 +86,8 @@ PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnStrin
     for (size_t i = 0; i < row_locs.size(); ++i) {
         PRowLocation row_loc;
         StringRef row_id_rep = row_locs.get_data_at(i);
+        // TODO: When transferring data between machines with different byte orders (endianness),
+        // not performing proper handling may lead to issues in parsing and exchanging the data.
         auto location = reinterpret_cast<const GlobalRowLoacation*>(row_id_rep.data);
         row_loc.set_tablet_id(location->tablet_id);
         row_loc.set_rowset_id(location->row_location.rowset_id.to_string());

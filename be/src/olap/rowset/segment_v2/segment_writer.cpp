@@ -326,6 +326,9 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
             break;
         }
     }
+    if (row_column_id == 0) {
+        return;
+    }
     vectorized::ColumnString* row_store_column =
             static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)
                                                            .column->assume_mutable_ref()

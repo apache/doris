@@ -111,12 +111,12 @@
 #include "util/time.h"
 #include "util/trace.h"
 #include "util/uid_util.h"
-#include "vec/jsonb/serialize.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/jsonb/serialize.h"
 
 namespace doris {
 class TupleDescriptor;
