@@ -219,19 +219,19 @@ GeoShape* GeoShape::from_encoded(const void* ptr, size_t size) {
     std::unique_ptr<GeoShape> shape;
     switch (((const char*)ptr)[1]) {
     case GEO_SHAPE_POINT: {
-        shape.reset(new GeoPoint());
+        shape.reset(GeoPoint::create_unique().release());
         break;
     }
     case GEO_SHAPE_LINE_STRING: {
-        shape.reset(new GeoLine());
+        shape.reset(GeoLine::create_unique().release());
         break;
     }
     case GEO_SHAPE_POLYGON: {
-        shape.reset(new GeoPolygon());
+        shape.reset(GeoPolygon::create_unique().release());
         break;
     }
     case GEO_SHAPE_CIRCLE: {
-        shape.reset(new GeoCircle());
+        shape.reset(GeoCircle::create_unique().release());
         break;
     }
     default:
@@ -274,10 +274,10 @@ GeoCoordinateList GeoLine::to_coords() const {
     return coords;
 }
 
-GeoCoordinateListList* GeoPolygon::to_coords() const {
-    GeoCoordinateListList* coordss = new GeoCoordinateListList();
+const std::unique_ptr<GeoCoordinateListList> GeoPolygon::to_coords() const {
+    std::unique_ptr<GeoCoordinateListList> coordss(new GeoCoordinateListList());
     for (int i = 0; i < GeoPolygon::numLoops(); ++i) {
-        GeoCoordinateList* coords = new GeoCoordinateList();
+        std::unique_ptr<GeoCoordinateList> coords(new GeoCoordinateList());
         S2Loop* loop = GeoPolygon::getLoop(i);
         for (int j = 0; j < loop->num_vertices(); ++j) {
             GeoCoordinate coord;
@@ -294,7 +294,7 @@ GeoCoordinateListList* GeoPolygon::to_coords() const {
                 coords->add(coord);
             }
         }
-        coordss->add(coords);
+        coordss->add(coords.release());
     }
     return coordss;
 }

@@ -74,6 +74,16 @@ public class ColocateTableCheckerAndBalancerTest {
         backend8 = new Backend(8L, "192.168.1.8", 9050);
         backend9 = new Backend(9L, "192.168.1.8", 9050);
 
+        backend1.setAlive(true);
+        backend2.setAlive(true);
+        backend3.setAlive(true);
+        backend4.setAlive(true);
+        backend5.setAlive(true);
+        backend6.setAlive(true);
+        backend7.setAlive(true);
+        backend8.setAlive(true);
+        backend9.setAlive(true);
+
         mixLoadScores = Maps.newHashMap();
         mixLoadScores.put(1L, 0.1);
         mixLoadScores.put(2L, 0.5);

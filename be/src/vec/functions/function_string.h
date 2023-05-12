@@ -102,36 +102,6 @@
 
 namespace doris::vectorized {
 
-//TODO: these three functions could be merged.
-inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str_index) {
-    size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < str.length(); i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)str[i]];
-        str_index->push_back(i);
-        ++char_len;
-    }
-    return char_len;
-}
-
-inline size_t get_char_len(const StringRef& str, std::vector<size_t>* str_index) {
-    size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
-        str_index->push_back(i);
-        ++char_len;
-    }
-    return char_len;
-}
-
-inline size_t get_char_len(const StringRef& str, size_t end_pos) {
-    size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < std::min(str.size, end_pos); i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
-        ++char_len;
-    }
-    return char_len;
-}
-
 struct StringOP {
     static void push_empty_string(int index, ColumnString::Chars& chars,
                                   ColumnString::Offsets& offsets) {
@@ -1283,9 +1253,9 @@ public:
                         reinterpret_cast<const char*>(&padcol_chars[padcol_offsets[i - 1]]);
 
                 size_t str_char_size =
-                        get_char_len(std::string_view(str_data, str_len), &str_index);
+                        simd::VStringFunctions::get_char_len(str_data, str_len, str_index);
                 size_t pad_char_size =
-                        get_char_len(std::string_view(pad_data, pad_len), &pad_index);
+                        simd::VStringFunctions::get_char_len(pad_data, pad_len, pad_index);
 
                 if (col_len_data[i] <= str_char_size) {
                     // truncate the input string
@@ -2430,7 +2400,7 @@ private:
         // but throws an exception for *start_pos > str->len.
         // Since returning 0 seems to be Hive's error condition, return 0.
         std::vector<size_t> index;
-        size_t char_len = get_char_len(str, &index);
+        size_t char_len = simd::VStringFunctions::get_char_len(str.data, str.size, index);
         if (start_pos <= 0 || start_pos > str.size || start_pos > char_len) {
             return 0;
         }
@@ -2442,7 +2412,8 @@ private:
         int32_t match_pos = search_ptr->search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.
-            return start_pos + get_char_len(adjusted_str, match_pos);
+            size_t len = std::min(adjusted_str.size, (size_t)match_pos);
+            return start_pos + simd::VStringFunctions::get_char_len(adjusted_str.data, len);
         } else {
             return 0;
         }

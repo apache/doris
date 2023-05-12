@@ -47,6 +47,8 @@ INTO OUTFILE "file_path"
 
 1. file_path
 
+    文件存储的路径及文件前缀。
+   
     ```
     file_path 指向文件存储的路径以及文件前缀。如 `hdfs://path/to/my_file_`。
     
@@ -56,6 +58,8 @@ INTO OUTFILE "file_path"
     my_file_abcdegf_2.csv
     ```
 
+    也可以省略文件前缀，只指定文件目录，如`hdfs://path/to/`
+    
 2. format_as
 
     ```
@@ -74,38 +78,42 @@ INTO OUTFILE "file_path"
     语法：
     [PROPERTIES ("key"="value", ...)]
     支持如下属性：
-    column_separator: 列分隔符。<version since="1.2.0">支持多字节分隔符，如："\\x01", "abc"</version>
-    line_delimiter: 行分隔符。<version since="1.2.0">支持多字节分隔符，如："\\x01", "abc"</version>
-    max_file_size: 单个文件大小限制，如果结果超过这个值，将切割成多个文件。
+
+    文件相关的属性
+        column_separator: 列分隔符。<version since="1.2.0">支持多字节分隔符，如："\\x01", "abc"</version>
+        line_delimiter: 行分隔符。<version since="1.2.0">支持多字节分隔符，如："\\x01", "abc"</version>
+        max_file_size: 单个文件大小限制，如果结果超过这个值，将切割成多个文件。
+        delete_existing_files: 默认为false，若指定为true,则会先删除file_path指定的目录下的所有文件，然后导出数据到该目录下。例如："file_path" = "/user/tmp", 则会删除"/user/"下所有文件及目录；"file_path" = "/user/tmp/", 则会删除"/user/tmp/"下所有文件及目录
     
     Broker 相关属性需加前缀 `broker.`:
-    broker.name: broker名称
-    broker.hadoop.security.authentication: 指定认证方式为 kerberos
-    broker.kerberos_principal: 指定 kerberos 的 principal
-    broker.kerberos_keytab: 指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问
+        broker.name: broker名称
+        broker.hadoop.security.authentication: 指定认证方式为 kerberos
+        broker.kerberos_principal: 指定 kerberos 的 principal
+        broker.kerberos_keytab: 指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问
     
     HDFS 相关属性:
-    fs.defaultFS: namenode 地址和端口
-    hadoop.username: hdfs 用户名
-    dfs.nameservices: name service名称，与hdfs-site.xml保持一致
-    dfs.ha.namenodes.[nameservice ID]: namenode的id列表,与hdfs-site.xml保持一致
-    dfs.namenode.rpc-address.[nameservice ID].[name node ID]: Name node的rpc地址，数量与namenode数量相同，与hdfs-site.xml保
-持一
-dfs.client.failover.proxy.provider.[nameservice ID]: HDFS客户端连接活跃namenode的java类，通常是"org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+        fs.defaultFS: namenode 地址和端口
+        hadoop.username: hdfs 用户名
+        dfs.nameservices: name service名称，与hdfs-site.xml保持一致
+        dfs.ha.namenodes.[nameservice ID]: namenode的id列表,与hdfs-site.xml保持一致
+        dfs.namenode.rpc-address.[nameservice ID].[name node ID]: Name node的rpc地址，数量与namenode数量相同，与hdfs-site.xml保持一致
+        dfs.client.failover.proxy.provider.[nameservice ID]: HDFS客户端连接活跃namenode的java类，通常是"org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
 
-    对于开启kerberos认证的Hadoop 集群，还需要额外设置如下 PROPERTIES 属性:
-    dfs.namenode.kerberos.principal: HDFS namenode 服务的 principal 名称
-    hadoop.security.authentication: 认证方式设置为 kerberos
-    hadoop.kerberos.principal: 设置 Doris 连接 HDFS 时使用的 Kerberos 主体
-    hadoop.kerberos.keytab: 设置 keytab 本地文件路径
+        对于开启kerberos认证的Hadoop 集群，还需要额外设置如下 PROPERTIES 属性:
+        dfs.namenode.kerberos.principal: HDFS namenode 服务的 principal 名称
+        hadoop.security.authentication: 认证方式设置为 kerberos
+        hadoop.kerberos.principal: 设置 Doris 连接 HDFS 时使用的 Kerberos 主体
+        hadoop.kerberos.keytab: 设置 keytab 本地文件路径
 
     S3 协议则直接执行 S3 协议配置即可:
-    s3.endpoint
-    s3.access_key
-    s3.secret_key
-    s3.region
-    use_path_stype: (选填) 默认为false 。S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可能没开启或不支持virtual-hosted style 方式的访问，此时可以添加 use_path_style 参数来强制使用 path style 访问方式。
+        s3.endpoint
+        s3.access_key
+        s3.secret_key
+        s3.region
+        use_path_stype: (选填) 默认为false 。S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可能没开启或不支持virtual-hosted style 方式的访问，此时可以添加 use_path_style 参数来强制使用 path style 访问方式。
     ```
+
+    > 注意：要使用delete_existing_files参数，还需要在fe.conf中添加配置`enable_delete_existing_files = true`并重启fe，此时delete_existing_files才会生效。delete_existing_files = true 是一个危险的操作，建议只在测试环境中使用。
 
 ### example
 

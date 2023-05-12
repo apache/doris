@@ -109,7 +109,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
-    bool is_finished;
+    bool is_finished = false;
     Status st = _get_tablets_channel(channel, is_finished, index_id);
     if (!st.ok() || is_finished) {
         return st;

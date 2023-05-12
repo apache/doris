@@ -96,3 +96,16 @@ under the License.
     ```
 
     Try adding `"metastore.filter.hook" = "org.apache.hadoop.hive.metastore.DefaultMetaStoreFilterHookImpl"` in `create catalog` statement.
+
+10. An error is reported when connecting to the Hive database through the Hive Catalog: `RemoteException: SIMPLE authentication is not enabled. Available: [TOKEN, KERBEROS]`
+
+    If both `show databases` and `show tables` are OK, and the above error occurs when querying, we need to perform the following two operations:
+    - Core-site.xml and hdfs-site.xml need to be placed in the fe/conf and be/conf directories
+    - The BE node executes the kinit of Kerberos, restarts the BE, and then executes the query.
+
+11. If the `show tables` is normal after creating the Hive Catalog, but the query report `java.net.UnknownHostException: xxxxx`
+
+    Add a property in CATALOG:
+    ```
+    'fs.defaultFS' = 'hdfs://<your_nameservice_or_actually_HDFS_IP_and_port>'
+    ```

@@ -58,6 +58,17 @@ Status FixLengthPlainDecoder::skip_values(size_t num_values) {
 Status FixLengthPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                             ColumnSelectVector& select_vector,
                                             bool is_dict_filter) {
+    if (select_vector.has_filter()) {
+        return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
+    } else {
+        return _decode_values<false>(doris_column, data_type, select_vector, is_dict_filter);
+    }
+}
+
+template <bool has_filter>
+Status FixLengthPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                             ColumnSelectVector& select_vector,
+                                             bool is_dict_filter) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (UNLIKELY(_offset + _type_length * non_null_size > _data->size)) {
         return Status::IOError("Out-of-bounds access in parquet data decoder");
@@ -66,78 +77,93 @@ Status FixLengthPlainDecoder::decode_values(MutableColumnPtr& doris_column, Data
     switch (logical_type) {
 #define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE) \
     case NUMERIC_TYPE:                                          \
-        return _decode_numeric<CPP_NUMERIC_TYPE>(doris_column, select_vector);
+        return _decode_numeric<CPP_NUMERIC_TYPE, has_filter>(doris_column, select_vector);
         FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
     case TypeIndex::Date:
         if (_physical_type == tparquet::Type::INT32) {
-            return _decode_date<VecDateTimeValue, Int64>(doris_column, select_vector);
+            return _decode_date<VecDateTimeValue, Int64, has_filter>(doris_column, select_vector);
         }
         break;
     case TypeIndex::DateV2:
         if (_physical_type == tparquet::Type::INT32) {
-            return _decode_date<DateV2Value<DateV2ValueType>, UInt32>(doris_column, select_vector);
+            return _decode_date<DateV2Value<DateV2ValueType>, UInt32, has_filter>(doris_column,
+                                                                                  select_vector);
         }
         break;
     case TypeIndex::DateTime:
         if (_physical_type == tparquet::Type::INT96) {
-            return _decode_datetime96<VecDateTimeValue, Int64>(doris_column, select_vector);
+            return _decode_datetime96<VecDateTimeValue, Int64, has_filter>(doris_column,
+                                                                           select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_datetime64<VecDateTimeValue, Int64>(doris_column, select_vector);
+            return _decode_datetime64<VecDateTimeValue, Int64, has_filter>(doris_column,
+                                                                           select_vector);
         }
         break;
     case TypeIndex::DateTimeV2:
         // Spark can set the timestamp precision by the following configuration:
         // spark.sql.parquet.outputTimestampType = INT96(NANOS), TIMESTAMP_MICROS, TIMESTAMP_MILLIS
         if (_physical_type == tparquet::Type::INT96) {
-            return _decode_datetime96<DateV2Value<DateTimeV2ValueType>, UInt64>(doris_column,
-                                                                                select_vector);
+            return _decode_datetime96<DateV2Value<DateTimeV2ValueType>, UInt64, has_filter>(
+                    doris_column, select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_datetime64<DateV2Value<DateTimeV2ValueType>, UInt64>(doris_column,
-                                                                                select_vector);
+            return _decode_datetime64<DateV2Value<DateTimeV2ValueType>, UInt64, has_filter>(
+                    doris_column, select_vector);
         }
         break;
     case TypeIndex::Decimal32:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            return _decode_binary_decimal<Int32>(doris_column, data_type, select_vector);
+            return _decode_binary_decimal<Int32, has_filter>(doris_column, data_type,
+                                                             select_vector);
         } else if (_physical_type == tparquet::Type::INT32) {
-            return _decode_primitive_decimal<Int32, Int32>(doris_column, data_type, select_vector);
+            return _decode_primitive_decimal<Int32, Int32, has_filter>(doris_column, data_type,
+                                                                       select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_primitive_decimal<Int32, Int64>(doris_column, data_type, select_vector);
+            return _decode_primitive_decimal<Int32, Int64, has_filter>(doris_column, data_type,
+                                                                       select_vector);
         }
         break;
     case TypeIndex::Decimal64:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            return _decode_binary_decimal<Int64>(doris_column, data_type, select_vector);
+            return _decode_binary_decimal<Int64, has_filter>(doris_column, data_type,
+                                                             select_vector);
         } else if (_physical_type == tparquet::Type::INT32) {
-            return _decode_primitive_decimal<Int64, Int32>(doris_column, data_type, select_vector);
+            return _decode_primitive_decimal<Int64, Int32, has_filter>(doris_column, data_type,
+                                                                       select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_primitive_decimal<Int64, Int64>(doris_column, data_type, select_vector);
+            return _decode_primitive_decimal<Int64, Int64, has_filter>(doris_column, data_type,
+                                                                       select_vector);
         }
         break;
     case TypeIndex::Decimal128:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+            return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type,
+                                                              select_vector);
         } else if (_physical_type == tparquet::Type::INT32) {
-            return _decode_primitive_decimal<Int128, Int32>(doris_column, data_type, select_vector);
+            return _decode_primitive_decimal<Int128, Int32, has_filter>(doris_column, data_type,
+                                                                        select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_primitive_decimal<Int128, Int64>(doris_column, data_type, select_vector);
+            return _decode_primitive_decimal<Int128, Int64, has_filter>(doris_column, data_type,
+                                                                        select_vector);
         }
         break;
     case TypeIndex::Decimal128I:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+            return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type,
+                                                              select_vector);
         } else if (_physical_type == tparquet::Type::INT32) {
-            return _decode_primitive_decimal<Int128, Int32>(doris_column, data_type, select_vector);
+            return _decode_primitive_decimal<Int128, Int32, has_filter>(doris_column, data_type,
+                                                                        select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_primitive_decimal<Int128, Int64>(doris_column, data_type, select_vector);
+            return _decode_primitive_decimal<Int128, Int64, has_filter>(doris_column, data_type,
+                                                                        select_vector);
         }
         break;
     case TypeIndex::String:
         [[fallthrough]];
     case TypeIndex::FixedString:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            return _decode_string(doris_column, select_vector);
+            return _decode_string<has_filter>(doris_column, select_vector);
         }
         break;
     default:
@@ -148,10 +174,11 @@ Status FixLengthPlainDecoder::decode_values(MutableColumnPtr& doris_column, Data
                                    tparquet::to_string(_physical_type), getTypeName(logical_type));
 }
 
+template <bool has_filter>
 Status FixLengthPlainDecoder::_decode_string(MutableColumnPtr& doris_column,
                                              ColumnSelectVector& select_vector) {
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             std::vector<StringRef> string_values;
@@ -180,14 +207,14 @@ Status FixLengthPlainDecoder::_decode_string(MutableColumnPtr& doris_column,
     }
     return Status::OK();
 }
-template <typename Numeric>
+template <typename Numeric, bool has_filter>
 Status FixLengthPlainDecoder::_decode_numeric(MutableColumnPtr& doris_column,
                                               ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {
@@ -214,14 +241,14 @@ Status FixLengthPlainDecoder::_decode_numeric(MutableColumnPtr& doris_column,
     return Status::OK();
 }
 
-template <typename CppType, typename ColumnType>
+template <typename CppType, typename ColumnType, bool has_filter>
 Status FixLengthPlainDecoder::_decode_date(MutableColumnPtr& doris_column,
                                            ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {
@@ -254,14 +281,14 @@ Status FixLengthPlainDecoder::_decode_date(MutableColumnPtr& doris_column,
     return Status::OK();
 }
 
-template <typename CppType, typename ColumnType>
+template <typename CppType, typename ColumnType, bool has_filter>
 Status FixLengthPlainDecoder::_decode_datetime64(MutableColumnPtr& doris_column,
                                                  ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {
@@ -296,14 +323,14 @@ Status FixLengthPlainDecoder::_decode_datetime64(MutableColumnPtr& doris_column,
     return Status::OK();
 }
 
-template <typename CppType, typename ColumnType>
+template <typename CppType, typename ColumnType, bool has_filter>
 Status FixLengthPlainDecoder::_decode_datetime96(MutableColumnPtr& doris_column,
                                                  ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {
@@ -338,7 +365,7 @@ Status FixLengthPlainDecoder::_decode_datetime96(MutableColumnPtr& doris_column,
     return Status::OK();
 }
 
-template <typename DecimalPrimitiveType>
+template <typename DecimalPrimitiveType, bool has_filter>
 Status FixLengthPlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
                                                      DataTypePtr& data_type,
                                                      ColumnSelectVector& select_vector) {
@@ -350,7 +377,7 @@ Status FixLengthPlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_col
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
 
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {
@@ -389,7 +416,7 @@ Status FixLengthPlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_col
     return Status::OK();
 }
 
-template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
+template <typename DecimalPrimitiveType, typename DecimalPhysicalType, bool has_filter>
 Status FixLengthPlainDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_column,
                                                         DataTypePtr& data_type,
                                                         ColumnSelectVector& select_vector) {
@@ -401,7 +428,7 @@ Status FixLengthPlainDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
 
     ColumnSelectVector::DataReadType read_type;
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {

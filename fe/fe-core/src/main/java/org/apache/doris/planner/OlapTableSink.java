@@ -77,6 +77,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -90,6 +91,9 @@ public class OlapTableSink extends DataSink {
     private TupleDescriptor tupleDescriptor;
     // specified partition ids.
     private List<Long> partitionIds;
+    // partial update input columns
+    private boolean isPartialUpdate = false;
+    private HashSet<String> partialUpdateInputColumns;
 
     // set after init called
     private TDataSink tDataSink;
@@ -138,6 +142,11 @@ public class OlapTableSink extends DataSink {
             singleReplicaLoad = false;
             LOG.warn("Single replica load not supported by TStorageFormat.V1. table: {}", dstTable.getName());
         }
+    }
+
+    public void setPartialUpdateInputColumns(boolean isPartialUpdate, HashSet<String> columns) {
+        this.isPartialUpdate = isPartialUpdate;
+        this.partialUpdateInputColumns = columns;
     }
 
     public void updateLoadId(TUniqueId newLoadId) {
@@ -212,7 +221,7 @@ public class OlapTableSink extends DataSink {
             List<String> columns = Lists.newArrayList();
             List<TColumn> columnsDesc = Lists.newArrayList();
             List<TOlapTableIndex> indexDesc = Lists.newArrayList();
-            columns.addAll(indexMeta.getSchema().stream().map(Column::getName).collect(Collectors.toList()));
+            columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
             for (Column column : indexMeta.getSchema()) {
                 TColumn tColumn = column.toThrift();
                 column.setIndexFlag(tColumn, table);
@@ -230,6 +239,12 @@ public class OlapTableSink extends DataSink {
             indexSchema.setColumnsDesc(columnsDesc);
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
+        }
+        schemaParam.setIsPartialUpdate(isPartialUpdate);
+        if (isPartialUpdate) {
+            for (String s : partialUpdateInputColumns) {
+                schemaParam.addToPartialUpdateInputColumns(s);
+            }
         }
         return schemaParam;
     }
@@ -408,7 +423,7 @@ public class OlapTableSink extends DataSink {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         for (Long id : systemInfoService.getBackendIds(false)) {
             Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
         return nodesInfo;
     }

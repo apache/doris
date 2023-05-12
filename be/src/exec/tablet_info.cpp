@@ -60,6 +60,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _db_id = pschema.db_id();
     _table_id = pschema.table_id();
     _version = pschema.version();
+    _is_partial_update = pschema.partial_update();
+
+    for (auto& col : pschema.partial_update_input_columns()) {
+        _partial_update_input_columns.insert(col);
+    }
     std::map<std::string, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
 
@@ -74,6 +79,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
         for (auto& col : p_index.columns()) {
+            if (_is_partial_update && _partial_update_input_columns.count(col) == 0) {
+                continue;
+            }
             auto it = slots_map.find(col);
             if (it == std::end(slots_map)) {
                 return Status::InternalError("unknown index column, column={}", col);
@@ -105,6 +113,11 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     _table_id = tschema.table_id;
     _version = tschema.version;
     _is_dynamic_schema = tschema.is_dynamic_schema;
+    _is_partial_update = tschema.is_partial_update;
+
+    for (auto& tcolumn : tschema.partial_update_input_columns) {
+        _partial_update_input_columns.insert(tcolumn);
+    }
     std::map<std::string, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(tschema.tuple_desc));
     for (auto& t_slot_desc : tschema.slot_descs) {
@@ -118,6 +131,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
         for (auto& col : t_index.columns) {
+            if (_is_partial_update && _partial_update_input_columns.count(col) == 0) {
+                continue;
+            }
             auto it = slots_map.find(col);
             if (it == std::end(slots_map)) {
                 return Status::InternalError("unknown index column, column={}", col);
@@ -163,6 +179,10 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_db_id(_db_id);
     pschema->set_table_id(_table_id);
     pschema->set_version(_version);
+    pschema->set_partial_update(_is_partial_update);
+    for (auto col : _partial_update_input_columns) {
+        *pschema->add_partial_update_input_columns() = col;
+    }
     _tuple_desc->to_protobuf(pschema->mutable_tuple_desc());
     for (auto slot : _tuple_desc->slots()) {
         slot->to_protobuf(pschema->add_slot_descs());

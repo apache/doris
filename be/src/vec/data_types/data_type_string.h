@@ -46,7 +46,7 @@ class ReadBuffer;
 
 namespace doris::vectorized {
 
-class DataTypeString final : public IDataType {
+class DataTypeString : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = String;
@@ -69,6 +69,12 @@ public:
     MutableColumnPtr create_column() const override;
 
     Field get_default() const override;
+
+    Field get_field(const TExprNode& node) const override {
+        DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
+        DCHECK(node.__isset.string_literal);
+        return node.string_literal.value;
+    }
 
     bool equals(const IDataType& rhs) const override;
 

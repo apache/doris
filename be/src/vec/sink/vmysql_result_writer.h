@@ -46,13 +46,13 @@ public:
                        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
                        RuntimeProfile* parent_profile);
 
-    virtual Status init(RuntimeState* state) override;
+    Status init(RuntimeState* state) override;
 
-    virtual Status append_block(Block& block) override;
+    Status append_block(Block& block) override;
 
-    virtual bool can_sink() override;
+    bool can_sink() override;
 
-    virtual Status close() override;
+    Status close() override;
 
     const ResultList& results() { return _results; }
 
@@ -62,11 +62,11 @@ private:
     template <PrimitiveType type, bool is_nullable>
     Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
                            std::vector<MysqlRowBuffer<is_binary_format>>& rows_buffer,
-                           int scale = -1, const DataTypes& sub_types = DataTypes());
+                           bool arg_const, int scale = -1,
+                           const DataTypes& sub_types = DataTypes());
     int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
                       MysqlRowBuffer<is_binary_format>& buffer, int scale = -1);
 
-private:
     BufferControlBlock* _sinker;
 
     const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs;

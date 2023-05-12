@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TDecimalLiteral;
@@ -48,7 +49,7 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     public DecimalLiteral(BigDecimal value) {
-        this(value, false);
+        this(value, Config.enable_decimal_conversion);
     }
 
     public DecimalLiteral(BigDecimal value, boolean isDecimalV3) {

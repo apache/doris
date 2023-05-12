@@ -141,14 +141,15 @@ enum class FieldType {
     OLAP_FIELD_TYPE_DECIMAL64 = 32,
     OLAP_FIELD_TYPE_DECIMAL128I = 33,
     OLAP_FIELD_TYPE_JSONB = 34,
-    OLAP_FIELD_TYPE_VARIANT = 35
+    OLAP_FIELD_TYPE_VARIANT = 35,
+    OLAP_FIELD_TYPE_AGG_STATE = 36
 };
 
 // Define all aggregation methods supported by Field
 // Note that in practice, not all types can use all the following aggregation methods
 // For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
 // The implementation of the Field class does not perform such checks, and should be constrained when creating the table
-enum FieldAggregationMethod {
+enum class FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
     OLAP_FIELD_AGGREGATION_MIN = 2,
@@ -159,10 +160,11 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7,
     // Replace if and only if added value is not null
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
-    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
+    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9,
+    OLAP_FIELD_AGGREGATION_GENERIC = 10
 };
 
-enum PushType {
+enum class PushType {
     PUSH_NORMAL = 1,          // for broker/hadoop load, not used any more
     PUSH_FOR_DELETE = 2,      // for delete
     PUSH_FOR_LOAD_DELETE = 3, // not used any more
@@ -462,5 +464,24 @@ struct HashOfRowsetId {
 };
 
 using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
+
+class DeleteBitmap;
+// merge on write context
+struct MowContext {
+    MowContext(int64_t version, const RowsetIdUnorderedSet& ids, std::shared_ptr<DeleteBitmap> db)
+            : max_version(version), rowset_ids(ids), delete_bitmap(db) {}
+    int64_t max_version;
+    const RowsetIdUnorderedSet& rowset_ids;
+    std::shared_ptr<DeleteBitmap> delete_bitmap;
+};
+
+// used in mow partial update
+struct RidAndPos {
+    uint32_t rid;
+    // pos in block
+    size_t pos;
+};
+
+using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
 
 } // namespace doris

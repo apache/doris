@@ -190,7 +190,7 @@ public class NodeAction extends RestBaseController {
             List<Long> beIds = Env.getCurrentSystemInfo().getBackendIds(true);
             if (!beIds.isEmpty()) {
                 Backend be = Env.getCurrentSystemInfo().getBackend(beIds.get(0));
-                String url = "http://" + be.getIp() + ":" + be.getHttpPort() + "/api/show_config";
+                String url = "http://" + be.getHost() + ":" + be.getHttpPort() + "/api/show_config";
                 String questResult = HttpUtils.doGet(url, null);
                 List<List<String>> configs = GsonUtils.GSON.fromJson(questResult, new TypeToken<List<List<String>>>() {
                 }.getType());
@@ -227,14 +227,14 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getFeList() {
-        return Env.getCurrentEnv().getFrontends(null).stream().map(fe -> fe.getIp() + ":" + Config.http_port)
+        return Env.getCurrentEnv().getFrontends(null).stream().map(fe -> fe.getHost() + ":" + Config.http_port)
                 .collect(Collectors.toList());
     }
 
     private static List<String> getBeList() {
         return Env.getCurrentSystemInfo().getBackendIds(false).stream().map(beId -> {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
-            return be.getIp() + ":" + be.getHttpPort();
+            return be.getHost() + ":" + be.getHttpPort();
         }).collect(Collectors.toList());
     }
 
@@ -480,7 +480,7 @@ public class NodeAction extends RestBaseController {
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
         List<Pair<String, Integer>> aliveFe = Env.getCurrentEnv().getFrontends(null).stream().filter(Frontend::isAlive)
-                .map(fe -> Pair.of(fe.getIp(), Config.http_port)).collect(Collectors.toList());
+                .map(fe -> Pair.of(fe.getHost(), Config.http_port)).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
         Map<String, String> header = Maps.newHashMap();
@@ -580,7 +580,7 @@ public class NodeAction extends RestBaseController {
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
         List<Pair<String, Integer>> aliveBe = Env.getCurrentSystemInfo().getBackendIds(true).stream().map(beId -> {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
-            return Pair.of(be.getIp(), be.getHttpPort());
+            return Pair.of(be.getHost(), be.getHttpPort());
         }).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveBe, failedTotal);
 
@@ -603,7 +603,7 @@ public class NodeAction extends RestBaseController {
             List<String> hostPorts = reqInfo.getHostPorts();
             List<HostInfo> hostInfos = new ArrayList<>();
             for (String hostPort : hostPorts) {
-                hostInfos.add(SystemInfoService.getIpHostAndPort(hostPort, true));
+                hostInfos.add(SystemInfoService.getHostAndPort(hostPort));
             }
             SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
             if ("ADD".equals(action)) {
@@ -615,7 +615,7 @@ public class NodeAction extends RestBaseController {
                 }
                 Map<String, String> tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties,
                         Tag.DEFAULT_BACKEND_TAG);
-                currentSystemInfo.addBackends(hostInfos, false, "", tagMap);
+                currentSystemInfo.addBackends(hostInfos, tagMap);
             } else if ("DROP".equals(action)) {
                 currentSystemInfo.dropBackends(hostInfos);
             } else if ("DECOMMISSION".equals(action)) {
@@ -623,7 +623,7 @@ public class NodeAction extends RestBaseController {
                         SystemInfoService.DEFAULT_CLUSTER);
                 backendsInCluster.forEach((k, v) -> {
                     hostInfos.stream()
-                            .filter(h -> v.getHostName().equals(h.getHostName()) && v.getHeartbeatPort() == h.getPort())
+                            .filter(h -> v.getHost().equals(h.getHost()) && v.getHeartbeatPort() == h.getPort())
                             .findFirst().ifPresent(h -> {
                                 v.setDecommissioned(true);
                                 Env.getCurrentEnv().getEditLog().logBackendStateChange(v);
@@ -652,11 +652,11 @@ public class NodeAction extends RestBaseController {
             } else {
                 frontendNodeType = FrontendNodeType.OBSERVER;
             }
-            HostInfo info = SystemInfoService.getIpHostAndPort(reqInfo.getHostPort(), true);
+            HostInfo info = SystemInfoService.getHostAndPort(reqInfo.getHostPort());
             if ("ADD".equals(action)) {
-                currentEnv.addFrontend(frontendNodeType, info.getIp(), info.getHostName(), info.getPort());
+                currentEnv.addFrontend(frontendNodeType, info.getHost(), info.getPort());
             } else if ("DROP".equals(action)) {
-                currentEnv.dropFrontend(frontendNodeType, info.getIp(), info.getHostName(), info.getPort());
+                currentEnv.dropFrontend(frontendNodeType, info.getHost(), info.getPort());
             }
         } catch (Exception e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

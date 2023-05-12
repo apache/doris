@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -36,6 +37,39 @@ import java.util.Map;
  */
 public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
     public static final String NAME = "backends";
+
+    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX = new ImmutableMap.Builder<String, Integer>()
+            .put("backendid", 0)
+            .put("cluster", 1)
+            .put("ip", 2)
+            .put("hostname", 3)
+            .put("heartbeatport", 4)
+            .put("beport", 5)
+            .put("httpport", 6)
+            .put("brpcport", 7)
+            .put("laststarttime", 8)
+            .put("lastheartbeat", 9)
+            .put("alive", 10)
+            .put("systemdecommissioned", 11)
+            .put("clusterdecommissioned", 12)
+            .put("tabletnum", 13)
+            .put("datausedcapacity", 14)
+            .put("availcapacity", 15)
+            .put("totalcapacity", 16)
+            .put("usedpct", 17)
+            .put("maxdiskusedpct", 18)
+            .put("remoteusedcapacity", 19)
+            .put("tag", 20)
+            .put("errmsg", 21)
+            .put("version", 22)
+            .put("status", 23)
+            .put("heartbeatfailurecounter", 24)
+            .put("noderole", 25)
+            .build();
+
+    public static Integer getColumnIndexFromColumnName(String columnName) {
+        return COLUMN_TO_INDEX.get(columnName.toLowerCase());
+    }
 
     public BackendsTableValuedFunction(Map<String, String> params) throws AnalysisException {
         if (params.size() !=  0) {
@@ -76,9 +110,9 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
         resColumns.add(new Column("BrpcPort", ScalarType.createType(PrimitiveType.INT)));
         resColumns.add(new Column("LastStartTime", ScalarType.createStringType()));
         resColumns.add(new Column("LastHeartbeat", ScalarType.createStringType()));
-        resColumns.add(new Column("Alive", ScalarType.createStringType()));
-        resColumns.add(new Column("SystemDecommissioned", ScalarType.createStringType()));
-        resColumns.add(new Column("ClusterDecommissioned", ScalarType.createStringType()));
+        resColumns.add(new Column("Alive", ScalarType.createType(PrimitiveType.BOOLEAN)));
+        resColumns.add(new Column("SystemDecommissioned", ScalarType.createType(PrimitiveType.BOOLEAN)));
+        resColumns.add(new Column("ClusterDecommissioned", ScalarType.createType(PrimitiveType.BOOLEAN)));
         resColumns.add(new Column("TabletNum", ScalarType.createType(PrimitiveType.BIGINT)));
         resColumns.add(new Column("DataUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT)));
         resColumns.add(new Column("AvailCapacity", ScalarType.createType(PrimitiveType.BIGINT)));

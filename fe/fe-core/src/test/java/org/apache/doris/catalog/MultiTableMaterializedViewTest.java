@@ -135,7 +135,7 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 stmt.getColumns(),
                 0,
                 Util.generateSchemaHash(),
-                Env.calcShortKeyColumnCount(stmt.getColumns(), stmt.getProperties()),
+                Env.calcShortKeyColumnCount(stmt.getColumns(), stmt.getProperties(), true),
                 TStorageType.COLUMN,
                 stmt.getKeysDesc().getKeysType());
         return mv;

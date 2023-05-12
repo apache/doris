@@ -112,7 +112,6 @@ public:
     Status save(const std::string& file_path);
     Status save_as_json(const string& file_path, DataDir* dir);
     static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
-    static Status reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
                                                   int64_t tablet_id);
     Status save_meta(DataDir* data_dir);
@@ -134,6 +133,7 @@ public:
     int64_t partition_id() const;
     int64_t tablet_id() const;
     int64_t replica_id() const;
+    void set_replica_id(int64_t replica_id) { _replica_id = replica_id; }
     int32_t schema_hash() const;
     int16_t shard_id() const;
     void set_shard_id(int32_t shard_id);
@@ -217,9 +217,6 @@ public:
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
 
-    bool is_dropped() const;
-    void set_is_dropped(bool is_dropped);
-
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -262,9 +259,6 @@ private:
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
     std::shared_ptr<DeleteBitmap> _delete_bitmap;
-
-    // _is_dropped is true means that the table has been dropped, and the tablet will not be compacted
-    bool _is_dropped = false;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -582,14 +576,6 @@ inline bool TabletMeta::all_beta() const {
         }
     }
     return true;
-}
-
-inline bool TabletMeta::is_dropped() const {
-    return _is_dropped;
-}
-
-inline void TabletMeta::set_is_dropped(bool is_dropped) {
-    _is_dropped = is_dropped;
 }
 
 // Only for unit test now.

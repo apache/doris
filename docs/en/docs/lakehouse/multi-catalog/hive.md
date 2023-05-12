@@ -68,11 +68,6 @@ CREATE CATALOG hive PROPERTIES (
 
  In addition to `type` and  `hive.metastore.uris` , which are required, you can specify other parameters regarding the connection.
 
-> `specified_database_list`:
-> 
-> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
-> 
-	
 For example, to specify HDFS HA:
 
 ```sql

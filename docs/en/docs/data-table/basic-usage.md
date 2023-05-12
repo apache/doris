@@ -579,7 +579,7 @@ Materialized views are a space-for-time data analysis acceleration technique. Do
 
 Doris can automatically ensure data consistency between materialized views and base tables, and automatically match the appropriate materialized view at query time, greatly reducing the cost of data maintenance for users and providing a consistent and transparent query acceleration experience.
 
-For more information about materialized views, see [Materialized Views](../advanced/materialized-view.md)
+For more information about materialized views, see [Materialized Views](../query-acceleration/materialized-view.md)
 
 ## Data Table Queries
 

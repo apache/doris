@@ -37,8 +37,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
@@ -46,7 +44,6 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
@@ -116,18 +113,7 @@ public class SystemHandler extends AlterHandler {
         if (alterClause instanceof AddBackendClause) {
             // add backend
             AddBackendClause addBackendClause = (AddBackendClause) alterClause;
-            final String destClusterName = addBackendClause.getDestCluster();
-
-            if ((!Strings.isNullOrEmpty(destClusterName) || addBackendClause.isFree())
-                    && Config.disable_cluster_feature) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "ADD BACKEND TO CLUSTER");
-            }
-
-            if (!Strings.isNullOrEmpty(destClusterName) && Env.getCurrentEnv().getCluster(destClusterName) == null) {
-                throw new DdlException("Cluster: " + destClusterName + " does not exist.");
-            }
-            Env.getCurrentSystemInfo().addBackends(addBackendClause.getHostInfos(), addBackendClause.isFree(),
-                    addBackendClause.getDestCluster(), addBackendClause.getTagMap());
+            Env.getCurrentSystemInfo().addBackends(addBackendClause.getHostInfos(), addBackendClause.getTagMap());
         } else if (alterClause instanceof DropBackendClause) {
             // drop backend
             DropBackendClause dropBackendClause = (DropBackendClause) alterClause;
@@ -155,19 +141,19 @@ public class SystemHandler extends AlterHandler {
 
         } else if (alterClause instanceof AddObserverClause) {
             AddObserverClause clause = (AddObserverClause) alterClause;
-            Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getIp(), clause.getHostName(),
+            Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
                     clause.getPort());
         } else if (alterClause instanceof DropObserverClause) {
             DropObserverClause clause = (DropObserverClause) alterClause;
-            Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, clause.getIp(), clause.getHostName(),
+            Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
                     clause.getPort());
         } else if (alterClause instanceof AddFollowerClause) {
             AddFollowerClause clause = (AddFollowerClause) alterClause;
-            Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, clause.getIp(), clause.getHostName(),
+            Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, clause.getHost(),
                     clause.getPort());
         } else if (alterClause instanceof DropFollowerClause) {
             DropFollowerClause clause = (DropFollowerClause) alterClause;
-            Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, clause.getIp(), clause.getHostName(),
+            Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, clause.getHost(),
                     clause.getPort());
         } else if (alterClause instanceof ModifyBrokerClause) {
             ModifyBrokerClause clause = (ModifyBrokerClause) alterClause;
@@ -176,7 +162,7 @@ public class SystemHandler extends AlterHandler {
             Env.getCurrentSystemInfo().modifyBackends(((ModifyBackendClause) alterClause));
         } else if (alterClause instanceof ModifyFrontendHostNameClause) {
             ModifyFrontendHostNameClause clause = (ModifyFrontendHostNameClause) alterClause;
-            Env.getCurrentEnv().modifyFrontendHostName(clause.getIp(), clause.getNewHostName());
+            Env.getCurrentEnv().modifyFrontendHostName(clause.getHost(), clause.getPort(), clause.getNewHost());
         } else if (alterClause instanceof ModifyBackendHostNameClause) {
             Env.getCurrentSystemInfo().modifyBackendHost((ModifyBackendHostNameClause) alterClause);
         } else {
@@ -219,11 +205,11 @@ public class SystemHandler extends AlterHandler {
         List<Backend> decommissionBackends = Lists.newArrayList();
         // check if exist
         for (HostInfo hostInfo : hostInfos) {
-            Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(),
+            Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getHost(),
                     hostInfo.getPort());
             if (backend == null) {
                 throw new DdlException("Backend does not exist["
-                        + (Config.enable_fqdn_mode ? hostInfo.getHostName() : hostInfo.getIp())
+                        + hostInfo.getHost()
                         + ":" + hostInfo.getPort() + "]");
             }
             if (backend.isDecommissioned()) {
@@ -248,12 +234,11 @@ public class SystemHandler extends AlterHandler {
         List<HostInfo> hostInfos = cancelAlterSystemStmt.getHostInfos();
         for (HostInfo hostInfo : hostInfos) {
             // check if exist
-            Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(),
+            Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getHost(),
                     hostInfo.getPort());
             if (backend == null) {
                 throw new DdlException("Backend does not exist["
-                        + (Config.enable_fqdn_mode && hostInfo.getHostName() != null ? hostInfo.getHostName() :
-                        hostInfo.getIp()) + ":" + hostInfo.getPort() + "]");
+                        + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
             }
 
             if (!backend.isDecommissioned()) {
@@ -269,7 +254,7 @@ public class SystemHandler extends AlterHandler {
             if (backend.setDecommissioned(false)) {
                 Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
             } else {
-                LOG.info("backend is not decommissioned[{}]", backend.getIp());
+                LOG.info("backend is not decommissioned[{}]", backend.getHost());
             }
         }
     }

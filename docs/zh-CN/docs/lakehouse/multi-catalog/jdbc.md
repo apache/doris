@@ -178,7 +178,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 | Database | Schema   |
 | Table    | Table    |
 
-8. Trino
+8. Trino/Presto
 
 <version since="1.2.4"></version>
 
@@ -201,33 +201,49 @@ CREATE CATALOG trino_catalog PROPERTIES (
 | Database | Schema  |
 | Table    | Table   |
 
+**注意：**
+<version since="dev" type="inline"> 同样支持使用 Presto JDBC Driver 进行连接 </version>
+
 9. OceanBase
 
 <version since="dev"></version>
 
 ```sql
-CREATE CATALOG jdbc_oceanbase PROPERTIES (
+CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive"
+    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "oceanbase_mode" = "mysql"
+)
+
+CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "oceanbase_mode" = "oracle"
 )
 ```
 
 ### 参数说明
 
-参数 | 是否必须 | 默认值 | 说明 
---- | --- | --- | --- 
-`user` | 是 | | 对应数据库的用户名 |
-`password` | 是 |   | 对应数据库的密码 |
-`jdbc_url` | 是 |  | JDBC 连接串 |
-`driver_url` | 是 |  | JDBC Driver Jar 包名称* |
-`driver_class` | 是 |  | JDBC Driver Class 名称 |
-`only_specified_database` | 否 | "false" | 指定是否只同步指定的 database  |
-`lower_case_table_names` | 否 | "false" | 是否以小写的形式同步jdbc外部数据源的表名 |
-`specified_database_list` | 否 | "" | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
+| 参数                        | 是否必须 | 默认值     | 说明                                                               |
+|---------------------------|------|---------|------------------------------------------------------------------- |
+| `user`                    | 是    |         | 对应数据库的用户名                                                         |
+| `password`                | 是    |         | 对应数据库的密码                                                          |
+| `jdbc_url`                | 是    |         | JDBC 连接串                                                          |
+| `driver_url`              | 是    |         | JDBC Driver Jar 包名称*                                              |
+| `driver_class`            | 是    |         | JDBC Driver Class 名称                                              |
+| `only_specified_database` | 否    | "false" | 指定是否只同步指定的 database                                               |
+| `lower_case_table_names`  | 否    | "false" | 是否以小写的形式同步jdbc外部数据源的表名                                            |
+| `oceanbase_mode`          | 否    | ""      | 当连接的外部数据源为OceanBase时，必须为其指定模式为mysql或oracle                        |
+| `include_database_list`   | 否    | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
+| `exclude_database_list`   | 否    | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。|
 
 > `driver_url` 可以通过以下三种方式指定：
 > 
@@ -238,9 +254,16 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 > 3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
 
 > `only_specified_database`:
-> 
-> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。`only_specified_database=true` 且`specified_database_list`为空时，可以只同步指定的 database。当`only_specified_database=true`且`specified_database_list`指定了database列表时，则会同步指定的多个database。
-> 
+> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。
+>
+> `include_database_list`:
+> 当`only_specified_database=true`时，指定需要同步的 database，以','分割。默认为''，即不做任何过滤，同步所有database。db名称是大小写敏感的
+>
+> `exclude_database_list`:
+> 当`only_specified_database=true`时，指定不需要同步的多个database，以','分割。默认为''，即不做任何过滤，同步所有database。db名称是大小写敏感的。
+>
+> 当 `include_database_list` 和 `exclude_database_list` 有重合的database配置时，`exclude_database_list`会优先生效。
+>
 > 如果使用该参数时连接oracle数据库，要求使用ojdbc8.jar以上版本jar包。
 
 ## 数据查询
@@ -433,7 +456,7 @@ set enable_odbc_transcation = true;
 | CHAR           | CHAR                     |                                                                                       |
 | NCHAR          | CHAR                     |                                                                                       |
 
-### Trino
+### Trino/Presto
 
 | Trino Type                                           | Doris Type               | Comment                                                                   |
 |------------------------------------------------------|--------------------------|---------------------------------------------------------------------------|
@@ -452,37 +475,13 @@ set enable_odbc_transcation = true;
 | <version since="dev" type="inline"> array </version> | ARRAY                    | Array内部类型适配逻辑参考上述类型，不支持嵌套类型                                  |
 | others                                               | UNSUPPORTED              |                                                                           |
 
-**Note:**
+**注意：**
 目前仅针对Trino连接的Hive做了测试，其他的Trino连接的数据源暂时未测试。
 
 ### OceanBase
 
-| OceanBase Type                                                                                                                                      | Doris Type  | Comment                       |
-|-----------------------------------------------------------------------------------------------------------------------------------------------------|-------------|-------------------------------|
-| TINYINT                                                                                                                                             | TINYINT     |                               |
-| SMALLINT                                                                                                                                            | SMALLINT    |                               |
-| MEDIUMINT                                                                                                                                           | INT         |                               |
-| INT                                                                                                                                                 | INT         |                               |
-| BIGINT                                                                                                                                              | BIGINT      |                               |
-| UNSIGNED TINYINT                                                                                                                                    | SMALLINT    | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
-| UNSIGNED MEDIUMINT                                                                                                                                  | INT         | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
-| UNSIGNED INT                                                                                                                                        | BIGINT      | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
-| UNSIGNED BIGINT                                                                                                                                     | LARGEINT    | Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
-| FLOAT                                                                                                                                               | FLOAT       |                               |
-| DOUBLE                                                                                                                                              | DOUBLE      |                               |
-| DECIMAL                                                                                                                                             | DECIMALV3   |                               |
-| DATE                                                                                                                                                | DATEV2      |                               |
-| TIMESTAMP                                                                                                                                           | DATETIMEV2  |                               |
-| DATETIME                                                                                                                                            | DATETIMEV2  |                               |
-| YEAR                                                                                                                                                | DATETIMEV2  |                               |
-| TIME                                                                                                                                                | STRING      |                               |
-| CHAR                                                                                                                                                | CHAR        |                               |
-| VARCHAR                                                                                                                                             | VARCHAR     |                               |
-| BOOLEAN、TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING      |                               |
-| Other                                                                                                                                               | UNSUPPORTED |                               |
-
-**Note:**
-目前仅针对OceanBase的MySQL模式做了适配，Oracle模式并未完整测试
+MySQL 模式请参考 [MySQL类型映射](#MySQL)
+Oracle 模式请参考 [Oracle类型映射](#Oracle)
 
 ## 常见问题
 

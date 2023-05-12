@@ -69,9 +69,7 @@ static const char* kDefaultPoolName = "test";
 
 class ThreadPoolTest : public ::testing::Test {
 public:
-    virtual void SetUp() override {
-        EXPECT_TRUE(ThreadPoolBuilder(kDefaultPoolName).build(&_pool).ok());
-    }
+    void SetUp() override { EXPECT_TRUE(ThreadPoolBuilder(kDefaultPoolName).build(&_pool).ok()); }
 
     Status rebuild_pool_with_builder(const ThreadPoolBuilder& builder) {
         return builder.build(&_pool);
@@ -108,7 +106,7 @@ static void simple_task_method(int n, std::atomic<int32_t>* counter) {
             rqtp.tv_sec = 0;
             rqtp.tv_nsec = 1000;
 
-            nanosleep(&rqtp, 0);
+            nanosleep(&rqtp, nullptr);
         }
     }
 }
@@ -335,9 +333,8 @@ TEST_F(ThreadPoolTest, TestDeadlocks) {
 #elif defined(__APPLE__)
     const char* death_msg =
             "_ZNSt3__1L8__invokeIRNS_6__bindIMN5doris10ThreadPoolEFvvEJPS3_EEEJEEEDTclscT_fp_"
-            "spscT0_fp0_EEOS9_DpOSA_|_ZNSt3__18__invokeB6v15007IRNS_6__"
-            "bindIMN5doris10ThreadPoolEFvvEJPS3_EEEJEEEDTclclsr3stdE7declvalIT_"
-            "EEspclsr3stdE7declvalIT0_EEEEOS9_DpOSA_";
+            "spscT0_fp0_EEOS9_DpOSA_|6__bindIMN5doris10ThreadPoolEFvvEJPS3_"
+            "EEEJEEEDTclclsr3stdE7declvalIT_EEspclsr3stdE7declvalIT0_EEEEOS9_DpOSA_";
 #else
     const char* death_msg =
             "_ZNSt5_BindIFMN5doris10ThreadPoolEFvvEPS1_EE6__callIvJEJLm0EEEET_OSt5tupleIJDpT0_"
@@ -366,7 +363,7 @@ class SlowDestructorRunnable : public Runnable {
 public:
     void run() override {}
 
-    virtual ~SlowDestructorRunnable() {
+    ~SlowDestructorRunnable() override {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 };

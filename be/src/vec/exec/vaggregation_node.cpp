@@ -473,9 +473,9 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                 std::bind<void>(&AggregationNode::_update_memusage_with_serialized_key, this);
         _executor.close = std::bind<void>(&AggregationNode::_close_with_serialized_key, this);
 
-        _should_limit_output = _limit != -1 &&        // has limit
-                               !_vconjunct_ctx_ptr && // no having conjunct
-                               _needs_finalize;       // agg's finalize step
+        _should_limit_output = _limit != -1 &&                  // has limit
+                               _vconjunct_ctx_ptr == nullptr && // no having conjunct
+                               _needs_finalize;                 // agg's finalize step
     }
 
     return Status::OK();
@@ -502,7 +502,8 @@ Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
     // because during prepare and open thread is not the same one,
     // this could cause unable to get JVM
     if (_probe_expr_ctxs.empty()) {
-        _create_agg_status(_agg_data->without_key);
+        // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
+        RETURN_IF_CATCH_EXCEPTION(_create_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = true;
     }
 
@@ -631,7 +632,14 @@ Status AggregationNode::close(RuntimeState* state) {
 
 Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        _aggregate_evaluators[i]->create(data + _offsets_of_aggregate_states[i]);
+        try {
+            _aggregate_evaluators[i]->create(data + _offsets_of_aggregate_states[i]);
+        } catch (...) {
+            for (int j = 0; j < i; ++j) {
+                _aggregate_evaluators[j]->destroy(data + _offsets_of_aggregate_states[j]);
+            }
+            throw;
+        }
     }
     return Status::OK();
 }
@@ -923,8 +931,7 @@ Status AggregationNode::_reset_hash_table() {
                         ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
                          _align_aggregate_states) *
                                 _align_aggregate_states));
-                HashTableType new_hash_table;
-                hash_table = std::move(new_hash_table);
+                hash_table = HashTableType();
                 _agg_arena_pool.reset(new Arena);
                 return Status::OK();
             },
@@ -1771,6 +1778,9 @@ void AggregationNode::_close_with_serialized_key() {
                         mapped = nullptr;
                     }
                 });
+                if (data.has_null_key_data()) {
+                    _destroy_agg_status(data.get_null_key_data());
+                }
             },
             _agg_data->_aggregated_method_variant);
     release_tracker();

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -35,6 +36,16 @@ import java.util.Map;
  */
 public class ResourceGroupsTableValuedFunction extends MetadataTableValuedFunction {
     public static final String NAME = "resource_groups";
+    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX = new ImmutableMap.Builder<String, Integer>()
+            .put("id", 0)
+            .put("name", 1)
+            .put("item", 2)
+            .put("value", 3)
+            .build();
+
+    public static Integer getColumnIndexFromColumnName(String columnName) {
+        return COLUMN_TO_INDEX.get(columnName.toLowerCase());
+    }
 
     public ResourceGroupsTableValuedFunction(Map<String, String> params) throws AnalysisException {
         if (params.size() !=  0) {

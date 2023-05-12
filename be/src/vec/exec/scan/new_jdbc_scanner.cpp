@@ -54,11 +54,11 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int
     _connector_close_timer = ADD_TIMER(get_parent()->_scanner_profile, "ConnectorCloseTime");
 }
 
-Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr) {
     VLOG_CRITICAL << "NewJdbcScanner::Prepare";
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(state, &_vconjunct_ctx));
+        RETURN_IF_ERROR(vconjunct_ctx_ptr->clone(state, &_vconjunct_ctx));
     }
 
     if (_is_init) {

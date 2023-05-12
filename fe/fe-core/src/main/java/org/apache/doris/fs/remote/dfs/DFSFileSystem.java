@@ -18,7 +18,6 @@
 package org.apache.doris.fs.remote.dfs;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.HdfsResource;
@@ -27,6 +26,7 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
+import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import org.apache.hadoop.conf.Configuration;
@@ -70,7 +70,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     @Override
-    protected FileSystem getFileSystem(String remotePath) throws UserException {
+    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem != null) {
             return dfsFileSystem;
         }
@@ -92,9 +92,9 @@ public class DFSFileSystem extends RemoteFileSystem {
                         properties.get(HdfsResource.HADOOP_KERBEROS_KEYTAB));
             }
             if (username == null) {
-                dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf);
+                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
             } else {
-                dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf, username);
+                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf, username);
             }
         } catch (Exception e) {
             LOG.error("errors while connect to " + remotePath, e);
@@ -261,7 +261,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getPath());
-            FileSystem fileSystem = getFileSystem(remotePath);
+            FileSystem fileSystem = nativeFileSystem(remotePath);
             boolean isPathExist = fileSystem.exists(inputFilePath);
             if (!isPathExist) {
                 return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
@@ -372,7 +372,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             if (!srcPathUri.getAuthority().trim().equals(destPathUri.getAuthority().trim())) {
                 return new Status(Status.ErrCode.COMMON_ERROR, "only allow rename in same file system");
             }
-            FileSystem fileSystem = getFileSystem(destPath);
+            FileSystem fileSystem = nativeFileSystem(destPath);
             Path srcfilePath = new Path(srcPathUri.getPath());
             Path destfilePath = new Path(destPathUri.getPath());
             boolean isRenameSuccess = fileSystem.rename(srcfilePath, destfilePath);
@@ -395,7 +395,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getPath());
-            FileSystem fileSystem = getFileSystem(remotePath);
+            FileSystem fileSystem = nativeFileSystem(remotePath);
             fileSystem.delete(inputFilePath, true);
         } catch (UserException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
@@ -420,7 +420,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             URI pathUri = URI.create(remotePath);
-            FileSystem fileSystem = getFileSystem(remotePath);
+            FileSystem fileSystem = nativeFileSystem(remotePath);
             Path pathPattern = new Path(pathUri.getPath());
             FileStatus[] files = fileSystem.globStatus(pathPattern);
             if (files == null) {
@@ -431,7 +431,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                 RemoteFile remoteFile = new RemoteFile(
                         fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
                         !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen(),
-                        fileStatus.getBlockSize());
+                        fileStatus.getBlockSize(), fileStatus.getModificationTime());
                 result.add(remoteFile);
             }
         } catch (FileNotFoundException e) {

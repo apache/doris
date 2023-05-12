@@ -40,5 +40,17 @@ void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();
 }
+
+void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                                             arrow::ArrayBuilder* array_builder, int start,
+                                             int end) const {
+    LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";
+}
+
+void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                              int start, int end,
+                                              const cctz::time_zone& ctz) const {
+    LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
+}
 } // namespace vectorized
 } // namespace doris

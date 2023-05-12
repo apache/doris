@@ -35,7 +35,9 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisTaskInfo.ScheduleType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
@@ -45,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -81,18 +84,22 @@ public class AnalyzeStmt extends DdlStmt {
     // The properties passed in by the user through "with" or "properties('K', 'V')"
     public static final String PROPERTY_SYNC = "sync";
     public static final String PROPERTY_INCREMENTAL = "incremental";
+    public static final String PROPERTY_AUTOMATIC = "automatic";
     public static final String PROPERTY_SAMPLE_PERCENT = "sample.percent";
     public static final String PROPERTY_SAMPLE_ROWS = "sample.rows";
     public static final String PROPERTY_NUM_BUCKETS = "num.buckets";
     public static final String PROPERTY_ANALYSIS_TYPE = "analysis.type";
+    public static final String PROPERTY_PERIOD_SECONDS = "period.seconds";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(PROPERTY_SYNC)
             .add(PROPERTY_INCREMENTAL)
+            .add(PROPERTY_AUTOMATIC)
             .add(PROPERTY_SAMPLE_PERCENT)
             .add(PROPERTY_SAMPLE_ROWS)
             .add(PROPERTY_NUM_BUCKETS)
             .add(PROPERTY_ANALYSIS_TYPE)
+            .add(PROPERTY_PERIOD_SECONDS)
             .build();
 
     private final TableName tableName;
@@ -112,6 +119,7 @@ public class AnalyzeStmt extends DdlStmt {
     }
 
     @Override
+    @SuppressWarnings({"rawtypes"})
     public void analyze(Analyzer analyzer) throws UserException {
         if (!Config.enable_stats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
@@ -194,6 +202,52 @@ public class AnalyzeStmt extends DdlStmt {
             throw new AnalysisException(msg);
         }
 
+        checkSampleValue();
+        checkPeriodSeconds();
+        checkNumBuckets();
+        checkSync(msgTemplate);
+        checkAnalysisMode(msgTemplate);
+        checkAnalysisType(msgTemplate);
+        checkScheduleType(msgTemplate);
+    }
+
+    private void checkPeriodSeconds() throws AnalysisException {
+        if (properties.containsKey(PROPERTY_PERIOD_SECONDS)) {
+            checkNumericProperty(PROPERTY_PERIOD_SECONDS, properties.get(PROPERTY_PERIOD_SECONDS),
+                    1, Integer.MAX_VALUE, true, "needs at least 1 seconds");
+        }
+    }
+
+    private void checkSampleValue() throws AnalysisException {
+        if (properties.containsKey(PROPERTY_SAMPLE_PERCENT)
+                && properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
+            throw new AnalysisException("only one sampling parameter can be specified simultaneously");
+        }
+
+        if (properties.containsKey(PROPERTY_SAMPLE_PERCENT)) {
+            checkNumericProperty(PROPERTY_SAMPLE_PERCENT, properties.get(PROPERTY_SAMPLE_PERCENT),
+                    1, 100, true, "should be >= 1 and <= 100");
+        }
+
+        if (properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
+            checkNumericProperty(PROPERTY_SAMPLE_ROWS, properties.get(PROPERTY_SAMPLE_ROWS),
+                    0, Integer.MAX_VALUE, false, "needs at least 1 row");
+        }
+    }
+
+    private void checkNumBuckets() throws AnalysisException {
+        if (properties.containsKey(PROPERTY_NUM_BUCKETS)) {
+            checkNumericProperty(PROPERTY_NUM_BUCKETS, properties.get(PROPERTY_NUM_BUCKETS),
+                    1, Integer.MAX_VALUE, true, "needs at least 1 buckets");
+        }
+
+        if (properties.containsKey(PROPERTY_NUM_BUCKETS)
+                && AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE)) != AnalysisType.HISTOGRAM) {
+            throw new AnalysisException(PROPERTY_NUM_BUCKETS + " can only be specified when collecting histograms");
+        }
+    }
+
+    private void checkSync(String msgTemplate) throws AnalysisException {
         if (properties.containsKey(PROPERTY_SYNC)) {
             try {
                 Boolean.valueOf(properties.get(PROPERTY_SYNC));
@@ -202,7 +256,9 @@ public class AnalyzeStmt extends DdlStmt {
                 throw new AnalysisException(msg);
             }
         }
+    }
 
+    private void checkAnalysisMode(String msgTemplate) throws AnalysisException {
         if (properties.containsKey(PROPERTY_INCREMENTAL)) {
             try {
                 Boolean.valueOf(properties.get(PROPERTY_INCREMENTAL));
@@ -211,27 +267,13 @@ public class AnalyzeStmt extends DdlStmt {
                 throw new AnalysisException(msg);
             }
         }
-
-        if (properties.containsKey(PROPERTY_SAMPLE_PERCENT)
-                && properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
-            throw new AnalysisException("only one sampling parameter can be specified simultaneously");
+        if (properties.containsKey(PROPERTY_INCREMENTAL)
+                && AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE)) == AnalysisType.HISTOGRAM) {
+            throw new AnalysisException(PROPERTY_INCREMENTAL + " analysis of histograms is not supported");
         }
+    }
 
-        if (properties.containsKey(PROPERTY_SAMPLE_PERCENT)) {
-            checkNumericProperty(PROPERTY_SAMPLE_PERCENT, properties.get(PROPERTY_SAMPLE_PERCENT),
-                    0, 100, false, "should be > 0 and < 100");
-        }
-
-        if (properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
-            checkNumericProperty(PROPERTY_SAMPLE_ROWS, properties.get(PROPERTY_SAMPLE_ROWS),
-                    0, Integer.MAX_VALUE, false, "needs at least 1 row");
-        }
-
-        if (properties.containsKey(PROPERTY_NUM_BUCKETS)) {
-            checkNumericProperty(PROPERTY_NUM_BUCKETS, properties.get(PROPERTY_NUM_BUCKETS),
-                    1, Integer.MAX_VALUE, true, "needs at least 1 buckets");
-        }
-
+    private void checkAnalysisType(String msgTemplate) throws AnalysisException {
         if (properties.containsKey(PROPERTY_ANALYSIS_TYPE)) {
             try {
                 AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE));
@@ -240,15 +282,24 @@ public class AnalyzeStmt extends DdlStmt {
                 throw new AnalysisException(msg);
             }
         }
+    }
 
-        if (properties.containsKey(PROPERTY_INCREMENTAL)
-                && AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE)) == AnalysisType.HISTOGRAM) {
-            throw new AnalysisException(PROPERTY_INCREMENTAL + " collection of histograms is not supported");
+    private void checkScheduleType(String msgTemplate) throws AnalysisException {
+        if (properties.containsKey(PROPERTY_AUTOMATIC)) {
+            try {
+                Boolean.valueOf(properties.get(PROPERTY_AUTOMATIC));
+            } catch (NumberFormatException e) {
+                String msg = String.format(msgTemplate, PROPERTY_AUTOMATIC, properties.get(PROPERTY_AUTOMATIC));
+                throw new AnalysisException(msg);
+            }
         }
-
-        if (properties.containsKey(PROPERTY_NUM_BUCKETS)
-                && AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE)) != AnalysisType.HISTOGRAM) {
-            throw new AnalysisException(PROPERTY_NUM_BUCKETS + " can only be specified when collecting histograms");
+        if (properties.containsKey(PROPERTY_AUTOMATIC)
+                && properties.containsKey(PROPERTY_INCREMENTAL)) {
+            throw new AnalysisException(PROPERTY_INCREMENTAL + " is invalid when analyze automatically statistics");
+        }
+        if (properties.containsKey(PROPERTY_AUTOMATIC)
+                && properties.containsKey(PROPERTY_PERIOD_SECONDS)) {
+            throw new AnalysisException(PROPERTY_PERIOD_SECONDS + " is invalid when analyze automatically statistics");
         }
     }
 
@@ -307,6 +358,10 @@ public class AnalyzeStmt extends DdlStmt {
         return Boolean.parseBoolean(properties.get(PROPERTY_INCREMENTAL));
     }
 
+    public boolean isAutomatic() {
+        return Boolean.parseBoolean(properties.get(PROPERTY_AUTOMATIC));
+    }
+
     public int getSamplePercent() {
         if (!properties.containsKey(PROPERTY_SAMPLE_PERCENT)) {
             return 0;
@@ -328,15 +383,33 @@ public class AnalyzeStmt extends DdlStmt {
         return Integer.parseInt(properties.get(PROPERTY_NUM_BUCKETS));
     }
 
+    public long getPeriodTimeInMs() {
+        if (!properties.containsKey(PROPERTY_PERIOD_SECONDS)) {
+            return 0;
+        }
+        int minutes = Integer.parseInt(properties.get(PROPERTY_PERIOD_SECONDS));
+        return TimeUnit.SECONDS.toMillis(minutes);
+    }
+
+    public AnalysisMode getAnalysisMode() {
+        return isIncremental() ? AnalysisMode.INCREMENTAL : AnalysisMode.FULL;
+    }
+
     public AnalysisType getAnalysisType() {
         return AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE));
     }
 
     public AnalysisMethod getAnalysisMethod() {
-        if (getSamplePercent() > 0 || getSampleRows() > 0) {
-            return AnalysisMethod.SAMPLE;
+        double samplePercent = getSamplePercent();
+        int sampleRows = getSampleRows();
+        return (samplePercent > 0 || sampleRows > 0) ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
+    }
+
+    public ScheduleType getScheduleType() {
+        if (isAutomatic()) {
+            return ScheduleType.AUTOMATIC;
         }
-        return AnalysisMethod.FULL;
+        return getPeriodTimeInMs() > 0 ? ScheduleType.PERIOD : ScheduleType.ONCE;
     }
 
     @Override

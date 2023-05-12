@@ -142,6 +142,10 @@ public abstract class BaseAnalysisTask {
                     info, AnalysisState.FAILED,
                     String.format("Table with name %s not exists", info.tblName), System.currentTimeMillis());
         }
+        // External Table level task doesn't contain a column. Don't need to do the column related analyze.
+        if (info.externalTableLevelTask) {
+            return;
+        }
         if (info.analysisType != null && (info.analysisType.equals(AnalysisType.COLUMN)
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
@@ -170,7 +174,7 @@ public abstract class BaseAnalysisTask {
                         String.format("Job has been cancelled: %s", info.toString()), -1);
     }
 
-    public int getLastExecTime() {
+    public long getLastExecTime() {
         return info.lastExecTimeInMs;
     }
 

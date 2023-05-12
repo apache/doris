@@ -37,8 +37,10 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -102,6 +104,10 @@ public abstract class ScanNode extends PlanNode {
 
     public void setSortColumn(String column) {
         sortColumn = column;
+    }
+
+    protected List<Split> getSplits() throws UserException {
+        throw new NotImplementedException("Scan node sub class need to implement getSplits interface.");
     }
 
     /**

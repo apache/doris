@@ -116,7 +116,8 @@ protected:
         EXPECT_TRUE(st.ok());
         DataDir data_dir(kSegmentDir);
         data_dir.init();
-        SegmentWriter writer(file_writer.get(), 0, build_schema, &data_dir, INT32_MAX, opts);
+        SegmentWriter writer(file_writer.get(), 0, build_schema, nullptr, &data_dir, INT32_MAX,
+                             opts, nullptr);
         st = writer.init();
         EXPECT_TRUE(st.ok());
 

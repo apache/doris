@@ -66,6 +66,9 @@ public class RuntimeProfile {
 
     private Long timestamp = -1L;
 
+    private Boolean isDone = false;
+    private Boolean isCancel = false;
+
     public RuntimeProfile(String name) {
         this();
         this.name = name;
@@ -75,6 +78,22 @@ public class RuntimeProfile {
         this.counterTotalTime = new Counter(TUnit.TIME_NS, 0);
         this.localTimePercent = 0;
         this.counterMap.put("TotalTime", counterTotalTime);
+    }
+
+    public void setIsCancel(Boolean isCancel) {
+        this.isCancel = isCancel;
+    }
+
+    public Boolean getIsCancel() {
+        return isCancel;
+    }
+
+    public void setIsDone(Boolean isDone) {
+        this.isDone = isDone;
+    }
+
+    public Boolean getIsDone() {
+        return isDone;
     }
 
     public String getName() {
@@ -155,7 +174,7 @@ public class RuntimeProfile {
                         LOG.error("Cannot update counters with the same name but different types"
                                 + " type=" + tcounter.type);
                     } else {
-                        counter.setValue(tcounter.value);
+                        counter.setValue(tcounter.type, tcounter.value);
                     }
                 }
             }
@@ -330,6 +349,15 @@ public class RuntimeProfile {
                 }
                 break;
             }
+            case TIME_MS: {
+                if (tmpValue >= DebugUtil.THOUSAND) {
+                    // If the time is over a second, print it up to ms.
+                    DebugUtil.printTimeMs(tmpValue, builder);
+                } else {
+                    builder.append(tmpValue).append("ms");
+                }
+                break;
+            }
             case BYTES: {
                 Pair<Double, String> pair = DebugUtil.getByteUint(tmpValue);
                 Formatter fmt = new Formatter();
@@ -486,3 +514,4 @@ public class RuntimeProfile {
         return infoStrings;
     }
 }
+

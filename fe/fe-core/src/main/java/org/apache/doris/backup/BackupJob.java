@@ -67,7 +67,6 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.text.SimpleDateFormat;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -612,8 +611,8 @@ public class BackupJob extends AbstractJob {
                 }
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
-                        brokers.get(0), repo.getStorage().getProperties(), repo.getStorage().getStorageType(),
-                        repo.getLocation());
+                        brokers.get(0), repo.getRemoteFileSystem().getProperties(),
+                        repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                 LOG.info("yy debug upload location: " + repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
@@ -647,8 +646,7 @@ public class BackupJob extends AbstractJob {
     }
 
     private void saveMetaInfo() {
-        String createTimeStr = TimeUtils.longToTimeString(createTime, new SimpleDateFormat(
-                "yyyy-MM-dd-HH-mm-ss"));
+        String createTimeStr = TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
         // local job dir: backup/label__createtime/
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
                                     label + "__" + createTimeStr).normalize();

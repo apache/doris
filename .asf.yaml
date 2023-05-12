@@ -73,8 +73,6 @@ github:
         strict: false
         contexts:
           - License Check
-          - BE UT (Doris BE UT)
-          - Build Broker
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
@@ -89,6 +87,12 @@ github:
     - zy-kkk
     - Yukang-Lian
     - xiaokang
+    - TangSiyang2001
+    - platoneko
+    - Lchangliang
+    - freemandealer
+    - nanfeng1999
+    - gitccl
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

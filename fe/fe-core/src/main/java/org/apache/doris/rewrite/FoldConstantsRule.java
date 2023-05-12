@@ -57,11 +57,8 @@ import com.google.common.base.Predicates;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,7 +82,6 @@ import java.util.concurrent.TimeUnit;
  */
 public class FoldConstantsRule implements ExprRewriteRule {
     private static final Logger LOG = LogManager.getLogger(FoldConstantsRule.class);
-    private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     public static ExprRewriteRule INSTANCE = new FoldConstantsRule();
 
@@ -354,10 +350,10 @@ public class FoldConstantsRule implements ExprRewriteRule {
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            brpcAddress = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
-            queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+            queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
             queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
             queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);

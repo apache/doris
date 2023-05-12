@@ -129,6 +129,9 @@ public:
     Status apply_filter(const PPublishFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 
+    Status apply_filterv2(const PPublishFilterRequestV2* request,
+                          butil::IOBufAsZeroCopyInputStream* attach_data);
+
     Status merge_filter(const PMergeFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 

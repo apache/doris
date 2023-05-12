@@ -89,9 +89,6 @@ public:
         return _limiter_tracker_raw;
     }
 
-    std::string exceed_mem_limit_msg() { return _exceed_mem_limit_msg; }
-    void save_exceed_mem_limit_msg(const std::string& msg) { _exceed_mem_limit_msg = msg; }
-    void clear_exceed_mem_limit_msg() { _exceed_mem_limit_msg = ""; }
     void disable_wait_gc() { _wait_gc = false; }
     bool wait_gc() { return _wait_gc; }
     void cancel_fragment(const std::string& exceed_msg);
@@ -119,7 +116,6 @@ private:
     int64_t _scope_mem = 0;
 
     std::string _failed_consume_msg = std::string();
-    std::string _exceed_mem_limit_msg = std::string();
     // If true, the Allocator will wait for the GC to free memory if it finds that the memory exceed limit.
     // A thread of query/load will only wait once during execution.
     bool _wait_gc = false;
@@ -191,13 +187,6 @@ inline bool ThreadMemTrackerMgr::flush_untracked_mem() {
     _stop_consume = true;
     init();
     DCHECK(_limiter_tracker_raw);
-    if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(_untracked_mem)) {
-        LOG(WARNING) << fmt::format(
-                "MemHook alloc:{} failed, not enough system memory, consuming tracker:<{}>, exec "
-                "node:<{}>, {}.",
-                _untracked_mem, _limiter_tracker_raw->label(), last_consumer_tracker(),
-                doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(_untracked_mem));
-    }
 
     old_untracked_mem = _untracked_mem;
     if (_count_scope_mem) _scope_mem += _untracked_mem;

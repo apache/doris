@@ -28,6 +28,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
@@ -207,7 +208,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     }
     _fn_place_ptr = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
                                                    _align_aggregate_states);
-    _create_agg_status();
+    RETURN_IF_CATCH_EXCEPTION(_create_agg_status());
     _executor.insert_result =
             std::bind<void>(&VAnalyticEvalNode::_insert_result_info, this, std::placeholders::_1);
     _executor.execute =
@@ -736,13 +737,21 @@ Status VAnalyticEvalNode::_reset_agg_status() {
 
 Status VAnalyticEvalNode::_create_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
-        _agg_functions[i]->create(_fn_place_ptr + _offsets_of_aggregate_states[i]);
+        try {
+            _agg_functions[i]->create(_fn_place_ptr + _offsets_of_aggregate_states[i]);
+        } catch (...) {
+            for (int j = 0; j < i; ++j) {
+                _agg_functions[j]->destroy(_fn_place_ptr + _offsets_of_aggregate_states[j]);
+            }
+            throw;
+        }
     }
+    _agg_functions_created = true;
     return Status::OK();
 }
 
 Status VAnalyticEvalNode::_destroy_agg_status() {
-    if (UNLIKELY(_fn_place_ptr == nullptr)) {
+    if (UNLIKELY(_fn_place_ptr == nullptr || !_agg_functions_created)) {
         return Status::OK();
     }
     for (size_t i = 0; i < _agg_functions_size; ++i) {

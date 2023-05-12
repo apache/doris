@@ -44,7 +44,7 @@ namespace doris::vectorized {
 ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::VScanNode* parent,
                                const doris::TupleDescriptor* input_tuple_desc,
                                const doris::TupleDescriptor* output_tuple_desc,
-                               const std::list<VScanner*>& scanners_, int64_t limit_,
+                               const std::list<VScannerSPtr>& scanners_, int64_t limit_,
                                int64_t max_bytes_in_blocks_queue_)
         : _state(state_),
           _parent(parent),
@@ -242,7 +242,7 @@ Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* 
             scanner_rows_read << PrettyPrinter::print(finished_scanner_rows, TUnit::UNIT) << ", ";
         }
         // Only unfinished scanners here
-        for (auto scanner : _scanners) {
+        for (auto& scanner : _scanners) {
             // Scanners are in ObjPool in ScanNode,
             // so no need to delete them here.
             // Add per scanner running time before close them
@@ -257,7 +257,7 @@ Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* 
         node->_scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
     }
     // Only unfinished scanners here
-    for (auto scanner : _scanners) {
+    for (auto& scanner : _scanners) {
         scanner->close(state);
         // Scanners are in ObjPool in ScanNode,
         // so no need to delete them here.
@@ -314,7 +314,7 @@ void ScannerContext::reschedule_scanner_ctx() {
     }
 }
 
-void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
+void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
     {
         std::unique_lock l(_scanners_lock);
         _scanners.push_front(scanner);
@@ -344,7 +344,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     _ctx_finish_cv.notify_one();
 }
 
-void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_run) {
+void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current_run) {
     // 1. Calculate how many scanners should be scheduled at this run.
     int thread_slot_num = 0;
     {
@@ -364,7 +364,7 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
     {
         std::unique_lock l(_scanners_lock);
         for (int i = 0; i < thread_slot_num && !_scanners.empty();) {
-            auto scanner = _scanners.front();
+            VScannerSPtr scanner = _scanners.front();
             _scanners.pop_front();
             if (scanner->need_to_close()) {
                 _finished_scanner_runtime.push_back(scanner->get_time_cost_ns());

@@ -82,8 +82,9 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-               _join_op == TJoinOp::CROSS_JOIN)
-                << "Mark join is only supported for left semi/anti join and cross join but this is "
+               _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN)
+                << "Mark join is only supported for null aware left semi/anti join and cross join "
+                   "but this is "
                 << _join_op;
     }
     if (tnode.__isset.hash_join_node) {

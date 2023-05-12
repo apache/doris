@@ -52,7 +52,7 @@ public:
 protected:
     Status _init_profile() override;
     Status _process_conjuncts() override;
-    Status _init_scanners(std::list<VScanner*>* scanners) override;
+    Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
 private:
     std::vector<TScanRangeParams> _scan_ranges;

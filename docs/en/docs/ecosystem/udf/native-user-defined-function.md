@@ -14,7 +14,7 @@ to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
 with the License. You may obtain a copy of the License at
 
-  http://www.apache.org/licenses/LICENSE-2.0
+  http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
@@ -156,38 +156,38 @@ Running `sh build.sh` in the root directory of Doris will generate a static libr
     + Declare `udf.h` header file location
 
 
-    Take udf_sample as an example
+Take udf_sample as an example
 
-    ```
-    # Include udf
-    include_directories(../thirdparty/include)
+```
+# Include udf
+include_directories(../thirdparty/include)
 
-    # Set all libraries
-    add_library(udf STATIC IMPORTED)
-    set_target_properties(udf PROPERTIES IMPORTED_LOCATION ../thirdparty/lib/libDorisUdf.a)
+# Set all libraries
+add_library(udf STATIC IMPORTED)
+set_target_properties(udf PROPERTIES IMPORTED_LOCATION ../thirdparty/lib/libDorisUdf.a)
 
-    # where to put generated libraries
-    set(LIBRARY_OUTPUT_PATH "src/udf_samples")
+# where to put generated libraries
+set(LIBRARY_OUTPUT_PATH "src/udf_samples")
 
-    # where to put generated binaries
-    set(EXECUTABLE_OUTPUT_PATH "src/udf_samples")
+# where to put generated binaries
+set(EXECUTABLE_OUTPUT_PATH "src/udf_samples")
 
-    add_library(udfsample SHARED udf_sample.cpp)
-        target_link_libraries(udfsample
-        udf
-        -static-libstdc++
-        -static-libgcc
-    )
+add_library(udfsample SHARED udf_sample.cpp)
+  target_link_libraries(udfsample
+  udf
+  -static-libstdc++
+  -static-libgcc
+)
 
-    add_library(udasample SHARED uda_sample.cpp)
-        target_link_libraries(udasample
-        udf
-        -static-libstdc++
-        -static-libgcc
-    )
-    ```
+add_library(udasample SHARED uda_sample.cpp)
+  target_link_libraries(udasample
+  udf
+  -static-libstdc++
+  -static-libgcc
+)
+```
 
-    If the user's UDF function also depends on other thirdparty libraries, you need to declare include, lib, and add dependencies in `add_library`.
+If the user's UDF function also depends on other thirdparty libraries, you need to declare include, lib, and add dependencies in `add_library`.
 
 The complete directory structure after all files are prepared is as follows:
 

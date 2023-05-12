@@ -79,6 +79,7 @@ import java.util.Objects;
  * evaluate an expression on fe.
  */
 public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
+
     public static final FoldConstantRuleOnFE INSTANCE = new FoldConstantRuleOnFE();
 
     @Override

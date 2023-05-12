@@ -427,6 +427,17 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     continue;
                 }
 
+                // Unavailable be has been removed from backendWithReplicaNum,
+                // but the conditions for judging unavailable be by
+                // getUnavailableBeIdsInGroup may be too loose. Under the
+                // default configuration (colocate_group_relocate_delay_second =
+                // 1800), a be that has been out of contact for 20 minutes can
+                // still be selected as the dest be.
+                if (!destBe.isAlive()) {
+                    LOG.info("{} is not alive, not suitable as a dest be", destBe);
+                    continue;
+                }
+
                 for (int seqIndex : seqIndexes) {
                     // the bucket index.
                     // eg: 0 / 3 = 0, so that the bucket index of the 4th backend id in flatBackendsPerBucketSeq is 0.
@@ -434,7 +445,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     List<Long> backendsSet = backendsPerBucketSeq.get(bucketIndex);
                     List<String> hostsSet = hostsPerBucketSeq.get(bucketIndex);
                     // the replicas of a tablet can not locate in same Backend or same host
-                    if (!backendsSet.contains(destBeId) && !hostsSet.contains(destBe.getIp())) {
+                    if (!backendsSet.contains(destBeId) && !hostsSet.contains(destBe.getHost())) {
                         Preconditions.checkState(backendsSet.contains(srcBeId), srcBeId);
                         flatBackendsPerBucketSeq.set(seqIndex, destBeId);
                         LOG.info("replace backend {} with backend {} in colocate group {}, idx: {}",
@@ -486,7 +497,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     // And the following logic will handle the non-exist host.
                     hosts.add(Backend.DUMMY_IP);
                 } else {
-                    hosts.add(be.getIp());
+                    hosts.add(be.getHost());
                 }
             }
             hostsPerBucketSeq.add(hosts);

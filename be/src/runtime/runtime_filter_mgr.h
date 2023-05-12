@@ -41,11 +41,14 @@ class IOBufAsZeroCopyInputStream;
 
 namespace doris {
 class PPublishFilterRequest;
+class PPublishFilterRequestV2;
 class PMergeFilterRequest;
 class IRuntimeFilter;
 class MemTracker;
 class RuntimeState;
 enum class RuntimeFilterRole;
+class RuntimePredicateWrapper;
+class QueryContext;
 
 /// producer:
 /// Filter filter;
@@ -62,6 +65,8 @@ enum class RuntimeFilterRole;
 class RuntimeFilterMgr {
 public:
     RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state);
+
+    RuntimeFilterMgr(const UniqueId& query_id, QueryContext* query_ctx);
 
     ~RuntimeFilterMgr();
 
@@ -100,12 +105,14 @@ private:
     std::map<int32_t, RuntimeFilterMgrVal> _producer_map;
 
     RuntimeState* _state;
+    QueryContext* _query_ctx;
     std::unique_ptr<MemTracker> _tracker;
     ObjectPool _pool;
 
     TNetworkAddress _merge_addr;
 
     bool _has_merge_addr;
+    std::mutex _lock;
 };
 
 // controller -> <query-id, entity>
@@ -123,8 +130,8 @@ public:
                 const TQueryOptions& query_options);
 
     // handle merge rpc
-    Status merge(const PMergeFilterRequest* request,
-                 butil::IOBufAsZeroCopyInputStream* attach_data);
+    Status merge(const PMergeFilterRequest* request, butil::IOBufAsZeroCopyInputStream* attach_data,
+                 bool opt_remote_rf);
 
     UniqueId query_id() const { return _query_id; }
 
@@ -135,6 +142,7 @@ public:
         int producer_size;
         TRuntimeFilterDesc runtime_filter_desc;
         std::vector<doris::TRuntimeFilterTargetParams> target_info;
+        std::vector<doris::TRuntimeFilterTargetParamsV2> targetv2_info;
         IRuntimeFilter* filter;
         std::unordered_set<std::string> arrive_id; // fragment_instance_id ?
         std::shared_ptr<ObjectPool> pool;
@@ -149,6 +157,11 @@ private:
                            const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
                            const int producer_size);
 
+    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
+                           const TQueryOptions* query_options,
+                           const std::vector<doris::TRuntimeFilterTargetParamsV2>* target_info,
+                           const int producer_size);
+
     UniqueId _query_id;
     UniqueId _fragment_instance_id;
     // protect _filter_map
@@ -158,6 +171,8 @@ private:
     // filter-id -> val
     std::map<std::string, std::shared_ptr<RuntimeFilterCntlVal>> _filter_map;
     RuntimeState* _state;
+    bool _opt_remote_rf = true;
+    int64_t _merge_timer = 0;
 };
 
 // RuntimeFilterMergeController has a map query-id -> entity

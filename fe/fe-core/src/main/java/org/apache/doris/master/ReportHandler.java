@@ -81,6 +81,7 @@ import org.apache.doris.thrift.TStorageResource;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
+import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
@@ -91,7 +92,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -194,6 +194,11 @@ public class ReportHandler extends Daemon {
 
         LOG.info("receive report from be {}. type: {}, current queue size: {}",
                 backend.getId(), reportType, reportQueue.size());
+        if (reportType == ReportType.DISK) {
+            Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
+            int numCores = request.getNumCores();
+            beinfoCollector.addBeInfo(beId, numCores);
+        }
         return result;
     }
 
@@ -420,10 +425,7 @@ public class ReportHandler extends Daemon {
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
 
-        List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
-
-        // <tablet id, tablet schema hash, tablet is dropped>
-        List<Triple<Long, Integer, Boolean>> tabletToIsDropped = Lists.newArrayList();
+        List<TTabletMetaInfo> tabletToUpdate = Lists.newArrayList();
 
         List<CooldownConf> cooldownConfToPush = new LinkedList<>();
         List<CooldownConf> cooldownConfToUpdate = new LinkedList<>();
@@ -437,8 +439,7 @@ public class ReportHandler extends Daemon {
                 transactionsToPublish,
                 transactionsToClear,
                 tabletRecoveryMap,
-                tabletToInMemory,
-                tabletToIsDropped,
+                tabletToUpdate,
                 cooldownConfToPush,
                 cooldownConfToUpdate);
 
@@ -478,14 +479,9 @@ public class ReportHandler extends Daemon {
             handleRecoverTablet(tabletRecoveryMap, backendTablets, backendId);
         }
 
-        // 9. send set tablet in memory to be
-        if (!tabletToInMemory.isEmpty()) {
-            handleSetTabletInMemory(backendId, tabletToInMemory);
-        }
-
-        // 10. send mark tablet isDropped to be
-        if (!tabletToIsDropped.isEmpty()) {
-            handleMarkTabletIsDropped(backendId, tabletToIsDropped);
+        // 9. send tablet meta to be for updating
+        if (!tabletToUpdate.isEmpty()) {
+            handleUpdateTabletMeta(backendId, tabletToUpdate);
         }
 
         // handle cooldown conf
@@ -1041,18 +1037,14 @@ public class ReportHandler extends Daemon {
         }
     }
 
-    private static void handleSetTabletInMemory(long backendId, List<Triple<Long, Integer, Boolean>> tabletToInMemory) {
+    private static void handleUpdateTabletMeta(long backendId, List<TTabletMetaInfo> tabletToUpdate) {
+        final int updateBatchSize = 4096;
         AgentBatchTask batchTask = new AgentBatchTask();
-        UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId, tabletToInMemory);
-        batchTask.addTask(task);
-        AgentTaskExecutor.submit(batchTask);
-    }
-
-    private static void handleMarkTabletIsDropped(long backendId,
-            List<Triple<Long, Integer, Boolean>> tabletToIsDropped) {
-        AgentBatchTask batchTask = new AgentBatchTask();
-        UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(tabletToIsDropped, backendId);
-        batchTask.addTask(task);
+        for (int start = 0; start < tabletToUpdate.size(); start += updateBatchSize) {
+            UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId,
+                    tabletToUpdate.subList(start, Math.min(start + updateBatchSize, tabletToUpdate.size())));
+            batchTask.addTask(task);
+        }
         AgentTaskExecutor.submit(batchTask);
     }
 

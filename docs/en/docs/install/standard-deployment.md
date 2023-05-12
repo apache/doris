@@ -29,7 +29,7 @@ under the License.
 
 This topic is about the hardware and software environment needed to deploy Doris, the recommended deployment mode, cluster scaling, and common problems occur in creating and running clusters.
 
-Before continue reading, you might want to compile Doris following the instructions in the [Compile](https://doris.apache.org/docs/dev/install/source-install/compilation/) topic.
+Before continue reading, you might want to compile Doris following the instructions in the [Compile](https://doris.apache.org/docs/dev/install/source-install/compilation-general/) topic.
 
 ## Software and Hardware Requirements
 
@@ -326,7 +326,7 @@ Broker is deployed as a plug-in, which is independent of Doris. If you need to i
 
 	You can also check whether the startup was successful by connecting as follows:
 	
-	`http://be_host:be_http_port/api/health`
+	`http://be_host:webserver_port/api/health`
 
 	If it returns:
 	

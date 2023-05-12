@@ -59,7 +59,8 @@
         "disable_auto_compaction": false,
         "version_col_idx": -1,
         "store_row_column": false,
-        "is_dynamic_schema": false
+        "is_dynamic_schema": false,
+        "is_partial_update": false
     },
     "rs_metas": [
         {
@@ -108,6 +109,5 @@
     "preferred_rowset_type": "BETA_ROWSET",
     "tablet_type": "TABLET_TYPE_DISK",
     "replica_id": 0,
-    "enable_unique_key_merge_on_write": false,
-    "is_dropped": false
+    "enable_unique_key_merge_on_write": false
 }

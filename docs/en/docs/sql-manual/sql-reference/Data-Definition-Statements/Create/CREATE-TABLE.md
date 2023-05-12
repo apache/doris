@@ -693,7 +693,7 @@ If the materialized view is created when the table is created, all subsequent da
 
 If you add a materialized view in the subsequent use process, if there is data in the table, the creation time of the materialized view depends on the current amount of data.
 
-For the introduction of materialized views, please refer to the document [materialized views](../../../../advanced/materialized-view.md).
+For the introduction of materialized views, please refer to the document [materialized views](../../../../query-acceleration/materialized-view.md).
 
 #### Index
 

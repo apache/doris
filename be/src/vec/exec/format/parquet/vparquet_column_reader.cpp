@@ -26,7 +26,6 @@
 #include <utility>
 
 #include "runtime/define_primitive_type.h"
-#include "runtime/types.h"
 #include "schema_desc.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
@@ -124,6 +123,11 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    size_t max_buf_size) {
     if (field->type.type == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
+        if (field->children[0].type.type == TYPE_MAP ||
+            field->children[0].type.type == TYPE_STRUCT) {
+            return Status::InternalError(
+                    "Array does not support nested map/struct type in column {}", field->name);
+        }
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                element_reader, max_buf_size));
         element_reader->set_nested_column();
@@ -131,6 +135,13 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
         reader.reset(array_reader);
     } else if (field->type.type == TYPE_MAP) {
+        auto key_type = field->children[0].children[0].type.type;
+        auto value_type = field->children[0].children[1].type.type;
+        if (key_type == TYPE_ARRAY || key_type == TYPE_MAP || key_type == TYPE_STRUCT ||
+            value_type == TYPE_ARRAY || value_type == TYPE_MAP || value_type == TYPE_STRUCT) {
+            return Status::InternalError("Map does not support nested complex type in column {}",
+                                         field->name);
+        }
         std::unique_ptr<ParquetColumnReader> key_reader;
         std::unique_ptr<ParquetColumnReader> value_reader;
         RETURN_IF_ERROR(create(file, &field->children[0].children[0], row_group, row_ranges, ctz,
@@ -145,6 +156,11 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
     } else if (field->type.type == TYPE_STRUCT) {
         std::vector<std::unique_ptr<ParquetColumnReader>> child_readers;
         for (int i = 0; i < field->children.size(); ++i) {
+            auto child_type = field->children[i].type.type;
+            if (child_type == TYPE_ARRAY || child_type == TYPE_MAP || child_type == TYPE_STRUCT) {
+                return Status::InternalError(
+                        "Struct does not support nested complex type in column {}", field->name);
+            }
             std::unique_ptr<ParquetColumnReader> child_reader;
             RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz, io_ctx,
                                    child_reader, max_buf_size));
@@ -194,8 +210,13 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, siz
                                   ? chunk_meta.dictionary_page_offset
                                   : chunk_meta.data_page_offset;
     size_t chunk_len = chunk_meta.total_compressed_size;
-    _stream_reader = std::make_unique<io::BufferedFileStreamReader>(
-            file, chunk_start, chunk_len, std::min(chunk_len, max_buf_size));
+    size_t prefetch_buffer_size = std::min(chunk_len, max_buf_size);
+    if (typeid_cast<io::MergeRangeFileReader*>(file.get())) {
+        // turn off prefetch data when using MergeRangeFileReader
+        prefetch_buffer_size = 0;
+    }
+    _stream_reader = std::make_unique<io::BufferedFileStreamReader>(file, chunk_start, chunk_len,
+                                                                    prefetch_buffer_size);
     _chunk_reader = std::make_unique<ColumnChunkReader>(_stream_reader.get(), &_chunk_meta, field,
                                                         _ctz, _io_ctx);
     RETURN_IF_ERROR(_chunk_reader->init());

@@ -22,8 +22,19 @@
 #include <memory>
 #include <vector>
 
+#include "arrow/status.h"
 #include "common/status.h"
 #include "util/jsonb_writer.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/core/types.h"
+
+namespace arrow {
+class ArrayBuilder;
+class Array;
+} // namespace arrow
+namespace cctz {
+class time_zone;
+} // namespace cctz
 
 namespace doris {
 class PValues;
@@ -70,7 +81,20 @@ public:
     // JSON serializer and deserializer
 
     // Arrow serializer and deserializer
+    virtual void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                                       arrow::ArrayBuilder* array_builder, int start,
+                                       int end) const = 0;
+    virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
+                                        int end, const cctz::time_zone& ctz) const = 0;
 };
+
+inline void checkArrowStatus(const arrow::Status& status, const std::string& column,
+                             const std::string& format_name) {
+    if (!status.ok()) {
+        LOG(FATAL) << "arrow serde with arrow: " << format_name << " with column : " << column
+                   << " with error msg: " << status.ToString();
+    }
+}
 
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;

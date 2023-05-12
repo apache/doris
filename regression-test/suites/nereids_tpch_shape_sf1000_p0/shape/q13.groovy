@@ -29,7 +29,11 @@ suite("q13") {
 
 
 
-    
+    def result = sql "show backends;"
+    if (result.size() != 1) {
+        print("backends num: ${result.size()}");
+        return;
+    }
     qt_select """
     explain shape plan
     select 

@@ -17,9 +17,11 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -52,7 +54,7 @@ public class StatisticsCache {
 
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<ColumnStatistic>> columnStatisticsCache =
             Caffeine.newBuilder()
-                    .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
+                    .maximumSize(Config.stats_cache_size)
                     .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
                     .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
                     .executor(threadPool)
@@ -60,7 +62,7 @@ public class StatisticsCache {
 
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<Histogram>> histogramCache =
             Caffeine.newBuilder()
-                    .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
+                    .maximumSize(Config.stats_cache_size)
                     .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
                     .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
                     .executor(threadPool)
@@ -146,6 +148,14 @@ public class StatisticsCache {
     private void doPreHeat() {
         List<ResultRow> recentStatsUpdatedCols = null;
         long retryTimes = 0;
+        while (!StatisticsUtil.statsTblAvailable()) {
+            try {
+                Thread.sleep(100L);
+            } catch (InterruptedException e) {
+                // IGNORE
+            }
+        }
+
         while (retryTimes < StatisticConstants.PRELOAD_RETRY_TIMES) {
             try {
                 recentStatsUpdatedCols = StatisticsRepository.fetchRecentStatsUpdatedCol();
@@ -194,6 +204,9 @@ public class StatisticsCache {
                         return Optional.of(c);
                     }
                 };
+                if (c == ColumnStatistic.UNKNOWN) {
+                    continue;
+                }
                 columnStatisticsCache.put(k, f);
             } catch (Throwable t) {
                 LOG.warn("Error when preheating stats cache", t);

@@ -39,6 +39,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -69,6 +70,7 @@ public class JdbcTable extends Table {
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
+        tempMap.put("nebula", TOdbcTableType.NEBULA);
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
@@ -76,6 +78,9 @@ public class JdbcTable extends Table {
         tempMap.put("clickhouse", TOdbcTableType.CLICKHOUSE);
         tempMap.put("sap_hana", TOdbcTableType.SAP_HANA);
         tempMap.put("trino", TOdbcTableType.TRINO);
+        tempMap.put("presto", TOdbcTableType.PRESTO);
+        tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
+        tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -267,7 +272,11 @@ public class JdbcTable extends Table {
         if (Strings.isNullOrEmpty(jdbcTypeName)) {
             throw new DdlException("property " + TABLE_TYPE + " must be set");
         }
-        if (!TABLE_TYPE_MAP.containsKey(jdbcTypeName.toLowerCase())) {
+
+        Map<String, TOdbcTableType> tableTypeMapWithoutOceanbaseOracle = new HashMap<>(TABLE_TYPE_MAP);
+        tableTypeMapWithoutOceanbaseOracle.remove("oceanbase_oracle");
+
+        if (!tableTypeMapWithoutOceanbaseOracle.containsKey(jdbcTypeName.toLowerCase())) {
             throw new DdlException("Unknown jdbc table type: " + jdbcTypeName);
         }
 
@@ -286,5 +295,23 @@ public class JdbcTable extends Table {
         driverClass = jdbcResource.getProperty(DRIVER_CLASS);
         driverUrl = jdbcResource.getProperty(DRIVER_URL);
         checkSum = jdbcResource.getProperty(CHECK_SUM);
+
+        if (!jdbcTypeName.equalsIgnoreCase(jdbcUrl.split(":")[1])) {
+            throw new DdlException("property " + TABLE_TYPE + " must be same with resource url");
+        }
+
+        // get oceanbase_mode
+        String oceanbaseMode = jdbcResource.getProperty("oceanbase_mode");
+
+        // by oceanbase_mode set jdbcTypeName
+        if ("oceanbase".equalsIgnoreCase(jdbcTypeName)) {
+            if ("mysql".equalsIgnoreCase(oceanbaseMode)) {
+                jdbcTypeName = "oceanbase";
+            } else if ("oracle".equalsIgnoreCase(oceanbaseMode)) {
+                jdbcTypeName = "oceanbase_oracle";
+            } else {
+                throw new DdlException("Unknown oceanbase_mode: " + oceanbaseMode);
+            }
+        }
     }
 }

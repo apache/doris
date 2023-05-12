@@ -215,7 +215,7 @@ private:
     Status _check_all_root_path_cluster_id();
     Status _judge_and_update_effective_cluster_id(int32_t cluster_id);
 
-    bool _delete_tablets_on_unused_root_path();
+    void _exit_if_too_many_disks_are_failed();
 
     void _clean_unused_txns();
 

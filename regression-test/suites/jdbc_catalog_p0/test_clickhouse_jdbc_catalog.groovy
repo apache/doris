@@ -54,6 +54,7 @@ suite("test_clickhouse_jdbc_catalog", "p0") {
         sql """ use ${ex_db_name} """
 
         order_qt_type  """ select * from type order by k1; """
+        order_qt_number  """ select * from number order by k6; """
         order_qt_arr  """ select * from arr order by id; """
         sql  """ insert into internal.${internal_db_name}.${inDorisTable} select * from student; """
         order_qt_in_tb  """ select id, name, age from internal.${internal_db_name}.${inDorisTable} order by id; """

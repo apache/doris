@@ -316,20 +316,22 @@ public class CreateTableStmt extends DdlStmt {
 
         analyzeEngineName();
 
-        // `analyzeXXX` would modify `properties`, which will be used later,
-        // so we just clone a properties map here.
-        boolean enableUniqueKeyMergeOnWrite = false;
-        boolean enableStoreRowColumn = false;
-        if (properties != null) {
-            enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(new HashMap<>(properties));
-            enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
-        }
         //pre-block creation with column type ALL
         for (ColumnDef columnDef : columnDefs) {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
             }
+            if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
+                throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
+            }
+            if (Objects.equals(columnDef.getType(), Type.DECIMALV2) && Config.disable_decimalv2) {
+                throw new AnalysisException("Disable to create table with `DECIMAL` type columns,"
+                                            + "please use `DECIMALV3`.");
+            }
         }
+
+        boolean enableUniqueKeyMergeOnWrite = false;
+        boolean enableStoreRowColumn = false;
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
             // olap table
@@ -353,41 +355,61 @@ public class CreateTableStmt extends DdlStmt {
                     }
                     keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
                 } else {
-                    for (ColumnDef columnDef : columnDefs) {
-                        keyLength += columnDef.getType().getIndexSize();
-                        if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
-                                || keyLength > FeConstants.shortkey_maxsize_bytes) {
-                            if (keysColumnNames.size() == 0
-                                    && columnDef.getType().getPrimitiveType().isCharFamily()) {
-                                keysColumnNames.add(columnDef.getName());
+                    if (!Config.experimental_enable_duplicate_without_keys_by_default) {
+                        for (ColumnDef columnDef : columnDefs) {
+                            keyLength += columnDef.getType().getIndexSize();
+                            if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
+                                    || keyLength > FeConstants.shortkey_maxsize_bytes) {
+                                if (keysColumnNames.size() == 0
+                                        && columnDef.getType().getPrimitiveType().isCharFamily()) {
+                                    keysColumnNames.add(columnDef.getName());
+                                }
+                                break;
                             }
-                            break;
-                        }
-                        if (columnDef.getType().isFloatingPointType()) {
-                            break;
-                        }
-                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
-                            break;
-                        }
-                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
-                            break;
-                        }
-                        if (columnDef.getType().isComplexType()) {
-                            break;
-                        }
-                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                            if (columnDef.getType().isFloatingPointType()) {
+                                break;
+                            }
+                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                                break;
+                            }
+                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
+                                break;
+                            }
+                            if (columnDef.getType().isComplexType()) {
+                                break;
+                            }
+                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                                keysColumnNames.add(columnDef.getName());
+                                break;
+                            }
                             keysColumnNames.add(columnDef.getName());
-                            break;
                         }
-                        keysColumnNames.add(columnDef.getName());
-                    }
-                    // The OLAP table must have at least one short key and the float and double should not be short key.
-                    // So the float and double could not be the first column in OLAP table.
-                    if (keysColumnNames.isEmpty()) {
-                        throw new AnalysisException("The olap table first column could not be float, double, string"
-                                + " or array, struct, map, please use decimal or varchar instead.");
+                        // The OLAP table must have at least one short key,
+                        // and the float and double should not be short key,
+                        // so the float and double could not be the first column in OLAP table.
+                        if (keysColumnNames.isEmpty()) {
+                            throw new AnalysisException("The olap table first column could not be float, double, string"
+                                    + " or array, struct, map, please use decimal or varchar instead.");
+                        }
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
+                }
+            }
+
+            if (properties != null && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)
+                    && keysDesc.getKeysType() != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException(
+                        PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " property only support unique key table");
+            }
+
+            if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+                enableUniqueKeyMergeOnWrite = true;
+                if (properties != null) {
+                    // `analyzeXXX` would modify `properties`, which will be used later,
+                    // so we just clone a properties map here.
+                    enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(
+                            new HashMap<>(properties));
+                    enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
                 }
             }
 
@@ -400,7 +422,7 @@ public class CreateTableStmt extends DdlStmt {
                 if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
                     type = AggregateType.NONE;
                 }
-                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
+                if (enableUniqueKeyMergeOnWrite) {
                     type = AggregateType.NONE;
                 }
                 for (int i = keysDesc.keysColumnSize(); i < columnDefs.size(); ++i) {
@@ -498,7 +520,7 @@ public class CreateTableStmt extends DdlStmt {
             if (partitionDesc != null) {
                 if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc
                         || partitionDesc instanceof ColumnPartitionDesc) {
-                    partitionDesc.analyze(columnDefs, properties);
+                    partitionDesc.analyze(columnDefs, properties, keysDesc);
                 } else {
                     throw new AnalysisException("Currently only support range"
                             + " and list partition with engine type olap");

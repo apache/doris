@@ -84,27 +84,27 @@ import java.util.List;
  */
 public class NereidsRewriter extends BatchRewriteJob {
     private static final List<RewriteJob> REWRITE_JOBS = jobs(
-            topic("Normalization",
+            topic("Plan Normalization",
                 topDown(
                     new EliminateOrderByConstant(),
                     new EliminateGroupByConstant(),
-
                     // MergeProjects depends on this rule
                     new LogicalSubQueryAliasToLogicalProject(),
-
-                    // rewrite expressions, no depends
+                    // TODO: we should do expression normalization after plan normalization
+                    //   because some rewritten depends on sub expression tree matching
+                    //   such as group by key matching and replaced
+                    //   but we need to do some normalization before subquery unnesting,
+                    //   such as extract common expression.
                     new ExpressionNormalization(),
                     new ExpressionOptimization(),
                     new AvgDistinctToSumDivCount(),
                     new CountDistinctRewrite(),
-
                     new ExtractFilterFromCrossJoin()
                 ),
-
-                // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
-                // in the ExpressionNormalization, so must invoke in another job, or else run into
-                // dead loop
                 topDown(
+                    // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
+                    // in the ExpressionNormalization, so must invoke in another job, or else run into
+                    // dead loop
                     new ExtractSingleTableExpressionFromDisjunction()
                 )
             ),
@@ -131,33 +131,28 @@ public class NereidsRewriter extends BatchRewriteJob {
                 )
             ),
 
+            // we should eliminate hint again because some hint maybe exist in the CTE or subquery.
+            // so this rule should invoke after "Subquery unnesting"
+            custom(RuleType.ELIMINATE_HINT, EliminateLogicalSelectHint::new),
+
             // please note: this rule must run before NormalizeAggregate
             topDown(
                 new AdjustAggregateNullableForEmptySet()
             ),
-
-            // we should eliminate hint again because some hint maybe exist in the CTE or subquery.
-            // so this rule should invoke after "Subquery unnesting"
-            custom(RuleType.ELIMINATE_HINT, EliminateLogicalSelectHint::new),
 
             // The rule modification needs to be done after the subquery is unnested,
             // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
             // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
             // resulting in inconsistent output results and results in apply
             topDown(
+                new SimplifyAggGroupBy(),
                 new NormalizeAggregate(),
                 new NormalizeSort()
             ),
 
             topic("Window analysis",
                 topDown(
-                    new SimplifyAggGroupBy()
-                ),
-                topDown(
                     new ExtractAndNormalizeWindowExpression(),
-                    // execute NormalizeAggregate() again to resolve nested AggregateFunctions in WindowExpression,
-                    // e.g. sum(sum(c1)) over(partition by avg(c1))
-                    new NormalizeAggregate(),
                     new CheckAndStandardizeWindowFunctionAndFrame()
                 )
             ),

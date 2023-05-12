@@ -23,6 +23,7 @@
 
 #include <string>
 
+#include "arrow/array/builder_binary.h"
 #include "olap/hll.h"
 #include "util/jsonb_document.h"
 #include "util/slice.h"
@@ -77,6 +78,26 @@ void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValu
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     HyperLogLog hyper_log_log(Slice(blob->getBlob()));
     col.insert_value(hyper_log_log);
+}
+
+void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                                             arrow::ArrayBuilder* array_builder, int start,
+                                             int end) const {
+    const auto& col = assert_cast<const ColumnHLL&>(column);
+    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+    for (size_t string_i = start; string_i < end; ++string_i) {
+        if (null_map && null_map[string_i]) {
+            checkArrowStatus(builder.AppendNull(), column.get_name(),
+                             array_builder->type()->name());
+        } else {
+            auto& hll_value = const_cast<HyperLogLog&>(col.get_element(string_i));
+            std::string memory_buffer(hll_value.max_serialized_size(), '0');
+            hll_value.serialize((uint8_t*)memory_buffer.data());
+            checkArrowStatus(
+                    builder.Append(memory_buffer.data(), static_cast<int>(memory_buffer.size())),
+                    column.get_name(), array_builder->type()->name());
+        }
+    }
 }
 
 } // namespace vectorized

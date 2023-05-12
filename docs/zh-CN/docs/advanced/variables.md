@@ -71,7 +71,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 - `sql_mode`
 - `enable_profile`
 - `query_timeout`
-- `insert_timeout`<version since="dev"></version>
+- <version since="dev" type="inline">`insert_timeout`</version>
 - `exec_mem_limit`
 - `batch_size`
 - `allow_partition_column_nullable`
@@ -187,11 +187,11 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `disable_colocate_join`
 
-  控制是否启用 [Colocation Join](./join-optimization/colocation-join.md) 功能。默认为 false，表示启用该功能。true 表示禁用该功能。当该功能被禁用后，查询规划将不会尝试执行 Colocation Join。
+  控制是否启用 [Colocation Join](../query-acceleration/join-optimization/colocation-join.md) 功能。默认为 false，表示启用该功能。true 表示禁用该功能。当该功能被禁用后，查询规划将不会尝试执行 Colocation Join。
 
 - `enable_bucket_shuffle_join`
 
-  控制是否启用 [Bucket Shuffle Join](./join-optimization/bucket-shuffle-join.md) 功能。默认为 true，表示启用该功能。false 表示禁用该功能。当该功能被禁用后，查询规划将不会尝试执行 Bucket Shuffle Join。
+  控制是否启用 [Bucket Shuffle Join](../query-acceleration/join-optimization/bucket-shuffle-join.md) 功能。默认为 true，表示启用该功能。false 表示禁用该功能。当该功能被禁用后，查询规划将不会尝试执行 Bucket Shuffle Join。
 
 - `disable_streaming_preaggregations`
 
@@ -592,7 +592,11 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
 * `enable_file_cache`
 
-    控制是否启用block file cache。该变量只有在be.conf中enable_file_cache=true时才有效，如果be.conf中enable_file_cache=false，则block file cache一直处于禁用状态。
+    控制是否启用block file cache，默认 false。该变量只有在be.conf中enable_file_cache=true时才有效，如果be.conf中enable_file_cache=false，该BE节点的block file cache处于禁用状态。
+
+* `file_cache_base_path`
+
+    指定block file cache在BE上的存储路径，默认 'random'，随机选择BE配置的存储路径。
 	
 * `topn_opt_limit_threshold`
 
@@ -628,6 +632,15 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
     | 10000000     |
     +--------------+
     ```
+  
+* `enable_parquet_lazy_materialization`
+
+  控制 parquet reader 是否启用延迟物化技术。默认为 true。
+
+* `enable_orc_lazy_materialization`
+
+  控制 orc reader 是否启用延迟物化技术。默认为 true。
+
 ***
 
 #### 关于语句执行超时控制的补充说明

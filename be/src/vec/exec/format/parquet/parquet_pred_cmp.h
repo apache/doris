@@ -369,13 +369,22 @@ private:
     }
 
 public:
-    static bool filter_by_min_max(const ColumnValueRangeType& col_val_range,
-                                  const FieldSchema* col_schema, const std::string& encoded_min,
-                                  const std::string& encoded_max, const cctz::time_zone& ctz) {
+    static bool filter_by_stats(const ColumnValueRangeType& col_val_range,
+                                const FieldSchema* col_schema, bool is_set_min_max,
+                                const std::string& encoded_min, const std::string& encoded_max,
+                                bool is_all_null, const cctz::time_zone& ctz) {
         bool need_filter = false;
         std::visit(
                 [&](auto&& range) {
                     std::vector<ScanPredicate> filters = _value_range_to_predicate(range);
+                    // Currently, ScanPredicate doesn't include "is null" && "x = null", filters will be empty when contains these exprs.
+                    // So we can handle is_all_null safely.
+                    if (!filters.empty()) {
+                        need_filter = is_all_null;
+                        if (need_filter) {
+                            return;
+                        }
+                    }
                     for (auto& filter : filters) {
                         need_filter |= _filter_by_min_max(range, filter, col_schema, encoded_min,
                                                           encoded_max, ctz);

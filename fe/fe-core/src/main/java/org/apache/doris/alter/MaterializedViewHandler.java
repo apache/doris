@@ -344,7 +344,7 @@ public class MaterializedViewHandler extends AlterHandler {
         // get rollup schema hash
         int mvSchemaHash = Util.generateSchemaHash();
         // get short key column count
-        short mvShortKeyColumnCount = Env.calcShortKeyColumnCount(mvColumns, properties);
+        short mvShortKeyColumnCount = Env.calcShortKeyColumnCount(mvColumns, properties, true/*isKeysRequired*/);
         // get timeout
         long timeoutMs = PropertyAnalyzer.analyzeTimeout(properties, Config.alter_table_timeout_second) * 1000;
 
@@ -554,10 +554,14 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
-            newMVColumns.add(new Column(olapTable.getDeleteSignColumn()));
+            Column newColumn = new Column(olapTable.getDeleteSignColumn());
+            newColumn.setAggregationType(AggregateType.REPLACE, true);
+            newMVColumns.add(newColumn);
         }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
-            newMVColumns.add(new Column(olapTable.getSequenceCol()));
+            Column newColumn = new Column(olapTable.getSequenceCol());
+            newColumn.setAggregationType(AggregateType.REPLACE, true);
+            newMVColumns.add(newColumn);
         }
         // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {

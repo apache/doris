@@ -18,7 +18,6 @@
 package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -582,7 +581,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
             List<TBrokerFileStatus> fileStatus = rep.getFiles();
             for (TBrokerFileStatus tFile : fileStatus) {
-                RemoteFile file = new RemoteFile(tFile.path, !tFile.isDir, tFile.size, 0);
+                RemoteFile file = new RemoteFile(tFile.path, !tFile.isDir, tFile.size, 0, tFile.getModificationTime());
                 result.add(file);
             }
             LOG.info("finished to list remote path {}. get files: {}", remotePath, result);
