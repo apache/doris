@@ -749,7 +749,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
 
             if (index < 0) {
                 // there is no high priority task. notify other thread to handle normal task
-                _worker_thread_condition_variable.notify_one();
+                _worker_thread_condition_variable.notify_all();
                 break;
             }
 
