@@ -197,7 +197,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements MemoPatternMatch
                             // when Window's function is same as AggregateFunction.
                             // In this example, agg function [sum(id+1)] is same as Window's function [sum(id+1) over...]
                             List<NamedExpression> projects = project.getProjects();
-                            return projects.get(1).child(0) instanceof SlotReference
+                            return projects.get(1) instanceof SlotReference
                                 && projects.get(2).equals(windowAlias);
                         })
                 )

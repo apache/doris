@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -215,6 +216,25 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return canNotPush;
         }
 
+        // TODO: refactor this to process slot reference or expression together
+        boolean onlyContainsSlotOrNumericCastSlot = aggregateFunctions.stream()
+                .map(ExpressionTrait::getArguments)
+                .flatMap(List::stream)
+                .allMatch(argument -> {
+                    if (argument instanceof SlotReference) {
+                        return true;
+                    }
+                    if (argument instanceof Cast) {
+                        return argument.child(0) instanceof SlotReference
+                                && argument.getDataType().isNumericType()
+                                && argument.child(0).getDataType().isNumericType();
+                    }
+                    return false;
+                });
+        if (!onlyContainsSlotOrNumericCastSlot) {
+            return canNotPush;
+        }
+
         // we already normalize the arguments to slotReference
         List<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
                 .flatMap(aggregateFunction -> aggregateFunction.getArguments().stream())
@@ -228,7 +248,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .collect(ImmutableList.toImmutableList());
         }
 
-        boolean onlyContainsSlotOrNumericCastSlot = argumentsOfAggregateFunction
+        onlyContainsSlotOrNumericCastSlot = argumentsOfAggregateFunction
                 .stream()
                 .allMatch(argument -> {
                     if (argument instanceof SlotReference) {
