@@ -671,53 +671,41 @@ public class Config extends ConfigBase {
                     + "`exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)`"})
     public static int query_colocate_join_memory_limit_penalty_factor = 1;
 
-    /**
-     * This configs can set to true to disable the automatic colocate tables's relocate and balance.
-     * If 'disable_colocate_balance' is set to true,
-     *   ColocateTableBalancer will not relocate and balance colocate tables.
-     * Attention:
-     *   Under normal circumstances, there is no need to turn off balance at all.
-     *   Because once the balance is turned off, the unstable colocate table may not be restored
-     *   Eventually the colocate plan cannot be used when querying.
-     */
-    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
+    @ConfField(mutable = true, masterOnly = true, description = {"设置为 true，则会禁止 Colocate 表的重分布和均衡操作。\n"
+            + "注意：如果禁止，则 Colocate table 将无法自动修复。",
+            "If set to true, the redistribution and balance operations of the Colocate table will be disabled.\n"
+                    + "Note: If disabled, the Colocate table will not be automatically repaired."})
+    public static boolean disable_colocate_balance = false;
 
-    /**
-     * The default user resource publishing timeout.
-     */
-    @ConfField public static int meta_publish_timeout_ms = 1000;
-    @ConfField public static boolean proxy_auth_enable = false;
-    @ConfField public static String proxy_auth_magic_prefix = "x@8";
-    /**
-     * Limit on the number of expr children of an expr tree.
-     * Exceed this limit may cause long analysis time while holding database read lock.
-     * Do not set this if you know what you are doing.
-     */
-    @ConfField(mutable = true)
+    @ConfField(description = {"待补充", "TODO"})
+    public static boolean proxy_auth_enable = false;
+    @ConfField(description = {"待补充", "TODO"})
+    public static String proxy_auth_magic_prefix = "x@8";
+
+    @ConfField(mutable = true, description = {"限制表达式最大孩子节点的数量（比如 IN 表达式里的元素个数）。如果孩子节点数量多过，"
+            + "则会导致SQL解析阶段耗时较长，并长时间持有元数据锁",
+            "Limit on the number of expr children of an expr tree(such as elements num in InPredicate). "
+                    + "Exceed this limit may cause long analysis time while holding database read lock."})
     public static int expr_children_limit = 10000;
-    /**
-     * Limit on the depth of an expr tree.
-     * Exceed this limit may cause long analysis time while holding db read lock.
-     * Do not set this if you know what you are doing.
-     */
-    @ConfField(mutable = true)
-    public static int expr_depth_limit = 3000;
 
-    // Configurations for backup and restore
-    /**
-     * Plugins' path for BACKUP and RESTORE operations. Currently deprecated.
-     */
-    @Deprecated
-    @ConfField public static String backup_plugin_path = "/tools/trans_file_tool/trans_files.sh";
+    @ConfField(mutable = true, description = {
+            "限制表达式的深度。如果深度过深，则会导致SQL解析阶段耗时较长，并长时间持有元数据锁。",
+            "Limit on the depth of an expr tree. "
+                    + "If too deep, it may cause long analysis time while holding metadata read lock."})
+    public static int expr_depth_limit = 3000;
 
     // Configurations for hadoop dpp
     /**
      * The following configurations are not available.
      */
-    @ConfField public static String dpp_hadoop_client_path = "/lib/hadoop-client/hadoop/bin/hadoop";
-    @ConfField public static long dpp_bytes_per_reduce = 100 * 1024 * 1024L; // 100M
-    @ConfField public static String dpp_default_cluster = "palo-dpp";
-    @ConfField public static String dpp_default_config_str = ""
+    @ConfField(description = {"已废弃", "Desprecated"})
+    public static String dpp_hadoop_client_path = "/lib/hadoop-client/hadoop/bin/hadoop";
+    @ConfField(description = {"已废弃", "Desprecated"})
+    public static long dpp_bytes_per_reduce = 100 * 1024 * 1024L; // 100M
+    @ConfField(description = {"已废弃", "Desprecated"})
+    public static String dpp_default_cluster = "palo-dpp";
+    @ConfField(description = {"已废弃", "Desprecated"})
+    public static String dpp_default_config_str = ""
             + "{"
             + "hadoop_configs : '"
             + "mapred.job.priority=NORMAL;"
@@ -729,7 +717,8 @@ public class Config extends ConfigBase {
             + "dfs.client.authserver.force_stop=true;"
             + "dfs.client.auth.method=0"
             + "'}";
-    @ConfField public static String dpp_config_str = ""
+    @ConfField(description = {"已废弃", "Desprecated"})
+    public static String dpp_config_str = ""
             + "{palo-dpp : {"
             + "hadoop_palo_path : '/dir',"
             + "hadoop_configs : '"
@@ -739,140 +728,120 @@ public class Config extends ConfigBase {
             + "'}"
             + "}";
 
-    // For forward compatibility, will be removed later.
-    // check token when download image file.
-    @ConfField public static boolean enable_token_check = true;
+    @ConfField(description = {"是否使用内置的部署管理器。可选项包括：disable, k8s, ambari, local",
+            "If use built-in deploy manager. Valid options are: disable, k8s, ambari, local"})
+    public static String enable_deploy_manager = "disable";
 
-    /**
-     * Set to true if you deploy Palo using thirdparty deploy manager
-     * Valid options are:
-     *      disable:    no deploy manager
-     *      k8s:        Kubernetes
-     *      ambari:     Ambari
-     *      local:      Local File (for test or Boxer2 BCC version)
-     */
-    @ConfField public static String enable_deploy_manager = "disable";
+    @ConfField(description = {"是否使用 k8s 部署管理器。如果使用，需要准备好 k8s 的证书文件。",
+            "If use k8s deploy manager. If use, prepare the certs files."})
+    public static boolean with_k8s_certs = false;
 
-    // If use k8s deploy manager locally, set this to true and prepare the certs files
-    @ConfField public static boolean with_k8s_certs = false;
+    @ConfField(description = {"设置执行命令时的语言环境。目前仅用于 Spark Load。",
+            "Set runtime locale when exec some cmds. Only used for Spark Load now."})
+    public static String locale = "zh_CN.UTF-8";
 
-    // Set runtime locale when exec some cmds
-    @ConfField public static String locale = "zh_CN.UTF-8";
-
-    // default timeout of backup job
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"备份任务的默认超时时间，单位为毫秒。",
+            "Default timeout of backup job, in milliseconds."})
     public static int backup_job_default_timeout_ms = 86400 * 1000; // 1 day
 
-    /**
-     * 'storage_high_watermark_usage_percent' limit the max capacity usage percent of a Backend storage path.
-     * 'storage_min_left_capacity_bytes' limit the minimum left capacity of a Backend storage path.
-     * If both limitations are reached, this storage path can not be chose as tablet balance destination.
-     * But for tablet recovery, we may exceed these limit for keeping data integrity as much as possible.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"`storage_high_watermark_usage_percent` "
+            + "和 `storage_min_left_capacity_bytes` 配合使用。分别表示最大磁盘使用率和最小磁盘剩余空间限制。\n"
+            + "当其中一个达到阈值后，则对应的存储路径将不能作为副本均衡的目标路径。但对于副本修复操作，我们可能会超过这些限制，"
+            + "以尽可能保证数据完整性。",
+            "`storage_high_watermark_usage_percent` and `storage_min_left_capacity_bytes` work together. "
+                    + "They represent the maximum disk usage and the minimum disk remaining space limit respectively. "
+                    + "When one of them reaches the threshold, the corresponding storage path will not "
+                    + "be used as the target path for replica balance. "
+                    + "However, for replica repair operations, we may exceed these limits to ensure data integrity."})
     public static int storage_high_watermark_usage_percent = 85;
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"`storage_high_watermark_usage_percent` "
+            + "和 `storage_min_left_capacity_bytes` 配合使用。分别表示最大磁盘使用率和最小磁盘剩余空间限制。\n"
+            + "当其中一个达到阈值后，则对应的存储路径将不能作为副本均衡的目标路径。但对于副本修复操作，我们可能会超过这些限制，"
+            + "以尽可能保证数据完整性。",
+            "`storage_high_watermark_usage_percent` and `storage_min_left_capacity_bytes` work together. "
+                    + "They represent the maximum disk usage and the minimum disk remaining space limit respectively. "
+                    + "When one of them reaches the threshold, the corresponding storage path will not "
+                    + "be used as the target path for replica balance. "
+                    + "However, for replica repair operations, we may exceed these limits to ensure data integrity."})
     public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024; // 2G
 
-    /**
-     * If capacity of disk reach the 'storage_flood_stage_usage_percent' and 'storage_flood_stage_left_capacity_bytes',
-     * the following operation will be rejected:
-     * 1. load job
-     * 2. restore job
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "`storage_flood_stage_usage_percent` 和 `storage_flood_stage_left_capacity_bytes` 配合使用。"
+                    + "分别表示最大磁盘使用率上限和最小磁盘剩余空间下限。当其中一个达到阈值后，则导入和数据恢复操作将被禁止。",
+            "`storage_flood_stage_usage_percent` and `storage_flood_stage_left_capacity_bytes` work together. "
+                    + "They represent the maximum disk usage and the minimum disk remaining space limit respectively. "
+                    + "When one of them reaches the threshold, "
+                    + "the load and restore operations will be prohibited."})
     public static int storage_flood_stage_usage_percent = 95;
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "`storage_flood_stage_usage_percent` 和 `storage_flood_stage_left_capacity_bytes` 配合使用。"
+                    + "分别表示最大磁盘使用率上限和最小磁盘剩余空间下限。当其中一个达到阈值后，则导入和数据恢复操作将被禁止。",
+            "`storage_flood_stage_usage_percent` and `storage_flood_stage_left_capacity_bytes` work together. "
+                    + "They represent the maximum disk usage and the minimum disk remaining space limit respectively. "
+                    + "When one of them reaches the threshold, "
+                    + "the load and restore operations will be prohibited."})
     public static long storage_flood_stage_left_capacity_bytes = 1 * 1024 * 1024 * 1024; // 100MB
 
-    // update interval of tablet stat
-    // All frontends will get tablet stat from all backends at each interval
-    @ConfField public static int tablet_stat_update_interval_second = 60;  // 1 min
+    @ConfField(description = {"FE 从 BE 获取 Tablet 统计信息的间隔时间。所有 FE 都会定期向所有 BE 获取 Tablet 信息。"
+            + "主要用于行数和数据量统计", "Interval of FE get tablet stat from BE. All FE will get tablet stat from "
+            + "all BE at each interval. Mainly used for row count and data size statistics"})
+    public static int tablet_stat_update_interval_second = 60;  // 1 min
 
-    /**
-     * Max bytes a broker scanner can process in one broker load job.
-     * Commonly, each Backends has one broker scanner.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Broker Load 任务中，单个扫描任务所允许的最大数据扫描量。"
+            + "此参数用于避免一次导入任务导入过多的数据而增加失败重试的成本。",
+            "Max bytes a broker scanner can process in one broker load job. This parameter is used to avoid "
+                    + "loading too much data at one time and increase the cost of failure retry."})
     public static long max_bytes_per_broker_scanner = 3 * 1024 * 1024 * 1024L; // 3G
 
-    /**
-     * Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED.
-     * If exceed this number, load job is not allowed to be submitted.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static long max_unfinished_load_job = 1000;
-
-    /**
-     * If set to true, Planner will try to select replica of tablet on same host as this Frontend.
-     * This may reduce network transmission in following case:
-     * 1. N hosts with N Backends and N Frontends deployed.
-     * 2. The data has N replicas.
-     * 3. High concurrency queries are sent to all Frontends evenly
-     * In this case, all Frontends can only use local replicas to do the query.
-     * If you want to allow fallback to nonlocal replicas when no local replicas available,
-     * set enable_local_replica_selection_fallback to true.
-     */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {"如果设置为True，优化器会选择和 FE 节点同机的本地副本进行读取。这可能会降低网络传输的开销并优化读取效率。适用以下场景：\n"
+            + "1. N 个节点，每个节点都部署了 FE 和 BE。\n"
+            + "2. 数据有 N 副本，即每个节点都有一份完整的数据。\n"
+            + "3. 高并发查询场景，并且查询会均匀的路由到所有 FE 节点。",
+            "If set to True, the optimizer will choose the local copy on the same machine as the FE node for reading. "
+                    + "This may reduce the overhead of network transfers and optimize read efficiency. "
+                    + "Applies to the following scenarios:\n"
+                    + "1. N nodes, each node is deployed with FE and BE.\n"
+                    + "2. There are N copies of the data, that is, each node has a complete copy of the data.\n"
+                    + "3. High concurrent query scenario, and the query will be evenly routed to all FE nodes."})
     public static boolean enable_local_replica_selection = false;
 
-    /**
-     * Used with enable_local_replica_selection.
-     * If the local replicas is not available, fallback to the nonlocal replicas.
-     * */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {"当 `enable_local_replica_selection` 为 true 但无法访问到本地数据副本时，"
+            + "是否允许读取远端副本。", "When `enable_local_replica_selection` is true "
+            + "but the local data replica cannot be accessed, whether to allow reading the remote replica."})
     public static boolean enable_local_replica_selection_fallback = false;
 
-    /**
-     * The number of query retries.
-     * A query may retry if we encounter RPC exception and no result has been sent to user.
-     * You may reduce this number to avoid Avalanche disaster.
-     */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "查询自动重试次数。仅当查询失败，且没有数据返回给客户端时，查询才会自动重试。调大这个值可能引起雪崩",
+            "The number of query retries. A query may retry if no result has been sent to user. "
+                    + "You may reduce this number to avoid Avalanche disaster."})
     public static int max_query_retry_time = 1;
 
-    /**
-     * The number of point query retries in executor.
-     * A query may retry if we encounter RPC exception and no result has been sent to user.
-     * You may reduce this number to avoid Avalanche disaster.
-     */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "点查询场景下，查询自动重试次数。仅当查询失败，且没有数据返回给客户端时，查询才会自动重试。调大这个值可能引起雪崩",
+            "For point query, the number of query retries. A query may retry if no result has been sent to user. "
+                    + "You may reduce this number to avoid Avalanche disaster."})
     public static int max_point_query_retry_time = 2;
 
-    /**
-     * The tryLock timeout configuration of catalog lock.
-     * Normally it does not need to change, unless you need to test something.
-     */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {"元数据锁的 try lock 超时时长。",
+            " The tryLock timeout configuration of catalog lock."})
     public static long catalog_try_lock_timeout_ms = 5000; // 5 sec
 
-    /**
-     * if this is set to true
-     *    all pending load job will failed when call begin txn api
-     *    all prepare load job will failed when call commit txn api
-     *    all committed load job will waiting to be published
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"是否禁止加载任务。如果设置为 true，"
+            + "所有 pending 状态的加载任务在调用 begin txn api 时会失败，所有 prepare 状态的加载任务在调用 commit txn api 时会失败，"
+            + "所有 committed 状态的加载任务会等待被发布。", "Whether to disable load job. If set to true, "
+            + "all pending load jobs will fail when calling begin txn api, "
+            + "all prepare load jobs will fail when calling commit txn api, "
+            + "and all committed load jobs will wait to be published."})
     public static boolean disable_load_job = false;
 
-    /*
-     * One master daemon thread will update database used data quota for db txn manager
-     * every db_used_data_quota_update_interval_secs
-     */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(masterOnly = true, description = {"用于更新每个数据库已使用的数据量配额的线程的调度间隔。",
+            "The scheduling interval for the thread used to update the amount of data quota used by each database."})
     public static int db_used_data_quota_update_interval_secs = 300;
 
-    /**
-     * Load using hadoop cluster will be deprecated in future.
-     * Set to true to disable this kind of load.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean disable_hadoop_load = false;
-
-    /**
-     * fe will call es api to get es index shard info every es_state_sync_interval_secs
-     */
-    @ConfField
+    @ConfField(description = {"FE 从 ES 获取 ES 索引分片信息的间隔时间。所有 FE 都会定期向所有 ES 获取 ES 索引分片信息。"
+            + "主要用于 ES 索引分片信息的同步",
+            "Interval of FE get es index shard info from ES. All FE will get es index shard info from "
+                    + "all ES at each interval. Mainly used for es index shard info sync"})
     public static long es_state_sync_interval_second = 10;
 
     /**

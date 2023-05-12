@@ -1088,14 +1088,13 @@ public class Env {
                         storage.writeClusterIdAndToken();
                         storage.reload();
                     }
-                    if (Config.enable_token_check) {
-                        Preconditions.checkNotNull(token);
-                        Preconditions.checkNotNull(remoteToken);
-                        if (!token.equals(remoteToken)) {
-                            throw new IOException(
-                                    "token is not equal with helper node "
-                                            + rightHelperNode.getHost() + ". will exit.");
-                        }
+
+                    Preconditions.checkNotNull(token);
+                    Preconditions.checkNotNull(remoteToken);
+                    if (!token.equals(remoteToken)) {
+                        throw new IOException(
+                                "token is not equal with helper node "
+                                        + rightHelperNode.getHost() + ". will exit.");
                     }
                 } catch (Exception e) {
                     throw new IOException("fail to check cluster_id and token with helper node.", e);
