@@ -631,23 +631,6 @@ public class SelectStmt extends QueryStmt {
             tableRef.setOnClause(rewriteQueryExprByMvColumnExpr(tableRef.getOnClause(), analyzer));
         }
 
-        // if the query contains limit clause but not order by clause, order by keys by default.
-        if (isAddDefaultOrderBy()) {
-            orderByElements = Lists.newArrayList();
-            for (TableRef ref : getTableRefs()) {
-                if (ref instanceof BaseTableRef
-                        && ref.getTable().getType() == TableType.OLAP) {
-                    OlapTable olapTable = ((OlapTable) ref.getTable());
-                    int num = olapTable.getKeysNum();
-                    for (int i = 0; i < num; ++i) {
-                        String colName = olapTable.getFullSchema().get(i).getName();
-                        SlotRef slotRef = new SlotRef(null, colName);
-                        orderByElements.add(new OrderByElement(slotRef, true, true));
-                    }
-                }
-            }
-        }
-
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
@@ -692,6 +675,25 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("orderingSlots {}", orderingSlots);
             LOG.debug("conjuntSlots {}", conjuntSlots);
         }
+
+        // if the query contains limit clause but not order by clause, order by keys by default.
+        if (isAddDefaultOrderBy()) {
+            orderByElements = Lists.newArrayList();
+            for (TableRef ref : getTableRefs()) {
+                if (ref instanceof BaseTableRef
+                        && ref.getTable().getType() == TableType.OLAP) {
+                    OlapTable olapTable = ((OlapTable) ref.getTable());
+                    int num = olapTable.getKeysNum();
+                    for (int i = 0; i < num; ++i) {
+                        String colName = olapTable.getFullSchema().get(i).getName();
+                        SlotRef slotRef = new SlotRef(null, colName);
+                        orderByElements.add(new OrderByElement(slotRef, true, true));
+                    }
+                }
+            }
+            createSortInfo(analyzer);
+        }
+
         checkAndSetPointQuery();
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
@@ -2654,7 +2656,8 @@ public class SelectStmt extends QueryStmt {
                 || !ConnectContext.get().getSessionVariable().isEnableDefaultOrder()) {
             return false;
         }
-        if (getTableRefs().size() != 1 || groupByClause != null) {
+        if (fromInsert || analyzer.getAliases().size() != 1 || groupByClause != null
+                || havingClause != null || aggInfo != null || analyticInfo != null) {
             return false;
         }
         return hasLimit() && hasOffset() && orderByElements == null;
