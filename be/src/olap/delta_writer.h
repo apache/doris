@@ -129,6 +129,9 @@ public:
 
     int64_t total_received_rows() const { return _total_received_rows; }
 
+    void set_tablet_load_rowset_num_info(
+            google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_info);
+
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
                 const UniqueId& load_id);

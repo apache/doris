@@ -61,6 +61,11 @@ message PTabletWithPartition {
     required int64 tablet_id = 2;
 }
 
+message PTabletLoadRowsetInfo {
+    required int32 current_rowset_nums = 1;
+    required int32 max_config_rowset_nums = 2;
+}
+
 message PTabletInfo {
     required int64 tablet_id = 1;
     required int32 schema_hash = 2;
@@ -193,6 +198,8 @@ message PTabletWriterAddBlockResult {
     repeated PTabletError tablet_errors = 6;
     map<int64, PSuccessSlaveTabletNodeIds> success_slave_tablet_node_ids = 7;
     optional bytes load_channel_profile = 8;
+    // Used to indicate if the corresponding tablet is under high load pressure
+    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 9;
 };
 
 // tablet writer cancel

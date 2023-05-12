@@ -528,6 +528,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();
         bool open_partition_flag = false;
+        auto tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
             auto tablet_writer_it = _tablet_writers.find(tablet_id);
@@ -560,6 +561,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                 // continue write to other tablet.
                 // the error will return back to sender.
             }
+            tablet_writer_it->second->set_tablet_load_rowset_num_info(tablet_load_infos);
         }
         return Status::OK();
     };

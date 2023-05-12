@@ -258,7 +258,7 @@ public:
                      int64_t* queue_push_lock_ns, int64_t* actual_consume_ns,
                      int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
                      int64_t* total_wait_exec_time_ns, int64_t* wait_exec_time_ns,
-                     int64_t* total_add_batch_num) const {
+                     int64_t* total_add_batch_num, int64_t* load_pressure_time_ns) const {
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
         (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
         *serialize_batch_ns += _serialize_batch_ns;
@@ -270,6 +270,7 @@ public:
         *wait_exec_time_ns = (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
         *total_wait_exec_time_ns += *wait_exec_time_ns;
         *total_add_batch_num += _add_batch_counter.add_batch_num;
+        *load_pressure_time_ns += _load_pressure_block_ns;
     }
 
     int64_t node_id() const { return _node_id; }
@@ -343,6 +344,7 @@ protected:
     std::atomic<int64_t> _serialize_batch_ns {0};
     std::atomic<int64_t> _queue_push_lock_ns {0};
     std::atomic<int64_t> _actual_consume_ns {0};
+    std::atomic<int64_t> _load_pressure_block_ns {0};
 
     VNodeChannelStat _stat;
     // lock to protect _is_closed.
@@ -367,6 +369,7 @@ protected:
             std::pair<std::unique_ptr<vectorized::MutableBlock>, PTabletWriterAddBlockRequest>;
     std::queue<AddBlockReq> _pending_blocks;
     ReusableClosure<PTabletWriterAddBlockResult>* _add_block_closure = nullptr;
+    std::atomic<int32_t> _load_pressure_wait_time = 0;
 };
 
 class IndexChannel {
@@ -607,6 +610,7 @@ private:
     RuntimeProfile::Counter* _max_wait_exec_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_number = nullptr;
     RuntimeProfile::Counter* _num_node_channels = nullptr;
+    RuntimeProfile::Counter* _wait_load_pressure_timer = nullptr;
 
     // load mem limit is for remote load channel
     int64_t _load_mem_limit = -1;

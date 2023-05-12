@@ -572,6 +572,16 @@ int64_t DeltaWriter::partition_id() const {
     return _req.partition_id;
 }
 
+void DeltaWriter::set_tablet_load_rowset_num_info(
+        google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_infos) {
+    if (auto version_cnt = _tablet->version_count() + _mem_table_num.load();
+        UNLIKELY(version_cnt > (config::max_tablet_version_num / 2))) {
+        auto load_info = tablet_infos->Add();
+        load_info->set_current_rowset_nums(version_cnt);
+        load_info->set_max_config_rowset_nums(config::max_tablet_version_num);
+    }
+}
+
 void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
                                                const OlapTableSchemaParam* table_schema_param,
                                                const TabletSchema& ori_tablet_schema) {
