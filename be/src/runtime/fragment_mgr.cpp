@@ -565,7 +565,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         {
             // Find _query_ctx_map again, in case some other request has already
-            // create the query fragments context.
+            // created the query fragments context.
             std::lock_guard<std::mutex> lock(_lock);
             auto search = _query_ctx_map.find(query_id);
             if (search == _query_ctx_map.end()) {

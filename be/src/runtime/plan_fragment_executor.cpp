@@ -450,7 +450,7 @@ void PlanFragmentExecutor::report_profile() {
 
     // Jitter the reporting time of remote fragments by a random amount between
     // 0 and the report_interval.  This way, the coordinator doesn't get all the
-    // updates at once so its better for contention as well as smoother progress
+    // updates at once, so it's better for contention as well as smoother progress
     // reporting.
     int report_fragment_offset = rand() % config::status_report_interval;
     // We don't want to wait longer than it takes to run the entire fragment.
@@ -553,9 +553,9 @@ void PlanFragmentExecutor::stop_report_thread() {
     _report_thread_active = false;
 
     _stop_report_thread_cv.notify_one();
-    // Wait infinitly until the thread is stopped and the future is set.
-    // The reporting thread depends on the PlanFragmentExecutor object, if not wait infinitly here, the reporting
-    // thread may crashed because the PlanFragmentExecutor is destroyed.
+    // Wait infinitely until the thread is stopped and the future is set.
+    // The reporting thread depends on the PlanFragmentExecutor object, if not wait infinitely here, the reporting
+    // thread may crash because the PlanFragmentExecutor is destroyed.
     _report_thread_future.wait();
 }
 
@@ -580,7 +580,7 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     // To notify wait_for_start()
     _query_ctx->set_ready_to_execute(true);
 
-    // must close stream_mgr to avoid dead lock in Exchange Node
+    // must close stream_mgr to avoid deadlock in Exchange Node
     _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
     // Cancel the result queue manager used by spark doris connector
     _exec_env->result_queue_mgr()->update_queue_status(_fragment_instance_id, Status::Aborted(msg));

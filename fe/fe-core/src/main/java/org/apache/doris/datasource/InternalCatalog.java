@@ -317,7 +317,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         return null;
     }
 
-    // Use tryLock to avoid potential dead lock
+    // Use tryLock to avoid potential deadlock
     private boolean tryLock(boolean mustLock) {
         while (true) {
             try {

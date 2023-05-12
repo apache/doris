@@ -315,7 +315,7 @@ public:
         }
 
         // if local recvr queue mem over the exchange node mem limit, we must ensure each queue
-        // has one block to do merge sort in exchange node to prevent the logic dead lock
+        // has one block to do merge sort in exchange node to prevent the logic deadlock
         return !_local_recvr || _local_recvr->is_closed() || !_local_recvr->exceeds_limit(0) ||
                _local_recvr->sender_queue_empty(_parent->sender_id());
     }

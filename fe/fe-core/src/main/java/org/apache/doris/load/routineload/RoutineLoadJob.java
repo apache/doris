@@ -1179,7 +1179,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
                 Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
             } else if (txnStatus == TransactionStatus.COMMITTED) {
-                // this txn is just COMMITTED, create new task when the this txn is VISIBLE
+                // this txn is just COMMITTED, create new task when the txn is VISIBLE
                 // or if publish version task has some error,
                 // there will be lots of COMMITTED txns in GlobalTransactionMgr
             }

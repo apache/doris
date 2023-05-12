@@ -815,7 +815,7 @@ public class Env {
         return getCurrentEnv().getHiveTransactionMgr();
     }
 
-    // Use tryLock to avoid potential dead lock
+    // Use tryLock to avoid potential deadlock
     private boolean tryLock(boolean mustLock) {
         while (true) {
             try {
@@ -4898,7 +4898,7 @@ public class Env {
         List<List<TableIf>> tableLists = Lists.newArrayList();
         tryLock(true);
         try {
-            // sort all dbs to avoid potential dead lock
+            // sort all dbs to avoid potential deadlock
             for (long dbId : getInternalCatalog().getDbIds()) {
                 Database db = getInternalCatalog().getDbNullable(dbId);
                 databases.add(db);

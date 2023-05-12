@@ -90,7 +90,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * @param id Table id.
      * @param name Table name.
      * @param catalog ExternalCatalog this table belongs to.
-     * @param dbName Name of the db the this table belongs to.
+     * @param dbName Name of the db this table belongs to.
      * @param type Table type.
      */
     public ExternalTable(long id, String name, ExternalCatalog catalog, String dbName, TableType type) {

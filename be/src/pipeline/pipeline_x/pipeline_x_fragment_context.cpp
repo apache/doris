@@ -138,7 +138,7 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // To notify wait_for_start()
         _query_ctx->set_ready_to_execute(true);
 
-        // must close stream_mgr to avoid dead lock in Exchange Node
+        // must close stream_mgr to avoid deadlock in Exchange Node
         //
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
@@ -384,7 +384,7 @@ void PipelineXFragmentContext::report_profile() {
 
             // Jitter the reporting time of remote fragments by a random amount between
             // 0 and the report_interval.  This way, the coordinator doesn't get all the
-            // updates at once so its better for contention as well as smoother progress
+            // updates at once so it's better for contention as well as smoother progress
             // reporting.
             int report_fragment_offset = rand() % config::status_report_interval;
             // We don't want to wait longer than it takes to run the entire fragment.

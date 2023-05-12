@@ -58,8 +58,8 @@ protected:
 
 private:
     std::vector<TScanRangeParams> _scan_ranges;
-    // A in memory cache to save some common components
-    // of the this scan node. eg:
+    // An in memory cache to save some common components
+    // of this scan node. eg:
     // 1. iceberg delete file
     // 2. parquet file meta
     // KVCache<std::string> _kv_cache;

@@ -70,7 +70,7 @@ import java.util.function.Function;
  * 2. commit
  * 3. abort
  * Attention: all api in txn manager should get db lock or load lock first, then get txn manager's lock,
- * or there will be dead lock
+ * or there will be deadlock
  */
 public class GlobalTransactionMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(GlobalTransactionMgr.class);

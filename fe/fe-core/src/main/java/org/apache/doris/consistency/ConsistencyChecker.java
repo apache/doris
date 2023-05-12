@@ -68,7 +68,7 @@ public class ConsistencyChecker extends MasterDaemon {
      *       CheckConsistencyJob's synchronized
      *       db lock
      *
-     * if reversal is inevitable. use db.tryLock() instead to avoid dead lock
+     * if reversal is inevitable. use db.tryLock() instead to avoid deadlock
      */
     private ReentrantReadWriteLock jobsLock;
 

@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * MetaLockUtils is a helper class to lock and unlock all meta object in a list.
- * In order to escape dead lock, meta object in list should be sorted in ascending
+ * In order to escape deadlock, meta object in list should be sorted in ascending
  * order by id first, and then MetaLockUtils can lock them.
  */
 public class MetaLockUtils {
