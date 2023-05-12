@@ -593,7 +593,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
-    // will truncate the log line, so print query options seperately for debuggin purpose
+    // will truncate the log line, so print query options separately for debugging purpose
     VLOG_ROW << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
@@ -673,7 +673,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
-    // will truncate the log line, so print query options seperately for debuggin purpose
+    // will truncate the log line, so print query options separately for debugging purpose
     VLOG_ROW << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 

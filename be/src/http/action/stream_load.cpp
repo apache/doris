@@ -136,7 +136,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
 
 Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
-        LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
+        LOG(WARNING) << "receive body don't equal with body bytes, body_bytes=" << ctx->body_bytes
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
         return Status::InternalError("receive body don't equal with body bytes");
     }

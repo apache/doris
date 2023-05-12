@@ -179,7 +179,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // To notify wait_for_start()
         _query_ctx->set_ready_to_execute(true);
 
-        // must close stream_mgr to avoid dead lock in Exchange Node
+        // must close stream_mgr to avoid deadlock in Exchange Node
         _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
@@ -227,7 +227,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 
-    // TODO should be combine with plan_fragment_executor.prepare funciton
+    // TODO should be combine with plan_fragment_executor.prepare function
     SCOPED_ATTACH_TASK(get_runtime_state());
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(local_params.backend_num);
@@ -370,7 +370,7 @@ void PipelineFragmentContext::_stop_report_thread() {
     _report_thread_active = false;
 
     _stop_report_thread_cv.notify_one();
-    // Wait infinitly to ensure that the report task is finished and the this variable
+    // Wait infinitely to ensure that the report task is finished and this variable
     // is not used in report thread.
     _report_thread_future.wait();
 }
@@ -387,7 +387,7 @@ void PipelineFragmentContext::report_profile() {
 
     // Jitter the reporting time of remote fragments by a random amount between
     // 0 and the report_interval.  This way, the coordinator doesn't get all the
-    // updates at once so its better for contention as well as smoother progress
+    // updates at once, so it's better for contention as well as smoother progress
     // reporting.
     int report_fragment_offset = rand() % config::status_report_interval;
     // We don't want to wait longer than it takes to run the entire fragment.
@@ -430,7 +430,7 @@ void PipelineFragmentContext::report_profile() {
     VLOG_FILE << "exiting reporting thread: instance_id=" << _runtime_state->fragment_instance_id();
 }
 
-// TODO: use virtual function to do abstruct
+// TODO: use virtual function to do abstract
 Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur_pipe) {
     auto node_type = node->type();
     switch (node_type) {
@@ -818,7 +818,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
         return Status::OK();
     }
     default:
-        return Status::InternalError("Unsuported sink type in pipeline: {}", thrift_sink.type);
+        return Status::InternalError("Unsupported sink type in pipeline: {}", thrift_sink.type);
     }
     return _root_pipeline->set_sink(sink_);
 }
@@ -855,7 +855,7 @@ void PipelineFragmentContext::send_report(bool done) {
     // If both _is_report_success and _is_report_on_cancel are false,
     // which means no matter query is success or failed, no report is needed.
     // This may happen when the query limit reached and
-    // a internal cancellation being processed
+    // an internal cancellation being processed
     if (!_is_report_success && !_is_report_on_cancel) {
         return;
     }

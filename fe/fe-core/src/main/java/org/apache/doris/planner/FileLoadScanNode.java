@@ -80,7 +80,7 @@ public class FileLoadScanNode extends FileScanNode {
     }
 
     // Save all info about load attributes and files.
-    // Each DataDescription in a load stmt conreponding to a FileGroupInfo in this list.
+    // Each DataDescription in a load stmt corresponding to a FileGroupInfo in this list.
     private final List<FileGroupInfo> fileGroupInfos = Lists.newArrayList();
     // For load, the num of providers equals to the num of file group infos.
     private final List<LoadScanProvider> scanProviders = Lists.newArrayList();
@@ -314,7 +314,7 @@ public class FileLoadScanNode extends FileScanNode {
                 expr = new FunctionCallExpr(name, args);
                 expr.analyze(analyzer);
             } else if (dstType == PrimitiveType.VARIANT) {
-                // Generate SchemaChange expr for dynamicly generating columns
+                // Generate SchemaChange expr for dynamically generating columns
                 TableIf targetTbl = desc.getTable();
                 expr = new SchemaChangeExpr((SlotRef) expr, (int) targetTbl.getId());
             } else {

@@ -1472,7 +1472,7 @@ Concurrency of NORMAL priority pending load jobs.  Do not change this if you kno
 
 Default：3
 
-Concurrency of HIGH priority pending load jobs. Load job priority is defined as HIGH or NORMAL.  All mini batch load jobs are HIGH priority, other types of load jobs are NORMAL priority.  Priority is set to avoid that a slow load job occupies a thread for a long time.  This is just a internal optimized scheduling policy.  Currently, you can not specified the job priority manually, and do not change this if you know what you are doing.
+Concurrency of HIGH priority pending load jobs. Load job priority is defined as HIGH or NORMAL.  All mini batch load jobs are HIGH priority, other types of load jobs are NORMAL priority.  Priority is set to avoid that a slow load job occupies a thread for a long time.  This is just an internal optimized scheduling policy.  Currently, you can not specified the job priority manually, and do not change this if you know what you are doing.
 
 #### `load_checker_interval_second`
 

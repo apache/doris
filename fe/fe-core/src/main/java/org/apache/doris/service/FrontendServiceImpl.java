@@ -501,7 +501,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         colUniqueIdSupplierMap.put(entry.getKey(), colUniqueIdSupplier);
                     }
-                    //4. call schame change function, only for dynamic table feature.
+                    //4. call schema change function, only for dynamic table feature.
                     SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
 
                     boolean lightSchemaChange = schemaChangeHandler.processAddColumns(
@@ -2307,7 +2307,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (privHier == TPrivilegeHier.RESOURSE) {
             if (!accessManager.checkResourcePriv(currentUser.get(0), privCtrl.getRes(), predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-                status.addToErrorMsgs("Resourse permissions error");
+                status.addToErrorMsgs("Resource permissions error");
             }
         } else {
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);

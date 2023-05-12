@@ -1017,7 +1017,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     }
 }
 
-// TODO(zc): refactor this funciton
+// TODO(zc): refactor this function
 Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile) {
     // Get all available stores, use ref_root_path if the caller specified
     std::vector<DataDir*> stores;

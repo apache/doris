@@ -185,7 +185,7 @@ public class TransactionState implements Writable {
     private long transactionId;
     @SerializedName(value = "label")
     private String label;
-    // requestId is used to judge whether a begin request is a internal retry request.
+    // requestId is used to judge whether a begin request is an internal retry request.
     // no need to persist it.
     private TUniqueId requestId;
     @SerializedName(value = "idToTableCommitInfos")

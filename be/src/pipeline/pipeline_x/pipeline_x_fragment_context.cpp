@@ -257,7 +257,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         break;
     }
     default:
-        return Status::InternalError("Unsuported sink type in pipeline: {}", thrift_sink.type);
+        return Status::InternalError("Unsupported sink type in pipeline: {}", thrift_sink.type);
     }
     return Status::OK();
 }
@@ -677,7 +677,7 @@ void PipelineXFragmentContext::send_report(bool done) {
     // If both _is_report_success and _is_report_on_cancel are false,
     // which means no matter query is success or failed, no report is needed.
     // This may happen when the query limit reached and
-    // a internal cancellation being processed
+    // an internal cancellation being processed
     if (!_is_report_success && !_is_report_on_cancel) {
         return;
     }

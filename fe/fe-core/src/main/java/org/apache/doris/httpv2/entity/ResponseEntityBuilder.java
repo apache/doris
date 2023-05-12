@@ -24,7 +24,7 @@ import org.springframework.http.ResponseEntity;
 
 /**
  * A utility class for creating a ResponseEntity easier.
- * All response will return with http code 200, and a internal code represent the real code.
+ * All response will return with http code 200, and an internal code represent the real code.
  */
 public class ResponseEntityBuilder {
 

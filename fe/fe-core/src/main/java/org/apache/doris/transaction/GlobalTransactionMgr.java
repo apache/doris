@@ -121,7 +121,7 @@ public class GlobalTransactionMgr implements Writable {
     /**
      * the app could specify the transaction id
      * <p>
-     * requestId is used to judge that whether the request is a internal retry request
+     * requestId is used to judge that whether the request is an internal retry request
      * if label already exist, and requestId are equal, we return the exist tid, and consider this 'begin'
      * as success.
      * requestId == null is for compatibility

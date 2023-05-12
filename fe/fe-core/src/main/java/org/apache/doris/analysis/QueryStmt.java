@@ -63,7 +63,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     protected ArrayList<OrderByElement> orderByElements;
     // Limit element could not be null, the default limit element is NO_LIMIT
     protected LimitElement limitElement;
-    // This is a internal element which is used to query plan.
+    // This is an internal element which is used to query plan.
     // It will not change the origin stmt and present in toSql.
     protected AssertNumRowsElement assertNumRowsElement;
 

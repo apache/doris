@@ -201,7 +201,7 @@ TaskScheduler::~TaskScheduler() {
 
 Status TaskScheduler::start() {
     int cores = _task_queue->cores();
-    // Must be mutil number of cpu cores
+    // Must be multi number of cpu cores
     ThreadPoolBuilder("TaskSchedulerThreadPool")
             .set_min_threads(cores)
             .set_max_threads(cores)

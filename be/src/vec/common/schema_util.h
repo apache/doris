@@ -83,7 +83,7 @@ bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs);
 // 1. col1(int) in block which type missmatch with schema col1 will be converted to double
 // 2. col2 in block which missing in current schema will launch a schema change rpc
 // 3. col3 in schema which missing in block will be ignored
-// After schema changed, schame change history will add new columns
+// After schema changed, schema change history will add new columns
 Status align_block_with_schema(const TabletSchema& schema, int64_t table_id /*for schema change*/,
                                Block& block, LocalSchemaChangeRecorder* history);
 // record base schema column infos

@@ -164,7 +164,7 @@ public class OlapTableSink extends DataSink {
         tDataSink.getOlapTableSink().setLoadId(newLoadId);
     }
 
-    // must called after tupleDescriptor is computed
+    // must be called after tupleDescriptor is computed
     public void complete(Analyzer analyzer) throws UserException {
         TOlapTableSink tSink = tDataSink.getOlapTableSink();
 
@@ -435,7 +435,7 @@ public class OlapTableSink extends DataSink {
         }
 
         // check if disk capacity reach limit
-        // this is for load process, so use high water mark to check
+        // this is for load process, so use high watermark to check
         Status st = Env.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allBePathsMap, true);
         if (!st.ok()) {
             throw new DdlException(st.getErrorMsg());

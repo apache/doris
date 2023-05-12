@@ -148,7 +148,7 @@ public:
         auto in_state = reinterpret_cast<InState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
-            return Status::RuntimeError("funciton context for function '{}' must have Set;",
+            return Status::RuntimeError("function context for function '{}' must have Set;",
                                         get_name());
         }
         auto res = ColumnUInt8::create();

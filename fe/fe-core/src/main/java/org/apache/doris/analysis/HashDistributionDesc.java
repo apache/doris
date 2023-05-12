@@ -131,7 +131,7 @@ public class HashDistributionDesc extends DistributionDesc {
                                 + column.getName() + "].");
                     }
 
-                    // distribution info and base columns persist seperately inside OlapTable, so we need deep copy
+                    // distribution info and base columns persist separately inside OlapTable, so we need deep copy
                     // to avoid modify table columns also modify columns inside distribution info.
                     distributionColumns.add(new Column(column));
                     find = true;
