@@ -24,6 +24,8 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <stdint.h>
+#include <bvar/bvar.h>
+#include <bvar/latency_recorder.h>
 
 #include <future>
 #include <map>
