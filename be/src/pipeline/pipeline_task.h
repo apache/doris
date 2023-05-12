@@ -106,7 +106,7 @@ inline const char* get_state_name(PipelineTaskState idx) {
 class TaskQueue;
 class PriorityTaskQueue;
 
-// The class do the pipeline task. Minest schdule union by task scheduler
+// The class do the pipeline task. Minimal schedule union by task scheduler
 class PipelineTask {
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, Operators& operators,
