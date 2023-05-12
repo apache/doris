@@ -170,12 +170,16 @@ public class TimeUtils {
         return longToTimeStringWithFormat(timeStamp, DATETIME_MS_FORMAT);
     }
 
-    public static Date getTimeAsDate(String timeString) {
+    public static Date getHourAsDate(String hour) {
+        String fullHour = hour;
+        if (fullHour.length() == 1) {
+            fullHour = "0" + fullHour;
+        }
         try {
             return Date.from(
-                    LocalTime.parse(timeString, TIME_FORMAT).atDate(LocalDate.now()).atZone(TIME_ZONE).toInstant());
+                    LocalTime.parse(fullHour, TIME_FORMAT).atDate(LocalDate.now()).atZone(TIME_ZONE).toInstant());
         } catch (DateTimeParseException e) {
-            LOG.warn("invalid time format: {}", timeString);
+            LOG.warn("invalid time format: {}", fullHour);
             return null;
         }
     }
