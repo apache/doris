@@ -20,6 +20,8 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 
 import com.google.common.collect.Lists;
@@ -29,7 +31,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -47,7 +48,7 @@ public class EsExternalCatalog extends ExternalCatalog {
      * Default constructor for EsExternalCatalog.
      */
     public EsExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name);
+        super(catalogId, name, InitCatalogLog.Type.ES);
         this.type = "es";
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
     }
@@ -124,7 +125,7 @@ public class EsExternalCatalog extends ExternalCatalog {
     protected void init() {
         InitCatalogLog initCatalogLog = new InitCatalogLog();
         initCatalogLog.setCatalogId(id);
-        initCatalogLog.setType(InitCatalogLog.Type.ES);
+        initCatalogLog.setType(logType);
         if (dbNameToId != null && dbNameToId.containsKey(DEFAULT_DB)) {
             idToDb.get(dbNameToId.get(DEFAULT_DB)).setUnInitialized(invalidCacheInInit);
             initCatalogLog.addRefreshDb(dbNameToId.get(DEFAULT_DB));
@@ -133,17 +134,11 @@ public class EsExternalCatalog extends ExternalCatalog {
             idToDb = Maps.newConcurrentMap();
             long defaultDbId = Env.getCurrentEnv().getNextId();
             dbNameToId.put(DEFAULT_DB, defaultDbId);
-            EsExternalDatabase db = new EsExternalDatabase(this, defaultDbId, DEFAULT_DB);
+            ExternalDatabase<? extends ExternalTable> db = getDbForInit(DEFAULT_DB, defaultDbId, logType);
             idToDb.put(defaultDbId, db);
             initCatalogLog.addCreateDb(defaultDbId, DEFAULT_DB);
         }
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
-    }
-
-    @Override
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return new ArrayList<>(dbNameToId.keySet());
     }
 
     @Override
