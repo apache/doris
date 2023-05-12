@@ -307,8 +307,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> colNames = ctx.cols == null ? null : visitIdentifierList(ctx.cols);
         List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
         List<String> hints = ctx.hints == null ? null : visitIdentifierSeq(ctx.hints);
-        return new InsertIntoTableCommand(tableName, labelName, colNames,
-                partitions, hints, withExplain(visitQuery(ctx.query()), ctx.explain()));
+        return withExplain(new InsertIntoTableCommand(tableName, labelName, colNames,
+                partitions, hints, visitQuery(ctx.query())), ctx.explain());
     }
 
     /**

@@ -107,88 +107,26 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             // but no data will be inserted, now we adjust forbid it.
             throw new AnalysisException("insert into table command is not supported in txn model");
         }
-        checkDatabaseAndTable(ctx);
-        getColumns();
-        getPartition();
 
-        ctx.getStatementContext().getInsertIntoContext().setTargetSchema(targetColumns);
-
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(extractPlan(logicalQuery),
-                ctx.getStatementContext());
-        planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-
-        getTupleDesc();
-        addUnassignedColumns();
-
-        if (ctx.getMysqlChannel() != null) {
-            ctx.getMysqlChannel().reset();
-        }
-        String label = this.labelName;
-        if (label == null) {
-            label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
-        }
-
-        Transaction txn;
-        PlanFragment root = planner.getFragments().get(0);
-        DataSink sink = createDataSink(ctx, root);
-        Preconditions.checkArgument(sink instanceof OlapTableSink, "olap table sink is expected when"
-                + " running insert into select");
-        txn = new Transaction(ctx, database, table, label, planner);
-
-        OlapTableSink olapTableSink = ((OlapTableSink) sink);
-        olapTableSink.init(ctx.queryId(), txn.getTxnId(), database.getId(), ctx.getExecTimeout(),
-                ctx.getSessionVariable().getSendBatchParallelism(), false);
-        olapTableSink.complete();
-        root.resetSink(olapTableSink);
-
-        if (isExplain()) {
-            executor.handleExplainStmt(((ExplainCommand) logicalQuery).getExplainString(planner));
-            return;
-        }
-
-        txn.executeInsertIntoSelectCommand(executor);
-    }
-
-    private void checkDatabaseAndTable(ConnectContext ctx) {
+        // Check database and table
         List<String> qualifier = RelationUtil.getQualifierName(ctx, tableName);
         String catalogName = qualifier.get(0);
         String dbName = qualifier.get(1);
         String tableName = qualifier.get(2);
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (catalog == null) {
-            throw new RuntimeException(String.format("Catalog %s does not exist.", catalogName));
+            throw new AnalysisException(String.format("Catalog %s does not exist.", catalogName));
         }
         try {
             database = ((Database) catalog.getDb(dbName).orElseThrow(() ->
-                    new RuntimeException("Database [" + dbName + "] does not exist.")));
+                    new AnalysisException("Database [" + dbName + "] does not exist.")));
             table = database.getTable(tableName).orElseThrow(() ->
-                    new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+                    new AnalysisException("Table [" + tableName + "] does not exist in database [" + dbName + "]."));
         } catch (Throwable e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-    }
 
-    private LogicalPlan extractPlan(LogicalPlan plan) {
-        if (plan instanceof ExplainCommand) {
-            return ((ExplainCommand) plan).getLogicalPlan();
-        }
-        return plan;
-    }
-
-    private DataSink createDataSink(ConnectContext ctx, PlanFragment root)
-            throws org.apache.doris.common.AnalysisException {
-        DataSink dataSink;
-        if (table instanceof OlapTable) {
-            dataSink = new OlapTableSink((OlapTable) table, olapTuple, partitionIds,
-                    ctx.getSessionVariable().isEnableSingleReplicaInsert());
-        } else {
-            dataSink = DataSink.createDataSink(table);
-        }
-        return dataSink;
-    }
-
-    private void getColumns() {
+        // collect column
         if (colNames == null) {
             this.targetColumns = table.getFullSchema();
         } else {
@@ -202,9 +140,25 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
                 this.targetColumns.add(col);
             }
         }
-    }
 
-    private void getTupleDesc() {
+        // collect partitions
+        if (partitions == null) {
+            return;
+        }
+        partitionIds = partitions.stream().map(pn -> {
+            Partition p = table.getPartition(pn);
+            if (p == null) {
+                throw new AnalysisException(String.format("Unknown partition: %s in table: %s", pn, table.getName()));
+            }
+            return p.getId();
+        }).collect(Collectors.toList());
+
+        ctx.getStatementContext().getInsertIntoContext().setTargetSchema(targetColumns);
+
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
+        planner = new NereidsPlanner(ctx.getStatementContext());
+        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+
         // create insert target table's tupledesc.
         olapTuple = planner.getDescTable().createTupleDescriptor();
 
@@ -215,20 +169,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
         }
-    }
 
-    /**
-     * calculate PhysicalProperties.
-     */
-    public PhysicalProperties calculatePhysicalProperties(List<Slot> outputs) {
-        // it will be used at set physical properties.
-
-        List<ExprId> exprIds = outputs.subList(0, ((OlapTable) table).getKeysNum()).stream()
-                .map(NamedExpression::getExprId).collect(Collectors.toList());
-        return PhysicalProperties.createHash(new DistributionSpecHash(exprIds, ShuffleType.NATURAL));
-    }
-
-    private void addUnassignedColumns() throws org.apache.doris.common.AnalysisException {
         PlanFragment root = planner.getFragments().get(0);
         List<Expr> outputs = root.getOutputExprs();
         // handle insert a duplicate key table to a unique key table.
@@ -245,23 +186,55 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             }
         }
         root.setOutputExprs(newOutputs);
-    }
 
-    private void getPartition() {
-        if (partitions == null) {
-            return;
+        if (ctx.getMysqlChannel() != null) {
+            ctx.getMysqlChannel().reset();
         }
-        partitionIds = partitions.stream().map(pn -> {
-            Partition p = table.getPartition(pn);
-            if (p == null) {
-                throw new AnalysisException(String.format("Unknown partition: %s in table: %s", pn, table.getName()));
-            }
-            return p.getId();
-        }).collect(Collectors.toList());
+        String label = this.labelName;
+        if (label == null) {
+            label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
+        }
+
+        Transaction txn;
+        DataSink sink = createDataSink(ctx, root);
+        Preconditions.checkArgument(sink instanceof OlapTableSink, "olap table sink is expected when"
+                + " running insert into select");
+        txn = new Transaction(ctx, database, table, label, planner);
+
+        OlapTableSink olapTableSink = ((OlapTableSink) sink);
+        olapTableSink.init(ctx.queryId(), txn.getTxnId(), database.getId(), ctx.getExecTimeout(),
+                ctx.getSessionVariable().getSendBatchParallelism(), false);
+        olapTableSink.complete();
+        root.resetSink(olapTableSink);
+
+        txn.executeInsertIntoSelectCommand(executor);
     }
 
-    public boolean isExplain() {
-        return logicalQuery instanceof ExplainCommand;
+    public LogicalPlan extractQueryPlan() {
+        return logicalQuery;
+    }
+
+    private DataSink createDataSink(ConnectContext ctx, PlanFragment root)
+            throws org.apache.doris.common.AnalysisException {
+        DataSink dataSink;
+        if (table instanceof OlapTable) {
+            dataSink = new OlapTableSink((OlapTable) table, olapTuple, partitionIds,
+                    ctx.getSessionVariable().isEnableSingleReplicaInsert());
+        } else {
+            dataSink = DataSink.createDataSink(table);
+        }
+        return dataSink;
+    }
+
+    /**
+     * calculate PhysicalProperties.
+     */
+    public PhysicalProperties calculatePhysicalProperties(List<Slot> outputs) {
+        // it will be used at set physical properties.
+
+        List<ExprId> exprIds = outputs.subList(0, ((OlapTable) table).getKeysNum()).stream()
+                .map(NamedExpression::getExprId).collect(Collectors.toList());
+        return PhysicalProperties.createHash(new DistributionSpecHash(exprIds, ShuffleType.NATURAL));
     }
 
     @Override
