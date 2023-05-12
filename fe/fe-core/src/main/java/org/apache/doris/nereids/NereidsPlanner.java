@@ -339,11 +339,11 @@ public class NereidsPlanner extends Planner {
         PhysicalProperties properties = null;
         if (statementContext.getParsedStatement() != null) {
             Plan parsedStmt = ((LogicalPlanAdapter) statementContext.getParsedStatement()).getLogicalPlan();
+            if (parsedStmt instanceof ExplainCommand) {
+                parsedStmt = ((ExplainCommand) plan).getLogicalPlan();
+            }
             if (parsedStmt instanceof InsertIntoTableCommand) {
-                properties = ((InsertIntoTableCommand) parsedStmt)
-                        .calculatePhysicalProperties(plan.getOutput());
-            } else if (parsedStmt instanceof ExplainCommand) {
-                properties = PhysicalProperties.ANY;
+                properties = ((InsertIntoTableCommand) plan).calculatePhysicalProperties(parsedStmt.getOutput());
             }
         }
         if (properties == null) {
