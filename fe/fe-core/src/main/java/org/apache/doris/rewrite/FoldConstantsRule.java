@@ -292,15 +292,14 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @param exprMap
      * @param resultMap
      */
-    private void putBackConstExpr(Map<String, Expr> exprMap, Map<String, Map<String, Expr>> resultMap)
-            throws AnalysisException {
+    private void putBackConstExpr(Map<String, Expr> exprMap, Map<String, Map<String, Expr>> resultMap) {
         for (Map.Entry<String, Map<String, Expr>> entry : resultMap.entrySet()) {
             Expr rewrittenExpr = putBackConstExpr(exprMap.get(entry.getKey()), entry.getValue());
             exprMap.put(entry.getKey(), rewrittenExpr);
         }
     }
 
-    private Expr putBackConstExpr(Expr expr, Map<String, Expr> resultMap) throws AnalysisException {
+    private Expr putBackConstExpr(Expr expr, Map<String, Expr> resultMap) {
         for (Map.Entry<String, Expr> entry : resultMap.entrySet()) {
             if (entry.getValue() instanceof LiteralExpr) {
                 expr = replaceExpr(expr, entry.getKey(), (LiteralExpr) entry.getValue());
@@ -317,22 +316,16 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @param literalExpr
      * @return
      */
-    private Expr replaceExpr(Expr expr, String key, LiteralExpr literalExpr) throws AnalysisException {
+    private Expr replaceExpr(Expr expr, String key, LiteralExpr literalExpr) {
         if (expr.getId().toString().equals(key)) {
             return literalExpr;
         }
         // ATTN: make sure the child order of expr keep unchanged
         for (int i = 0; i < expr.getChildren().size(); i++) {
             Expr child = expr.getChild(i);
-            if (literalExpr.equals(replaceExpr(child, key, literalExpr))) {
+            if (!(child instanceof LiteralExpr) && literalExpr.equals(replaceExpr(child, key, literalExpr))) {
                 literalExpr.setId(child.getId());
-                if (!expr.getChild(i).getType().equals(literalExpr.getType())) {
-                    Expr cast = literalExpr.castTo(expr.getChild(i).getType());
-                    expr.setChild(i, cast);
-                } else {
-                    expr.setChild(i, literalExpr);
-                }
-                break;
+                expr.setChild(i, literalExpr);
             }
         }
         return expr;
