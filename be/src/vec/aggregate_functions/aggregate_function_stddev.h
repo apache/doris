@@ -193,10 +193,10 @@ struct BaseDatadecimal {
         auto decimal_field = field.template get<DecimalField<T>>();
         int128_t value;
         if (decimal_field.get_scale() > DecimalV2Value::SCALE) {
-            value = assert_cast<int128_t>(decimal_field.get_value()) /
+            value = static_cast<int128_t>(decimal_field.get_value()) /
                     (decimal_field.get_scale_multiplier() / DecimalV2Value::ONE_BILLION);
         } else {
-            value = assert_cast<int128_t>(decimal_field.get_value()) *
+            value = static_cast<int128_t>(decimal_field.get_value()) *
                     (DecimalV2Value::ONE_BILLION / decimal_field.get_scale_multiplier());
         }
         DecimalV2Value source_data = DecimalV2Value(value);
