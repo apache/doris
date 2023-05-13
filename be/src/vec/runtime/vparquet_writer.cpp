@@ -24,14 +24,18 @@
 #include <parquet/platform.h>
 #include <parquet/schema.h>
 #include <parquet/type_fwd.h>
+#include <parquet/types.h>
 #include <time.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <exception>
 #include <ostream>
 #include <string>
 
+#include "common/status.h"
 #include "io/fs/file_writer.h"
+#include "olap/olap_common.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
@@ -57,6 +61,10 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
+
+static const std::string epoch_date_str = "1970-01-01";
+static const int64_t timestamp_threshold = -2177481943;
+static const int64_t timestamp_diff = 343;
 
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
@@ -170,6 +178,25 @@ void ParquetBuildHelper::build_schema_data_type(parquet::Type::type& parquet_dat
     }
 }
 
+void ParquetBuildHelper::build_schema_data_logical_type(
+        std::shared_ptr<const parquet::LogicalType>& parquet_data_logical_type_ptr,
+        const TParquetDataLogicalType::type& column_data_logical_type) {
+    switch (column_data_logical_type) {
+    case TParquetDataLogicalType::DATE: {
+        parquet_data_logical_type_ptr = parquet::LogicalType::Date();
+        break;
+    }
+    case TParquetDataLogicalType::TIMESTAMP: {
+        parquet_data_logical_type_ptr =
+                parquet::LogicalType::Timestamp(true, parquet::LogicalType::TimeUnit::MILLIS, true);
+        break;
+    }
+    default: {
+        parquet_data_logical_type_ptr = parquet::LogicalType::None();
+    }
+    }
+}
+
 void ParquetBuildHelper::build_compression_type(
         parquet::WriterProperties::Builder& builder,
         const TParquetCompressionType::type& compression_type) {
@@ -234,41 +261,56 @@ VParquetWriterWrapper::VParquetWriterWrapper(doris::io::FileWriter* file_writer,
                                              const bool& parquet_disable_dictionary,
                                              const TParquetVersion::type& parquet_version,
                                              bool output_object_data)
-        : VFileWriterWrapper(output_vexpr_ctxs, output_object_data), _rg_writer(nullptr) {
+        : VFileWriterWrapper(output_vexpr_ctxs, output_object_data),
+          _rg_writer(nullptr),
+          _parquet_schemas(parquet_schemas),
+          _compression_type(compression_type),
+          _parquet_disable_dictionary(parquet_disable_dictionary),
+          _parquet_version(parquet_version) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
-    parse_properties(compression_type, parquet_disable_dictionary, parquet_version);
-    parse_schema(parquet_schemas);
 }
 
-void VParquetWriterWrapper::parse_properties(const TParquetCompressionType::type& compression_type,
-                                             const bool& parquet_disable_dictionary,
-                                             const TParquetVersion::type& parquet_version) {
-    parquet::WriterProperties::Builder builder;
-    ParquetBuildHelper::build_compression_type(builder, compression_type);
-    ParquetBuildHelper::build_version(builder, parquet_version);
-    if (parquet_disable_dictionary) {
-        builder.disable_dictionary();
-    } else {
-        builder.enable_dictionary();
+Status VParquetWriterWrapper::parse_properties() {
+    try {
+        parquet::WriterProperties::Builder builder;
+        ParquetBuildHelper::build_compression_type(builder, _compression_type);
+        ParquetBuildHelper::build_version(builder, _parquet_version);
+        if (_parquet_disable_dictionary) {
+            builder.disable_dictionary();
+        } else {
+            builder.enable_dictionary();
+        }
+        _properties = builder.build();
+    } catch (const parquet::ParquetException& e) {
+        return Status::InternalError("parquet writer parse properties error: {}", e.what());
     }
-    _properties = builder.build();
+    return Status::OK();
 }
 
-void VParquetWriterWrapper::parse_schema(const std::vector<TParquetSchema>& parquet_schemas) {
+Status VParquetWriterWrapper::parse_schema() {
     parquet::schema::NodeVector fields;
     parquet::Repetition::type parquet_repetition_type;
     parquet::Type::type parquet_data_type;
-    for (int idx = 0; idx < parquet_schemas.size(); ++idx) {
+    std::shared_ptr<const parquet::LogicalType> parquet_data_logical_type;
+    for (int idx = 0; idx < _parquet_schemas.size(); ++idx) {
         ParquetBuildHelper::build_schema_repetition_type(
-                parquet_repetition_type, parquet_schemas[idx].schema_repetition_type);
+                parquet_repetition_type, _parquet_schemas[idx].schema_repetition_type);
         ParquetBuildHelper::build_schema_data_type(parquet_data_type,
-                                                   parquet_schemas[idx].schema_data_type);
-        fields.push_back(parquet::schema::PrimitiveNode::Make(
-                parquet_schemas[idx].schema_column_name, parquet_repetition_type,
-                parquet::LogicalType::None(), parquet_data_type));
+                                                   _parquet_schemas[idx].schema_data_type);
+        ParquetBuildHelper::build_schema_data_logical_type(
+                parquet_data_logical_type, _parquet_schemas[idx].schema_data_logical_type);
+        try {
+            fields.push_back(parquet::schema::PrimitiveNode::Make(
+                    _parquet_schemas[idx].schema_column_name, parquet_repetition_type,
+                    parquet_data_logical_type, parquet_data_type));
+        } catch (const parquet::ParquetException& e) {
+            LOG(WARNING) << "parquet writer parse schema error: " << e.what();
+            return Status::InternalError("parquet writer parse schema error: {}", e.what());
+        }
         _schema = std::static_pointer_cast<parquet::schema::GroupNode>(
                 parquet::schema::GroupNode::Make("schema", parquet::Repetition::REQUIRED, fields));
     }
+    return Status::OK();
 }
 
 #define RETURN_WRONG_TYPE \
@@ -393,7 +435,40 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 break;
             }
             case TYPE_LARGEINT: {
-                return Status::InvalidArgument("do not support large int type.");
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::ByteArrayWriter* col_writer =
+                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
+                parquet::ByteArray value;
+                if (null_map != nullptr) {
+                    auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if (null_data[row_id] != 0) {
+                            single_def_level = 0;
+                            col_writer->WriteBatch(1, &single_def_level, nullptr, &value);
+                            single_def_level = 1;
+                        } else {
+                            const int128_t tmp = assert_cast<const ColumnVector<Int128>&>(*col)
+                                                         .get_data()[row_id];
+                            std::string value_str = fmt::format("{}", tmp);
+                            value.ptr = reinterpret_cast<const uint8_t*>(value_str.data());
+                            value.len = value_str.length();
+                            col_writer->WriteBatch(1, &single_def_level, nullptr, &value);
+                        }
+                    }
+                } else if (const auto* not_nullable_column =
+                                   check_and_get_column<const ColumnVector<Int128>>(col)) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        const int128_t tmp = not_nullable_column->get_data()[row_id];
+                        std::string value_str = fmt::format("{}", tmp);
+                        value.ptr = reinterpret_cast<const uint8_t*>(value_str.data());
+                        value.len = value_str.length();
+                        col_writer->WriteBatch(1, nullable ? &single_def_level : nullptr, nullptr,
+                                               &value);
+                    }
+                } else {
+                    RETURN_WRONG_TYPE
+                }
+                break;
             }
             case TYPE_FLOAT: {
                 DISPATCH_PARQUET_NUMERIC_WRITER(FloatWriter, ColumnVector<Float32>, float_t)
@@ -458,7 +533,67 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 DISPATCH_PARQUET_NUMERIC_WRITER(Int32Writer, ColumnVector<Int32>, Int32)
                 break;
             }
-            case TYPE_DATETIME:
+            case TYPE_DATETIME: {
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int64Writer* col_writer =
+                        static_cast<parquet::Int64Writer*>(rgWriter->column(i));
+                uint64_t default_int64 = 0;
+                if (null_map != nullptr) {
+                    auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        def_level[row_id] = null_data[row_id] == 0;
+                    }
+                    int64_t tmp_data[sz];
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if (null_data[row_id] != 0) {
+                            tmp_data[row_id] = default_int64;
+                        } else {
+                            VecDateTimeValue datetime_value = binary_cast<Int64, VecDateTimeValue>(
+                                    assert_cast<const ColumnVector<Int64>&>(*col)
+                                            .get_data()[row_id]);
+                            if (!datetime_value.unix_timestamp(&tmp_data[row_id],
+                                                               TimezoneUtils::default_time_zone)) {
+                                return Status::InternalError("get unix timestamp error.");
+                            }
+                            // -2177481943 represent '1900-12-31 23:54:17'
+                            // but -2177481944 represent '1900-12-31 23:59:59'
+                            // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
+                            if (tmp_data[row_id] < timestamp_threshold) {
+                                tmp_data[row_id] -= timestamp_diff;
+                            }
+                            // convert seconds to MILLIS seconds
+                            tmp_data[row_id] *= 1000;
+                        }
+                    }
+                    col_writer->WriteBatch(sz, def_level.data(), nullptr,
+                                           reinterpret_cast<const int64_t*>(tmp_data));
+                } else if (const auto* not_nullable_column =
+                                   check_and_get_column<const ColumnVector<Int64>>(col)) {
+                    std::vector<int64_t> res(sz);
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        VecDateTimeValue datetime_value = binary_cast<Int64, VecDateTimeValue>(
+                                not_nullable_column->get_data()[row_id]);
+
+                        if (!datetime_value.unix_timestamp(&res[row_id],
+                                                           TimezoneUtils::default_time_zone)) {
+                            return Status::InternalError("get unix timestamp error.");
+                        };
+                        // -2177481943 represent '1900-12-31 23:54:17'
+                        // but -2177481944 represent '1900-12-31 23:59:59'
+                        // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
+                        if (res[row_id] < timestamp_threshold) {
+                            res[row_id] -= timestamp_diff;
+                        }
+                        // convert seconds to MILLIS seconds
+                        res[row_id] *= 1000;
+                    }
+                    col_writer->WriteBatch(sz, nullable ? def_level.data() : nullptr, nullptr,
+                                           reinterpret_cast<const int64_t*>(res.data()));
+                } else {
+                    RETURN_WRONG_TYPE
+                }
+                break;
+            }
             case TYPE_DATE: {
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int64Writer* col_writer =
@@ -469,26 +604,40 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         def_level[row_id] = null_data[row_id] == 0;
                     }
-                    uint64_t tmp_data[sz];
+                    VecDateTimeValue epoch_date;
+                    if (!epoch_date.from_date_str(epoch_date_str.c_str(),
+                                                  epoch_date_str.length())) {
+                        return Status::InternalError("create epoch date from string error");
+                    }
+                    int32_t days_from_epoch = epoch_date.daynr();
+                    int32_t tmp_data[sz];
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         if (null_data[row_id] != 0) {
                             tmp_data[row_id] = default_int64;
                         } else {
-                            tmp_data[row_id] = binary_cast<Int64, VecDateTimeValue>(
-                                                       assert_cast<const ColumnVector<Int64>&>(*col)
-                                                               .get_data()[row_id])
-                                                       .to_olap_datetime();
+                            int32_t days = binary_cast<Int64, VecDateTimeValue>(
+                                                   assert_cast<const ColumnVector<Int64>&>(*col)
+                                                           .get_data()[row_id])
+                                                   .daynr();
+                            tmp_data[row_id] = days - days_from_epoch;
                         }
                     }
                     col_writer->WriteBatch(sz, def_level.data(), nullptr,
                                            reinterpret_cast<const int64_t*>(tmp_data));
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnVector<Int64>>(col)) {
-                    std::vector<uint64_t> res(sz);
+                } else if (check_and_get_column<const ColumnVector<Int64>>(col)) {
+                    VecDateTimeValue epoch_date;
+                    if (!epoch_date.from_date_str(epoch_date_str.c_str(),
+                                                  epoch_date_str.length())) {
+                        return Status::InternalError("create epoch date from string error");
+                    }
+                    int32_t days_from_epoch = epoch_date.daynr();
+                    std::vector<int32_t> res(sz);
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        res[row_id] = binary_cast<Int64, VecDateTimeValue>(
-                                              not_nullable_column->get_data()[row_id])
-                                              .to_olap_datetime();
+                        int32_t days = binary_cast<Int64, VecDateTimeValue>(
+                                               assert_cast<const ColumnVector<Int64>&>(*col)
+                                                       .get_data()[row_id])
+                                               .daynr();
+                        res[row_id] = days - days_from_epoch;
                     }
                     col_writer->WriteBatch(sz, nullable ? def_level.data() : nullptr, nullptr,
                                            reinterpret_cast<const int64_t*>(res.data()));
@@ -669,7 +818,14 @@ Status VParquetWriterWrapper::write(const Block& block) {
 }
 
 Status VParquetWriterWrapper::prepare() {
-    _writer = parquet::ParquetFileWriter::Open(_outstream, _schema, _properties);
+    RETURN_IF_ERROR(parse_properties());
+    RETURN_IF_ERROR(parse_schema());
+    try {
+        _writer = parquet::ParquetFileWriter::Open(_outstream, _schema, _properties);
+    } catch (const parquet::ParquetStatusException& e) {
+        LOG(WARNING) << "parquet file writer open error: " << e.what();
+        return Status::InternalError("parquet file writer open error: {}", e.what());
+    }
     if (_writer == nullptr) {
         return Status::InternalError("Failed to create file writer");
     }
@@ -698,7 +854,9 @@ void VParquetWriterWrapper::close() {
             _rg_writer->Close();
             _rg_writer = nullptr;
         }
-        _writer->Close();
+        if (_writer != nullptr) {
+            _writer->Close();
+        }
         arrow::Status st = _outstream->Close();
         if (!st.ok()) {
             LOG(WARNING) << "close parquet file error: " << st.ToString();
