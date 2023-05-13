@@ -318,7 +318,7 @@ public class PartitionInfo implements Writable {
             if (expr == MaxLiteral.MAX_VALUE) {
                 return PartitionValue.MAX_VALUE;
             } else if (expr instanceof DateLiteral) {
-                return new PartitionValue(expr.toSql());
+                return new PartitionValue(expr.getStringValue());
             } else {
                 return new PartitionValue(expr.getRealValue().toString());
             }

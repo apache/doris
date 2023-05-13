@@ -38,9 +38,12 @@ import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InsertOverwriteTableStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.LoadType;
 import org.apache.doris.analysis.LockTablesStmt;
+import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PartitionNames;
@@ -67,6 +70,7 @@ import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
 import org.apache.doris.analysis.TransactionStmt;
+import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UnlockTablesStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UpdateStmt;
@@ -103,6 +107,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.loadv2.LoadManagerAdapter;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlEofPacket;
@@ -299,7 +304,7 @@ public class StmtExecutor {
         builder.instancesNumPerBe(
                 beToInstancesNum.entrySet().stream().map(entry -> entry.getKey() + ":" + entry.getValue())
                         .collect(Collectors.joining(",")));
-        builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.parallelExecInstanceNum));
+        builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
         return builder.build();
     }
@@ -471,7 +476,7 @@ public class StmtExecutor {
                         // If goes here, which means we can't find a valid Master FE(some error happens).
                         // To avoid endless forward, throw exception here.
                         throw new NereidsException(new UserException("The statement has been forwarded to master FE("
-                                + Env.getCurrentEnv().getSelfNode().getIp() + ") and failed to execute"
+                                + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
                                 + " because Master FE is not ready. You may need to check FE's status"));
                     }
                     forwardToMaster();
@@ -582,6 +587,18 @@ public class StmtExecutor {
         if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
         }
+        if (parsedStmt instanceof UnifiedLoadStmt) {
+            // glue code for unified load
+            final UnifiedLoadStmt unifiedLoadStmt = (UnifiedLoadStmt) parsedStmt;
+            unifiedLoadStmt.init();
+            final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
+            parsedStmt = proxyStmt;
+            if (!(proxyStmt instanceof LoadStmt)) {
+                Preconditions.checkState(
+                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needLoadManager(),
+                        new IllegalStateException("enable_unified_load=true, should be external insert stmt"));
+            }
+        }
 
         try {
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
@@ -594,7 +611,7 @@ public class StmtExecutor {
             if (!context.isTxnModel()) {
                 Span queryAnalysisSpan =
                         context.getTracer().spanBuilder("query analysis").setParent(Context.current()).startSpan();
-                try (Scope scope = queryAnalysisSpan.makeCurrent()) {
+                try (Scope ignored = queryAnalysisSpan.makeCurrent()) {
                     // analyze this query
                     analyze(context.getSessionVariable().toThrift());
                 } catch (Exception e) {
@@ -609,7 +626,7 @@ public class StmtExecutor {
                         // If goes here, which means we can't find a valid Master FE(some error happens).
                         // To avoid endless forward, throw exception here.
                         throw new UserException("The statement has been forwarded to master FE("
-                                + Env.getCurrentEnv().getSelfNode().getIp() + ") and failed to execute"
+                                + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
                                 + " because Master FE is not ready. You may need to check FE's status");
                     }
                     forwardToMaster();
@@ -651,15 +668,22 @@ public class StmtExecutor {
             } else if (parsedStmt instanceof InsertOverwriteTableStmt) {
                 handleIotStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InsertStmt is its subclass
-                try {
-                    if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
-                        profileType = ProfileType.LOAD;
+                InsertStmt insertStmt = (InsertStmt) parsedStmt;
+                if (insertStmt.needLoadManager()) {
+                    // TODO(tsy): will eventually try to handle native insert and external insert together
+                    // add a branch for external load
+                    handleExternalInsertStmt();
+                } else {
+                    try {
+                        if (!insertStmt.getQueryStmt().isExplain()) {
+                            profileType = ProfileType.LOAD;
+                        }
+                        handleInsertStmt();
+                    } catch (Throwable t) {
+                        LOG.warn("handle insert stmt fail: {}", t.getMessage());
+                        // the transaction of this insert may already begin, we will abort it at outer finally block.
+                        throw t;
                     }
-                    handleInsertStmt();
-                } catch (Throwable t) {
-                    LOG.warn("handle insert stmt fail: {}", t.getMessage());
-                    // the transaction of this insert may already begin, we will abort it at outer finally block.
-                    throw t;
                 }
             } else if (parsedStmt instanceof LoadStmt) {
                 handleLoadStmt();
@@ -710,7 +734,8 @@ public class StmtExecutor {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 // The transaction of an insert operation begin at analyze phase.
                 // So we should abort the transaction at this finally block if it encounters exception.
-                if (insertStmt.isTransactionBegin() && context.getState().getStateType() == MysqlStateType.ERR) {
+                if (!insertStmt.needLoadManager() && insertStmt.isTransactionBegin()
+                        && context.getState().getStateType() == MysqlStateType.ERR) {
                     try {
                         String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
                         Env.getCurrentGlobalTransactionMgr().abortTransaction(
@@ -839,7 +864,7 @@ public class StmtExecutor {
         }
 
         if (parsedStmt instanceof QueryStmt
-                || parsedStmt instanceof InsertStmt
+                || (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager())
                 || parsedStmt instanceof CreateTableAsSelectStmt
                 || parsedStmt instanceof InsertOverwriteTableStmt) {
             if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
@@ -1500,9 +1525,10 @@ public class StmtExecutor {
     private int executeForTxn(InsertStmt insertStmt)
             throws UserException, TException, InterruptedException, ExecutionException, TimeoutException {
         if (context.isTxnIniting()) { // first time, begin txn
-            beginTxn(insertStmt.getDb(), insertStmt.getTbl());
+            beginTxn(insertStmt.getDbName(),
+                    insertStmt.getTbl());
         }
-        if (!context.getTxnEntry().getTxnConf().getDb().equals(insertStmt.getDb())
+        if (!context.getTxnEntry().getTxnConf().getDb().equals(insertStmt.getDbName())
                 || !context.getTxnEntry().getTxnConf().getTbl().equals(insertStmt.getTbl())) {
             throw new TException("Only one table can be inserted in one transaction.");
         }
@@ -1602,8 +1628,8 @@ public class StmtExecutor {
         if (context.getMysqlChannel() != null) {
             context.getMysqlChannel().reset();
         }
-        // create plan
         InsertStmt insertStmt = (InsertStmt) parsedStmt;
+        // create plan
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
             throw new DdlException("Not support OUTFILE clause in INSERT statement");
         }
@@ -1745,7 +1771,8 @@ public class StmtExecutor {
             txnId = insertStmt.getTransactionId();
             try {
                 context.getEnv().getLoadManager()
-                        .recordFinishedLoadJob(label, txnId, insertStmt.getDb(), insertStmt.getTargetTable().getId(),
+                        .recordFinishedLoadJob(label, txnId, insertStmt.getDbName(),
+                                insertStmt.getTargetTable().getId(),
                                 EtlJobType.INSERT, createTime, throwable == null ? "" : throwable.getMessage(),
                                 coord.getTrackingUrl(), insertStmt.getUserInfo());
             } catch (MetaNotFoundException e) {
@@ -1771,10 +1798,32 @@ public class StmtExecutor {
 
         // set insert result in connection context,
         // so that user can use `show insert result` to get info of the last insert operation.
-        context.setOrUpdateInsertResult(txnId, label, insertStmt.getDb(), insertStmt.getTbl(),
+        context.setOrUpdateInsertResult(txnId, label, insertStmt.getDbName(), insertStmt.getTbl(),
                 txnStatus, loadedRows, filteredRows);
         // update it, so that user can get loaded rows in fe.audit.log
         context.updateReturnRows((int) loadedRows);
+    }
+
+    private void handleExternalInsertStmt() {
+        // TODO(tsy): load refactor, handle external load here
+        try {
+            InsertStmt insertStmt = (InsertStmt) parsedStmt;
+            LoadType loadType = insertStmt.getLoadType();
+            if (loadType == LoadType.UNKNOWN) {
+                throw new DdlException("Unknown load job type");
+            }
+            LoadManagerAdapter loadManagerAdapter = context.getEnv().getLoadManagerAdapter();
+            loadManagerAdapter.startLoadFromInsertStmt(insertStmt);
+            context.getState().setOk();
+        } catch (UserException e) {
+            // Return message to info client what happened.
+            LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        }
     }
 
     private void handleUnsupportedStmt() {
@@ -2062,6 +2111,7 @@ public class StmtExecutor {
             // Maybe our bug
             LOG.warn("CTAS create table error, stmt={}", originStmt.originStmt, e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            return;
         }
         // after success create table insert data
         try {
@@ -2113,6 +2163,12 @@ public class StmtExecutor {
             parsedStmt = new CreateTableLikeStmt(false, tmpTableName, targetTableName, null, false);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
+            // if create tmp table err, return
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                // There is already an error message in the execute() function, so there is no need to set it here
+                LOG.warn("IOT create table error, stmt={}", originStmt.originStmt);
+                return;
+            }
         } catch (Exception e) {
             // Maybe our bug
             LOG.warn("IOT create a tmp table error, stmt={}", originStmt.originStmt, e);
@@ -2121,7 +2177,8 @@ public class StmtExecutor {
         }
         // after success create table insert data
         try {
-            parsedStmt = new InsertStmt(tmpTableName, iotStmt.getQueryStmt());
+            parsedStmt = new NativeInsertStmt(tmpTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
+                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols());
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
@@ -2145,6 +2202,11 @@ public class StmtExecutor {
             parsedStmt = new AlterTableStmt(targetTableName, ops);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("IOT overwrite table error, stmt={}", parsedStmt.toSql());
+                handleIotRollback(tmpTableName);
+                return;
+            }
             context.getState().setOk();
         } catch (Exception e) {
             // Maybe our bug
@@ -2171,18 +2233,26 @@ public class StmtExecutor {
                 parsedStmt = new AlterTableStmt(targetTableName, ops);
                 parsedStmt.setUserInfo(context.getCurrentUserIdentity());
                 execute();
+                if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                    LOG.warn("IOT create tmp partitions error, stmt={}", originStmt.originStmt);
+                    handleIotPartitionRollback(targetTableName, tempPartitionName);
+                    return;
+                }
+                // only when execution succeeded, put the temp partition name into list
+                tempPartitionName.add(tempPartName);
             }
         } catch (Exception e) {
             // Maybe our bug
             LOG.warn("IOT create tmp table partitions error, stmt={}", originStmt.originStmt, e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotPartitionRollback(targetTableName, tempPartitionName);
             return;
         }
-
         // after success add tmp partitions
         try {
-            parsedStmt = new InsertStmt(targetTableName, new PartitionNames(true, tempPartitionName),
-                    iotStmt.getQueryStmt());
+            parsedStmt = new NativeInsertStmt(targetTableName, new PartitionNames(true, tempPartitionName),
+                    new LabelName(iotStmt.getDb(), iotStmt.getLabel()), iotStmt.getQueryStmt(),
+                    iotStmt.getHints(), iotStmt.getCols());
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
@@ -2207,10 +2277,15 @@ public class StmtExecutor {
             parsedStmt = new AlterTableStmt(targetTableName, ops);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("IOT overwrite table partitions error, stmt={}", parsedStmt.toSql());
+                handleIotPartitionRollback(targetTableName, tempPartitionName);
+                return;
+            }
             context.getState().setOk();
         } catch (Exception e) {
             // Maybe our bug
-            LOG.warn("IOT overwrite table partition error, stmt={}", parsedStmt.toSql(), e);
+            LOG.warn("IOT overwrite table partitions error, stmt={}", parsedStmt.toSql(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
             handleIotPartitionRollback(targetTableName, tempPartitionName);
         }
@@ -2375,5 +2450,4 @@ public class StmtExecutor {
         return profile.getSummaryProfile();
     }
 }
-
 

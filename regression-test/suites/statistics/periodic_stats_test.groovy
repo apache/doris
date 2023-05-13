@@ -106,7 +106,7 @@ suite("test_periodic_stats") {
 
     // Varify column stats
     sql """
-        ANALYZE TABLE ${fullTblName} WITH sync WITH period 15;
+        ANALYZE TABLE ${fullTblName} WITH sync WITH period 90;
     """
 
     qt_sql_1 """
@@ -121,7 +121,7 @@ suite("test_periodic_stats") {
             col_name;
     """
 
-    Thread.sleep(1000 * 29)
+    Thread.sleep(180000)
 
     qt_sql_2 """
         SELECT

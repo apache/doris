@@ -121,7 +121,6 @@ public:
                 try {
                     vectorized::AggregateFunctionPtr function =
                             tablet_schema->column(i).get_aggregate_function(
-                                    {finalized_block.get_data_type(i)},
                                     vectorized::AGG_LOAD_SUFFIX);
                     agg_functions.push_back(function);
                     // create aggregate data

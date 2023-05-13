@@ -65,7 +65,7 @@ cp -R /mnt/datadisk0/chenqi/doris/gensrc /mnt/datadisk0/chenqi/clion/doris/gensr
 
 ![Toolchains](/images/clion-toolchains.png)
 
-5. In Clion, modify `be/CmakeLists.txt` and change `$ENV{JAVA_HOME}` to the path of `JAVA_HOME` on the remote server. (Otherwise, jni.h will not be found)
+5. In Clion, navigate to **Preferences -> Build, Execution, Deployment -> CMake** and add the compilation option -DDORIS_JAVA_HOME=/path/to/remote/JAVA_HOME in CMake options, set DORIS_JAVA_HOME to the JAVA_HOME path of the remote server, otherwise jni.h will not be found.
 
 6. Right-click on **Load Cmake Project** in Clion. This will synchronize the code to the remote server and generate the Cmake build files.
 

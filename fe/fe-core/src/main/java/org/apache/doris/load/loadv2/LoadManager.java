@@ -17,9 +17,11 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -109,7 +111,7 @@ public class LoadManager implements Writable {
     public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException {
         Database database = checkDb(stmt.getLabel().getDbName());
         long dbId = database.getId();
-        LoadJob loadJob = null;
+        LoadJob loadJob;
         writeLock();
         try {
             if (stmt.getBrokerDesc() != null && stmt.getBrokerDesc().isMultiLoadBroker()) {
@@ -876,5 +878,44 @@ public class LoadManager implements Writable {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
             }
         }
+    }
+
+    // ------------------------ for load refactor ------------------------
+    public long createLoadJobFromStmt(InsertStmt insertStmt) throws DdlException {
+        Database database = checkDb(insertStmt.getLoadLabel().getDbName());
+        long dbId = database.getId();
+        LoadJob loadJob;
+        writeLock();
+        BrokerDesc brokerDesc = (BrokerDesc) insertStmt.getResourceDesc();
+        try {
+            if (brokerDesc != null && brokerDesc.isMultiLoadBroker()) {
+                if (!Env.getCurrentEnv().getLoadInstance()
+                        .isUncommittedLabel(dbId, insertStmt.getLoadLabel().getLabelName())) {
+                    throw new DdlException("label: " + insertStmt.getLoadLabel().getLabelName() + " not found!");
+                }
+            } else {
+                checkLabelUsed(dbId, insertStmt.getLoadLabel().getLabelName());
+                if (brokerDesc == null && insertStmt.getResourceDesc() == null) {
+                    throw new DdlException("LoadManager only support the broker and spark load.");
+                }
+                if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                    throw new DdlException(
+                            "There are more than " + Config.desired_max_waiting_jobs
+                                    + " unfinished load jobs, please retry later. "
+                                    + "You can use `SHOW LOAD` to view submitted jobs");
+                }
+            }
+
+            loadJob = BulkLoadJob.fromInsertStmt(insertStmt);
+            createLoadJob(loadJob);
+        } finally {
+            writeUnlock();
+        }
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
+
+        // The job must be submitted after edit log.
+        // It guarantee that load job has not been changed before edit log.
+        loadJobScheduler.submitJob(loadJob);
+        return loadJob.getId();
     }
 }

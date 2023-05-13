@@ -33,25 +33,36 @@ public class RemoteFile {
     // A large file will split into multiple blocks. The blocks are transparent to the user.
     // Default block size for HDFS 2.x is 128M.
     private final long blockSize;
+    private long modificationTime;
     private Path path;
     BlockLocation[] blockLocations;
 
     public RemoteFile(String name, boolean isFile, long size, long blockSize) {
-        this(name, null, isFile, !isFile, size, blockSize, null);
+        this(name, null, isFile, !isFile, size, blockSize, 0, null);
+    }
+
+    public RemoteFile(String name, boolean isFile, long size, long blockSize, long modificationTime) {
+        this(name, null, isFile, !isFile, size, blockSize, modificationTime, null);
     }
 
     public RemoteFile(Path path, boolean isDirectory, long size, long blockSize, BlockLocation[] blockLocations) {
-        this(path.getName(), path, !isDirectory, isDirectory, size, blockSize, blockLocations);
+        this(path.getName(), path, !isDirectory, isDirectory, size, blockSize, 0, blockLocations);
+    }
+
+    public RemoteFile(Path path, boolean isDirectory, long size, long blockSize, long modificationTime,
+            BlockLocation[] blockLocations) {
+        this(path.getName(), path, !isDirectory, isDirectory, size, blockSize, modificationTime, blockLocations);
     }
 
     public RemoteFile(String name, Path path, boolean isFile, boolean isDirectory,
-                      long size, long blockSize, BlockLocation[] blockLocations) {
+            long size, long blockSize, long modificationTime, BlockLocation[] blockLocations) {
         Preconditions.checkState(!Strings.isNullOrEmpty(name));
         this.name = name;
         this.isFile = isFile;
         this.isDirectory = isDirectory;
         this.size = size;
         this.blockSize = blockSize;
+        this.modificationTime = modificationTime;
         this.path = path;
         this.blockLocations = blockLocations;
     }
@@ -78,6 +89,10 @@ public class RemoteFile {
 
     public long getBlockSize() {
         return blockSize;
+    }
+
+    public long getModificationTime() {
+        return modificationTime;
     }
 
     public BlockLocation[] getBlockLocations() {

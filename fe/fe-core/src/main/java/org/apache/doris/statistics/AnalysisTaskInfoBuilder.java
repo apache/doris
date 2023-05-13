@@ -47,6 +47,7 @@ public class AnalysisTaskInfoBuilder {
     private AnalysisState state;
     private ScheduleType scheduleType;
     private String message;
+    private boolean externalTableLevelTask;
 
     public AnalysisTaskInfoBuilder() {
     }
@@ -174,10 +175,16 @@ public class AnalysisTaskInfoBuilder {
         return this;
     }
 
+    public AnalysisTaskInfoBuilder setExternalTableLevelTask(boolean isTableLevel) {
+        this.externalTableLevelTask = isTableLevel;
+        return this;
+    }
+
     public AnalysisTaskInfo build() {
         return new AnalysisTaskInfo(jobId, taskId, catalogName, dbName, tblName, colToPartitions,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
-                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, state, scheduleType);
+                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, state, scheduleType,
+                externalTableLevelTask);
     }
 
     public AnalysisTaskInfoBuilder copy() {
@@ -201,6 +208,7 @@ public class AnalysisTaskInfoBuilder {
                 .setMessage(message)
                 .setLastExecTimeInMs(lastExecTimeInMs)
                 .setState(state)
-                .setScheduleType(scheduleType);
+                .setScheduleType(scheduleType)
+                .setExternalTableLevelTask(false);
     }
 }

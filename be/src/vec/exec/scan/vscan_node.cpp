@@ -302,11 +302,11 @@ Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners) {
     if (_is_pipeline_scan) {
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
                 _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
-                _state->query_options().mem_limit / 20, _col_distribute_ids);
+                _state->scan_queue_mem_limit(), _col_distribute_ids);
     } else {
-        _scanner_ctx = ScannerContext::create_shared(_state, this, _input_tuple_desc,
-                                                     _output_tuple_desc, scanners, limit(),
-                                                     _state->query_options().mem_limit / 20);
+        _scanner_ctx =
+                ScannerContext::create_shared(_state, this, _input_tuple_desc, _output_tuple_desc,
+                                              scanners, limit(), _state->scan_queue_mem_limit());
     }
     RETURN_IF_ERROR(_scanner_ctx->init());
     return Status::OK();
@@ -855,6 +855,12 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
             InState* state = reinterpret_cast<InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+
+            // xx in (col, xx, xx) should not be push down
+            if (!state->use_set) {
+                return Status::OK();
+            }
+
             iter = state->hybrid_set->begin();
         }
 
@@ -930,6 +936,12 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
         InState* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(pred->fn_context_index())
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+
+        // xx in (col, xx, xx) should not be push down
+        if (!state->use_set) {
+            return Status::OK();
+        }
+
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
         if (!is_fixed_range && state->null_in_set) {

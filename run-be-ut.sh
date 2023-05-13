@@ -221,7 +221,7 @@ export UDF_RUNTIME_DIR="${DORIS_HOME}/lib/udf-runtime"
 export LOG_DIR="${DORIS_HOME}/log"
 while read -r variable; do
     eval "export ${variable}"
-done < <(sed 's/ //g' "${DORIS_HOME}/conf/be.conf" | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
+done < <(sed 's/[[:space:]]*\(=\)[[:space:]]*/\1/' "${DORIS_HOME}/conf/be.conf" | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
 
 mkdir -p "${LOG_DIR}"
 mkdir -p "${UDF_RUNTIME_DIR}"

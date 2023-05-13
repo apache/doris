@@ -33,6 +33,7 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
+import org.apache.doris.analysis.LoadType;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
@@ -2262,7 +2263,7 @@ load_stmt ::=
     opt_properties:properties
     opt_comment:comment
     {:
-        RESULT = new LoadStmt(label, dataDescList, broker, system, properties, comment);
+        RESULT = new UnifiedLoadStmt(label, dataDescList, broker, system, properties, comment, LoadType.BROKER_LOAD);
     :}
     | KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
@@ -3930,6 +3931,11 @@ show_param ::=
     {:
         RESULT = new ShowSyncJobStmt(dbName);
     :}
+    /* show table stats */
+    | KW_TABLE KW_STATS table_name:tbl opt_partition_names:partitionNames
+    {:
+        RESULT = new ShowTableStatsStmt(tbl, partitionNames);
+    :}
     /* show column stats */
     | KW_COLUMN KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
@@ -4484,7 +4490,7 @@ insert_overwrite_stmt ::=
 insert_stmt ::=
     KW_INSERT KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
-        RESULT = new InsertStmt(target, label, cols, source, hints);
+        RESULT = new NativeInsertStmt(target, label, cols, source, hints);
     :}
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
@@ -4514,6 +4520,7 @@ insert_source ::=
         RESULT = new InsertSource(query);
     :}
     ;
+
 
 // update stmt
 update_stmt ::=
@@ -5709,6 +5716,12 @@ with_analysis_properties ::=
     {:
         RESULT = new HashMap<String, String>() {{
             put("incremental", "true");
+        }};
+    :}
+    | KW_AUTO
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("automatic", "true");
         }};
     :}
     | KW_SAMPLE KW_PERCENT INTEGER_LITERAL:samplePercent

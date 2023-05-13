@@ -282,7 +282,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         TScanRangeLocation location = new TScanRangeLocation();
         Backend selectedBackend = backendPolicy.getNextBe();
         location.setBackendId(selectedBackend.getId());
-        location.setServer(new TNetworkAddress(selectedBackend.getIp(), selectedBackend.getBePort()));
+        location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
         locations.addToLocations(location);
 
         return locations;
@@ -306,6 +306,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
         }
+        rangeDesc.setModificationTime(fileSplit.getModificationTime());
         return rangeDesc;
     }
 

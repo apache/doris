@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+
+import lombok.Getter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,12 +28,15 @@ public class InsertOverwriteTableStmt extends DdlStmt {
 
     private final InsertTarget target;
 
+    @Getter
     private final String label;
 
+    @Getter
     private final  List<String> cols;
 
     private final InsertSource source;
 
+    @Getter
     private final List<String> hints;
 
     public InsertOverwriteTableStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
@@ -66,17 +69,5 @@ public class InsertOverwriteTableStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        // make a preliminary judgment, and subsequent insert statements will make a comprehensive judgment
-        // create a tmp analyzer
-        Analyzer dummyRootAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
-        QueryStmt tmpStmt = getQueryStmt().clone();
-        tmpStmt.analyze(dummyRootAnalyzer);
-        // analyze target table name to get db info
-        target.getTblName().analyze(dummyRootAnalyzer);
-        ArrayList<Expr> resultExprs = getQueryStmt().getResultExprs();
-        // judge whether the target table matches the number of columns in the source table
-        if (cols != null && cols.size() != resultExprs.size()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
-        }
     }
 }

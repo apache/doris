@@ -85,6 +85,11 @@ public:
     MutableColumnPtr create_column() const override;
 
     Field get_default() const override;
+
+    Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for struct";
+    }
+
     void insert_default_into(IColumn& column) const override;
 
     bool equals(const IDataType& rhs) const override;
