@@ -1,6 +1,8 @@
 
 ---
-{ "title": "doris未来计划", "language": "zh-CN" }
+{ "title": "doris未来计划",
+ "language": "zh-CN"
+}
 ---
 
 <!--
