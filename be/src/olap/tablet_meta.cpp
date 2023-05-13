@@ -963,14 +963,6 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
     }
 }
 
-uint64_t DeleteBitmap::cardinality() {
-    uint64_t cardinality = 0;
-    for (auto entry : delete_bitmap) {
-        cardinality += entry.second.cardinality();
-    }
-    return cardinality;
-}
-
 // We cannot just copy the underlying memory to construct a string
 // due to equivalent objects may have different padding bytes.
 // Reading padding bytes is undefined behavior, neither copy nor
