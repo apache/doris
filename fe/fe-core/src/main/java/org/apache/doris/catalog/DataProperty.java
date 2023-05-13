@@ -62,7 +62,6 @@ public class DataProperty implements Writable, GsonPostProcessable {
         this.storageMedium = other.storageMedium;
         this.cooldownTimeMs = other.cooldownTimeMs;
         this.storagePolicy = other.storagePolicy;
-        this.isMutable = other.isMutable;
     }
 
     /**
