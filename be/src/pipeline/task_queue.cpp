@@ -213,9 +213,9 @@ bool TaskGroupTaskQueue::TaskGroupSchedEntityComparator::operator()(
         auto l_share = lhs_ptr->cpu_share();
         auto r_share = rhs_ptr->cpu_share();
         if (l_share != r_share) {
-            return l_share < rhs_val;
+            return l_share < r_share;
         } else {
-            return lhs_ptr < rhs_ptr;
+            return lhs_ptr->task_group_id() < rhs_ptr->task_group_id();
         }
     }
 }
