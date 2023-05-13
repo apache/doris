@@ -26,18 +26,10 @@ under the License.
 
 ## 简介
 
-doris未来计划是一个
+doris未来计划是一个面向新手开发者的成长计划，旨在让更多的开发者快速上手doris，社区热烈欢迎各位有兴趣的开发者加入。
 
-## 反馈方式
+## 参与方式
 
-如果你在使用 Doris 的过程中发现任何问题或建议，可以通过以下方式进行反馈：
+新手开发者们可以在doris社区的[Github Issue](https://github.com/apache/doris/issues)界面筛选带有`doris-future`标签的任务，每个任务都有需要的技能，例如c++或java，以及难度区分，新开发者可在感兴趣的任务下方评论并且与导师沟通任务细节，对于机器资源困难的开发者社区也会提供开发机。
 
-1. 邮件列表
-
-   你可以通过发送一封任意标题和内容的邮件到 `dev-subscribe@doris.apache.org`，之后根据指引订阅这个邮件列表。
-
-   之后，你就可以发送邮件至 `dev@doris.apache.org` 来描述的问题或建议。
-
-2. Github
-
-   提交一个 [Github Issue](https://github.com/apache/doris/issues/new/choose)
+如果有任何困难或遇到了问题，可以发送邮件至 `dev@doris.apache.org` 来描述困难或者问题，我们会尽力帮你解决。
