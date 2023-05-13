@@ -68,25 +68,10 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
 
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*cur_tablet_schema);
-    // std::for_each(src_rowset_readers.begin(), src_rowset_readers.end(),
-    //               [&reader_params](const RowsetReaderSharedPtr& reader) {
-    //                   if (reader->rowset()->rowset_meta()->has_delete_predicate()) {
-    //                       reader_params.delete_predicates.emplace_back(
-    //                               reader->rowset()->rowset_meta()->delete_predicate());
-    //                   }
-    //               });
-    // {
-    //     std::shared_lock rdlock(tablet->get_header_lock());
-    //     std::for_each(reader_params.delete_predicates.begin(),
-    //                   reader_params.delete_predicates.end(),
-    //                   [&merge_tablet_schema, &tablet](const auto& del_pred_rs) {
-    //                       merge_tablet_schema->merge_dropped_columns(
-    //                               tablet->tablet_schema(del_pred_rs->version()));
-    //                   });
-    // }
     {
-    
-        auto delete_preds = tablet->delete_predicates();// TODO: no need for scan for the whole tablet,retrive them from src_rowset_readers
+        std::shared_lock rdlock(tablet->get_header_lock());
+        // TODO(AlexYue): no need for scan for the whole tablet,retrive them from src_rowset_readers
+        auto delete_preds = tablet->delete_predicates();
         std::copy(delete_preds.cbegin(), delete_preds.cend(),
                   std::inserter(reader_params.delete_predicates,
                                 reader_params.delete_predicates.begin()));

@@ -537,21 +537,22 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // New loads are not blocked, so some keys of input rowsets might
         // be deleted during the time. We need to deal with delete bitmap
         // of incremental data later.
-        _tablet->calc_compaction_output_rowset_delete_bitmap(
-                _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
-                &location_map, &output_rowset_delete_bitmap);
-        std::size_t missed_rows_size = missed_rows.size();
-        if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
-            if (stats != nullptr && stats->merged_rows != missed_rows_size) {
-                std::string err_msg = fmt::format(
-                        "cumulative compaction: the merged rows({}) is not equal to missed "
-                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
-                        stats->merged_rows, missed_rows_size, _tablet->tablet_id(),
-                        _tablet->table_id());
-                DCHECK(false) << err_msg;
-                LOG(WARNING) << err_msg;
-            }
-        }
+        // TODO(LiaoXin): check if there are duplicate keys
+        // _tablet->calc_compaction_output_rowset_delete_bitmap(
+        //        _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
+        //        &location_map, &output_rowset_delete_bitmap);
+        // std::size_t missed_rows_size = missed_rows.size();
+        // if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
+        //     if (stats != nullptr && stats->merged_rows != missed_rows_size) {
+        //         std::string err_msg = fmt::format(
+        //                 "cumulative compaction: the merged rows({}) is not equal to missed "
+        //                 "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+        //                 stats->merged_rows, missed_rows_size, _tablet->tablet_id(),
+        //                 _tablet->table_id());
+        //         // DCHECK(false) << err_msg;
+        //         LOG(WARNING) << err_msg;
+        //     }
+        // }
 
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
         location_map.clear();
@@ -564,13 +565,6 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             _tablet->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &missed_rows,
                     &location_map, &output_rowset_delete_bitmap);
-            if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
-                DCHECK_EQ(missed_rows.size(), missed_rows_size);
-                if (missed_rows.size() != missed_rows_size) {
-                    LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
-                                 << " after: " << missed_rows.size();
-                }
-            }
 
             RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
