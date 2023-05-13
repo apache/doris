@@ -191,7 +191,7 @@ protected:
 
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                             int64_t signature, TTabletInfo* tablet_info);
-
+    void _push_worker_impl();
     // random sleep 1~second seconds
     void _random_sleep(int second);
 
@@ -290,7 +290,7 @@ class DeleteTaskPool : public TaskWorkerPool {
 public:
     DeleteTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
     void _set_callback_and_worker_count() override;
-    void _push_worker_thread_callback();
+    void _delete_worker_thread_callback();
 
     DISALLOW_COPY_AND_ASSIGN(DeleteTaskPool);
 };
