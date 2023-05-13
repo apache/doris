@@ -72,7 +72,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
             TimestampArithmeticExpr.TimeUnit.YEAR
     );
 
-    private final Integer maxAllowedLimit = Config.max_multi_partition_num;
+    private final Integer maxAllowedLimit = Config.max_dynamic_partition_num;
 
     public MultiPartitionDesc(PartitionKeyDesc partitionKeyDesc,
                           Map<String, String> properties) throws AnalysisException {

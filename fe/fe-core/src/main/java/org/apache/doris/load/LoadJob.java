@@ -80,7 +80,7 @@ public class LoadJob implements Writable {
     private long transactionId = -1;
     long timestamp;
     private int timeoutSecond;
-    private double maxFilterRatio = Config.default_max_filter_ratio;
+    private double maxFilterRatio;
     private JobState state;
 
     private BrokerDesc brokerDesc;
@@ -134,17 +134,17 @@ public class LoadJob implements Writable {
     }
 
     public LoadJob(String label) {
-        this(label, DEFAULT_TIMEOUT_S, Config.default_max_filter_ratio);
+        this(label, DEFAULT_TIMEOUT_S);
     }
 
-    public LoadJob(String label, int timeoutSecond, double maxFilterRatio) {
+    public LoadJob(String label, int timeoutSecond) {
         this.id = -1;
         this.dbId = -1;
         this.label = label;
         this.transactionId = -1;
         this.timestamp = -1;
         this.timeoutSecond = timeoutSecond;
-        this.maxFilterRatio = maxFilterRatio;
+        this.maxFilterRatio = 0.0;
         this.state = JobState.PENDING;
         this.progress = 0;
         this.createTimeMs = System.currentTimeMillis();

@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Version;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -31,10 +30,6 @@ public class JdkUtils {
      */
     @VisibleForTesting
     public static boolean checkJavaVersion() {
-        if (!Config.check_java_version) {
-            return true;
-        }
-
         String javaCompileVersionStr = getJavaVersionFromFullVersion(Version.DORIS_JAVA_COMPILE_VERSION);
         String javaRuntimeVersionStr = System.getProperty("java.version");
 

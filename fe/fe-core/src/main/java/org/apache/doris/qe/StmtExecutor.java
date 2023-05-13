@@ -1748,22 +1748,13 @@ public class StmtExecutor {
                     LOG.warn("errors when abort txn", abortTxnException);
                 }
 
-                if (!Config.using_old_load_usage_pattern) {
-                    // if not using old load usage pattern, error will be returned directly to user
-                    StringBuilder sb = new StringBuilder(t.getMessage());
-                    if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
-                        sb.append(". url: " + coord.getTrackingUrl());
-                    }
-                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
-                    return;
+                // return error directly to user
+                StringBuilder sb = new StringBuilder(t.getMessage());
+                if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
+                    sb.append(". url: " + coord.getTrackingUrl());
                 }
-
-                /*
-                 * If config 'using_old_load_usage_pattern' is true.
-                 * Doris will return a label to user, and user can use this label to check load job's status,
-                 * which exactly like the old insert stmt usage pattern.
-                 */
-                throwable = t;
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
+                return;
             } finally {
                 updateProfile(true);
                 QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());

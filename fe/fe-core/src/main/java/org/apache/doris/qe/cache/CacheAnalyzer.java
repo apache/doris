@@ -118,15 +118,12 @@ public class CacheAnalyzer {
     }
 
     private void checkCacheConfig() {
-        if (Config.cache_enable_sql_mode) {
-            if (context.getSessionVariable().isEnableSqlCache()) {
-                enableSqlCache = true;
-            }
+        if (context.getSessionVariable().isEnableSqlCache()) {
+            enableSqlCache = true;
         }
-        if (Config.cache_enable_partition_mode) {
-            if (context.getSessionVariable().isEnablePartitionCache()) {
-                enablePartitionCache = true;
-            }
+
+        if (context.getSessionVariable().isEnablePartitionCache()) {
+            enablePartitionCache = true;
         }
     }
 

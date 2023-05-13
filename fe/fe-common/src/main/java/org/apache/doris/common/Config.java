@@ -847,407 +847,355 @@ public class Config extends ConfigBase {
     /**
      * fe will create iceberg table every iceberg_table_creation_interval_second
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"已废弃", "Deprecated"})
     public static long iceberg_table_creation_interval_second = 10;
 
-    /**
-     * the factor of delay time before deciding to repair tablet.
-     * if priority is VERY_HIGH, repair it immediately.
-     * HIGH, delay tablet_repair_delay_factor_second * 1;
-     * NORMAL: delay tablet_repair_delay_factor_second * 2;
-     * LOW: delay tablet_repair_delay_factor_second * 3;
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"修复 tablet 之前的延迟因子。"
+            + "如果优先级是 VERY_HIGH，立即修复。"
+            + "HIGH，延迟 `tablet_repair_delay_factor_second` * 1；"
+            + "NORMAL: 延迟 `tablet_repair_delay_factor_second` * 2；"
+            + "LOW: 延迟 `tablet_repair_delay_factor_second` * 3。增加这个数值，可以避免不必要的副本修复操作",
+            "The delay factor before repairing the tablet. "
+                    + "If the priority is VERY_HIGH, repair it immediately. "
+                    + "HIGH, delay `tablet_repair_delay_factor_second` * 1; "
+                    + "NORMAL: delay `tablet_repair_delay_factor_second` * 2; "
+                    + "LOW: delay `tablet_repair_delay_factor_second` * 3. "
+                    + "Increasing this value can avoid unnecessary replica repair operations"})
     public static long tablet_repair_delay_factor_second = 60;
 
-    /**
-     * the default slot number per path in tablet scheduler
-     * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
-     */
-    @ConfField public static int schedule_slot_num_per_path = 2;
+    @ConfField(description = {"副本修复操作中，每个存储路径对应的slot数量。每个副本修复任务，会占用源端和目的端各一个slot。"
+            + "如果没有空闲的slot，则任务会排队。一个BE上的slot数量等于这个数值乘以存储路径数量。调大该数值可以提高副本修复的速度，"
+            + "但会增加集群的资源开销。",
+            " The number of slots per storage path in the replica repair operation. "
+                    + "Each replica repair task occupies one slot on the source and destination. "
+                    + "If there is no free slot, the task will be queued. "
+                    + "The number of slots on a BE is equal to this value multiplied by the number of storage paths. "
+                    + "Increasing this value can improve the speed of replica repair, "
+                    + "but it will increase the resource cost of the cluster."})
+    public static int schedule_slot_num_per_path = 2;
 
-    /**
-     * Deprecated after 0.10
-     */
-    @ConfField public static boolean use_new_tablet_scheduler = true;
-
-    /**
-     * the threshold of cluster balance score, if a backend's load score is 10% lower than average score,
-     * this backend will be marked as LOW load, if load score is 10% higher than average score, HIGH load
-     * will be marked.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"计算集群节点间负载分数的差值阈值，只有在分数差距大于这个阈值时，"
+            + "才会触发副本均衡任务。同时，以默认值10%为例，如果一个节点的负载分数高于平均分数的10%，则会被标记为高负载，如果低于10%，"
+            + "则会标记为低负载，否则标记位均衡。副本会自动从高负载节点迁移到低负载节点。",
+            " The threshold of the difference between the load scores of BE nodes. "
+                    + "Only when the score difference is greater than this threshold, "
+                    + "the replica balance task will be triggered. "
+                    + "At the same time, taking the default value of 10% as an example, "
+                    + "if the load score of a node is 10% higher than the average score, "
+                    + "it will be marked as high load, if it is lower than 10%, "
+                    + "it will be marked as low load, otherwise it will be marked as balanced. "
+                    + "Replicas will automatically migrate from high load nodes to low load nodes."})
     public static double balance_load_score_threshold = 0.1; // 10%
 
-    /**
-     * if set to true, TabletScheduler will not do balance.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "如果设置为true，TabletScheduler将不会进行BE间的负载均衡。",
+            "If set to true, TabletScheduler will not do balance between BE nodes"})
     public static boolean disable_balance = false;
 
-    /**
-     * if set to true, TabletScheduler will not do disk balance.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "如果设置为true，TabletScheduler将不会进行BE内的磁盘均衡。",
+            "If set to true, TabletScheduler will not do disk balance in BE node"})
     public static boolean disable_disk_balance = false;
 
-    // if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets
-    // skip checking.
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"如果TabletScheduler中的调度任务数超过这个值，"
+            + "则不再进行调度。这个值越大，可调度的任务数越多，但是会增加调度的延迟。",
+            "If the number of scheduled tasks in TabletScheduler exceeds this value, "
+                    + "the scheduling will no longer be performed. "
+                    + "The larger this value is, the more tasks can be scheduled, "
+                    + "but it will increase the delay of scheduling."})
     public static int max_scheduling_tablets = 2000;
 
-    // if the number of balancing tablets in TabletScheduler exceed max_balancing_tablets,
-    // no more balance check
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"如果TabletScheduler中的负载均衡任务数超过这个值，"
+            + "则不再进行负载均衡。这个值越大，可调度的任务数越多，但是会增加调度的延迟。",
+            "If the number of balancing tasks in TabletScheduler exceeds this value, "
+                    + "the balancing will no longer be performed. "
+                    + "The larger this value is, the more tasks can be scheduled, "
+                    + "but it will increase the delay of scheduling."})
     public static int max_balancing_tablets = 100;
 
-    // Rebalancer type(ignore case): BeLoad, Partition. If type parse failed, use BeLoad as default.
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {
+            "副本均衡器类型，可选值：BeLoad, Partition。BeLoad：通过BE上的磁盘空间利用率和Tablet数量计算负载分数并进行均衡。"
+                    + "Partition：针对每个表的分区进行均衡，使得一个分区内的Tablet均衡分布在不同的BE上。",
+            " The type of replica rebalancer, optional values: BeLoad, Partition. "
+                    + "BeLoad: Calculate the load score based on the disk space utilization "
+                    + "and the number of tablets on the BE and balance them. "
+                    + "Partition: Balance the tablets of each partition of the table. "
+                    + "Make tablet distribution of a partition balanced on different BEs."},
+            options = {"BeLoad", "Partition"})
     public static String tablet_rebalancer_type = "BeLoad";
 
-    // Valid only if use PartitionRebalancer. If this changed, cached moves will be cleared.
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"当使用Partition均衡方式时生效。单位是秒。",
+            "Valid only if use Partition Rebalancer. Unit is second."})
     public static long partition_rebalance_move_expire_after_access = 600; // 600s
 
-    // Valid only if use PartitionRebalancer
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"当使用Partition均衡方式时生效。每次调度尝试的步数。",
+            "Valid only if use Partition Rebalancer. The number of steps per scheduling attempt."})
     public static int partition_rebalance_max_moves_num_per_selection = 10;
 
-    // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
-    // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
-    // several seconds after some modification of metadata(drop partition, etc..).
-    // And one Backend will report tablets info every 1 min, so unlimited receiving reports is unacceptable.
-    // TODO(cmy): we will optimize the processing speed of tablet report in future, but now, just discard
-    // the report if queue size exceeding limit.
     // Some online time cost:
     // 1. disk report: 0-1 ms
     // 2. task report: 0-1 ms
     // 3. tablet report
     //      10000 replicas: 200ms
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"FE接收到的上报队列的最大长度。"
+            + "上报任务包括：磁盘上报、任务上报、副本上报。在某些大集群上，上报一个副本可能需要几十秒，从而导致任务排队。"
+            + "可以调大这个数值以确保上报任务完成，但是会增加FE的内存占用。队列满后，FE会丢弃上报任务。",
+            "The max length of report queue in FE. "
+                    + "Report tasks include: disk report, task report, replica report. "
+                    + "In some large clusters, it may take tens of seconds to report a replica, "
+                    + "which will cause the task to queue. "
+                    + "You can increase this value to ensure that the report task is completed, "
+                    + "but it will increase the memory usage of FE. "
+                    + "After the queue is full, FE will discard the report task."})
     public static int report_queue_size = 100;
 
-    /**
-     * If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
-     */
-    @ConfField public static boolean enable_metric_calculator = true;
+    @ConfField(description = {"是否启用指标计算器。如果设置为true，指标计算器将作为一个守护定时器运行，"
+            + "以固定的时间间隔收集需要计算的指标。如QPS。",
+            "Whether to enable metric calculator. If set to true, "
+                    + "the metric calculator will run as a daemon timer to collect metrics that need to be calculated. "
+                    + "Such as QPS."})
+    public static boolean enable_metric_calculator = true;
 
-    /**
-     * the max routine load job num, including NEED_SCHEDULED, RUNNING, PAUSE
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Routine load job的最大数量，包括 `NEED_SCHEDULED`、`RUNNING`、`PAUSE` 状态的job。",
+            "The max routine load job num, including `NEED_SCHEDULED`, `RUNNING`, `PAUSE`."})
     public static int max_routine_load_job_num = 100;
 
     /**
      * the max concurrent routine load task num of a single routine load job
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "单个routine load job的最大子任务并发数。",
+            "The max concurrent routine load task num of a single routine load job."})
     public static int max_routine_load_task_concurrent_num = 5;
 
-    /**
-     * the max concurrent routine load task num per BE.
-     * This is to limit the num of routine load tasks sending to a BE, and it should also less
-     * than BE config 'routine_load_thread_pool_size'(default 10),
-     * which is the routine load task thread pool size on BE.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "单个BE节点所能运行的Routine Load 子任务的最大任务数。"
+                    + "这个值应该小于BE的配置 `routine_load_thread_pool_size`（默认为10）。",
+            "The max concurrent routine load task num per BE. "
+                    + "This value should be less than BE config `routine_load_thread_pool_size`(default 10)."})
     public static int max_routine_load_task_num_per_be = 5;
 
-    /**
-     * The max number of files store in SmallFileMgr
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "SmallFileMgr 中可以存储的最大的文件数量。",
+            "The max number of files store in SmallFileMgr."})
     public static int max_small_file_number = 100;
 
-    /**
-     * The max size of a single file store in SmallFileMgr
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "SmallFileMgr 中可以存储的单个文件的最大大小。",
+            "The max size of a single file store in SmallFileMgr."})
     public static int max_small_file_size_bytes = 1024 * 1024; // 1MB
 
-    /**
-     * Save small files
-     */
-    @ConfField
+    @ConfField(description = {
+            "用于 create file 功能存放小文件的存储目录。",
+            "The directory used to store small files for create file function."})
     public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
 
-    /**
-     * If set to true, the insert stmt with processing error will still return a label to user.
-     * And user can use this label to check the load job's status.
-     * The default value is false, which means if insert operation encounter errors,
-     * exception will be thrown to user client directly without load label.
-     */
-    @ConfField(mutable = true, masterOnly = true) public static boolean using_old_load_usage_pattern = false;
-
-    /**
-     * This will limit the max recursion depth of hash distribution pruner.
-     * eg: where a in (5 elements) and b in (4 elements) and c in (3 elements) and d in (2 elements).
-     * a/b/c/d are distribution columns, so the recursion depth will be 5 * 4 * 3 * 2 = 120, larger than 100,
-     * So that distribution pruner will no work and just return all buckets.
-     *
-     * Increase the depth can support distribution pruning for more elements, but may cost more CPU.
-     */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, description = {
+            "Hash分桶裁剪的最大递归深度。"
+                    + "例如：where a in (5 elements) and b in (4 elements) and c in (3 elements) and d in (2 elements)。"
+                    + "a/b/c/d是分桶列，所以递归深度为 5 * 4 * 3 * 2 = 120，大于100，"
+                    + "因此分布式剪枝将不起作用，只会返回所有的分桶。"
+                    + "增加深度可以支持更多元素的分布式剪枝，但可能会消耗更多的CPU。",
+            " The max recursion depth of hash distribution pruner. "
+                    + "eg: where a in (5 elements) and b in (4 elements) and c in (3 elements) and d in (2 elements). "
+                    + "a/b/c/d are distribution columns, so the recursion depth will be 5 * 4 * 3 * 2 = 120, "
+                    + "larger than 100, So that distribution pruner will no work and just return all buckets. "
+                    + "Increase the depth can support distribution pruning for more elements, but may cost more CPU."})
     public static int max_distribution_pruner_recursion_depth = 100;
 
-    /**
-     * If the jvm memory used percent(heap or old mem pool) exceed this threshold, checkpoint thread will
-     * not work to avoid OOM.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "如果JVM内存使用率（堆内存或老年代内存池）超过这个阈值，checkpoint线程将不会工作，以避免OOM。",
+            "If the jvm memory used percent(heap or old mem pool) exceed this threshold, "
+                    + "checkpoint thread will not work to avoid OOM."})
     public static long metadata_checkpoint_memory_threshold = 70;
 
-    /**
-     * If set to true, the checkpoint thread will make the checkpoint regardless of the jvm memory used percent.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "如果设置为true，checkpoint线程将忽略内存使用率，强制进行checkpoint。",
+            "If set to true, the checkpoint thread will make the checkpoint "
+                    + "regardless of the jvm memory used percent."})
     public static boolean force_do_metadata_checkpoint = false;
 
-    /**
-     * Decide how often to check dynamic partition
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "动态分区创建线程的调度时间间隔，单位为秒。",
+            "The scheduling time interval of the dynamic partition creation thread, in seconds."})
     public static long dynamic_partition_check_interval_seconds = 600;
 
-    /**
-     * If set to true, dynamic partition feature will open
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean dynamic_partition_enable = true;
-
-    /**
-     * control rollup job concurrent limit
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "单个表可以运行的创建Rollup 作业的最大数量。",
+            "The max number of rollup job that can be run for a single table."})
     public static int max_running_rollup_job_num_per_table = 1;
 
-    /**
-     * If set to true, Doris will check if the compiled and running versions of Java are compatible
-     */
-    @ConfField
-    public static boolean check_java_version = true;
-
-    /**
-     * it can't auto-resume routine load job as long as one of the backends is down
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "用于在 Routine Load 作业中。如果一个作业因BE宕机而进入暂停状态，系统会尝试重启这个作业。但必须保证集群内宕机的BE节点数量"
+                    + "小于这个阈值。默认为0，即表示必须所有BE节点存活，才会尝试重启被暂停的作业。",
+            " In the routine load job, if a job is paused because of BE down, the system will try to resume this job. "
+                    + "But it must be ensured that the number of BE nodes down in the cluster "
+                    + "is less than this threshold. "
+                    + "The default is 0, which means that all BE nodes must be alive "
+                    + "before trying to resume the paused job."})
     public static int max_tolerable_backend_down_num = 0;
 
-    /**
-     * a period for auto resume routine load
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"在Routine Load 作业中，"
+            + "当系统尝试重启一个因BE宕机而进入暂停状态的作业时，会以这个时间粒度为周期。如果在这个周期内尝试重启超过三次都失败，"
+            + "则不再重试。每个周期都会刷新一次重启失败的次数累计计数。",
+            "In the routine load job, when the system tries to restart a job that is paused due to BE down, "
+                    + "it will take this time granularity as the period. "
+                    + "If more than three attempts to restart fail within this period, it will not be retried. "
+                    + "The cumulative number of restart failures will be refreshed every period."})
     public static int period_of_auto_resume_min = 5;
 
-    /**
-     * If set to true, the backend will be automatically dropped after finishing decommission.
-     * If set to false, the backend will not be dropped and remaining in DECOMMISSION state.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "如果设置为true，BE会在Decommission操作完成后自动被删除。如果设置为false，BE将不会被自动删除，仍然处于DECOMMISSION状态。",
+            " If set to true, the backend will be automatically dropped after finishing decommission. "
+                    + "If set to false, the backend will not be dropped and remaining in DECOMMISSION state."})
     public static boolean drop_backend_after_decommission = true;
 
-    /**
-     * When tablet size of decommissioned backend is lower than this threshold,
-     * SystemHandler will start to check if all tablets of this backend are in recycled status,
-     * this backend will be dropped immediately if the check result is true.
-     * For performance based considerations, better not set a very high value for this.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Decommonssion 不会处理处于回收站中的 Tablet。"
+            + "这个参数用于在Decommission操作中，当一个BE节点的剩余tablet数量小于这个参数，则会检查是否剩余的tablet都在回收站中。"
+            + "如果是，则会认为Decommission已经完成",
+            " Decommission will not process tablets in the recycle bin. "
+                    + "This parameter is used in the Decommission operation. "
+                    + "When the number of remaining tablets of a BE node is less than this parameter, "
+                    + "it will be checked whether the remaining tablets are in the recycle bin. "
+                    + "If so, it will be considered that Decommission has been completed."})
     public static int decommission_tablet_check_threshold = 5000;
 
-    /**
-     * Define thrift server's server model, default is TThreadPoolServer model
-     */
-    @ConfField
+    @ConfField(description = {"FE Thrift Server 类型。", " FE Thrift Server type."},
+            options = {"SIMPLE", "THREADED_SELECTOR", "THREAD_POOL"})
     public static String thrift_server_type = "THREAD_POOL";
 
-    /**
-     * This config will decide whether to resend agent task when create_time for agent_task is set,
-     * only when current_time - create_time > agent_task_resend_wait_time_ms can ReportHandler do resend agent task
-     */
-    @ConfField (mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "BE 向 FE 汇报 Task 信息后，FE 会向 BE 重新发送所有丢失的 Task。只有当当前时间和 Task 的创建时间差值超过这个阈值时，"
+                    + "才会重新发送任务。以避免频繁的发送重复的任务。",
+            " After BE reports Task information to FE, FE will resend all lost Tasks to BE. "
+                    + "Only when the difference between the current time and the creation time of the Task "
+                    + "exceeds this threshold, will the Task be resent. "
+                    + "To avoid frequent resending of duplicate tasks."})
     public static long agent_task_resend_wait_time_ms = 5000;
 
-    /**
-     * min_clone_task_timeout_sec and max_clone_task_timeout_sec is to limit the
-     * min and max timeout of a clone task.
-     * Under normal circumstances, the timeout of a clone task is estimated by
-     * the amount of data and the minimum transmission speed(5MB/s).
-     * But in special cases, you may need to manually set these two configs
-     * to ensure that the clone task will not fail due to timeout.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"最小的 clone 任务的超时间。",
+            " The minimum timeout of a clone task."})
     public static long min_clone_task_timeout_sec = 3 * 60; // 3min
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"最大的 clone 任务的超时间。",
+            " The maximal timeout of a clone task."})
     public static long max_clone_task_timeout_sec = 2 * 60 * 60; // 2h
 
     /**
-     * If set to true, fe will enable sql result cache
-     * This option is suitable for offline data update scenarios
-     *                              case1   case2   case3   case4
-     * enable_sql_cache             false   true    true    false
-     * enable_partition_cache       false   false   true    true
+     * Minimum interval between last version when caching results,
+     * This parameter distinguishes between offline and real-time updates
      */
-    @ConfField(mutable = true, masterOnly = false)
-    public static boolean cache_enable_sql_mode = true;
-
-    /**
-     * If set to true, fe will get data from be cache,
-     * This option is suitable for real-time updating of partial partitions.
-     */
-    @ConfField(mutable = true, masterOnly = false)
-    public static boolean cache_enable_partition_mode = true;
-
-    /**
-     *  Minimum interval between last version when caching results,
-     *  This parameter distinguishes between offline and real-time updates
-     */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true)
     public static int cache_last_version_interval_second = 900;
 
-    /**
-     * Set the maximum number of rows that can be cached
-     */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, description = {"设置可以缓存的最大行数。",
+            "Set the maximum number of rows that can be cached."})
     public static int cache_result_max_row_count = 3000;
 
-    /**
-     * Used to limit element num of InPredicate in delete statement.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"用于限制delete语句中InPredicate的元素个数。",
+            " Used to limit the number of elements in InPredicate in delete statement."})
     public static int max_allowed_in_element_num_of_delete = 1024;
 
-    /**
-     * In some cases, some tablets may have all replicas damaged or lost.
-     * At this time, the data has been lost, and the damaged tablets
-     * will cause the entire query to fail, and the remaining healthy tablets cannot be queried.
-     * In this case, you can set this configuration to true.
-     * The system will replace damaged tablets with empty tablets to ensure that the query
-     * can be executed. (but at this time the data has been lost, so the query results may be inaccurate)
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "在某些情况下，某些tablet可能所有副本都损坏或丢失，此时数据已经丢失，"
+                    + "损坏的tablet会导致整个查询失败，剩余的健康tablet也无法查询。"
+                    + "此时可以将这个配置设置为true，系统会用空tablet替换损坏的tablet，"
+                    + "保证查询可以执行。（但此时数据已经丢失，所以查询结果可能不准确）",
+            " In some cases, some tablets may have all replicas damaged or lost. "
+                    + "At this time, the data has been lost, "
+                    + "and the damaged tablets will cause the entire query to fail, "
+                    + "and the remaining healthy tablets cannot be queried. "
+                    + "In this case, you can set this configuration to true. "
+                    + "The system will replace damaged tablets with empty tablets "
+                    + "to ensure that the query can be executed. "
+                    + "(but at this time the data has been lost, so the query results may be inaccurate"})
     public static boolean recover_with_empty_tablet = false;
 
-    /**
-     * In some scenarios, there is an unrecoverable metadata problem in the cluster,
-     * and the visibleVersion of the data does not match be. In this case, it is still
-     * necessary to restore the remaining data (which may cause problems with the correctness of the data).
-     * This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
-     * This configuration has three values:
-     *   disable : If an exception occurs, an error will be reported normally.
-     *   ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
-     *   ignore_all: In addition to ignore_version, when encountering no queryable replica,
-     *   skip it directly instead of throwing an exception
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "在某些场景下，集群中存在不可恢复的元数据问题，元数据的visibleVersion与BE上的replica version不匹配。"
+                    + "此时仍然需要恢复剩余的数据（可能会导致数据正确性问题）。"
+                    + "这个配置与`recover_with_empty_tablet`一样，应该只在紧急情况下使用。"
+                    + "这个配置有三个值："
+                    + "`disable`：如果出现异常，会正常报错。"
+                    + "`ignore_version`：忽略fe partition中记录的visibleVersion信息，使用replica version"
+                    + "`ignore_all`：除了ignore_version，当遇到没有可查询的replica时，直接跳过，而不是抛出异常",
+            " In some scenarios, there is an unrecoverable metadata problem in the cluster, "
+                    + "and the visibleVersion of the metadata does not match replica version on BE. "
+                    + "In this case, it is still necessary to restore the remaining data "
+                    + "(which may cause problems with the correctness of the data). "
+                    + "This configuration is the same as` recover_with_empty_tablet` "
+                    + "should only be used in emergency situations. "
+                    + "This configuration has three values: "
+                    + "`disable`: If an exception occurs, an error will be reported normally. "
+                    + "`ignore_version`: ignore the visibleVersion information recorded in fe partition, "
+                    + "use replica version "
+                    + "`ignore_all`: In addition to ignore_version, when encountering no queryable replica, "
+                    + "skip it directly instead of throwing an exception"},
+            options = {"disable", "ignore_version", "ignore_all"})
     public static String recover_with_skip_missing_version = "disable";
 
-    /**
-     * Whether to add a delete sign column when create unique table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_batch_delete_by_default = true;
-
-    /**
-     * Whether to add a version column when create unique table
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否在创建 Unqiue Key 表时添加隐藏的 `version` 列",
+            "Whether to add a invisible `version` column when create Unique Key table"})
     public static boolean enable_hidden_version_column_by_default = true;
 
-    /**
-     * Used to set default db data quota bytes.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"默认的单个数据库的数据配额",
+            " Default database data quota"})
     public static long default_db_data_quota_bytes = 1024L * 1024 * 1024 * 1024 * 1024L; // 1PB
 
-    /**
-     * Used to set default db replica quota num.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"默认的单个数据库的副本数量配额",
+            " Default database replica number quota"})
     public static long default_db_replica_quota_size = 1024 * 1024 * 1024;
 
-    /*
-     * Maximum percentage of data that can be filtered (due to reasons such as data is irregularly)
-     * The default value is 0.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static double default_max_filter_ratio = 0;
-
-    /**
-     * HTTP Server V2 is implemented by SpringBoot.
-     * It uses an architecture that separates front and back ends.
-     * Only enable httpv2 can user to use the new Frontend UI interface
-     */
-    @ConfField
-    public static boolean enable_http_server_v2 = true;
-
-    /*
-     * Base path is the URL prefix for all API paths.
-     * Some deployment environments need to configure additional base path to match resources.
-     * This Api will return the path configured in Config.http_api_extra_base_path.
-     * Default is empty, which means not set.
-     */
-    @ConfField
+    @ConfField(description = {"HTTP API 的路径前缀。有些部署环境需要配置额外的路径前缀来匹配资源。",
+            "This Api will return the path configured in Config.http_api_extra_base_path.",
+            "Default is empty, which means not set."})
     public static String http_api_extra_base_path = "";
 
-    /**
-     * If set to true, FE will be started in BDBJE debug mode
-     */
-    @ConfField
+    @ConfField(description = {"是否以BDBJE debug模式启动FE。该模式仅用于调试 BDB JE 中记录的信息，FE 不会提供正常服务。",
+            "If set to true, FE will be started in BDBJE debug mode. "
+                    + "This mode is only used to debug the information recorded in BDB JE, "
+                    + "and FE will not provide normal services."})
     public static boolean enable_bdbje_debug_mode = false;
 
-    /**
-     * This config is used to try skip broker when access bos or other cloud storage via broker
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"是否允许在没有Broker的情况下访问对象存储文件。"
+            + "该参数用于在访问某些对象存储时，自动使用S3 SDK 代替 Broker 进程访问数据。",
+            "Whether to allow access to object storage files without Broker. "
+                    + "This parameter is used to access certain object storage, "
+                    + "and automatically use the S3 SDK to access data instead of the Broker process."})
     public static boolean enable_access_file_without_broker = false;
 
-    /**
-     * Whether to allow the outfile function to export the results to the local disk.
-     */
-    @ConfField
+    @ConfField(description = {"是否允许数据导出功能将结果导出到BE所在节点的本地磁盘。"
+            + "仅用于测试，因为将数据写到本地节点存在安全风险。",
+            "Whether to allow the outfile function to export the results to the local disk of the BE node. "
+                    + "Only for testing, because writing data to the local node has security risks."})
     public static boolean enable_outfile_to_local = false;
 
-    /**
-     * Used to set the initial flow window size of the GRPC client channel, and also used to max message size.
-     * When the result set is large, you may need to increase this value.
-     */
-    @ConfField
+    @ConfField(description = {"GRPC客户端通道的初始流窗口大小，也用于最大消息大小。"
+            + "当结果集较大时，可能需要增加此值。",
+            "Used to set the initial flow window size of the GRPC client channel, and also used to max message size. "
+                    + "When the result set is large, you may need to increase this value."})
     public static int grpc_max_message_size_bytes = 2147483647; // 2GB
 
-    /**
-     * num of thread to handle grpc events in grpc_threadmgr
-     */
-    @ConfField
+    @ConfField(description = {"GRPC线程池的线程数。", " Number of threads in the GRPC thread pool."})
     public static int grpc_threadmgr_threads_nums = 4096;
 
-    /**
-     * Used to set minimal number of replication per tablet.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"用于限制tablet的最小副本数",
+            "Used to limit the minimum number of replicas of tablet"})
     public static short min_replication_num_per_tablet = 1;
 
-    /**
-     * Used to set maximal number of replication per tablet.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"用于限制tablet的最大副本数",
+            "Used to limit the maximum number of replicas of tablet"})
     public static short max_replication_num_per_tablet = Short.MAX_VALUE;
 
-    /**
-     * Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,
-     * to avoid creating too many partitions at one time.
-     * The number is determined by "start" and "end" in the dynamic partition parameters.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_dynamic_partition_num = 500;
-
-    /**
-     * Used to limit the maximum number of partitions that can be created when creating multi partition,
-     * to avoid creating too many partitions at one time.
-     * The number is determined by "start" and "end" in the multi partition parameters.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_multi_partition_num = 4096;
+    @ConfField(mutable = true, masterOnly = true, description = {"用于限制动态分区表，或者手动创建爱分区时，最大的分区数，"
+            + "避免一次性创建太多分区。在动态分区表中，该数值由动态分区参数中的start和end决定。",
+            " Used to limit the maximum number of partitions in dynamic partition tables, "
+                    + "or when manually creating partitions, "
+                    + "to avoid creating too many partitions at one time. "
+                    + "In dynamic partition tables, "
+                    + "this value is determined by the start and end in the dynamic partition parameters."})
+    public static int max_dynamic_partition_num = 4096;
 
     /**
      * Control the max num of backup/restore job per db

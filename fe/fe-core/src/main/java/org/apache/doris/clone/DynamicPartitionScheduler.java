@@ -618,8 +618,6 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             initDynamicPartitionTable();
         }
         setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
-        if (Config.dynamic_partition_enable) {
-            executeDynamicPartition(dynamicPartitionTableInfo);
-        }
+        executeDynamicPartition(dynamicPartitionTableInfo);
     }
 }

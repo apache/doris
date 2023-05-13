@@ -129,8 +129,6 @@ public class PartitionCacheTest {
         try {
             FrontendOptions.init();
             context = new ConnectContext();
-            Config.cache_enable_sql_mode = true;
-            Config.cache_enable_partition_mode = true;
             context.getSessionVariable().setEnableSqlCache(true);
             context.getSessionVariable().setEnablePartitionCache(true);
             Config.cache_last_version_interval_second = 7200;

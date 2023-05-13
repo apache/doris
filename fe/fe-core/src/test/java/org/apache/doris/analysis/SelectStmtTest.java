@@ -63,8 +63,6 @@ public class SelectStmtTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        Config.enable_batch_delete_by_default = true;
-        Config.enable_http_server_v2 = false;
         UtFrameUtils.createDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32),"
                 + " k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
