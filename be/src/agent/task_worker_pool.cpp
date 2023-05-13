@@ -697,10 +697,7 @@ ClearTransactionTaskPool::ClearTransactionTaskPool(ExecEnv* env, const TMasterIn
 
 void ClearTransactionTaskPool::_set_callback_and_worker_count() {
     _worker_count = config::clear_transaction_task_worker_count;
-    _cb = [this]() {
-        static_cast<ClearTransactionTaskPool*>(this)
-                ->_clear_transaction_task_worker_thread_callback();
-    };
+    _cb = [this]() { _clear_transaction_task_worker_thread_callback(); };
 }
 
 void ClearTransactionTaskPool::_clear_transaction_task_worker_thread_callback() {
@@ -891,10 +888,7 @@ AlterInvertedIndexTaskPool::AlterInvertedIndexTaskPool(ExecEnv* env, const TMast
 
 void AlterInvertedIndexTaskPool::_set_callback_and_worker_count() {
     _worker_count = config::alter_inverted_index_worker_count;
-    _cb = [this]() {
-        static_cast<AlterInvertedIndexTaskPool*>(this)
-                ->_alter_inverted_index_worker_thread_callback();
-    };
+    _cb = [this]() { _alter_inverted_index_worker_thread_callback(); };
 }
 
 void AlterInvertedIndexTaskPool::_alter_inverted_index(
@@ -1076,11 +1070,8 @@ StorageMediumMigrateTaskPool::StorageMediumMigrateTaskPool(ExecEnv* env,
         : TaskWorkerPool(TaskWorkerType::STORAGE_MEDIUM_MIGRATE, env, master_info, thread_model) {}
 
 void StorageMediumMigrateTaskPool::_set_callback_and_worker_count() {
-    _worker_count = config::clone_worker_count;
-    _cb = [this]() {
-        static_cast<StorageMediumMigrateTaskPool*>(this)
-                ->_storage_medium_migrate_worker_thread_callback();
-    };
+    _worker_count = config::storage_medium_migrate_count;
+    _cb = [this]() { _storage_medium_migrate_worker_thread_callback(); };
 }
 
 Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMediumMigrateReq& req,
@@ -1756,10 +1747,7 @@ UpdateTabletMetaInfoTaskPool::UpdateTabletMetaInfoTaskPool(ExecEnv* env,
 
 void UpdateTabletMetaInfoTaskPool::_set_callback_and_worker_count() {
     _worker_count = 1;
-    _cb = [this]() {
-        static_cast<UpdateTabletMetaInfoTaskPool*>(this)
-                ->_update_tablet_meta_worker_thread_callback();
-    };
+    _cb = [this]() { _update_tablet_meta_worker_thread_callback(); };
 }
 
 void UpdateTabletMetaInfoTaskPool::_update_tablet_meta_worker_thread_callback() {
@@ -1831,10 +1819,7 @@ SubmitTableCompactionTaskPool::SubmitTableCompactionTaskPool(ExecEnv* env,
 
 void SubmitTableCompactionTaskPool::_set_callback_and_worker_count() {
     _worker_count = 1;
-    _cb = [this]() {
-        static_cast<SubmitTableCompactionTaskPool*>(this)
-                ->_submit_table_compaction_worker_thread_callback();
-    };
+    _cb = [this]() { _submit_table_compaction_worker_thread_callback(); };
 }
 
 void SubmitTableCompactionTaskPool::_submit_table_compaction_worker_thread_callback() {
@@ -1892,10 +1877,7 @@ PushStoragePolicyTaskPool::PushStoragePolicyTaskPool(ExecEnv* env, const TMaster
 
 void PushStoragePolicyTaskPool::_set_callback_and_worker_count() {
     _worker_count = 1;
-    _cb = [this]() {
-        static_cast<PushStoragePolicyTaskPool*>(this)
-                ->_push_storage_policy_worker_thread_callback();
-    };
+    _cb = [this]() { _push_storage_policy_worker_thread_callback(); };
 }
 
 void PushStoragePolicyTaskPool::_push_storage_policy_worker_thread_callback() {
