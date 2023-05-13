@@ -2227,7 +2227,6 @@ public class StmtExecutor {
                 UUID uuid = UUID.randomUUID();
                 // to comply with naming rules
                 String tempPartName = "tmp_partition_" + uuid.toString().replace('-', '_');
-                tempPartitionName.add(tempPartName);
                 List<AlterClause> ops = new ArrayList<>();
                 ops.add(new AddPartitionLikeClause(tempPartName, partitionName, true));
                 parsedStmt = new AlterTableStmt(targetTableName, ops);
