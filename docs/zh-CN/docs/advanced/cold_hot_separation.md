@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# [Experimental] 冷热分离
+# 冷热分离
 
 ## 需求场景
 
@@ -46,7 +46,6 @@ under the License.
 - 远程对象空间回收recycler，若表、分区被删除，或者冷热分离过程中异常情况产生的空间浪费，则会有recycler线程周期性的回收，节约存储资源
 - cache优化，将访问过的冷数据cache到be本地，达到非冷热分离的查询性能
 - be线程池优化，区分数据来源是本地还是对象存储，防止读取对象延时影响查询性能
-- 新建的物化视图也会继承相同partition的存储策略
 
 ## Storage policy的使用
 
@@ -63,15 +62,15 @@ CREATE RESOURCE "remote_s3"
 PROPERTIES
 (
     "type" = "s3",
-    "AWS_ENDPOINT" = "bj.s3.com",
-    "AWS_REGION" = "bj",
-    "AWS_BUCKET" = "test-bucket",
-    "AWS_ROOT_PATH" = "path/to/root",
-    "AWS_ACCESS_KEY" = "bbb",
-    "AWS_SECRET_KEY" = "aaaa",
-    "AWS_MAX_CONNECTIONS" = "50",
-    "AWS_REQUEST_TIMEOUT_MS" = "3000",
-    "AWS_CONNECTION_TIMEOUT_MS" = "1000"
+    "s3.endpoint" = "bj.s3.com",
+    "s3.region" = "bj",
+    "s3.bucket" = "test-bucket",
+    "s3.root.path" = "path/to/root",
+    "s3.access_key" = "bbb",
+    "s3.secret_key" = "aaaa",
+    "s3.connection.maximum" = "50",
+    "s3.connection.request.timeout" = "3000",
+    "s3.connection.timeout" = "1000"
 );
 
 CREATE STORAGE POLICY test_policy

@@ -614,7 +614,6 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
-    std::unordered_set<std::string> key_set;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         for (const auto& itr : _segid_statistics_map) {
@@ -622,15 +621,8 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
-#ifndef NDEBUG
-            if (_context.enable_unique_key_merge_on_write) {
-                DCHECK(itr.second.key_set.get() != nullptr);
-                key_set.insert(itr.second.key_set->begin(), itr.second.key_set->end());
-            }
-#endif
         }
     }
-    _num_mow_keys = key_set.size();
     for (auto itr = _segments_encoded_key_bounds.begin(); itr != _segments_encoded_key_bounds.end();
          ++itr) {
         segments_encoded_key_bounds.push_back(*itr);
@@ -778,7 +770,6 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     segstat.data_size = segment_size;
     segstat.index_size = index_size;
     segstat.key_bounds = key_bounds;
-    segstat.key_set = (*writer)->get_key_set();
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
