@@ -144,13 +144,17 @@ public class NativeInsertStmt extends InsertStmt {
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
-    // Ctor for CreateTableAsSelectStmt
-    public NativeInsertStmt(TableName name, QueryStmt queryStmt) {
+    // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
+    public NativeInsertStmt(TableName name, PartitionNames targetPartitionNames, LabelName label,
+            QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames) {
         this.tblName = name;
-        this.targetPartitionNames = null;
-        this.targetColumnNames = null;
+        this.targetPartitionNames = targetPartitionNames;
+        this.label = label;
         this.queryStmt = queryStmt;
-        this.planHints = null;
+        this.planHints = planHints;
+        this.targetColumnNames = targetColumnNames;
+        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
+                && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
     public boolean isValuesOrConstantSelect() {
