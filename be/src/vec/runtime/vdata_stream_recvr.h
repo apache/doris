@@ -189,21 +189,22 @@ public:
 
     void close();
 
-    bool queue_empty() { return _block_queue_empty; }
+    bool queue_empty() {
+        std::unique_lock<std::mutex> l(_lock);
+        return _block_queue.empty();
+    }
 
 protected:
-    virtual void _update_block_queue_empty() {}
-    Status _inner_get_batch(Block* block, bool* eos);
+    Status _inner_get_batch_without_lock(Block* block, bool* eos);
 
     // Not managed by this class
     VDataStreamRecvr* _recvr;
     std::mutex _lock;
-    std::atomic_bool _is_cancelled;
-    std::atomic_int _num_remaining_senders;
+    bool _is_cancelled;
+    int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;
     std::list<std::pair<BlockUPtr, size_t>> _block_queue;
-    std::atomic_bool _block_queue_empty = true;
 
     bool _received_first_batch;
     // sender_id
@@ -219,23 +220,22 @@ public:
     PipSenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile)
             : SenderQueue(parent_recvr, num_senders, profile) {}
 
-    bool should_wait() override {
-        return !_is_cancelled && _block_queue_empty && _num_remaining_senders > 0;
-    }
-
-    void _update_block_queue_empty() override { _block_queue_empty = _block_queue.empty(); }
-
     Status get_batch(Block* block, bool* eos) override {
-        CHECK(!should_wait()) << " _is_cancelled: " << _is_cancelled
-                              << ", _block_queue_empty: " << _block_queue_empty
-                              << ", _num_remaining_senders: " << _num_remaining_senders;
         std::lock_guard<std::mutex> l(_lock); // protect _block_queue
-        return _inner_get_batch(block, eos);
+        DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)
+                << " _is_cancelled: " << _is_cancelled
+                << ", _block_queue_empty: " << _block_queue.empty()
+                << ", _num_remaining_senders: " << _num_remaining_senders;
+        return _inner_get_batch_without_lock(block, eos);
     }
 
     void add_block(Block* block, bool use_move) override {
-        if (_is_cancelled || !block->rows()) {
-            return;
+        if (block->rows() == 0) return;
+        {
+            std::unique_lock<std::mutex> l(_lock);
+            if (_is_cancelled) {
+                return;
+            }
         }
         BlockUPtr nblock = Block::create_unique(block->get_columns_with_type_and_name());
 
@@ -254,12 +254,14 @@ public:
         auto block_mem_size = nblock->allocated_bytes();
         {
             std::unique_lock<std::mutex> l(_lock);
+            if (_is_cancelled) {
+                return;
+            }
             _block_queue.emplace_back(std::move(nblock), block_mem_size);
+            COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
+            _recvr->_blocks_memory_usage->add(block_mem_size);
+            _data_arrival_cv.notify_one();
         }
-        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
-        _recvr->_blocks_memory_usage->add(block_mem_size);
-        _update_block_queue_empty();
-        _data_arrival_cv.notify_one();
     }
 };
 } // namespace vectorized

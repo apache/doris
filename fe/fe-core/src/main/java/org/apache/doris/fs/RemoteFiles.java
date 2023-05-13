@@ -29,7 +29,7 @@ public class RemoteFiles {
         this.files = files;
     }
 
-    public List<RemoteFile> locations() {
+    public List<RemoteFile> files() {
         return files;
     }
 }

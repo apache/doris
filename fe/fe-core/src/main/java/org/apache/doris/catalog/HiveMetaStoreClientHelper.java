@@ -222,7 +222,7 @@ public class HiveMetaStoreClientHelper {
         while (queue.peek() != null) {
             RemoteFiles locs = queue.poll();
             try {
-                for (RemoteFile fileLocation : locs.locations()) {
+                for (RemoteFile fileLocation : locs.files()) {
                     Path filePath = fileLocation.getPath();
                     // hdfs://host:port/path/to/partition/file_name
                     String fullUri = filePath.toString();

@@ -58,6 +58,7 @@ import java.util.stream.Collectors;
  * function binder
  */
 public class FunctionBinder extends AbstractExpressionRewriteRule {
+
     public static final FunctionBinder INSTANCE = new FunctionBinder();
 
     @Override
