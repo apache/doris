@@ -58,6 +58,10 @@ uint64_t TaskGroupEntity::cpu_share() const {
     return _tg->cpu_share();
 }
 
+uint64_t TaskGroupEntity::task_group_id() const {
+    return _tg->id();
+}
+
 std::string TaskGroupEntity::debug_string() const {
     return fmt::format("TGE[id = {}, cpu_share = {}, task size: {}, v_time:{}ns]", _tg->id(),
                        cpu_share(), _queue.size(), _vruntime_ns);
