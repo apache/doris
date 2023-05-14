@@ -91,7 +91,6 @@
                             "type": "category",
                             "label": "Import Way",
                             "items": [
-                                "data-operate/import/import-way/binlog-load-manual",
                                 "data-operate/import/import-way/broker-load-manual",
                                 "data-operate/import/import-way/routine-load-manual",
                                 "data-operate/import/import-way/spark-load-manual",
