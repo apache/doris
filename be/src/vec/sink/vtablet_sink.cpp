@@ -29,6 +29,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <google/protobuf/stubs/common.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <sys/param.h>
 #include <sys/types.h>
@@ -51,6 +52,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "service/brpc.h"
 #include "util/binary_cast.hpp"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
@@ -90,6 +92,40 @@ namespace doris {
 class TExpr;
 
 namespace stream_load {
+
+class OpenPartitionClosure : public google::protobuf::Closure {
+public:
+    OpenPartitionClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel,
+                         int64_t partition_id)
+            : vnode_channel(vnode_channel),
+              index_channel(index_channel),
+              partition_id(partition_id) {};
+
+    ~OpenPartitionClosure() = default;
+
+    void Run() override {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        if (cntl.Failed()) {
+            std::stringstream ss;
+            ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
+               << ", error_text=" << this->cntl.ErrorText();
+            LOG(WARNING) << ss.str() << " " << vnode_channel->channel_info();
+            vnode_channel->cancel("Open partition error");
+            index_channel->mark_as_failed(vnode_channel->node_id(), vnode_channel->host(),
+                                          fmt::format("{}, open failed, err: {}",
+                                                      vnode_channel->channel_info(), ss.str()),
+                                          -1);
+        }
+    }
+
+    void join() { brpc::Join(cntl.call_id()); }
+
+    brpc::Controller cntl;
+    OpenPartitionResult result;
+    VNodeChannel* vnode_channel;
+    IndexChannel* index_channel;
+    int64_t partition_id;
+};
 
 IndexChannel::~IndexChannel() {
     if (_where_clause != nullptr) {
@@ -353,9 +389,14 @@ Status VNodeChannel::open_wait() {
            << ", error_text=" << _open_closure->cntl.ErrorText();
         _cancelled = true;
         LOG(WARNING) << ss.str() << " " << channel_info();
+        auto error_code = _open_closure->cntl.ErrorCode();
+        auto error_text = _open_closure->cntl.ErrorText();
+        if (_open_closure->unref()) {
+            delete _open_closure;
+        }
+        _open_closure = nullptr;
         return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
-                                     berror(_open_closure->cntl.ErrorCode()),
-                                     _open_closure->cntl.ErrorText());
+                                     berror(error_code), error_text);
     }
     Status status(_open_closure->result.status());
     if (_open_closure->unref()) {
@@ -471,6 +512,37 @@ Status VNodeChannel::open_wait() {
         }
     });
     return status;
+}
+
+void VNodeChannel::open_partition(int64_t partition_id) {
+    _timeout_watch.reset();
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    OpenPartitionRequest request;
+    auto load_id = std::make_shared<PUniqueId>(_parent->_load_id);
+    request.set_allocated_id(load_id.get());
+    request.set_index_id(_index_channel->_index_id);
+    for (auto& tablet : _all_tablets) {
+        if (partition_id == tablet.partition_id) {
+            auto ptablet = request.add_tablets();
+            ptablet->set_partition_id(tablet.partition_id);
+            ptablet->set_tablet_id(tablet.tablet_id);
+        }
+    }
+
+    auto open_partition_closure =
+            std::make_unique<OpenPartitionClosure>(this, _index_channel, partition_id);
+
+    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
+    if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
+        remain_ms = config::min_load_rpc_timeout_ms;
+    }
+    open_partition_closure->cntl.set_timeout_ms(remain_ms);
+    _stub->open_partition(&open_partition_closure.get()->cntl, &request,
+                          &open_partition_closure.get()->result, open_partition_closure.get());
+
+    _open_partition_closures.insert(std::move(open_partition_closure));
+
+    request.release_id();
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
@@ -809,6 +881,9 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    for (auto& open_partition_closure : _open_partition_closures) {
+        open_partition_closure->join();
+    }
     // set _is_closed to true finally
     Defer set_closed {[&]() {
         std::lock_guard<std::mutex> l(_closed_lock);
@@ -1063,6 +1138,22 @@ Status VOlapTableSink::open(RuntimeState* state) {
     return Status::OK();
 }
 
+void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
+    const auto& id = partition->id;
+    auto it = _opened_partitions.find(id);
+    if (it == _opened_partitions.end()) {
+        _opened_partitions.insert(id);
+        for (int j = 0; j < partition->indexes.size(); ++j) {
+            for (const auto& tid : partition->indexes[j].tablets) {
+                auto it = _channels[j]->_channels_by_tablet.find(tid);
+                for (const auto& channel : it->second) {
+                    channel->open_partition(partition->id);
+                }
+            }
+        }
+    }
+}
+
 void VOlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(state);
@@ -1229,6 +1320,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         }
         // each row
         _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
+        // open partition
+        if (config::enable_lazy_open_partition) {
+            // aysnc open operation,don't block send operation
+            _open_partition(partition);
+        }
     }
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
