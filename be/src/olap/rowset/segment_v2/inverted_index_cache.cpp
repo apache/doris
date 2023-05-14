@@ -179,6 +179,19 @@ Status InvertedIndexSearcherCache::erase(const std::string& index_file_path) {
     return Status::OK();
 }
 
+void InvertedIndexSearcherCache::prune() {
+    if (_cache) {
+        _cache->prune();
+    }
+}
+
+int64_t InvertedIndexSearcherCache::mem_consumption() {
+    if (_cache) {
+        return _cache->mem_consumption();
+    }
+    return 0L;
+}
+
 bool InvertedIndexSearcherCache::_lookup(const InvertedIndexSearcherCache::CacheKey& key,
                                          InvertedIndexCacheHandle* handle) {
     auto lru_handle = _cache->lookup(key.index_file_path);
@@ -220,6 +233,19 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, roaring::Roaring* bitm
     auto lru_handle = _cache->insert(key.encode(), (void*)bitmap, bitmap->getSizeInBytes(), deleter,
                                      CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(_cache.get(), lru_handle);
+}
+
+void InvertedIndexQueryCache::prune() {
+    if (_cache) {
+        _cache->prune();
+    }
+}
+
+int64_t InvertedIndexQueryCache::mem_consumption() {
+    if (_cache) {
+        return _cache->mem_consumption();
+    }
+    return 0L;
 }
 
 } // namespace segment_v2

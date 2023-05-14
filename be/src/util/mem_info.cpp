@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/segment_loader.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -112,6 +113,16 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
         freed_mem +=
                 StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
         StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+    }
+
+    if (segment_v2::InvertedIndexSearcherCache::instance()->mem_consumption() > min_free_size) {
+        freed_mem += segment_v2::InvertedIndexSearcherCache::instance()->mem_consumption();
+        segment_v2::InvertedIndexSearcherCache::instance()->prune();
+    }
+
+    if (segment_v2::InvertedIndexQueryCache::instance()->mem_consumption() > min_free_size) {
+        freed_mem += segment_v2::InvertedIndexQueryCache::instance()->mem_consumption();
+        segment_v2::InvertedIndexQueryCache::instance()->prune();
     }
 }
 

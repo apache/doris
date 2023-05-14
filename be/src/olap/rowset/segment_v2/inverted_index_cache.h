@@ -96,6 +96,10 @@ public:
     // function `erase` called after compaction remove segment
     Status erase(const std::string& index_file_path);
 
+    void prune();
+
+    int64_t mem_consumption();
+
 private:
     InvertedIndexSearcherCache();
 
@@ -229,6 +233,10 @@ public:
 
     void insert(const CacheKey& key, roaring::Roaring* bitmap,
                 InvertedIndexQueryCacheHandle* handle);
+
+    void prune();
+
+    int64_t mem_consumption();
 
 private:
     static InvertedIndexQueryCache* _s_instance;
