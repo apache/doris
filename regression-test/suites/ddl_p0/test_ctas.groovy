@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_ctas") {
+    def dbname = "test_ctas";
+    sql """drop database if exists ${dbname}"""
+    sql """create database ${dbname}"""
+    sql """use ${dbname}"""
+    sql """clean label from ${dbname}"""
+
     try {
         sql """
     CREATE TABLE IF NOT EXISTS `test_ctas` (
