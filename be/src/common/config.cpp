@@ -872,7 +872,7 @@ DEFINE_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.
-DEFINE_mString(file_cache_type, "");
+DEFINE_mString(file_cache_type, "file_block_cache");
 DEFINE_Validator(file_cache_type, [](const std::string config) -> bool {
     return config == "sub_file_cache" || config == "whole_file_cache" || config == "" ||
            config == "file_block_cache";
