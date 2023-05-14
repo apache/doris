@@ -165,7 +165,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         if (!Objects.isNull(old)) {
             totalMemoryLimit -= old.getMemoryLimitPercent();
         }
-        if (totalMemoryLimit > 100.0) {
+        if (totalMemoryLimit > 100.0 + 1e-6) {
             throw new DdlException(
                     "The sum of all resource group " + ResourceGroup.MEMORY_LIMIT + " cannot be greater than 100.0%.");
         }

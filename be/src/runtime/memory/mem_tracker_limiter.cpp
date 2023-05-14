@@ -41,7 +41,7 @@ namespace doris {
 // Save all MemTrackerLimiters in use.
 // Each group corresponds to several MemTrackerLimiters and has a lock.
 // Multiple groups are used to reduce the impact of locks.
-static TrackerLimiterGroups mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM);
+static std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM);
 
 std::atomic<bool> MemTrackerLimiter::_enable_print_log_process_usage {true};
 bool MemTrackerLimiter::_oom_avoidance {true};
@@ -79,9 +79,6 @@ MemTrackerLimiter::~MemTrackerLimiter() {
     // in real time. Merge its consumption into orphan when parent is process, to avoid repetition.
     ExecEnv::GetInstance()->orphan_mem_tracker()->consume(_consumption->current_value());
     _consumption->set(0);
-    if (_task_group) {
-        _task_group->remove_mem_tracker_limiter(group_num(), _tg_tracker_limiter_group_it);
-    }
     {
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[_group_num].group_lock);
         if (_tracker_limiter_group_it != mem_tracker_limiter_pool[_group_num].trackers.end()) {
@@ -331,8 +328,9 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem,
             });
 }
 
+template <typename TrackerGroups>
 int64_t MemTrackerLimiter::free_top_memory_query(
-        int64_t min_free_mem, Type type, TrackerLimiterGroups& tracker_limiter_groups,
+        int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
         const std::function<std::string(int64_t, const std::string&)>& cancel_msg) {
     using MemTrackerMinQueue = std::priority_queue<std::pair<int64_t, std::string>,
                                                    std::vector<std::pair<int64_t, std::string>>,
@@ -366,9 +364,9 @@ int64_t MemTrackerLimiter::free_top_memory_query(
         return freed_mem;
     };
 
-    for (unsigned i = 1; i < tracker_limiter_groups.size(); ++i) {
-        std::lock_guard<std::mutex> l(tracker_limiter_groups[i].group_lock);
-        for (auto tracker : tracker_limiter_groups[i].trackers) {
+    for (unsigned i = 1; i < tracker_groups.size(); ++i) {
+        std::lock_guard<std::mutex> l(tracker_groups[i].group_lock);
+        for (auto tracker : tracker_groups[i].trackers) {
             if (tracker->type() == type) {
                 if (ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
                             label_to_queryid(tracker->label()))) {
@@ -416,15 +414,16 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem,
             });
 }
 
+template <typename TrackerGroups>
 int64_t MemTrackerLimiter::free_top_overcommit_query(
-        int64_t min_free_mem, Type type, TrackerLimiterGroups& tracker_limiter_groups,
+        int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
         const std::function<std::string(int64_t, const std::string&)>& cancel_msg) {
     std::priority_queue<std::pair<int64_t, std::string>> max_pq;
     std::unordered_map<std::string, int64_t> query_consumption;
 
-    for (unsigned i = 1; i < tracker_limiter_groups.size(); ++i) {
-        std::lock_guard<std::mutex> l(tracker_limiter_groups[i].group_lock);
-        for (auto tracker : tracker_limiter_groups[i].trackers) {
+    for (unsigned i = 1; i < tracker_groups.size(); ++i) {
+        std::lock_guard<std::mutex> l(tracker_groups[i].group_lock);
+        for (auto tracker : tracker_groups[i].trackers) {
             if (tracker->type() == type) {
                 if (tracker->consumption() <= 33554432) { // 32M small query does not cancel
                     continue;
@@ -474,12 +473,46 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
     return freed_mem;
 }
 
-void MemTrackerLimiter::add_to_task_group(taskgroup::TaskGroupPtr task_group) {
-    if (_task_group) {
-        return;
+int64_t MemTrackerLimiter::tg_memory_limit_gc(
+        uint64_t id, const std::string& name, int64_t memory_limit,
+        std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups) {
+    int64_t used_memory = 0;
+    for (auto& mem_tracker_group : tracker_limiter_groups) {
+        std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
+        for (const auto& tracker : mem_tracker_group.trackers) {
+            used_memory += tracker->consumption();
+        }
     }
-    _task_group = task_group;
-    _tg_tracker_limiter_group_it = task_group->add_mem_tracker_limiter(this, group_num());
+
+    if (used_memory <= memory_limit) {
+        return 0;
+    }
+
+    int64_t need_free_mem = used_memory - memory_limit;
+    int64_t freed_mem = 0;
+    constexpr auto query_type = MemTrackerLimiter::Type::QUERY;
+    auto cancel_str = [id, &name, memory_limit, used_memory](int64_t mem_consumption,
+                                                             const std::string& label) {
+        return fmt::format(
+                "Resource group id:{}, name:{} memory exceeded limit, cancel top memory {}: "
+                "memory tracker <{}> consumption {}, backend {}, "
+                "resource group memory used {}, memory limit {}.",
+                id, name, MemTrackerLimiter::type_string(query_type), label,
+                MemTracker::print_bytes(mem_consumption), BackendOptions::get_localhost(),
+                MemTracker::print_bytes(used_memory), MemTracker::print_bytes(memory_limit));
+    };
+    if (config::enable_query_memroy_overcommit) {
+        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
+                need_free_mem - freed_mem, query_type, tracker_limiter_groups, cancel_str);
+    }
+    if (freed_mem < need_free_mem) {
+        freed_mem += MemTrackerLimiter::free_top_memory_query(need_free_mem - freed_mem, query_type,
+                                                              tracker_limiter_groups, cancel_str);
+    }
+    LOG(INFO) << fmt::format(
+            "task group {} finished gc, memory_limit: {}, used_memory: {}, freed_mem: {}.", name,
+            memory_limit, used_memory, freed_mem);
+    return freed_mem;
 }
 
 } // namespace doris

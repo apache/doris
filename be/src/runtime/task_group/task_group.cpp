@@ -119,57 +119,28 @@ void TaskGroup::update_cpu_share_unlock(const TaskGroupInfo& tg_info) {
     _cpu_share = tg_info.cpu_share;
 }
 
-std::list<MemTrackerLimiter*>::iterator TaskGroup::add_mem_tracker_limiter(
-        MemTrackerLimiter* mem_tracker_ptr, int64_t group_num) {
+void TaskGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
+    auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    return _mem_tracker_limiter_pool[group_num].trackers.insert(
-            _mem_tracker_limiter_pool[group_num].trackers.end(), mem_tracker_ptr);
+    _mem_tracker_limiter_pool[group_num].trackers.insert(mem_tracker_ptr);
 }
 
-void TaskGroup::remove_mem_tracker_limiter(int64_t group_num,
-                                           const std::list<MemTrackerLimiter*>::iterator& iter) {
+void TaskGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
+    auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    _mem_tracker_limiter_pool[group_num].trackers.erase(iter);
+    _mem_tracker_limiter_pool[group_num].trackers.erase(mem_tracker_ptr);
 }
 
 int64_t TaskGroup::memory_limit_gc() {
-    int64_t used_memory = 0;
-    for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
-        std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
-        for (const auto& tracker : mem_tracker_group.trackers) {
-            used_memory += tracker->consumption();
-        }
+    std::string name;
+    int64_t memory_limit;
+    {
+        std::shared_lock<std::shared_mutex> rl {_mutex};
+        name = _name;
+        memory_limit = _memory_limit;
     }
-
-    if (used_memory <= memory_limit()) {
-        return 0;
-    }
-
-    int64_t need_free_mem = used_memory - memory_limit();
-    int64_t freed_mem = 0;
-    constexpr auto query_type = MemTrackerLimiter::Type::QUERY;
-    auto cancel_str = [id = _id, name = _name, memory_limit = memory_limit(), used_memory](
-                              int64_t mem_consumption, const std::string& label) {
-        return fmt::format(
-                "Resource group id:{}, name:{} memory exceeded limit, cancel top memory {}: "
-                "memory tracker <{}> consumption {}, backend {}, "
-                "resource group memory used {}, memory limit {}.",
-                id, name, MemTrackerLimiter::type_string(query_type), label,
-                MemTracker::print_bytes(mem_consumption), BackendOptions::get_localhost(),
-                MemTracker::print_bytes(used_memory), MemTracker::print_bytes(memory_limit));
-    };
-    if (config::enable_query_memroy_overcommit) {
-        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-                need_free_mem - freed_mem, query_type, _mem_tracker_limiter_pool, cancel_str);
-    }
-    if (freed_mem < need_free_mem) {
-        freed_mem += MemTrackerLimiter::free_top_memory_query(
-                need_free_mem - freed_mem, query_type, _mem_tracker_limiter_pool, cancel_str);
-    }
-    LOG(INFO) << fmt::format(
-            "task group {} finished gc, memory_limit: {}, used_memory: {}, freed_mem: {}.", _name,
-            memory_limit(), used_memory, freed_mem);
-    return freed_mem;
+    return MemTrackerLimiter::tg_memory_limit_gc(_id, name, memory_limit,
+                                                 _mem_tracker_limiter_pool);
 }
 
 Status TaskGroupInfo::parse_group_info(const TPipelineResourceGroup& resource_group,

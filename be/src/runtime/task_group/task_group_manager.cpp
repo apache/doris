@@ -56,8 +56,15 @@ TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& tas
 
 int64_t TaskGroupManager::memory_limit_gc() {
     int64_t total_free_memory = 0;
-    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    for (const auto& [id, task_group] : _task_groups) {
+    std::vector<TaskGroupPtr> task_groups;
+    {
+        std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+        task_groups.reserve(_task_groups.size());
+        for (const auto& [id, task_group] : _task_groups) {
+            task_groups.push_back(task_group);
+        }
+    }
+    for (const auto& task_group : task_groups) {
         total_free_memory += task_group->memory_limit_gc();
     }
     return total_free_memory;

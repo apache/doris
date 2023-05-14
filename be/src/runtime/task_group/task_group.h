@@ -25,6 +25,7 @@
 #include <queue>
 #include <shared_mutex>
 #include <string>
+#include <unordered_set>
 
 #include "common/status.h"
 
@@ -36,8 +37,6 @@ class PipelineTask;
 
 class TPipelineResourceGroup;
 class MemTrackerLimiter;
-struct TrackerLimiterGroup;
-using TrackerLimiterGroups = std::vector<TrackerLimiterGroup>;
 
 namespace taskgroup {
 
@@ -73,6 +72,11 @@ private:
 
 using TGEntityPtr = TaskGroupEntity*;
 
+struct TgTrackerLimiterGroup {
+    std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
+    std::mutex group_lock;
+};
+
 class TaskGroup : public std::enable_shared_from_this<TaskGroup> {
 public:
     explicit TaskGroup(const TaskGroupInfo& tg_info);
@@ -80,8 +84,6 @@ public:
     TaskGroupEntity* task_entity() { return &_task_entity; }
 
     uint64_t cpu_share() const { return _cpu_share.load(); }
-
-    int64_t memory_limit() const { return _memory_limit.load(); }
 
     uint64_t id() const { return _id; }
 
@@ -91,11 +93,9 @@ public:
 
     void update_cpu_share_unlock(const TaskGroupInfo& tg_info);
 
-    std::list<MemTrackerLimiter*>::iterator add_mem_tracker_limiter(
-            MemTrackerLimiter* mem_tracker_ptr, int64_t group_num);
+    void add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
-    void remove_mem_tracker_limiter(int64_t group_num,
-                                    const std::list<MemTrackerLimiter*>::iterator& iter);
+    void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
     int64_t memory_limit_gc();
 
@@ -104,11 +104,11 @@ private:
     const uint64_t _id;
     std::string _name;
     std::atomic<uint64_t> _cpu_share;
-    std::atomic<int64_t> _memory_limit; // bytes
+    int64_t _memory_limit; // bytes
     int64_t _version;
     TaskGroupEntity _task_entity;
 
-    TrackerLimiterGroups _mem_tracker_limiter_pool;
+    std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
 };
 
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;

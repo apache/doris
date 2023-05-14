@@ -45,6 +45,7 @@ namespace doris {
 constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
 
 namespace taskgroup {
+struct TgTrackerLimiterGroup;
 class TaskGroup;
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
 } // namespace taskgroup
@@ -55,7 +56,6 @@ struct TrackerLimiterGroup {
     std::list<MemTrackerLimiter*> trackers;
     std::mutex group_lock;
 };
-using TrackerLimiterGroups = std::vector<TrackerLimiterGroup>;
 
 // Track and limit the memory usage of process and query.
 // Contains an limit, arranged into a tree structure.
@@ -138,8 +138,6 @@ public:
     // this tracker limiter.
     int64_t spare_capacity() const { return _limit - consumption(); }
 
-    void add_to_task_group(taskgroup::TaskGroupPtr task_group);
-
     static void disable_oom_avoidance() { _oom_avoidance = false; }
 
 public:
@@ -175,9 +173,10 @@ public:
                                          const std::string& mem_available_str,
                                          Type type = Type::QUERY);
 
+    template <typename TrackerGroups>
     static int64_t free_top_memory_query(
-            int64_t min_free_mem, Type type, TrackerLimiterGroups& tracker_limiter_groups,
-            const std::function<std::string(int64_t, const std::string&)>& cancel_log_str);
+            int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
+            const std::function<std::string(int64_t, const std::string&)>& cancel_msg);
 
     static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& vm_rss_str,
                                         const std::string& mem_available_str) {
@@ -189,14 +188,20 @@ public:
                                              const std::string& mem_available_str,
                                              Type type = Type::QUERY);
 
+    template <typename TrackerGroups>
     static int64_t free_top_overcommit_query(
-            int64_t min_free_mem, Type type, TrackerLimiterGroups& tracker_limiter_groups,
-            const std::function<std::string(int64_t, const std::string&)>& cancel_log_str);
+            int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
+            const std::function<std::string(int64_t, const std::string&)>& cancel_msg);
 
     static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& vm_rss_str,
                                             const std::string& mem_available_str) {
         return free_top_overcommit_query(min_free_mem, vm_rss_str, mem_available_str, Type::LOAD);
     }
+
+    static int64_t tg_memory_limit_gc(
+            uint64_t id, const std::string& name, int64_t memory_limit,
+            std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups);
+
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
         if (label.rfind("Query#Id=", 0) != 0 && label.rfind("Load#Id=", 0) != 0) {
@@ -254,9 +259,6 @@ private:
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
     std::list<MemTrackerLimiter*>::iterator _tracker_limiter_group_it;
-
-    taskgroup::TaskGroupPtr _task_group {};
-    std::list<MemTrackerLimiter*>::iterator _tg_tracker_limiter_group_it;
 };
 
 inline int64_t MemTrackerLimiter::add_untracked_mem(int64_t bytes) {
