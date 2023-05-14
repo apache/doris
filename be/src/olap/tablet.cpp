@@ -2644,6 +2644,9 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
                                   const RowsetIdUnorderedSet* specified_rowset_ids,
                                   DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                   bool check_pre_segments, RowsetWriter* rowset_writer) {
+    if (check_pre_segments && segments.size() == 1) {
+        return Status::OK();
+    }
     std::vector<segment_v2::SegmentSharedPtr> pre_segments;
     OlapStopWatch watch;
 
