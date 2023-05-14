@@ -326,39 +326,39 @@ Admin 和 Root 用户可以查看所有 Query。普通用户仅能查看自己�
     
 ### Examples
 
-    ```
-    GET /rest/v2/manager/query/profile/fragments/d7c93d9275334c35-9e6ac5f295a7134b
-    
-    Response:
-    {
-        "msg": "success",
-        "code": 0,
-        "data": [
-            {
-                "fragment_id": "0",
-                "time": "36.169ms",
-                "instance_id": {
-                    "d7c93d9275334c35-9e6ac5f295a7134e": "36.169ms"
-                }
-            },
-            {
-                "fragment_id": "1",
-                "time": "20.710ms",
-                "instance_id": {
-                    "d7c93d9275334c35-9e6ac5f295a7134c": "20.710ms"
-                }
-            },
-            {
-                "fragment_id": "2",
-                "time": "7.83ms",
-                "instance_id": {
-                    "d7c93d9275334c35-9e6ac5f295a7134d": "7.83ms"
-                }
+```
+GET /rest/v2/manager/query/profile/fragments/d7c93d9275334c35-9e6ac5f295a7134b
+
+Response:
+{
+    "msg": "success",
+    "code": 0,
+    "data": [
+        {
+            "fragment_id": "0",
+            "time": "36.169ms",
+            "instance_id": {
+                "d7c93d9275334c35-9e6ac5f295a7134e": "36.169ms"
             }
-        ],
-        "count": 0
-    }
-    ```
+        },
+        {
+            "fragment_id": "1",
+            "time": "20.710ms",
+            "instance_id": {
+                "d7c93d9275334c35-9e6ac5f295a7134c": "20.710ms"
+            }
+        },
+        {
+            "fragment_id": "2",
+            "time": "7.83ms",
+            "instance_id": {
+                "d7c93d9275334c35-9e6ac5f295a7134d": "7.83ms"
+            }
+        }
+    ],
+    "count": 0
+}
+```
 
 ## 获取指定query id树状profile信息
 
