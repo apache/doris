@@ -30,6 +30,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Collections;
+
 public class DropTableStmtTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
@@ -72,32 +74,32 @@ public class DropTableStmtTest {
 
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        DropTableStmt stmt = new DropTableStmt(false, tbl, true);
+        DropTableStmt stmt = new DropTableStmt(false, Collections.singletonList(tbl), true);
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:db1", stmt.getDbName());
-        Assert.assertEquals("table1", stmt.getTableName());
+        Assert.assertEquals("testCluster:db1", stmt.getTableNames().get(0).getDb());
+        Assert.assertEquals("table1", stmt.getTableNames().get(0).getTbl());
         Assert.assertEquals("DROP TABLE `testCluster:db1`.`table1`", stmt.toString());
     }
 
     @Test
     public void testDefaultNormal() throws UserException, AnalysisException {
-        DropTableStmt stmt = new DropTableStmt(false, noDbTbl, true);
+        DropTableStmt stmt = new DropTableStmt(false, Collections.singletonList(noDbTbl), true);
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:testDb", stmt.getDbName());
-        Assert.assertEquals("table1", stmt.getTableName());
+        Assert.assertEquals("testCluster:testDb", stmt.getTableNames().get(0).getDb());
+        Assert.assertEquals("table1", stmt.getTableNames().get(0).getTbl());
         Assert.assertEquals("DROP TABLE `testCluster:testDb`.`table1`", stmt.toSql());
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoDbFail() throws UserException, AnalysisException {
-        DropTableStmt stmt = new DropTableStmt(false, noDbTbl, true);
+        DropTableStmt stmt = new DropTableStmt(false, Collections.singletonList(noDbTbl), true);
         stmt.analyze(noDbAnalyzer);
         Assert.fail("No Exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoTableFail() throws UserException, AnalysisException {
-        DropTableStmt stmt = new DropTableStmt(false, new TableName(internalCtl, "db1", ""), true);
+        DropTableStmt stmt = new DropTableStmt(false, Collections.singletonList(new TableName(internalCtl, "db1", "")), true);
         stmt.analyze(noDbAnalyzer);
         Assert.fail("No Exception throws.");
     }

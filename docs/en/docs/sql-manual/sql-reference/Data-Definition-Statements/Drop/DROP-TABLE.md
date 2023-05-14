@@ -51,13 +51,19 @@ illustrate:
    
      ```sql
      DROP TABLE my_table;
-     ````
-    
-2. If it exists, delete the table of the specified database
+     ```
+
+2. Delete multiple table
+   
+     ```sql
+     DROP TABLE my_table1, my_table2;
+     ```
+
+3. If it exists, delete the table of the specified database
    
      ```sql
      DROP TABLE IF EXISTS example_db.my_table;
-     ````
+     ```
 
 ### Keywords
 

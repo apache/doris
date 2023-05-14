@@ -27,24 +27,27 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 // DROP TABLE
 public class DropTableStmt extends DdlStmt {
     private boolean ifExists;
-    private final TableName tableName;
+    private List<TableName> tableNames;
     private final boolean isView;
     private boolean forceDrop;
     private boolean isMaterializedView;
 
-    public DropTableStmt(boolean ifExists, TableName tableName, boolean forceDrop) {
+    public DropTableStmt(boolean ifExists, List<TableName> tableNames, boolean forceDrop) {
         this.ifExists = ifExists;
-        this.tableName = tableName;
+        this.tableNames = tableNames;
         this.isView = false;
         this.forceDrop = forceDrop;
     }
 
-    public DropTableStmt(boolean ifExists, TableName tableName, boolean isView, boolean forceDrop) {
+    public DropTableStmt(boolean ifExists, List<TableName> tableNames, boolean isView, boolean forceDrop) {
         this.ifExists = ifExists;
-        this.tableName = tableName;
+        this.tableNames = tableNames;
         this.isView = isView;
         this.forceDrop = forceDrop;
     }
@@ -53,12 +56,8 @@ public class DropTableStmt extends DdlStmt {
         return ifExists;
     }
 
-    public String getDbName() {
-        return tableName.getDb();
-    }
-
-    public String getTableName() {
-        return tableName.getTbl();
+    public List<TableName> getTableNames() {
+        return tableNames;
     }
 
     public boolean isView() {
@@ -79,25 +78,28 @@ public class DropTableStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (Strings.isNullOrEmpty(tableName.getDb())) {
-            tableName.setDb(analyzer.getDefaultDb());
-        }
-        tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+        for (TableName tableName : tableNames) {
+            if (Strings.isNullOrEmpty(tableName.getDb())) {
+                tableName.setDb(analyzer.getDefaultDb());
+            }
+            tableName.analyze(analyzer);
+            // disallow external catalog
+            Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
-        // check access
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                                                                tableName.getTbl(), PrivPredicate.DROP)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
+            // check access
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+                    tableName.getTbl(), PrivPredicate.DROP)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
+            }
         }
     }
 
     @Override
     public String toSql() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("DROP TABLE ").append(tableName.toSql());
-        return stringBuilder.toString();
+        StringBuilder sb = new StringBuilder();
+        sb.append("DROP TABLE ")
+                .append(tableNames.stream().map(tableName -> tableName.toSql()).collect(Collectors.joining(", ")));
+        return sb.toString();
     }
 
     @Override

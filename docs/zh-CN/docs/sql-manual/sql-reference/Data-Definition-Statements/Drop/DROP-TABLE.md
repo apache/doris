@@ -52,8 +52,14 @@ DROP TABLE [IF EXISTS] [db_name.]table_name [FORCE];
     ```sql
     DROP TABLE my_table;
     ```
-    
-2. 如果存在，删除指定 database 的 table
+
+2. 删除多个 table
+   
+    ```sql
+    DROP TABLE my_table1, my_table2;
+    ```
+
+3. 如果存在，删除指定 database 的 table
    
     ```sql
     DROP TABLE IF EXISTS example_db.my_table;

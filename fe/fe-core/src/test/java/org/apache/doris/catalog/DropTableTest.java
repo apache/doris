@@ -112,4 +112,35 @@ public class DropTableTest {
                 "Unknown table 'tbl2' or table id '-1' in default_cluster:test",
                 () -> Env.getCurrentEnv().recoverTable(recoverTableStmt));
     }
+
+    @Test
+    public void dropMultiTables() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable table1 = (OlapTable) db.getTableOrMetaException("tbl1");
+        OlapTable table2 = (OlapTable) db.getTableOrMetaException("tbl2");
+        Partition partition1 = table1.getAllPartitions().iterator().next();
+        Partition partition2 = table2.getAllPartitions().iterator().next();
+        long tabletId1 = partition1.getBaseIndex().getTablets().get(0).getId();
+        long tabletId2 = partition2.getBaseIndex().getTablets().get(0).getId();
+        String dropTableSql = "drop table test.tbl1, test.tbl2";
+        dropTable(dropTableSql);
+        List<Replica> replicaList1 = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId1);
+        List<Replica> replicaList2 = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId2);
+
+        Assert.assertEquals(1, replicaList1.size());
+        String recoverDbSql1 = "recover table test.tbl1";
+        RecoverTableStmt recoverTableStmt1 = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql1, connectContext);
+        Env.getCurrentEnv().recoverTable(recoverTableStmt1);
+        table1 = (OlapTable) db.getTableOrMetaException("tbl1");
+        Assert.assertNotNull(table1);
+        Assert.assertEquals("tbl1", table1.getName());
+
+        Assert.assertEquals(1, replicaList2.size());
+        String recoverDbSql2 = "recover table test.tbl2";
+        RecoverTableStmt recoverTableStmt2 = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql2, connectContext);
+        Env.getCurrentEnv().recoverTable(recoverTableStmt2);
+        table2 = (OlapTable) db.getTableOrMetaException("tbl2");
+        Assert.assertNotNull(table2);
+        Assert.assertEquals("tbl2", table2.getName());
+    }
 }

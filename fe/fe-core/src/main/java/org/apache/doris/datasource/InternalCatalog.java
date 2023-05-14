@@ -807,67 +807,70 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     // Drop table
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTableName();
+        for (TableName tbl : stmt.getTableNames()) {
+            String dbName = tbl.getDb();
+            String tableName = tbl.getTbl();
 
-        // check database
-        Database db = (Database) getDbOrDdlException(dbName);
-        db.writeLockOrDdlException();
-        try {
-            Table table = db.getTableNullable(tableName);
-            if (table == null) {
-                if (stmt.isSetIfExists()) {
-                    LOG.info("drop table[{}] which does not exist", tableName);
-                    return;
-                } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
-                }
-            }
-            // Check if a view
-            if (stmt.isView()) {
-                if (!(table instanceof View)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW");
-                }
-            } else {
-                if (table instanceof View || (!stmt.isMaterializedView() && table instanceof MaterializedView)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
-                }
-            }
-
-            if (!stmt.isForceDrop()) {
-                if (Env.getCurrentEnv().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
-                    throw new DdlException(
-                            "There are still some transactions in the COMMITTED state waiting to be completed. "
-                                    + "The table [" + tableName
-                                    + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
-                                    + " please use \"DROP table FORCE\".");
-                }
-            }
-            table.writeLock();
-            long recycleTime = 0;
+            // check database
+            Database db = (Database) getDbOrDdlException(dbName);
+            db.writeLockOrDdlException();
             try {
-                if (table instanceof OlapTable && !stmt.isForceDrop()) {
-                    OlapTable olapTable = (OlapTable) table;
-                    if ((olapTable.getState() != OlapTableState.NORMAL)) {
-                        throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
-                                + ", cannot be dropped." + " please cancel the operation on olap table firstly."
-                                + " If you want to forcibly drop(cannot be recovered),"
-                                + " please use \"DROP table FORCE\".");
+                Table table = db.getTableNullable(tableName);
+                if (table == null) {
+                    if (stmt.isSetIfExists()) {
+                        LOG.info("drop table[{}] which does not exist", tableName);
+                        return;
+                    } else {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
                     }
                 }
-                unprotectDropTable(db, table, stmt.isForceDrop(), false, 0);
-                if (!stmt.isForceDrop()) {
-                    recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
+                // Check if a view
+                if (stmt.isView()) {
+                    if (!(table instanceof View)) {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW");
+                    }
+                } else {
+                    if (table instanceof View || (!stmt.isMaterializedView() && table instanceof MaterializedView)) {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
+                    }
                 }
+
+                if (!stmt.isForceDrop()) {
+                    if (Env.getCurrentEnv().getGlobalTransactionMgr()
+                            .existCommittedTxns(db.getId(), table.getId(), null)) {
+                        throw new DdlException(
+                                "There are still some transactions in the COMMITTED state waiting to be completed. "
+                                        + "The table [" + tableName
+                                        + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                                        + " please use \"DROP table FORCE\".");
+                    }
+                }
+                table.writeLock();
+                long recycleTime = 0;
+                try {
+                    if (table instanceof OlapTable && !stmt.isForceDrop()) {
+                        OlapTable olapTable = (OlapTable) table;
+                        if ((olapTable.getState() != OlapTableState.NORMAL)) {
+                            throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
+                                    + ", cannot be dropped." + " please cancel the operation on olap table firstly."
+                                    + " If you want to forcibly drop(cannot be recovered),"
+                                    + " please use \"DROP table FORCE\".");
+                        }
+                    }
+                    unprotectDropTable(db, table, stmt.isForceDrop(), false, 0);
+                    if (!stmt.isForceDrop()) {
+                        recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
+                    }
+                } finally {
+                    table.writeUnlock();
+                }
+                DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop(), recycleTime);
+                Env.getCurrentEnv().getEditLog().logDropTable(info);
             } finally {
-                table.writeUnlock();
+                db.writeUnlock();
             }
-            DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop(), recycleTime);
-            Env.getCurrentEnv().getEditLog().logDropTable(info);
-        } finally {
-            db.writeUnlock();
+            LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
         }
-        LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
@@ -1962,7 +1965,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 && !Strings.isNullOrEmpty(storagePolicy)) {
             throw new AnalysisException(
                     "Can not create UNIQUE KEY table that enables Merge-On-write"
-                    + " with storage policy(" + storagePolicy + ")");
+                            + " with storage policy(" + storagePolicy + ")");
         }
         olapTable.setStoragePolicy(storagePolicy);
 
@@ -2054,7 +2057,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             List<Column> rollupColumns = Env.getCurrentEnv().getMaterializedViewHandler()
                     .checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
             short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties(),
-                                                        true/*isKeysRequired*/);
+                    true/*isKeysRequired*/);
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
@@ -2190,7 +2193,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             && !Strings.isNullOrEmpty(partionStoragePolicy)) {
                         throw new AnalysisException(
                                 "Can not create UNIQUE KEY table that enables Merge-On-write"
-                                + " with storage policy(" + partionStoragePolicy + ")");
+                                        + " with storage policy(" + partionStoragePolicy + ")");
                     }
                     if (!partionStoragePolicy.equals("")) {
                         storagePolicy = partionStoragePolicy;

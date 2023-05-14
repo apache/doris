@@ -37,6 +37,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -111,7 +112,8 @@ public class RefreshManager {
         for (Table table : db.getTables()) {
             if (table instanceof IcebergTable) {
                 DropTableStmt dropTableStmt =
-                        new DropTableStmt(true, new TableName(null, dbName, table.getName()), true);
+                        new DropTableStmt(true, Collections.singletonList(new TableName(null, dbName, table.getName())),
+                                true);
                 env.dropTable(dropTableStmt);
             }
         }
@@ -151,7 +153,7 @@ public class RefreshManager {
         icebergProperties.put(IcebergProperty.ICEBERG_DATABASE, ((IcebergTable) table).getIcebergDb());
 
         // 2. drop old table
-        DropTableStmt dropTableStmt = new DropTableStmt(true, stmt.getTableName(), true);
+        DropTableStmt dropTableStmt = new DropTableStmt(true, Collections.singletonList(stmt.getTableName()), true);
         env.dropTable(dropTableStmt);
 
         // 3. create new table

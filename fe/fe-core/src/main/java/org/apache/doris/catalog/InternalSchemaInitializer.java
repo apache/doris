@@ -42,6 +42,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -243,7 +244,7 @@ public class InternalSchemaInitializer extends Thread {
         // TODO remove this code after the table structure is stable
         if (!isSchemaChanged && isTableChanged(tableName, columnDefs)) {
             isSchemaChanged = true;
-            DropTableStmt dropTableStmt = new DropTableStmt(true, tableName, true);
+            DropTableStmt dropTableStmt = new DropTableStmt(true, Collections.singletonList(tableName), true);
             StatisticsUtil.analyze(dropTableStmt);
             Env.getCurrentEnv().getInternalCatalog().dropTable(dropTableStmt);
         }

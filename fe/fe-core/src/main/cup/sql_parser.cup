@@ -760,6 +760,7 @@ nonterminal SlotRef column_ref;
 nonterminal ArrayList<SlotRef> column_ref_list;
 nonterminal FunctionCallExpr column_subscript;
 nonterminal FunctionCallExpr column_slice;
+nonterminal ArrayList<TableName> table_list;
 nonterminal ArrayList<TableRef> table_ref_list, base_table_ref_list;
 nonterminal ArrayList<LateralViewRef> opt_lateral_view_ref_list, lateral_view_ref_list;
 nonterminal FromClause from_clause;
@@ -2916,9 +2917,9 @@ drop_stmt ::=
         RESULT = new DropFunctionStmt(type, ifExists, functionName, args);
     :}
     /* Table */
-    | KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
+    | KW_DROP KW_TABLE opt_if_exists:ifExists table_list:tableNames opt_force:force
     {:
-        RESULT = new DropTableStmt(ifExists, name, force);
+        RESULT = new DropTableStmt(ifExists, tableNames, force);
     :}
     /* User */
     | KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
@@ -2926,9 +2927,9 @@ drop_stmt ::=
         RESULT = new DropUserStmt(ifExists, userId);
     :}
     /* View */
-    | KW_DROP KW_VIEW opt_if_exists:ifExists table_name:name
+    | KW_DROP KW_VIEW opt_if_exists:ifExists table_list:tableNames
     {:
-        RESULT = new DropTableStmt(ifExists, name, true, false);
+        RESULT = new DropTableStmt(ifExists, tableNames, true, false);
     :}
     | KW_DROP KW_REPOSITORY ident:repoName
     {:
@@ -5696,6 +5697,20 @@ ident_list ::=
     | ident_list:list COMMA ident:ident
     {:
       list.add(ident);
+      RESULT = list;
+    :}
+    ;
+
+table_list ::=
+    table_name:tbl
+    {:
+      ArrayList<TableName> list = new ArrayList<TableName>();
+      list.add(tbl);
+      RESULT = list;
+    :}
+    | table_list:list COMMA table_name:tbl
+    {:
+      list.add(tbl);
       RESULT = list;
     :}
     ;

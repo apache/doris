@@ -89,6 +89,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -150,7 +151,8 @@ public class Alter {
             OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
             ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
         } else {
-            DropTableStmt dropTableStmt = new DropTableStmt(stmt.isIfExists(), stmt.getMTMVName(), false);
+            DropTableStmt dropTableStmt = new DropTableStmt(stmt.isIfExists(),
+                    Collections.singletonList(stmt.getMTMVName()), false);
             dropTableStmt.setMaterializedView(true);
             Env.getCurrentInternalCatalog().dropTable(dropTableStmt);
         }
@@ -619,7 +621,7 @@ public class Alter {
      * 1.2 rename B to A, drop old A, and add new A to database.
      */
     private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable,
-                                      boolean isReplay)
+            boolean isReplay)
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
@@ -755,10 +757,10 @@ public class Alter {
      * caller should hold the table lock
      */
     public void modifyPartitionsProperty(Database db,
-                                         OlapTable olapTable,
-                                         List<String> partitionNames,
-                                         Map<String, String> properties,
-                                         boolean isTempPartition)
+            OlapTable olapTable,
+            List<String> partitionNames,
+            Map<String, String> properties,
+            boolean isTempPartition)
             throws DdlException, AnalysisException {
         Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
         List<ModifyPartitionInfo> modifyPartitionInfos = Lists.newArrayList();

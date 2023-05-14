@@ -2105,19 +2105,19 @@ public class StmtExecutor {
                 execute();
                 if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
                     LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql());
-                    handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
+                    handleCtasRollback(Collections.singletonList(ctasStmt.getCreateTableStmt().getDbTbl()));
                 }
             } catch (Exception e) {
                 LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
-                handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
+                handleCtasRollback(Collections.singletonList(ctasStmt.getCreateTableStmt().getDbTbl()));
             }
         }
     }
 
-    private void handleCtasRollback(TableName table) {
+    private void handleCtasRollback(List<TableName> tableNames) {
         if (context.getSessionVariable().isDropTableIfCtasFailed()) {
             // insert error drop table
-            DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
+            DropTableStmt dropTableStmt = new DropTableStmt(true, tableNames, true);
             try {
                 DdlExecutor.execute(context.getEnv(), dropTableStmt);
             } catch (Exception ex) {
