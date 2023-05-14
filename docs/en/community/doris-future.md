@@ -30,7 +30,7 @@ under the License.
 
 The doris future project is a growth plan for novice developers, aiming to allow more developers to quickly get started with doris. The community warmly welcomes all interested developers to join.
 
-## 参与方式
+## way of participation
 
 Novice developers can filter tasks with `doris-future` tag on the [Github Issue](https://github.com/apache/doris/issues) interface of the doris community. Each task has required skills. For example, c++ or java, as well as difficulty distinctions, new developers can comment below the tasks they are interested in and communicate with the instructor about the task details, and the developer community with difficult machine resources will also provide development machines.
 
