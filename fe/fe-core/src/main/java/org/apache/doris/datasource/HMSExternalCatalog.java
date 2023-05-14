@@ -80,7 +80,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public void checkProperties() throws DdlException {
         super.checkProperties();
         // check file.meta.cache.ttl-second parameter
-        String fileMetaCacheTtlSecond = catalogProperty.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
+        // CatalogProperty oriProperty = this.catalogProperty;
+
+        String fileMetaCacheTtlSecond = this.catalogProperty.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, FILE_META_CACHE_NO_TTL)
                 < FILE_META_CACHE_TTL_DISABLE_CACHE) {
             throw new DdlException(
@@ -93,28 +95,82 @@ public class HMSExternalCatalog extends ExternalCatalog {
         // 'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
         // 'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
         // 'dfs.client.failover.proxy.provider.your-nameservice'='xxx'
-        String dfsNameservices = catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
+        String dfsNameservices = this.catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
         if (Strings.isNullOrEmpty(dfsNameservices)) {
             return;
         }
-        String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsNameservices, "");
+        String namenodes = this.catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsNameservices, "");
         if (Strings.isNullOrEmpty(namenodes)) {
             throw new DdlException("Missing dfs.ha.namenodes." + dfsNameservices + " property");
         }
+        //zhs 这边就是老数据
         System.out.println("zhs 检查 namenode.rpc-address");
-        for (Map.Entry<String, String> entry:catalogProperty.getProperties().entrySet()){
-            System.out.println(entry.getKey()+": "+entry.getValue());
+        for (Map.Entry<String, String> entry : this.catalogProperty.getProperties().entrySet()) {
+            System.out.println(entry.getKey() + ": " + entry.getValue());
         }
         String[] names = namenodes.split(",");
         for (String name : names) {
-            String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsNameservices + "." + name,
+            String address = this.catalogProperty.getOrDefault(
+                    "dfs.namenode.rpc-address." + dfsNameservices + "." + name,
                     "");
             if (Strings.isNullOrEmpty(address)) {
                 throw new DdlException(
                         "Missing dfs.namenode.rpc-address." + dfsNameservices + "." + name + " property");
             }
         }
-        String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsNameservices,
+        String failoverProvider = this.catalogProperty.getOrDefault(
+                "dfs.client.failover.proxy.provider." + dfsNameservices,
+                "");
+        if (Strings.isNullOrEmpty(failoverProvider)) {
+            throw new DdlException(
+                    "Missing dfs.client.failover.proxy.provider." + dfsNameservices + " property");
+        }
+        System.out.println("zhs 检查 hms结束");
+    }
+
+    @Override
+    public void checkUpdateProperties(Map<String, String> properties) throws DdlException {
+        System.out.println("进入checkUpdateProperties");
+        super.checkUpdateProperties(properties);
+        // check file.meta.cache.ttl-second parameter
+        // CatalogProperty oriProperty = this.catalogProperty;
+
+        String fileMetaCacheTtlSecond = properties.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, FILE_META_CACHE_NO_TTL)
+                < FILE_META_CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                    "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
+        }
+
+        // check the dfs.ha properties
+        // 'dfs.nameservices'='your-nameservice',
+        // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+        // 'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+        // 'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+        // 'dfs.client.failover.proxy.provider.your-nameservice'='xxx'
+        String dfsNameservices = properties.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
+        if (Strings.isNullOrEmpty(dfsNameservices)) {
+            return;
+        }
+        String namenodes = properties.getOrDefault("dfs.ha.namenodes." + dfsNameservices, "");
+        if (Strings.isNullOrEmpty(namenodes)) {
+            throw new DdlException("Missing dfs.ha.namenodes." + dfsNameservices + " property");
+        }
+        //zhs 这边就是新数据
+        System.out.println("zhs 检查 namenode.rpc-address");
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            System.out.println(entry.getKey() + ": " + entry.getValue());
+        }
+        String[] names = namenodes.split(",");
+        for (String name : names) {
+            String address = properties.getOrDefault("dfs.namenode.rpc-address." + dfsNameservices + "." + name,
+                    "");
+            if (Strings.isNullOrEmpty(address)) {
+                throw new DdlException(
+                        "Missing dfs.namenode.rpc-address." + dfsNameservices + "." + name + " property");
+            }
+        }
+        String failoverProvider = properties.getOrDefault("dfs.client.failover.proxy.provider." + dfsNameservices,
                 "");
         if (Strings.isNullOrEmpty(failoverProvider)) {
             throw new DdlException(

@@ -543,8 +543,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
             //zhs 这边没做约束直接就改了参数
             System.out.println("即将进入约束");
+            //需要验证新版的参数
+            Map<String, String> newProps = log.getNewProps();
+
             if (catalog instanceof ExternalCatalog) {
                 ((ExternalCatalog) catalog).checkProperties();
+                System.out.println("zhs开启checkUpdateProperties");
+                ((ExternalCatalog) catalog).checkUpdateProperties(newProps);
                 System.out.println("结束约束");
             }
 

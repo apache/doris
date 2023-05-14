@@ -159,10 +159,31 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     // hms client, read properties from hive-site.xml, es client
     protected abstract void initLocalObjectsImpl();
 
-    // check if all required properties are set when creating catalog
+    /**
+     * check if all required properties are set when creating catalog
+     *
+     * @param newProps Determine whether the previous properties or the new properties needs to be validated this time
+     */
     public void checkProperties() throws DdlException {
         // check refresh parameter of catalog
+        // Map<String, String> properties = newProps==null?getCatalogProperty().getProperties():newProps;
         Map<String, String> properties = getCatalogProperty().getProperties();
+        if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
+            try {
+                Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+            } catch (NumberFormatException e) {
+                throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+            }
+        }
+    }
+
+    /**
+     * check if all required properties are set when creating catalog
+     *
+     * @param newProps Determine whether the previous properties or the new properties needs to be validated this time
+     */
+    public void checkUpdateProperties(Map<String, String> properties) throws DdlException {
+        // check refresh parameter of catalog
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
                 Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
