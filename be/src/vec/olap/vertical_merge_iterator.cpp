@@ -518,11 +518,7 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
         }
 
         auto ctx = _cur_iter_ctx;
-        if (ctx->is_same()) {
-            tmp_row_sources.emplace_back(ctx->order(), true);
-        } else {
-            tmp_row_sources.emplace_back(ctx->order(), false);
-        }
+        tmp_row_sources.emplace_back(ctx->order(), false);
 
         // Fifo only for duplicate no key
         ctx->add_cur_batch();
@@ -599,8 +595,6 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts) {
         _cur_iter_ctx = ctx;
         break;
     }
-    //后续还有用，暂时不能删除
-    //_origin_iters.clear();
 
     _opts = opts;
     _block_row_max = opts.block_row_max;
