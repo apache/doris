@@ -518,7 +518,7 @@ public class GlobalTransactionMgr implements Writable {
             info.add(String.valueOf(runningNum));
             infos.add(info);
         }
-        List<String> info = Arrays.asList("Total", String.valueOf(dbIds.size()), String.valueOf(totalRunningNum));
+        List<String> info = Arrays.asList("0", "Total", String.valueOf(totalRunningNum));
         infos.add(info);
         return infos;
     }
