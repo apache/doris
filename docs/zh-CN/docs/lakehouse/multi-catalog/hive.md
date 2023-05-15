@@ -195,29 +195,9 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-### Hive Resource
+## 元数据缓存设置
 
-在 1.2.1 版本之后，我们也可以将这些信息通过创建一个 Resource 统一存储，然后在创建 Catalog 时使用这个 Resource。示例如下：
-
-```sql
-# 1. 创建 Resource
-CREATE RESOURCE hms_resource PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
-    'hadoop.username' = 'hive',
-    'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.0.0.2:8088',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.0.0.3:8088',
-    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
-);
-	
-# 2. 创建 Catalog 并使用 Resource，这里的 Key Value 信息会覆盖 Resource 中的信息。
-CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
-	'key' = 'value'
-);
-```
-创建 Catalog 时可以采用参数 `file.meta.cache.ttl-second` 来设置 File Cache 自动失效时间，也可以将该值设置为 0 来禁用 File Cache。时间单位为：秒。示例如下：
+创建 Catalog 时可以采用参数 `file.meta.cache.ttl-second` 来设置元数据 File Cache 自动失效时间，也可以将该值设置为 0 来禁用 File Cache。时间单位为：秒。示例如下：
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
@@ -233,12 +213,7 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-我们也可以直接将 hive-site.xml 放到 FE 和 BE 的 conf 目录下，系统也会自动读取 hive-site.xml 中的信息。信息覆盖的规则如下：
-
-* Resource 中的信息覆盖 hive-site.xml 中的信息。
-* CREATE CATALOG PROPERTIES 中的信息覆盖 Resource 中的信息。
-
-### Hive 版本
+## Hive 版本
 
 Doris 可以正确访问不同 Hive 版本中的 Hive Metastore。在默认情况下，Doris 会以 Hive 2.3 版本的兼容接口访问 Hive Metastore。你也可以在创建 Catalog 时指定 hive 的版本。如访问 Hive 1.1.0 版本：
 
