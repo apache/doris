@@ -508,7 +508,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                  std::function<Status(DeltaWriter * writer)> write_func) {
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();
-        bool open_partition_flag;
+        bool open_partition_flag = false;
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
             auto tablet_writer_it = _tablet_writers.find(tablet_id);
