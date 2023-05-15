@@ -568,6 +568,15 @@ message PResetRPCChannelResponse {
 message PEmptyRequest {};
 
 message PTabletWriteSlaveRequest {
+    message IndexSize {
+        required int64 indexId = 1;
+        required int64 size = 2;
+    };
+
+    message IndexSizeMap{
+        repeated IndexSize index_sizes = 1;
+    };
+
     optional RowsetMetaPB rowset_meta = 1;
     optional string rowset_path = 2;
     map<int64, int64> segments_size = 3;
@@ -576,6 +585,7 @@ message PTabletWriteSlaveRequest {
     optional int32 brpc_port = 6;
     optional string token = 7;
     optional int32 node_id = 8;
+    map<int64, IndexSizeMap> inverted_indices_size = 9;
 };
 
 message PTabletWriteSlaveResult {
