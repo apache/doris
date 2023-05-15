@@ -832,6 +832,44 @@ struct TCheckAuthResult {
     1: required Status.TStatus status
 }
 
+enum TQueryStatsType {
+    CATALOG = 0,
+    DATABASE = 1,
+    TABLE = 2,
+    TABLE_ALL = 3,
+    TABLE_ALL_VERBOSE = 4,
+    TABLET = 5,
+    TABLETS = 6
+}
+
+struct TGetQueryStatsRequest {
+    1: optional TQueryStatsType type
+    2: optional string catalog
+    3: optional string db
+    4: optional string tbl
+    5: optional i64 replica_id
+    6: optional list<i64> replica_ids
+}
+
+struct TTableQueryStats {
+    1: optional string field
+    2: optional i64 query_stats
+    3: optional i64 filter_stats
+}
+
+struct TTableIndexQueryStats {
+    1: optional string index_name
+    2: optional list<TTableQueryStats> table_stats
+}
+
+struct TQueryStatsResult {
+    1: optional Status.TStatus status
+    2: optional map<string, i64> simple_result
+    3: optional list<TTableQueryStats> table_stats
+    4: optional list<TTableIndexQueryStats> table_verbos_stats
+    5: optional map<i64, i64> tablet_stats
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -879,4 +917,6 @@ service FrontendService {
     TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
 
     TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
+
+    TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
 }
