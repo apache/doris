@@ -206,6 +206,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     if (_has_key) {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             // create primary indexes
+            std::string last_key;
             for (size_t pos = 0; pos < num_rows; pos++) {
                 std::string key = _full_encode_keys(key_columns, pos);
 #ifndef NDEBUG
@@ -215,7 +216,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                 if (_tablet_schema->has_sequence_col()) {
                     _encode_seq_column(seq_column, pos, &key);
                 }
+                DCHECK(key.compare(last_key) > 0)
+                        << "found duplicate key or key is not sorted! current key: " << key
+                        << ", last key" << last_key;
                 RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+                last_key = std::move(key);
             }
         } else {
             // create short key indexes'

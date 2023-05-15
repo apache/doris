@@ -42,13 +42,16 @@ public:
     // TODO(zc): Now we use file name(std::string) as a part of
     // key, which is not efficient. We should make it better later
     struct CacheKey {
-        CacheKey(std::string fname_, int64_t offset_) : fname(std::move(fname_)), offset(offset_) {}
+        CacheKey(std::string fname_, size_t fsize_, int64_t offset_)
+                : fname(std::move(fname_)), fsize(fsize_), offset(offset_) {}
         std::string fname;
+        size_t fsize;
         int64_t offset;
 
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
             std::string key_buf(fname);
+            key_buf.append((char*)&fsize, sizeof(fsize));
             key_buf.append((char*)&offset, sizeof(offset));
             return key_buf;
         }
