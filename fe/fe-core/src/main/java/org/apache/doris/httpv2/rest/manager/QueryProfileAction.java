@@ -28,7 +28,6 @@ import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.ProfileManager.ProfileElement;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.Auth;
@@ -38,9 +37,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.thrift.TUnit;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -48,9 +45,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
-import lombok.Getter;
-import lombok.Setter;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -81,9 +75,8 @@ import javax.servlet.http.HttpServletResponse;
  * 3. /profile/{format}/{query_id}
  * 4. /trace_id/{trace_id}
  * 5. /profile/fragments/{query_id}
- * 6. /profile/instances/{query_id}/{fragment_id}
- * 7. /current_queries
- * 8. /kill/{query_id}
+ * 6. /current_queries
+ * 7. /kill/{query_id}
  */
 @RestController
 @RequestMapping("/rest/v2/manager/query")
@@ -401,58 +394,6 @@ public class QueryProfileAction extends RestBaseController {
         return ResponseEntityBuilder.badRequest("not found query id");
     }
 
-    @RequestMapping(path = "/profile/instances/{query_id}/{fragment_id}", method = RequestMethod.GET)
-    public Object instances(HttpServletRequest request, HttpServletResponse response,
-            @PathVariable("query_id") String queryId,
-            @PathVariable("fragment_id") String fragmentId,
-            @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
-        executeCheckPassword(request, response);
-
-        if (isAllNode) {
-            String httpPath = "/rest/v2/manager/query/profile/instances/" + queryId + "/" + fragmentId;
-            ImmutableMap<String, String> arguments =
-                    ImmutableMap.<String, String>builder().put(IS_ALL_NODE_PARA, "false").build();
-            List<Pair<String, Integer>> frontends = HttpUtils.getFeList();
-            ImmutableMap<String, String> header = ImmutableMap.<String, String>builder()
-                    .put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION)).build();
-            for (Pair<String, Integer> ipPort : frontends) {
-                String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
-                try {
-                    String responseJson = HttpUtils.doGet(url, header);
-                    int code = JsonParser.parseString(responseJson).getAsJsonObject().get("code").getAsInt();
-                    if (code == HttpUtils.REQUEST_SUCCESS_CODE) {
-                        return responseJson;
-                    }
-                } catch (Exception e) {
-                    LOG.warn(e);
-                }
-            }
-        } else {
-            try {
-                checkAuthByUserAndQueryId(queryId);
-            } catch (AuthenticationException e) {
-                return ResponseEntityBuilder.badRequest(e.getMessage());
-            }
-
-            try {
-                List<Triple<String, String, Long>> fragmentInstanceList = ProfileManager.getInstance()
-                        .getFragmentInstanceList(queryId, queryId, fragmentId);
-                if (fragmentInstanceList == null) {
-                    return ResponseEntityBuilder.badRequest("not found fragment id");
-                }
-
-                List<Instance> instances = fragmentInstanceList.stream()
-                        .map(instance -> new Instance(instance.getLeft(), instance.getMiddle(),
-                                RuntimeProfile.printCounter(instance.getRight(), TUnit.TIME_NS)))
-                        .collect(Collectors.toList());
-                return ResponseEntityBuilder.ok(instances);
-            } catch (AnalysisException e) {
-                return ResponseEntityBuilder.badRequest(e.getMessage());
-            }
-        }
-        return ResponseEntityBuilder.badRequest("not found query id or fragment id");
-    }
-
     @NotNull
     private ResponseEntity getTextProfile(HttpServletRequest request, String queryId, boolean isAllNode) {
         Map<String, String> profileMap = Maps.newHashMap();
@@ -633,22 +574,5 @@ public class QueryProfileAction extends RestBaseController {
         ExecuteEnv env = ExecuteEnv.getInstance();
         env.getScheduler().cancelQuery(queryId);
         return ResponseEntityBuilder.ok();
-    }
-
-    @Getter
-    @Setter
-    public static class Instance {
-        @JsonProperty("instance_id")
-        private String instanceId;
-        @JsonProperty("host")
-        private String host;
-        @JsonProperty("active_time")
-        private String activeTime;
-
-        public Instance(String instanceId, String host, String activeTime) {
-            this.instanceId = instanceId;
-            this.host = host;
-            this.activeTime = activeTime;
-        }
     }
 }
