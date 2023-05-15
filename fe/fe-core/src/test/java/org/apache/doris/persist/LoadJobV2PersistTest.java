@@ -48,7 +48,7 @@ public class LoadJobV2PersistTest {
         String loadStmt = "";
         BrokerDesc brokerDesc = new BrokerDesc("bos", Maps.newHashMap());
         OriginStatement originStatement = new OriginStatement(loadStmt, 0);
-        BrokerLoadJob brokerLoadJob = new BrokerLoadJob(1L, "label", brokerDesc, null, originStatement,
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob(1L, "label", brokerDesc, originStatement,
                 UserIdentity.ADMIN);
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(LoadStmt.LOAD_PARALLELISM, "5");

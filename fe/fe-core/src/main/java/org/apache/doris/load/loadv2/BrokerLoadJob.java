@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -39,6 +40,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
@@ -59,6 +61,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.stream.Collectors;
@@ -77,7 +80,6 @@ public class BrokerLoadJob extends BulkLoadJob {
     private Profile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
     private boolean enableProfile = false;
-    private String cluster;
 
     // for log replay and unit test
     public BrokerLoadJob() {
@@ -85,11 +87,10 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc,
-                         String cluster, OriginStatement originStmt, UserIdentity userInfo)
+                         OriginStatement originStmt, UserIdentity userInfo)
             throws MetaNotFoundException {
         super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        this.cluster = cluster;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
             enableProfile = true;
         }
@@ -392,6 +393,15 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     @Override
     protected String getResourceName() {
-        return cluster != null ? cluster : "N/A";
+        StorageBackend.StorageType storageType = brokerDesc.getStorageType();
+        if (storageType == StorageBackend.StorageType.BROKER) {
+            return brokerDesc.getName();
+        } else if (storageType == StorageBackend.StorageType.S3) {
+            return Optional.ofNullable(brokerDesc.getProperties())
+                .map(o -> o.get(S3Properties.Env.ENDPOINT))
+                .orElse("s3_cluster");
+        } else {
+            return storageType.name().toLowerCase().concat("_cluster");
+        }
     }
 }
