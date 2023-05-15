@@ -141,6 +141,8 @@ DECLARE_mInt64(mmap_threshold); // bytes
 // Increase can reduce the number of hash table resize, but may waste more memory.
 DECLARE_mInt32(hash_table_double_grow_degree);
 
+DECLARE_mInt32(test_fill_factor);
+
 // Expand the hash table before inserting data, the maximum expansion size.
 // There are fewer duplicate keys, reducing the number of resize hash tables
 // There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.

@@ -246,6 +246,8 @@ struct HashTableGrower {
     doris::vectorized::UInt8 size_degree = initial_size_degree;
     doris::vectorized::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
 
+    doris::vectorized::Int64 test_fill_factor = doris::config::test_fill_factor;
+
     /// The size of the hash table in the cells.
     size_t buf_size() const { return 1ULL << size_degree; }
 
@@ -253,7 +255,7 @@ struct HashTableGrower {
     size_t max_fill() const {
         return size_degree < double_grow_degree
                        ? 1ULL << (size_degree - 1)
-                       : (1ULL << size_degree) - (1ULL << (size_degree - 3));
+                       : (1ULL << size_degree) - (1ULL << (size_degree - test_fill_factor));
     }
 
     size_t mask() const { return buf_size() - 1; }
