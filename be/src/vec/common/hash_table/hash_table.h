@@ -253,7 +253,7 @@ struct HashTableGrower {
     size_t max_fill() const {
         return size_degree < double_grow_degree
                        ? 1ULL << (size_degree - 1)
-                       : (1ULL << size_degree) - (1ULL << (size_degree - 2));
+                       : (1ULL << size_degree) - (1ULL << (size_degree - 3));
     }
 
     size_t mask() const { return buf_size() - 1; }
