@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
@@ -258,6 +259,10 @@ public abstract class PlanVisitor<R, C> {
         return visit(window, context);
     }
 
+    public R visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, C context) {
+        return visit(olapTableSink, context);
+    }
+
     // *******************************
     // Physical plans
     // *******************************
@@ -371,6 +376,10 @@ public abstract class PlanVisitor<R, C> {
         return visit(generate, context);
     }
 
+    public R visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, C context) {
+        return visit(olapTableSink, context);
+    }
+
     // *******************************
     // Physical enforcer
     // *******************************
@@ -381,9 +390,5 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows, C context) {
         return visit(assertNumRows, context);
-    }
-
-    public R visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, C context) {
-        return visit(olapTableSink, context);
     }
 }

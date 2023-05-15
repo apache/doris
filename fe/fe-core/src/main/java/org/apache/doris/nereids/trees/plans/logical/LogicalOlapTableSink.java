@@ -30,6 +30,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -39,12 +40,13 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     private final OlapTable targetTable;
     private final List<Long> partitionIds;
 
-    public LogicalOlapTableSink(CHILD_TYPE child, OlapTable targetTable, List<Long> partitionIds) {
-        this(child, targetTable, partitionIds, Optional.empty(), Optional.empty());
+    public LogicalOlapTableSink(OlapTable targetTable, List<Long> partitionIds, CHILD_TYPE child) {
+        this(targetTable, partitionIds, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalOlapTableSink(CHILD_TYPE child, OlapTable targetTable, List<Long> partitionIds,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+    public LogicalOlapTableSink(OlapTable targetTable, List<Long> partitionIds,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            CHILD_TYPE child) {
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
         this.targetTable = Preconditions.checkNotNull(targetTable, "targetTable != null in LogicalOlapTableSink");
         this.partitionIds = Preconditions.checkNotNull(partitionIds, "partitionIds != null in LogicalOlapTableSink");
@@ -53,7 +55,28 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalOlapTableSink only accepts one child");
-        return new LogicalOlapTableSink<>(children.get(0), targetTable, partitionIds);
+        return new LogicalOlapTableSink<>(targetTable, partitionIds, children.get(0));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        LogicalOlapTableSink<?> that = (LogicalOlapTableSink<?>) o;
+        return Objects.equals(targetTable, that.targetTable) && Objects.equals(partitionIds,
+                that.partitionIds);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(targetTable, partitionIds);
     }
 
     @Override
@@ -68,13 +91,13 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapTableSink<>(child(), targetTable, partitionIds,
-                groupExpression, Optional.of(getLogicalProperties()));
+        return new LogicalOlapTableSink<>(targetTable, partitionIds,
+                groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapTableSink<>(child(), targetTable, partitionIds, groupExpression, logicalProperties);
+        return new LogicalOlapTableSink<>(targetTable, partitionIds, groupExpression, logicalProperties, child());
     }
 
     @Override
