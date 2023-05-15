@@ -38,7 +38,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.BuildCTEAnchorAndCTEProduc
 import org.apache.doris.nereids.rules.rewrite.logical.CTEProducerRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckDataTypes;
-import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateAggregate;
@@ -76,8 +75,8 @@ import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspo
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
-import org.apache.doris.nereids.trees.plans.logical.CollectFilterAboveConsumer;
-import org.apache.doris.nereids.trees.plans.logical.CollectProjectAboveConsumer;
+//import org.apache.doris.nereids.trees.plans.logical.CollectFilterAboveConsumer;
+//import org.apache.doris.nereids.trees.plans.logical.CollectProjectAboveConsumer;
 
 import com.google.common.collect.ImmutableList;
 
@@ -200,7 +199,8 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             topic("Column pruning and infer predicate",
-                custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                // TODO: jichang to fix this
+                //custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
 
                 custom(RuleType.INFER_PREDICATES, InferPredicates::new),
 
@@ -272,10 +272,10 @@ public class NereidsRewriter extends BatchRewriteJob {
             )),
 
             topic("CTE", topDown(
-                    new CollectFilterAboveConsumer(),
-                    new CollectProjectAboveConsumer(),
-                    new BuildCTEAnchorAndCTEProducer()),
-                    topDown(new CTEProducerRewrite()))
+                    // TODO: jichang to fix this
+                    //new CollectFilterAboveConsumer(),
+                    //new CollectProjectAboveConsumer(),
+                    new BuildCTEAnchorAndCTEProducer()))
     );
 
     public NereidsRewriter(CascadesContext cascadesContext) {

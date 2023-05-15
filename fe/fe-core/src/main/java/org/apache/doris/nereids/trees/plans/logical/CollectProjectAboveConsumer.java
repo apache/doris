@@ -29,7 +29,10 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-public class CollectProjectAboveConsumer implements RewriteRuleFactory {
+/**
+ * Collect Projects Above CTE Consumer.
+ */
+public class CollectProjectAboveConsumer extends OneRewriteRuleFactory {
 
     @Override
     public List<Rule> buildRules() {

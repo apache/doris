@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -37,17 +38,39 @@ public class LogicalCTEAnchor<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan> extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    private final long cteId;
+    private final int cteId;
+    private final int consumeNum;
 
-    public LogicalCTEAnchor(LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, long cteId) {
+    private final List<Expression> projection;
+
+    public LogicalCTEAnchor(LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, int cteId) {
         this(Optional.empty(), Optional.empty(), leftChild, rightChild, cteId);
     }
 
     public LogicalCTEAnchor(Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, long cteId) {
+                            Optional<LogicalProperties> logicalProperties,
+                            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, int cteId) {
         super(PlanType.LOGICAL_CTE_ANCHOR, groupExpression, logicalProperties, leftChild, rightChild);
         this.cteId = cteId;
+        this.consumeNum = -1;
+        this.projection = Collections.emptyList();
+    }
+
+    public LogicalCTEAnchor(
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, int cteId,
+            int consumeNum, List<Expression> projection) {
+        this(Optional.empty(), Optional.empty(),
+                leftChild, rightChild, cteId, consumeNum, projection);
+    }
+
+    public LogicalCTEAnchor(Optional<GroupExpression> groupExpression,
+                            Optional<LogicalProperties> logicalProperties,
+                            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
+                            int cteId, int consumeNum, List<Expression> projection) {
+        super(PlanType.LOGICAL_CTE_ANCHOR, groupExpression, logicalProperties, leftChild, rightChild);
+        this.cteId = cteId;
+        this.consumeNum = consumeNum;
+        this.projection = projection;
     }
 
     @Override
@@ -81,8 +104,16 @@ public class LogicalCTEAnchor<
         return right().getOutput();
     }
 
-    public long getCteId() {
+    public int getCteId() {
         return cteId;
+    }
+
+    public int getConsumeNum() {
+        return consumeNum;
+    }
+
+    public List<Expression> getProjection() {
+        return projection;
     }
 
     @Override

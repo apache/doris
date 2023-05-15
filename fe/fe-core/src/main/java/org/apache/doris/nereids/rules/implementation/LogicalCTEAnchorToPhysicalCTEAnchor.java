@@ -15,20 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.visitor;
+package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchorOperator;
 
 /**
- * Use the visitor to iterate over all plans for plan.
+ * Implementation rule that convert logical CTE anchor to physical CTE anchor.
  */
-public class DefaultPlanVisitor<R, C> extends PlanVisitor<R, C> {
+public class LogicalCTEAnchorToPhysicalCTEAnchor extends OneImplementationRuleFactory {
     @Override
-    public R visit(Plan plan, C context) {
-        R ret = null;
-        for (Plan child : plan.children()) {
-            ret = child.accept(this, context);
-        }
-        return ret;
+    public Rule build() {
+        return logicalCTEAnchor().then(cte -> new PhysicalCTEAnchorOperator(
+            cte.getCteId(),
+            cte.getConsumeNum(),
+            cte.getProjection(),
+            //cte.getGroupExpression(),
+            cte.getLogicalProperties(),
+            cte.child(0),
+            cte.child(1))
+        ).toRule(RuleType.LOGICAL_CTE_ANCHOR_TO_PHYSICAL_CTE_ANCHOR_RULE);
     }
 }

@@ -83,6 +83,9 @@ import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchorOperator;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumeOperator;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProduceOperator;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
@@ -120,6 +123,7 @@ import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.AssertNumRowsNode;
 import org.apache.doris.planner.DataPartition;
+import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.EsScanNode;
 import org.apache.doris.planner.ExceptNode;
@@ -129,6 +133,8 @@ import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JdbcScanNode;
 import org.apache.doris.planner.JoinNodeBase;
+import org.apache.doris.planner.MultiCastDataSink;
+import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
@@ -1778,6 +1784,130 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 currentFragment.getPlanRoot(), tupleDescriptor.getId(), functionCalls, outputSlotIds);
         addPlanRoot(currentFragment, tableFunctionNode, generate);
         return currentFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalCTEConsume(PhysicalCTEConsumeOperator consume,
+                                                PlanTranslatorContext context) {
+        int cteId = consume.getCteId();
+        // producer plan fragment
+        MultiCastPlanFragment multCastFragment = (MultiCastPlanFragment) context.getCteProduceFragments().get(cteId);
+
+        Preconditions.checkState(multCastFragment.getSink() instanceof MultiCastDataSink,
+                "sink of cteFragment is not kind of MultiCastDataSink");
+
+        MultiCastDataSink multiCastDataSink = (MultiCastDataSink) multCastFragment.getSink();
+
+        Preconditions.checkState(multiCastDataSink != null, "invalid multiCastDataSink");
+
+        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(),
+                multCastFragment.getPlanRoot(), false);
+
+        // build data stream sink
+        DataStreamSink streamSink = new DataStreamSink(exchangeNode.getId());
+        streamSink.setPartition(DataPartition.RANDOM);
+        streamSink.setFragment(multCastFragment);
+        //streamSink.setOutputColumnIds(f.getProjectList());
+        multiCastDataSink.getDataStreamSinks().add(streamSink);
+        // multiCastDataSink.getDestinations() returns a List<List<TPlanFragmentDestination>>
+        multiCastDataSink.getDestinations().add(Lists.newArrayList());
+
+        exchangeNode.setReceiveColumns(consume.getCteOutputColumnRefMap().values().stream()
+                .map(e -> e.getExprId()).collect(Collectors.toList()));
+        //exchangeNode.setDataPartition(cteFragment.getDataPartition());
+
+        exchangeNode.setNumInstances(multCastFragment.getPlanRoot().getNumInstances());
+
+        PlanFragment consumeFragment = new PlanFragment(context.nextFragmentId(), exchangeNode,
+                multCastFragment.getDataPartition());
+
+        Map<Slot, Slot> projectMap = Maps.newHashMap();
+        projectMap.putAll(consume.getCteOutputColumnRefMap());
+
+        consumeFragment = buildProjectNode(projectMap, consumeFragment, context);
+
+        // add filter node
+        if (consume.getPredicates() != null && false) {
+            List<Expr> predicates = consume.getPredicates().stream()
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+            SelectNode selectNode =
+                    new SelectNode(context.nextPlanNodeId(), consumeFragment.getPlanRoot(), predicates);
+            consumeFragment.setPlanRoot(selectNode);
+        }
+
+        multCastFragment.getDestNodeList().add(exchangeNode);
+        consumeFragment.addChild(multCastFragment);
+        context.getPlanFragments().add(consumeFragment);
+        return consumeFragment;
+    }
+
+    /**
+     * Build a project for each consumer plan fragment.
+     */
+    public PlanFragment buildProjectNode(Map<Slot, Slot> projectMap, PlanFragment inputFragment,
+                                         PlanTranslatorContext context) {
+        List<NamedExpression> execList = new ArrayList<>();
+        PlanNode inputPlanNode = inputFragment.getPlanRoot();
+        for (Map.Entry<Slot, Slot> entry : projectMap.entrySet()) {
+            execList.add(entry.getValue());
+        }
+
+        List<Slot> slotList = execList
+                .stream()
+                .map(e -> e.toSlot())
+                .collect(Collectors.toList());
+
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
+
+        // update tuple list and tblTupleList
+        inputPlanNode.getTupleIds().clear();
+        inputPlanNode.getTupleIds().add(tupleDescriptor.getId());
+        inputPlanNode.getTblRefIds().clear();
+        inputPlanNode.getTblRefIds().add(tupleDescriptor.getId());
+        inputPlanNode.getNullableTupleIds().clear();
+        inputPlanNode.getNullableTupleIds().add(tupleDescriptor.getId());
+        //tblRefIds.addAll(getChild(0).getTblRefIds());
+        //nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
+
+        List<Expr> execExprList = execList
+                .stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
+
+        inputPlanNode.setProjectList(execExprList);
+        inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+
+        SelectNode projectNode = new SelectNode(context.nextPlanNodeId(), inputFragment.getPlanRoot());
+        inputFragment.setPlanRoot(projectNode);
+        return inputFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalCTEProduce(PhysicalCTEProduceOperator<? extends Plan> produceOperator,
+                                                PlanTranslatorContext context) {
+        PlanFragment child = visit(produceOperator, context);
+        int cteId = produceOperator.getCteId();
+        context.getPlanFragments().remove(child);
+        MultiCastPlanFragment cteProduce = new MultiCastPlanFragment(child);
+        // from createDataSink
+        MultiCastDataSink multiCastDataSink = new MultiCastDataSink();
+        cteProduce.setSink(multiCastDataSink);
+        // TODO: handle column alias
+        List<Expr> outputs = produceOperator.getOutput().stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
+
+        cteProduce.setOutputExprs(outputs);
+        context.getCteProduceFragments().put(cteId, cteProduce);
+        context.getPlanFragments().add(cteProduce);
+        return child;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalCTEAnchor(PhysicalCTEAnchorOperator<? extends Plan, ? extends Plan> anchorOperator,
+                                               PlanTranslatorContext context) {
+        return visit(anchorOperator, context);
     }
 
     private List<Expression> castCommonDataTypeOutputs(List<Slot> outputs, List<Slot> childOutputs) {

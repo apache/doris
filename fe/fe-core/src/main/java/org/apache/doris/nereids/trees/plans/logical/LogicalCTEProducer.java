@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,15 +37,32 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan>
 
     private final int cteId;
 
+    private final int consumeNum;
+
+    private final List<Expression> projection;
+
     public LogicalCTEProducer(CHILD_TYPE child, int cteId) {
         super(PlanType.LOGICAL_CTE_PRODUCER, child);
         this.cteId = cteId;
+        this.consumeNum = -1;
+        this.projection = Collections.emptyList();
     }
 
     public LogicalCTEProducer(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, int cteId) {
         super(type, groupExpression, logicalProperties, child);
         this.cteId = cteId;
+        this.consumeNum = -1;
+        this.projection = Collections.emptyList();
+    }
+
+    public LogicalCTEProducer(PlanType type, Optional<GroupExpression> groupExpression,
+                              Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, int cteId,
+                                  int consumeNum, List<Expression> projection) {
+        super(type, groupExpression, logicalProperties, child);
+        this.cteId = cteId;
+        this.consumeNum = consumeNum;
+        this.projection = projection;
     }
 
     public int getCteId() {
@@ -54,7 +72,7 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan>
     @Override
     public Plan withChildren(List<Plan> children) {
         return new LogicalCTEProducer<>(type, groupExpression, Optional.of(getLogicalProperties()), children.get(0),
-                cteId);
+                cteId, consumeNum, projection);
     }
 
     @Override
@@ -69,12 +87,14 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan>
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTEProducer<>(type, groupExpression, Optional.of(getLogicalProperties()), child(), cteId);
+        return new LogicalCTEProducer<>(type, groupExpression, Optional.of(getLogicalProperties()), child(), cteId,
+            consumeNum, projection);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTEProducer<>(type, groupExpression, logicalProperties, child(), cteId);
+        return new LogicalCTEProducer<>(type, groupExpression, logicalProperties, child(), cteId,
+            consumeNum, projection);
     }
 
     @Override

@@ -27,6 +27,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.system.Backend;
@@ -44,6 +45,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 /**
  * Receiver side of a 1:n data stream. Logically, an ExchangeNode consumes the data
@@ -66,6 +69,9 @@ public class ExchangeNode extends PlanNode {
     // The parameters based on which sorted input streams are merged by this
     // exchange node. Null if this exchange does not merge sorted streams
     private SortInfo mergeInfo;
+
+    // Specify the columns which need to send, work on CTE, and keep empty in other sense
+    private List<ExprId> receiveColumns;
 
     /**
      * Create ExchangeNode that consumes output of inputNode.
@@ -94,6 +100,14 @@ public class ExchangeNode extends PlanNode {
             return true;
         }
         return false;
+    }
+
+    public void setReceiveColumns(List<ExprId> receiveColumns) {
+        this.receiveColumns = receiveColumns;
+    }
+
+    public List<ExprId> getReceiveColumns() {
+        return receiveColumns;
     }
 
     @Override

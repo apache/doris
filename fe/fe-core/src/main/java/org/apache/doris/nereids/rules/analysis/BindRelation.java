@@ -131,9 +131,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         CTEContext cteContext = cascadesContext.getCteContext();
         Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTE(tableName);
         if (analyzedCte.isPresent()) {
+            LogicalPlan realChild = (LogicalPlan) analyzedCte.get().child(0);
             LogicalCTEConsumer logicalCTEConsumer =
                     new LogicalCTEConsumer(Optional.empty(), Optional.empty(),
-                    analyzedCte.get(), cteContext.getUniqueId());
+                        realChild, cteContext.getUniqueId());
             cascadesContext.putCTEIdToConsumer(logicalCTEConsumer);
             return logicalCTEConsumer;
         }

@@ -20,6 +20,9 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 
+/**
+ * CTE producer rewriter.
+ */
 public class RewriteCTEProducer extends OneRewriteRuleFactory {
     @Override
     public Rule build() {

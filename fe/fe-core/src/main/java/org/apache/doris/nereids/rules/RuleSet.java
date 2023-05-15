@@ -42,6 +42,9 @@ import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
+import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
+import org.apache.doris.nereids.rules.implementation.LogicalCTEConsumeToPhysicalCTEConsume;
+import org.apache.doris.nereids.rules.implementation.LogicalCTEProduceToPhysicalCTEProduce;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalEsScanToPhysicalEsScan;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
@@ -122,6 +125,9 @@ public class RuleSet {
             new MergeLimits());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
+            .add(new LogicalCTEProduceToPhysicalCTEProduce())
+            .add(new LogicalCTEConsumeToPhysicalCTEConsume())
+            .add(new LogicalCTEAnchorToPhysicalCTEAnchor())
             .add(new LogicalRepeatToPhysicalRepeat())
             .add(new LogicalFilterToPhysicalFilter())
             .add(new LogicalJoinToHashJoin())

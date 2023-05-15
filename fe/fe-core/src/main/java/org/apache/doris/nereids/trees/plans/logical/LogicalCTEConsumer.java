@@ -30,6 +30,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,28 +44,55 @@ public class LogicalCTEConsumer extends LogicalLeaf {
     private final LogicalPlan childPlan;
 
     private final int cteId;
+    private final List<Expression> predicates;
+
+    private final List<Expression> projections;
 
     private final Map<Slot, Slot> consumerToProducerOutputMap = new HashMap<>();
 
+    private final Map<Slot, Slot> producerToConsumerOutputMap = new HashMap<>();
+
     private final int consumerId;
 
+    /**
+     * Logical CTE consumer.
+     */
     public LogicalCTEConsumer(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, LogicalPlan childPlan, int cteId) {
         super(PlanType.LOGICAL_CTE_RELATION, groupExpression, logicalProperties);
         this.childPlan = childPlan;
         this.cteId = cteId;
+        initProducerToConsumerOutputMap(childPlan);
         initConsumerToProducerOutputMap(childPlan);
         this.consumerId = System.identityHashCode(this);
+        this.predicates = Collections.emptyList();
+        this.projections = Collections.emptyList();
+
     }
 
+    /**
+     * Logical CTE consumer.
+     */
     public LogicalCTEConsumer(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, LogicalPlan childPlan, int cteId,
-            Map<Slot, Slot> consumerToProducerOutputMap, int consumerId) {
+            Map<Slot, Slot> producerToConsumerOutputMap, int consumerId,
+                              List<Expression> predicates, List<Expression> projections) {
         super(PlanType.LOGICAL_CTE_RELATION, groupExpression, logicalProperties);
         this.childPlan = childPlan;
         this.cteId = cteId;
-        this.consumerToProducerOutputMap.putAll(consumerToProducerOutputMap);
+        this.producerToConsumerOutputMap.putAll(producerToConsumerOutputMap);
         this.consumerId = consumerId;
+        this.predicates = predicates;
+        this.projections = projections;
+    }
+
+    private void initProducerToConsumerOutputMap(LogicalPlan childPlan) {
+        List<Slot> producerOutput = childPlan.getOutput();
+        for (Slot producerOutputSlot : producerOutput) {
+            Slot consumerSlot = new SlotReference(producerOutputSlot.getName(),
+                    producerOutputSlot.getDataType(), producerOutputSlot.nullable(), producerOutputSlot.getQualifier());
+            producerToConsumerOutputMap.put(producerOutputSlot, consumerSlot);
+        }
     }
 
     private void initConsumerToProducerOutputMap(LogicalPlan childPlan) {
@@ -74,6 +102,14 @@ public class LogicalCTEConsumer extends LogicalLeaf {
                     producerOutputSlot.getDataType(), producerOutputSlot.nullable(), producerOutputSlot.getQualifier());
             consumerToProducerOutputMap.put(consumerSlot, producerOutputSlot);
         }
+    }
+
+    public Map<Slot, Slot> getConsumerToProducerOutputMap() {
+        return consumerToProducerOutputMap;
+    }
+
+    public Map<Slot, Slot> getProducerToConsumerOutputMap() {
+        return producerToConsumerOutputMap;
     }
 
     @Override
@@ -86,22 +122,30 @@ public class LogicalCTEConsumer extends LogicalLeaf {
         return ImmutableList.of();
     }
 
+    public List<Expression> getPredicates() {
+        return predicates;
+    }
+
+    public List<Expression> getProjects() {
+        return projections;
+    }
+
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalCTEConsumer(groupExpression, Optional.of(getLogicalProperties()), childPlan, cteId,
-                consumerToProducerOutputMap,
-                consumerId);
+                producerToConsumerOutputMap,
+                consumerId, predicates, projections);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTEConsumer(groupExpression, logicalProperties, childPlan, cteId, consumerToProducerOutputMap,
-                consumerId);
+        return new LogicalCTEConsumer(groupExpression, logicalProperties, childPlan, cteId, producerToConsumerOutputMap,
+                consumerId, predicates, projections);
     }
 
     @Override
     public List<Slot> computeOutput() {
-        return new ArrayList<>(consumerToProducerOutputMap.keySet());
+        return new ArrayList<>(producerToConsumerOutputMap.values());
     }
 
     public int getCteId() {
