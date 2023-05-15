@@ -238,7 +238,8 @@ Status ExecEnv::_init_mem_env() {
         }
         LOG(WARNING) << "num_shards should be power of two, but got " << old_num_shards
                      << ". Rounded up to " << num_shards
-                     << ". Please modify the 'storage_page_cache_shard_size' parameter in your conf file to be a power of two for better performance.";
+                     << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
+                        "conf file to be a power of two for better performance.";
     }
     StoragePageCache::create_global_cache(storage_cache_limit, index_percentage, num_shards);
     LOG(INFO) << "Storage page cache memory limit: "
