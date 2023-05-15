@@ -38,11 +38,11 @@ class PageCacheHandle;
 template <typename TAllocator>
 class PageBase : private TAllocator {
 public:
-    PageBase() : data(nullptr), size(0), bytes(0) {}
+    PageBase() : data(nullptr), size(0), capacity(0) {}
 
-    PageBase(size_t b) : size(b), bytes(b) {
-        data = reinterpret_cast<char*>(TAllocator::alloc(bytes, ALLOCATOR_ALIGNMENT_16));
-        ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(bytes);
+    PageBase(size_t b) : size(b), capacity(b) {
+        data = reinterpret_cast<char*>(TAllocator::alloc(capacity, ALLOCATOR_ALIGNMENT_16));
+        ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(capacity);
     }
 
     PageBase(const PageBase&) = delete;
@@ -50,27 +50,29 @@ public:
 
     ~PageBase() {
         if (data != nullptr) {
-            DCHECK(bytes != 0 && size != 0);
-            TAllocator::free(data, bytes);
-            ExecEnv::GetInstance()->page_no_cache_mem_tracker()->release(bytes);
+            DCHECK(capacity != 0 && size != 0);
+            TAllocator::free(data, capacity);
+            ExecEnv::GetInstance()->page_no_cache_mem_tracker()->release(capacity);
         }
     }
 
     void reset_size(size_t n) {
-        DCHECK(n <= bytes);
+        DCHECK(n <= capacity);
         size = n;
     }
 
     void release() {
         data = nullptr;
         size = 0;
-        bytes = 0;
+        capacity = 0;
     }
 
     char* data;
-    // Effective size, smaller than bytes, such as data page remove checksum suffix.
+    // Effective size, smaller than capacity, such as data page remove checksum suffix.
     size_t size;
-    size_t bytes = 0;
+
+private:
+    size_t capacity = 0;
 };
 
 using DataPage = PageBase<Allocator<false>>;
