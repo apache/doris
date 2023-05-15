@@ -126,6 +126,7 @@ import org.apache.logging.log4j.Logger;
  * Use for execute ddl.
  **/
 public class DdlExecutor {
+    private static final Logger LOG = LogManager.getLogger(DdlExecutor.class);
     /**
      * Execute ddl.
      **/
