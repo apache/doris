@@ -679,17 +679,13 @@ public class SelectStmt extends QueryStmt {
         // if the query contains limit clause but not order by clause, order by keys by default.
         if (isAddDefaultOrderBy()) {
             orderByElements = Lists.newArrayList();
-            for (TableRef ref : getTableRefs()) {
-                if (ref instanceof BaseTableRef
-                        && ref.getTable().getType() == TableType.OLAP) {
-                    OlapTable olapTable = ((OlapTable) ref.getTable());
-                    int num = olapTable.getKeysNum();
-                    for (int i = 0; i < num; ++i) {
-                        String colName = olapTable.getFullSchema().get(i).getName();
-                        SlotRef slotRef = new SlotRef(null, colName);
-                        orderByElements.add(new OrderByElement(slotRef, true, true));
-                    }
-                }
+            TableRef ref = getTableRefs().get(0);
+            OlapTable olapTable = ((OlapTable) ref.getTable());
+            int num = olapTable.getKeysNum();
+            for (int i = 0; i < num; ++i) {
+                String colName = olapTable.getFullSchema().get(i).getName();
+                SlotRef slotRef = new SlotRef(null, colName);
+                orderByElements.add(new OrderByElement(slotRef, true, true));
             }
             createSortInfo(analyzer);
         }
@@ -2658,6 +2654,10 @@ public class SelectStmt extends QueryStmt {
         }
         if (fromInsert || analyzer.getAliases().size() != 1 || groupByClause != null
                 || havingClause != null || aggInfo != null || analyticInfo != null) {
+            return false;
+        }
+        if (getTableRefs().size() != 1 || !(getTableRefs().get(0) instanceof BaseTableRef)
+                || getTableRefs().get(0).getTable().getType() != TableType.OLAP) {
             return false;
         }
         return hasLimit() && orderByElements == null;
