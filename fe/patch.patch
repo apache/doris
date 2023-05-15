@@ -1,0 +1,142 @@
+diff --git a/fe/fe-core/src/main/java/org/apache/doris/analysis/SelectStmt.java b/fe/fe-core/src/main/java/org/apache/doris/analysis/SelectStmt.java
+index c8bc8ddf43..d9d767df26 100644
+--- a/fe/fe-core/src/main/java/org/apache/doris/analysis/SelectStmt.java
++++ b/fe/fe-core/src/main/java/org/apache/doris/analysis/SelectStmt.java
+@@ -642,6 +642,7 @@ public class SelectStmt extends QueryStmt {
+                 groupingInfo.substituteGroupingFn(orderingExprNotInSelect, analyzer);
+             }
+         }
++
+         analyzeAggregation(analyzer);
+         createAnalyticInfo(analyzer);
+         eliminatingSortNode();
+@@ -674,6 +675,25 @@ public class SelectStmt extends QueryStmt {
+             LOG.debug("orderingSlots {}", orderingSlots);
+             LOG.debug("conjuntSlots {}", conjuntSlots);
+         }
++
++        // if the query contains limit clause but not order by clause, order by keys by default.
++        if (isAddDefaultOrderBy()) {
++            orderByElements = Lists.newArrayList();
++            for (TableRef ref : getTableRefs()) {
++                if (ref instanceof BaseTableRef
++                        && ref.getTable().getType() == TableType.OLAP) {
++                    OlapTable olapTable = ((OlapTable) ref.getTable());
++                    int num = olapTable.getKeysNum();
++                    for (int i = 0; i < num; ++i) {
++                        String colName = olapTable.getFullSchema().get(i).getName();
++                        SlotRef slotRef = new SlotRef(null, colName);
++                        orderByElements.add(new OrderByElement(slotRef, true, true));
++                    }
++                }
++            }
++            createSortInfo(analyzer);
++        }
++
+         checkAndSetPointQuery();
+         if (evaluateOrderBy) {
+             createSortTupleInfo(analyzer);
+@@ -2629,4 +2649,17 @@ public class SelectStmt extends QueryStmt {
+             return null;
+         }
+     }
++
++    private boolean isAddDefaultOrderBy() {
++        if (ConnectContext.get() == null
++                || ConnectContext.get().getSessionVariable() == null
++                || !ConnectContext.get().getSessionVariable().isEnableDefaultOrder()) {
++            return false;
++        }
++        if (fromInsert || analyzer.getAliases().size() != 1 || groupByClause != null
++                || havingClause != null || aggInfo != null || analyticInfo != null) {
++            return false;
++        }
++        return hasLimit() && hasOffset() && orderByElements == null;
++    }
+ }
+diff --git a/fe/fe-core/src/main/java/org/apache/doris/qe/SessionVariable.java b/fe/fe-core/src/main/java/org/apache/doris/qe/SessionVariable.java
+index c517bf399e..afcb4b3fd5 100644
+--- a/fe/fe-core/src/main/java/org/apache/doris/qe/SessionVariable.java
++++ b/fe/fe-core/src/main/java/org/apache/doris/qe/SessionVariable.java
+@@ -311,6 +311,8 @@ public class SessionVariable implements Serializable, Writable {
+ 
+     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
+ 
++    public static final String ENABLE_DEFAULT_ORDER = "enable_default_order";
++
+     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
+     public static final String USE_FIX_REPLICA = "use_fix_replica";
+ 
+@@ -869,6 +871,9 @@ public class SessionVariable implements Serializable, Writable {
+     @VariableMgr.VarAttr(name = PLAN_NEREIDS_DUMP)
+     public boolean planNereidsDump = false;
+ 
++    @VariableMgr.VarAttr(name = ENABLE_DEFAULT_ORDER)
++    public boolean enableDefaultOrder = false;
++
+     // If set to true, all query will be executed without returning result
+     @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
+     public boolean dryRunQuery = false;
+@@ -2109,6 +2114,14 @@ public class SessionVariable implements Serializable, Writable {
+         this.dumpNereidsMemo = dumpNereidsMemo;
+     }
+ 
++    public void setEnableDefaultOrder(boolean enableDefaultOrder) {
++        this.enableDefaultOrder = enableDefaultOrder;
++    }
++
++    public boolean isEnableDefaultOrder() {
++        return enableDefaultOrder;
++    }
++
+     public void enableFallbackToOriginalPlannerOnce() throws DdlException {
+         if (enableFallbackToOriginalPlanner) {
+             return;
+diff --git a/fe/fe-core/src/test/java/org/apache/doris/analysis/SelectStmtTest.java b/fe/fe-core/src/test/java/org/apache/doris/analysis/SelectStmtTest.java
+index 692eea7657..346e5b658a 100755
+--- a/fe/fe-core/src/test/java/org/apache/doris/analysis/SelectStmtTest.java
++++ b/fe/fe-core/src/test/java/org/apache/doris/analysis/SelectStmtTest.java
+@@ -949,4 +949,43 @@ public class SelectStmtTest {
+         Assert.assertFalse(stmt.getColLabels().contains("siteid"));
+         Assert.assertEquals(stmt.resultExprs.size(), 3);
+     }
++
++    @Test
++    public void testAddDefaultOrderBy() throws Exception {
++        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
++        ctx.getSessionVariable().setEnableDefaultOrder(true);
++        String sql;
++        String explainString;
++        sql = "select * from db1.baseall where k1 = 1 limit 10 offset 5";
++        explainString = dorisAssert.query(sql).explainQuery();
++        Assert.assertTrue(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
++
++        sql = "select * from db1.baseall join db1.table1 on k1=siteid limit 10 offset 5";
++        explainString = dorisAssert.query(sql).explainQuery();
++        Assert.assertFalse(explainString.contains("order by"));
++
++        sql = "select min(pv) from db1.table1 where siteid < 10 group by siteid limit 10 offset 5";
++        explainString = dorisAssert.query(sql).explainQuery();
++        Assert.assertFalse(explainString.contains("order by:"));
++
++        sql = "select pv from db1.table1 where siteid < 10 order by siteid limit 10 offset 5";
++        explainString = dorisAssert.query(sql).explainQuery();
++        Assert.assertTrue(explainString.contains("order by: <slot 2> `siteid` ASC"));
++
++        sql = "select *, max(k2) over(partition by k1 order by k1) from db1.baseall where k1 = 1 limit 10 offset 5";
++        explainString = dorisAssert.query(sql).explainQuery();
++        Assert.assertFalse(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
++
++        sql = "select * from db1.baseall lateral view explode([1, 2, 3]) tmp1 as e1 where k1 = 1 limit 10 offset 5";
++        explainString = dorisAssert.query(sql).explainQuery();
++        Assert.assertFalse(explainString.contains("order by"));
++
++        sql = "select * from numbers(\"number\" = \"20\") where number < 15 limit 10 offset 5";
++        explainString = dorisAssert.query(sql).explainQuery();
++        Assert.assertFalse(explainString.contains("order by <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
++
++        sql = "select max(k1) from db1.baseall where k1 = 1 having max(k1) < 5 limit 10 offset 5";
++        explainString = dorisAssert.query(sql).explainQuery();
++        Assert.assertFalse(explainString.contains("order by"));
++    }
+ }
