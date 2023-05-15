@@ -21,6 +21,7 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.StreamLoadStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
@@ -69,7 +70,6 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.MetadataGenerator;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TAddColumnsRequest;
@@ -411,7 +411,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
                     // index id -> index schema
                     Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
-                    //index id -> index col_unique_id supplier
+                    // index id -> index col_unique_id supplier
                     Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
                     for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
                         indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
@@ -430,13 +430,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         colUniqueIdSupplierMap.put(entry.getKey(), colUniqueIdSupplier);
                     }
-                    //4. call schame change function, only for dynamic table feature.
+                    // 4. call schame change function, only for dynamic table feature.
                     SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
 
                     boolean lightSchemaChange = schemaChangeHandler.processAddColumns(
                             addColumnsClause, olapTable, indexSchemaMap, true, colUniqueIdSupplierMap);
                     if (lightSchemaChange) {
-                        //for schema change add column optimize, direct modify table meta.
+                        // for schema change add column optimize, direct modify table meta.
                         List<Index> newIndexes = olapTable.getCopiedIndexes();
                         long jobId = Env.getCurrentEnv().getNextId();
                         Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
@@ -447,7 +447,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
 
-                //5. build all columns
+                // 5. build all columns
                 for (Column column : olapTable.getBaseSchema()) {
                     allColumns.add(column.toThrift());
                 }
@@ -1277,9 +1277,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
-            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
-            TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
+            StreamLoadStmt streamLoadStmt = StreamLoadStmt.fromTStreamLoadPutRequest(request);
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadStmt);
+            TExecPlanFragmentParams plan = planner.plan(streamLoadStmt.getId());
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), request.getTxnId());

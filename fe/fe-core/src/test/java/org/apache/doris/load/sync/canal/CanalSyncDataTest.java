@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.sync.canal;
 
+import org.apache.doris.analysis.StreamLoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -29,7 +30,6 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -88,7 +88,7 @@ public class CanalSyncDataTest {
     @Mocked
     Backend backend;
     @Mocked
-    StreamLoadTask streamLoadTask;
+    StreamLoadStmt streamLoadStmt;
     @Mocked
     StreamLoadPlanner streamLoadPlanner;
     @Mocked

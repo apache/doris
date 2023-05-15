@@ -15,21 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.task;
+package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ImportColumnsStmt;
-import org.apache.doris.analysis.ImportWhereStmt;
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+// import org.apache.doris.analysis.SqlParser;
+// import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -45,9 +41,9 @@ import java.io.StringReader;
 import java.util.Arrays;
 import java.util.List;
 
-public class StreamLoadTask implements LoadTaskInfo {
-
-    private static final Logger LOG = LogManager.getLogger(StreamLoadTask.class);
+// Todo implement LoadTaskInfo is avoid  Compatibility problem,it will be deleted after refactor routineLoad.
+public class StreamLoadStmt extends InsertStmt implements LoadTaskInfo {
+    private static final Logger LOG = LogManager.getLogger(StreamLoadStmt.class);
 
     private TUniqueId id;
     private long txnId;
@@ -88,7 +84,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private int skipLines = 0;
     private boolean enableProfile = false;
 
-    public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
+    public StreamLoadStmt(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
             TFileCompressType compressType) {
         this.id = id;
         this.txnId = txnId;
@@ -147,12 +143,10 @@ public class StreamLoadTask implements LoadTaskInfo {
         return lineDelimiter;
     }
 
-    @Override
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
     }
 
-    @Override
     public boolean isLoadToSingleTablet() {
         return loadToSingleTablet;
     }
@@ -165,7 +159,6 @@ public class StreamLoadTask implements LoadTaskInfo {
         return path;
     }
 
-    @Override
     public long getFileSize() {
         return fileSize;
     }
@@ -190,17 +183,14 @@ public class StreamLoadTask implements LoadTaskInfo {
         return stripOuterArray;
     }
 
-    @Override
     public boolean isNumAsString() {
         return numAsString;
     }
 
-    @Override
     public boolean isReadJsonByLine() {
         return readJsonByLine;
     }
 
-    @Override
     public boolean isFuzzyParse() {
         return fuzzyParse;
     }
@@ -245,18 +235,14 @@ public class StreamLoadTask implements LoadTaskInfo {
         return !Strings.isNullOrEmpty(sequenceCol);
     }
 
-
-    @Override
     public String getSequenceCol() {
         return sequenceCol;
     }
 
-    @Override
     public List<String> getHiddenColumns() {
         return hiddenColumns;
     }
 
-    @Override
     public boolean getTrimDoubleQuotes() {
         return trimDoubleQuotes;
     }
@@ -265,25 +251,23 @@ public class StreamLoadTask implements LoadTaskInfo {
         return skipLines;
     }
 
-    @Override
     public boolean getEnableProfile() {
         return enableProfile;
     }
 
-    @Override
     public boolean isPartialUpdate() {
         return isPartialUpdate;
     }
 
-    public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
-        StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
+    public static StreamLoadStmt fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
+        StreamLoadStmt streamLoadStmt = new StreamLoadStmt(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
-        streamLoadTask.setOptionalFromTSLPutRequest(request);
+        streamLoadStmt.setOptionalFromTSLPutRequest(request);
         if (request.isSetFileSize()) {
-            streamLoadTask.fileSize = request.getFileSize();
+            streamLoadStmt.fileSize = request.getFileSize();
         }
-        return streamLoadTask;
+        return streamLoadStmt;
     }
 
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {
@@ -312,7 +296,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         switch (request.getFileType()) {
             case FILE_STREAM:
-            // fall through to case FILE_LOCAL
+                // fall through to case FILE_LOCAL
             case FILE_LOCAL:
                 path = request.getPath();
                 break;
@@ -400,7 +384,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
         } catch (AnalysisException e) {
             LOG.warn("analyze columns' statement failed, sql={}, error={}",
-                     columnsSQL, parser.getErrorMsg(columnsSQL), e);
+                    columnsSQL, parser.getErrorMsg(columnsSQL), e);
             String errorMessage = parser.getErrorMsg(columnsSQL);
             if (errorMessage == null) {
                 throw e;
@@ -428,7 +412,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             throw new AnalysisException("failed to parsing where header, maybe contain unsupported character");
         } catch (AnalysisException e) {
             LOG.warn("analyze where statement failed, sql={}, error={}",
-                     whereSQL, parser.getErrorMsg(whereSQL), e);
+                    whereSQL, parser.getErrorMsg(whereSQL), e);
             String errorMessage = parser.getErrorMsg(whereSQL);
             if (errorMessage == null) {
                 throw e;
@@ -452,14 +436,26 @@ public class StreamLoadTask implements LoadTaskInfo {
         lineDelimiter.analyze();
     }
 
-    @Override
     public long getMemLimit() {
         return execMemLimit;
     }
 
-    @Override
     public double getMaxFilterRatio() {
         return maxFilterRatio;
     }
-}
 
+    @Override
+    public List<? extends DataDesc> getDataDescList() {
+        return null;
+    }
+
+    @Override
+    public ResourceDesc getResourceDesc() {
+        return null;
+    }
+
+    @Override
+    public LoadType getLoadType() {
+        return null;
+    }
+}

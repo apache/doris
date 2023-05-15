@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.StreamLoadStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
@@ -27,7 +28,6 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFileCompressType;
@@ -62,11 +62,11 @@ public class InsertStreamTxnExecutor {
             InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
         // StreamLoadTask's id == request's load_id
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+        StreamLoadStmt streamLoadStmt = StreamLoadStmt.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(
-                txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
+                txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadStmt);
         // Will using load id as query id in fragment
-        TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
+        TExecPlanFragmentParams tRequest = planner.plan(streamLoadStmt.getId());
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
                 .needLoadAvailable().needQueryAvailable().build();
         List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
