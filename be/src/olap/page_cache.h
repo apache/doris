@@ -28,10 +28,54 @@
 
 #include "olap/lru_cache.h"
 #include "util/slice.h"
+#include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris {
 
 class PageCacheHandle;
+
+template <typename TAllocator>
+class PageBase : private TAllocator {
+public:
+    PageBase() : data(nullptr), size(0), bytes(0) {}
+
+    PageBase(size_t b) : size(b), bytes(b) {
+        data = reinterpret_cast<char*>(TAllocator::alloc(bytes, ALLOCATOR_ALIGNMENT_16));
+        ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(bytes);
+    }
+
+    PageBase(PageBase&& other) : data(other.data), size(other.size) {
+        std::swap(bytes, other.bytes);
+    }
+
+    ~PageBase() {
+        if (data != nullptr) {
+            DCHECK(bytes != 0 && size != 0);
+            TAllocator::free(data, bytes);
+            ExecEnv::GetInstance()->page_no_cache_mem_tracker()->release(bytes);
+        }
+    }
+
+    void reset_size(size_t n) {
+        DCHECK(n <= bytes);
+        size = n;
+    }
+
+    void release() {
+        data = nullptr;
+        size = 0;
+        bytes = 0;
+    }
+
+    char* data;
+    // Effective size, smaller than bytes, such as data page remove checksum suffix.
+    size_t size;
+    size_t bytes = 0;
+};
+
+template <typename TAllocator = Allocator<false>>
+using DataPage = PageBase<TAllocator>;
 
 // Wrapper around Cache, and used for cache page of column data
 // in Segment.
@@ -88,7 +132,7 @@ public:
     // This function is thread-safe, and when two clients insert two same key
     // concurrently, this function can assure that only one page is cached.
     // The in_memory page will have higher priority.
-    void insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle,
+    void insert(const CacheKey& key, DataPage<>* data, PageCacheHandle* handle,
                 segment_v2::PageTypePB page_type, bool in_memory = false);
 
     // Page cache available check.
@@ -150,7 +194,10 @@ public:
     }
 
     Cache* cache() const { return _cache; }
-    Slice data() const { return _cache->value_slice(_handle); }
+    Slice data() const {
+        DataPage<>* cache_value = (DataPage<>*)_cache->value(_handle);
+        return Slice(cache_value->data, cache_value->size);
+    }
 
 private:
     Cache* _cache = nullptr;
