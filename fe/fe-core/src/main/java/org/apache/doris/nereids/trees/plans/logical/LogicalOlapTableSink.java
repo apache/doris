@@ -58,6 +58,14 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         return new LogicalOlapTableSink<>(targetTable, partitionIds, children.get(0));
     }
 
+    public OlapTable getTargetTable() {
+        return targetTable;
+    }
+
+    public List<Long> getPartitionIds() {
+        return partitionIds;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

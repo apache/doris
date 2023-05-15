@@ -21,6 +21,7 @@ import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 
 import java.util.Optional;
 
@@ -30,14 +31,13 @@ import java.util.Optional;
 public class LogicalOlapTableSinkToPhysicalOlapTableSink extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalEsScan().then(esScan ->
-                new PhysicalEsScan(
-                        esScan.getId(),
-                        esScan.getTable(),
-                        esScan.getQualifier(),
-                        DistributionSpecAny.INSTANCE,
+        return logicalOlapTableSink().then(sink ->
+                new PhysicalOlapTableSink<>(
+                        sink.getTargetTable(),
+                        sink.getPartitionIds(),
                         Optional.empty(),
-                        esScan.getLogicalProperties())
+                        sink.getLogicalProperties(),
+                        sink.child())
         ).toRule(RuleType.LOGICAL_OLAP_TABLE_SINK_TO_PHYSICAL_OLAP_TABLE_SINK_RULE);
     }
 }
