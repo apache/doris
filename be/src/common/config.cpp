@@ -24,6 +24,7 @@
 #include <lz4/lz4hc.h>
 
 #include <cerrno> // IWYU pragma: keep
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <fstream> // IWYU pragma: keep
@@ -41,6 +42,7 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "util/random.h"
 
 namespace doris {
 namespace config {
@@ -1529,17 +1531,18 @@ Status set_config(const std::string& field, const std::string& value, bool need_
             "'{}' is type of '{}' which is not support to modify", field, it->second.type);
 }
 
-Status set_fuzzy_config(const std::string& field, const std::string& value) {
+void set_fuzzy_config(const std::string& field, const std::string& value) {
     LOG(INFO) << fmt::format("FUZZY MODE: {} has been set to {}", field, value);
     return set_config(field, value, false, true);
 }
 
 void set_fuzzy_configs() {
     // random value true or false
-    static_cast<void>(
-            set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false"));
-    static_cast<void>(
-            set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false"));
+    Random generator {(uint32_t)std::time(nullptr)};
+    set_fuzzy_config("disable_storage_page_cache",
+                     ((generator.Next() % 2) == 0) ? "true" : "false");
+    set_fuzzy_config("enable_system_metrics", ((generator.Next() % 2) == 0) ? "true" : "false");
+    set_fuzzy_config("enable_simdjson_reader", ((generator.Next() % 2) == 0) ? "true" : "false");
     // random value from 8 to 48
     // s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
     // LOG(INFO) << s.to_string();
