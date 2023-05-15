@@ -23,7 +23,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 
 import com.google.common.collect.ImmutableSet;
@@ -37,7 +36,7 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(PartitionInMemoryInfoCollector.class);
 
     public PartitionInMemoryInfoCollector() {
-        super("PartitionInMemoryInfoCollector", Config.partition_in_memory_update_interval_secs * 1000);
+        super("PartitionInMemoryInfoCollector", 300 * 1000);
     }
 
     @Override

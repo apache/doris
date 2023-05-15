@@ -35,6 +35,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.RemoteFiles;
@@ -204,7 +205,7 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static String normalizeS3LikeSchema(String location) {
-        String[] objectStorages = Config.s3_compatible_object_storages.split(",");
+        String[] objectStorages = Util.S3_COMPATIBLE_SCHEMES.split(",");
         for (String objectStorage : objectStorages) {
             if (location.startsWith(objectStorage + "://")) {
                 location = location.replaceFirst(objectStorage, "s3");

@@ -36,7 +36,6 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExprOpcode;
@@ -118,12 +117,7 @@ public class IcebergUtils {
             try {
                 columns.add(nestedFieldToColumn(nestedField));
             } catch (UnsupportedOperationException e) {
-                if (Config.iceberg_table_creation_strict_mode) {
-                    throw e;
-                }
-                LOG.warn("Unsupported data type in Doris, ignore column[{}], with error: {}",
-                        nestedField.name(), e.getMessage());
-                continue;
+                throw e;
             }
         }
         return columns;

@@ -1197,265 +1197,214 @@ public class Config extends ConfigBase {
                     + "this value is determined by the start and end in the dynamic partition parameters."})
     public static int max_dynamic_partition_num = 4096;
 
-    /**
-     * Control the max num of backup/restore job per db
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"用于限制单个数据库的备份/恢复任务数",
+            "Used to limit the number of backup/restore jobs per database"})
     public static int max_backup_restore_job_num_per_db = 10;
 
-    /**
-     * Control the default max num of the instance for a user.
-     */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {"一个用户能够在单个FE同时执行的查询分片数量。-1 表示不限制。"
+            + "可以通过 `set property` 语句为指定用户单独配置。",
+            "The number of query shards that a user can execute at the same time on a single FE. -1 means no limit. "
+                    + "Can be configured separately for the specified user through the `set property` statement."})
     public static int default_max_query_instances = -1;
 
-    /*
-     * One master daemon thread will update global partition in memory
-     * info every partition_in_memory_update_interval_secs
-     */
-    @ConfField(mutable = false, masterOnly = true)
-    public static int partition_in_memory_update_interval_secs = 300;
-
-    @ConfField(masterOnly = true)
-    public static boolean enable_concurrent_update = false;
-
-    /**
-     * This configuration can only be configured during cluster initialization and cannot be modified during cluster
-     * restart and upgrade after initialization is complete.
-     *
-     * 0: table names are stored as specified and comparisons are case sensitive.
-     * 1: table names are stored in lowercase and comparisons are not case sensitive.
-     * 2: table names are stored as given but compared in lowercase.
-     */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {"用于设置表名的大小写敏感性。该参数只能在初始化集群时配置，且不可修改。"
+            + "0: 表名按照指定的大小写存储，比较时区分大小写。"
+            + "1: 表名存储为小写，比较时不区分大小写。"
+            + "2: 表名按照指定的大小写存储，比较时不区分大小写。",
+            "Used to set the case sensitivity of table names. "
+                    + "This parameter can only be configured during cluster initialization and cannot be modified. "
+                    + "0: Table names are stored as specified and comparisons are case sensitive. "
+                    + "1: Table names are stored in lowercase and comparisons are not case sensitive. "
+                    + "2: Table names are stored as given but compared in lowercase."})
     public static int lower_case_table_names = 0;
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"表名的最大长度限制。超过这个长度的表名不被允许使用。",
+            "The maximum length limit of the table name. "
+                    + "Table names longer than this length are not allowed to be used."})
     public static int table_name_length_limit = 64;
 
-    /*
-     * The job scheduling interval of the schema change handler.
-     * The user should not set this parameter.
-     * This parameter is currently only used in the regression test environment to appropriately
-     * reduce the running speed of the schema change job to test the correctness of the system
-     * in the case of multiple tasks in parallel.
-     */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = false, masterOnly = true, description = {"schema change handler的job调度间隔。"
+            + "用户不应该设置该参数。该参数目前仅在回归测试环境中使用，适当降低schema change job的运行速度，"
+            + "以测试系统在多个任务并行的情况下的正确性。",
+            "The job scheduling interval of the schema change handler. "
+                    + "The user should not set this parameter. "
+                    + "This parameter is currently only used in the regression test environment to appropriately "
+                    + "reduce the running speed of the schema change job to test the correctness of the system "
+                    + "in the case of multiple tasks in parallel."})
     public static int default_schema_change_scheduler_interval_millisecond = 500;
 
-    /*
-     * If set to true, the thrift structure of query plan will be sent to BE in compact mode.
-     * This will significantly reduce the size of rpc data, which can reduce the chance of rpc timeout.
-     * But this may slightly decrease the concurrency of queries, because compress and decompress cost more CPU.
-     */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, description = {"如果设置为true，查询计划的thrift结构将被压缩后发送到BE。"
+            + "这将显着减少rpc数据的大小，从而减少rpc超时的机会。"
+            + "但这可能会稍微降低查询的并发性，因为压缩和解压缩会消耗更多的CPU。",
+            "If set to true, the thrift structure of query plan will be sent to BE in compact format. "
+                    + "This will significantly reduce the size of rpc data, "
+                    + "which can reduce the chance of rpc timeout. "
+                    + "But this may slightly decrease the concurrency of queries, "
+                    + "because compress and decompress cost more CPU."})
     public static boolean use_compact_thrift_rpc = true;
 
-    /*
-     * If set to true, the tablet scheduler will not work, so that all tablet repair/balance task will not work.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"如果设置为true，tablet scheduler将不工作，"
+            + "这样所有的tablet repair/balance任务都将不工作。",
+            "If set to true, the tablet scheduler will not work, "
+                    + "so that all tablet repair/balance task will not work."})
     public static boolean disable_tablet_scheduler = false;
 
-    /*
-     * When doing clone or repair tablet task, there may be replica is REDUNDANT state, which
-     * should be dropped later. But there are be loading task on these replicas, so the default strategy
-     * is to wait until the loading task finished before dropping them.
-     * But the default strategy may takes very long time to handle these redundant replicas.
-     * So we can set this config to true to not wait any loading task.
-     * Set this config to true may cause loading task failed, but will
-     * speed up the process of tablet balance and repair.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"当执行clone或者repair tablet任务时，"
+            + "可能会有一些replica处于REDUNDANT状态，这些replica应该在后续被删除。"
+            + "但是这些replica上可能有loading任务，所以默认策略是等待loading任务完成后再删除。"
+            + "但是默认策略可能会花费很长时间来处理这些redundant replica。"
+            + "所以我们可以将这个配置设置为true来不等待任何loading任务。"
+            + "设置这个配置为true可能会导致loading任务失败，但是会加快tablet balance和repair的过程。",
+            "When doing clone or repair tablet task, there may be replica is REDUNDANT state, which "
+                    + "should be dropped later. But there are be loading task on these replicas, "
+                    + "so the default strategy is to wait until the loading task finished before dropping them. "
+                    + "But the default strategy may takes very long time to handle these redundant replicas. "
+                    + "So we can set this config to true to not wait any loading task. "
+                    + "Set this config to true may cause loading task failed, but will "
+                    + "speed up the process of tablet balance and repair."})
     public static boolean enable_force_drop_redundant_replica = false;
 
-    /*
-     * auto set the slowest compaction replica's status to bad
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"如果设置为 true，则会自动检测 compaction "
+            + "较慢从而版本数较高的副本，并将这些副本标记为 bad 以触发副本修复。改参数仅用于特殊情况下，自动处理 compaction 不正常的副本。",
+            "If set to true, the replica with slow compaction and high version will be detected automatically, "
+                    + "and the replica will be marked as bad to trigger replica repair. This parameter is only used "
+                    + "in special cases to automatically handle replicas with abnormal compaction."})
     public static boolean repair_slow_replica = false;
 
-    /*
-     * The relocation of a colocation group may involve a large number of tablets moving within the cluster.
-     * Therefore, we should use a more conservative strategy to avoid relocation
-     * of colocation groups as much as possible.
-     * Reloaction usually occurs after a BE node goes offline or goes down.
-     * This parameter is used to delay the determination of BE node unavailability.
-     * The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group
-     * will not be triggered.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"colocation group迁移可能会涉及大量的tablet在集群内的移动。"
+            + "因此，我们应该使用更保守的策略，尽可能避免colocation group的迁移。"
+            + "迁移通常发生在BE节点下线或者宕机后。"
+            + "该参数用于延迟判断BE节点不可用。"
+            + "默认为30分钟，即如果BE节点在30分钟内恢复，则不会触发colocation group的迁移。",
+            "The relocation of a colocation group may involve a large number of tablets moving within the cluster. "
+                    + "Therefore, we should use a more conservative strategy to avoid relocation "
+                    + "of colocation groups as much as possible. "
+                    + "Reloaction usually occurs after a BE node goes offline or goes down. "
+                    + "This parameter is used to delay the determination of BE node unavailability. "
+                    + "The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the "
+                    + "colocation group will not be triggered."})
     public static long colocate_group_relocate_delay_second = 1800; // 30 min
 
-    /*
-     * If set to true, when creating table, Doris will allow to locate replicas of a tablet
-     * on same host.
-     * This is only for local test, so that we can deploy multi BE on same host and create table
-     * with multi replicas.
-     * DO NOT use it for production env.
-     */
-    @ConfField
+    @ConfField(description = {"如果设置为true，则在创建表时，Doris将允许在同一主机上定位tablet的副本。"
+            + "这仅用于本地测试，以便我们可以在同一主机上部署多个BE并创建具有多个副本的表。"
+            + "不要在生产环境中使用它。",
+            "If set to true, Doris will allow replicas of tablets to be located on the same host when creating tables. "
+                    + "This is only used for local testing so that we can deploy multiple BEs "
+                    + "on the same host and create tables with multiple replicas. "
+                    + "Do not use it in production environment."})
     public static boolean allow_replica_on_same_host = false;
 
-    /**
-     *  The version count threshold used to judge whether replica compaction is too slow
-     */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {"当副本的版本数量超过这个阈值，则可能会被标记为 compaction 慢的副本。"
+            + "如果 `repair_slow_replica` 为 true，则可能触发副本修复。",
+            " If the version count of the replica exceeds this threshold, "
+                    + "it may be marked as a replica with slow compaction. "
+                    + "If `repair_slow_replica` is true, it may trigger replica repair."})
     public static int min_version_count_indicate_replica_compaction_too_slow = 200;
 
-    /**
-     * The valid ratio threshold of the difference between the version count of the slowest replica and the fastest
-     * replica. If repair_slow_replica is set to true, it is used to determine whether to repair the slowest replica
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "当副本的版本数量与最快副本的版本数量的差值超过这个阈值的比例，则可能会被标记为 compaction 慢的副本。"
+                    + "如果 `repair_slow_replica` 为 true，则可能触发副本修复。",
+            "If the ratio of the difference between the version count of the replica and the version count of the "
+                    + "fastest replica exceeds this threshold, it may be marked as a replica with slow compaction. "
+                    + "If `repair_slow_replica` is set to true, it may trigger replica repair."})
     public static double valid_version_count_delta_ratio_between_replicas = 0.5;
 
-    /**
-     * The data size threshold used to judge whether replica is too large
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "当副本的数据量超过这个阈值，则可能会被标记为数据量过大的副本。",
+            "If the data size of the replica exceeds this threshold, "
+                    + "it may be marked as a replica with too large data. "})
     public static long min_bytes_indicate_replica_too_large = 2 * 1024 * 1024 * 1024L;
 
-    /**
-     * If set to TRUE, the column definitions of iceberg table and the doris table must be consistent
-     * If set to FALSE, Doris only creates columns of supported data types.
-     * Default is true.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean iceberg_table_creation_strict_mode = true;
-
     // statistics
-    /*
-     * the max unfinished statistics job number
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cbo_max_statistics_job_num = 20;
-    /*
-     * the max timeout of a statistics task
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"统计信息收集任务的最大超时时间",
+            "The maximum timeout time of the statistics collection task"})
     public static int max_cbo_statistics_task_timeout_sec = 300;
-    /*
-     * the concurrency of statistics task
-     */
-    // TODO change it to mutable true
-    @ConfField(mutable = false, masterOnly = true)
-    public static int cbo_concurrency_statistics_task_num = 10;
-    /*
-     * default sample percentage
-     * The value from 0 ~ 100. The 100 means no sampling and fetch all data.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cbo_default_sample_percentage = 10;
 
-    /*
-     * if true, will allow the system to collect statistics automatically
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"是否允许系统自动收集统计信息",
+            "If true, will allow the system to collect statistics automatically"})
     public static boolean enable_auto_collect_statistics = true;
 
-    /*
-     * the system automatically checks the time interval for statistics
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"系统自动检查统计信息的时间间隔",
+            "The system automatically checks the time interval for statistics"})
     public static int auto_check_statistics_in_sec = 300;
 
-    /**
-     * If this configuration is enabled, you should also specify the trace_export_url.
-     */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(description = {"是否开启tracing功能，如果开启，需要指定 `trace_export_url`",
+            "Whether to enable the tracing feature, if enabled, you need to specify `trace_export_url`"})
     public static boolean enable_tracing = false;
 
-    /**
-     * Current support for exporting traces:
-     *   zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-     *   collector: The collector can be used to receive and process traces and support export to a variety of
-     *     third-party systems.
-     * If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-     */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(description = {"Tracing 结果导出方式。zipkin：直接导出到zipkin，用于快速启用tracing功能。"
+            + "collector：collector 可以用于接收和处理 Tracing 结果并导出到自定义的第三方系统。",
+            "Tracing result export method. zipkin: Export directly to zipkin, which is used to enable the tracing "
+                    + "feature quickly. collector: The collector can be used to receive and process Tracing results "
+                    + "and export to custom third-party systems."},
+            options = {"zipkin", "collector"})
     public static String trace_exporter = "zipkin";
 
-    /**
-     * The endpoint to export spans to.
-     * export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-     * export to collector like: http://127.0.0.1:4318/v1/traces
-     */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(description = {"Tracing 结果导出的地址，如果 `trace_exporter` 为 zipkin，则导出到 zipkin 的地址。"
+            + "如：http://127.0.0.1:9411/api/v2/spans"
+            + "如果 `trace_exporter` 为 collector，则导出到 collector 的地址。"
+            + "如：http://127.0.0.1:4318/v1/traces",
+            "The address to export the Tracing result. If `trace_exporter` is zipkin, the address to export to zipkin. "
+                    + "Such as: http://127.0.0.1:9411/api/v2/spans. "
+                    + "If `trace_exporter` is collector, the address to export to collector. "
+                    + "Such as: http://127.0.0.1:4318/v1/traces"})
     public static String trace_export_url = "http://127.0.0.1:9411/api/v2/spans";
 
-    /**
-     * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
-     * Default is true.
-     */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {"查询选择副本时，是否跳过 compaction 慢的副本。"
+            + "可以避免查询 compaction 慢的副本导致的查询效率变差。",
+            "Whether to skip the replica with slow compaction when selecting the queryable replica. "
+                    + "It can avoid the query efficiency becoming worse due to the replica with slow compaction."})
     public static boolean skip_compaction_slower_replica = true;
 
-    /**
-     * Enable quantile_state type column
-     * Default is false.
-     * */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_quantile_state_type = true;
-
-    @ConfField
+    @ConfField(expType = ExperimentalType.EXPERIMENTAL, description = {"是否使用 pipeline 执行引擎执行导入任务。",
+            "Whether to use the pipeline execution engine to execute the import task."})
     public static boolean enable_pipeline_load = false;
 
     // enable_resource_group should be immutable and temporarily set to mutable during the development test phase
-    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL,
+            description = {"是否启用资源组功能",
+                    "Whether to enable the resource group function."})
     public static boolean enable_resource_group = false;
 
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(description = {"FE 访问其他 FE 或 BE 的 thrift server 的超时时间",
+            "The timeout time for FE to access the thrift server of other FE or BE"})
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
-    /**
-     * If set to TRUE, FE will:
-     * 1. divide BE into high load and low load(no mid load) to force triggering tablet scheduling;
-     * 2. ignore whether the cluster can be more balanced during tablet scheduling;
-     *
-     * It's used to test the reliability in single replica case when tablet scheduling are frequent.
-     * Default is false.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "用于开启副本均衡的 fuzzy 测试。如果设置为 TRUE，FE 将："
+                    + "1. 将 BE 分为高负载和低负载（没有中负载）以强制触发 tablet 调度；"
+                    + "2. 在 tablet 调度期间忽略集群是否可以更加平衡；"
+                    + "用于测试单副本情况下 tablet 调度频繁时的可靠性。",
+            " Used to enable fuzzy test of replica balancing. If set to TRUE, FE will:"
+                    + " 1. Divide BE into high load and low load (no mid load) to force triggering tablet scheduling;"
+                    + " 2. Ignore whether the cluster can be more balanced during tablet scheduling;"
+                    + " Used to test the reliability in single replica case when tablet scheduling are frequent."})
     public static boolean be_rebalancer_fuzzy_test = false;
 
-    /**
-     * If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "如果设置为 TRUE，FE 将自动将 date/datetime 转换为 datev2/datetimev2(0)",
+            "If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically."})
     public static boolean enable_date_conversion = false;
 
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(masterOnly = true, description = {"是否允许为一个 BE 设置多个 Tag。",
+            "Whether to allow multiple tags to be set for a BE."})
     public static boolean enable_multi_tags = false;
 
-    /**
-     * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "如果设置为 TRUE，FE 将自动将 DecimalV2 转换为 DecimalV3",
+            "If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically."})
     public static boolean enable_decimal_conversion = false;
 
-    /**
-     * List of S3 API compatible object storage systems.
-     */
-    @ConfField
-    public static String s3_compatible_object_storages = "s3,oss,cos,bos";
-
-    /**
-     * Support complex data type ARRAY.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_array_type = false;
-
-    /**
-     * Support complex data type MAP.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否支持复杂数据类型 MAP。",
+            "Whether to support complex data type MAP."},
+            expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_map_type = false;
 
-    /**
-     * Support complex data type STRUCT.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否支持复杂数据类型 STRUCT。",
+            "Whether to support complex data type STRUCT."},
+            expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_struct_type = false;
 
     /**

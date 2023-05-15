@@ -20,7 +20,6 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
@@ -59,10 +58,12 @@ public class Util {
     private static final long DEFAULT_EXEC_CMD_TIMEOUT_MS = 600000L;
 
     private static final String[] ORDINAL_SUFFIX
-            = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
+            = new String[] {"th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th"};
 
     private static final List<String> REGEX_ESCAPES
             = Lists.newArrayList("\\", "$", "(", ")", "*", "+", ".", "[", "]", "?", "^", "{", "}", "|");
+
+    public static final String S3_COMPATIBLE_SCHEMES = "s3,oss,cos,bos";
 
     static {
         TYPE_STRING_MAP.put(PrimitiveType.TINYINT, "tinyint(4)");
@@ -509,7 +510,7 @@ public class Util {
     }
 
     public static boolean isS3CompatibleStorageSchema(String schema) {
-        for (String objectStorage : Config.s3_compatible_object_storages.split(",")) {
+        for (String objectStorage : S3_COMPATIBLE_SCHEMES.split(",")) {
             if (objectStorage.equalsIgnoreCase(schema)) {
                 return true;
             }
