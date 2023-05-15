@@ -344,7 +344,7 @@ Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
         }
     }
     if (index_slots == nullptr) {
-        Status::InternalError("unknown index id, key={}", _key.to_string());
+        return Status::InternalError("unknown index id, key={}", _key.to_string());
     }
     int64_t partition_id = _tablet_partition_map[tablet_id];
     DCHECK(partition_id != 0);
@@ -401,7 +401,7 @@ Status TabletsChannel::open_all_writers_for_partition(const OpenPartitionRequest
         }
     }
     if (index_slots == nullptr) {
-        Status::InternalError("unknown index id, key={}", _key.to_string());
+        return Status::InternalError("unknown index id, key={}", _key.to_string());
     }
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;
@@ -508,6 +508,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                  std::function<Status(DeltaWriter * writer)> write_func) {
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();
+        bool open_partition_flag;
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
             auto tablet_writer_it = _tablet_writers.find(tablet_id);
@@ -516,14 +517,16 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                     return Status::InternalError("unknown tablet to append data, tablet={}",
                                                  tablet_id);
                 } else {
-                    RETURN_IF_ERROR(_open_all_writers_for_partition(tablet_id, request));
-                    tablet_writer_it = _tablet_writers.find(tablet_id);
-                    if (tablet_writer_it == _tablet_writers.end()) {
-                        return Status::InternalError("unknown tablet to append data, tablet={}",
-                                                     tablet_id);
-                    }
+                    open_partition_flag = true;
                 }
             }
+        }
+        if (open_partition_flag == true) {
+            RETURN_IF_ERROR(_open_all_writers_for_partition(tablet_id, request));
+        }
+        {
+            std::lock_guard<SpinLock> l(_tablet_writers_lock);
+            auto tablet_writer_it = _tablet_writers.find(tablet_id);
             Status st = write_func(tablet_writer_it->second);
             if (!st.ok()) {
                 auto err_msg =
