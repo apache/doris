@@ -1262,4 +1262,17 @@ suite("test_join", "query,p0") {
     logger.info(ret.toString())
     assertTrue(ret.toString().contains("  |  join op: INNER JOIN(BROADCAST)"))
     sql"""drop database test_issue_6171"""
+
+    sql """
+    CREATE TABLE t0(c0 BOOLEAN NOT NULL) DISTRIBUTED BY HASH (c0) BUCKETS 8 PROPERTIES ("replication_num" = "1");
+    """
+    sql """
+    CREATE TABLE t1(c0 DATETIME NOT NULL) DISTRIBUTED BY HASH (c0) BUCKETS 9 PROPERTIES ("replication_num" = "1");
+    """
+    sql """INSERT INTO t1 (c0) VALUES (DATE '1970-02-15'), (DATE '1970-11-05'), (DATE '1970-07-10');"""
+    sql """INSERT INTO t1 (c0) VALUES (DATE '1970-04-04');"""
+    sql """INSERT INTO t1 (c0) VALUES (DATE '1970-09-06');"""
+    sql """INSERT INTO t0 (c0) VALUES (true);"""
+    sql """INSERT INTO t0 (c0) VALUES (false);"""
+    qt_test """SELECT t1.c0 FROM  t1 RIGHT JOIN t0 ON true WHERE  (abs(1)=0) GROUP BY  t1.c0;"""
 }

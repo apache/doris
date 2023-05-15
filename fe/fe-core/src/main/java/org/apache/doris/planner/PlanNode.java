@@ -61,6 +61,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Each PlanNode represents a single relational operator
@@ -712,7 +713,21 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     public void init() throws UserException {}
 
     public void init(Analyzer analyzer) throws UserException {
+        assignConjunctsNonConstant(analyzer);
         createDefaultSmap(analyzer);
+    }
+
+    protected void assignConjunctsNonConstant(Analyzer analyzer) {
+        // we cannot plan conjuncts on exchange node, so we just skip the node.
+        if (this instanceof ExchangeNode) {
+            return;
+        }
+        List<Expr> unassigned = analyzer.getUnassignedConjuncts(this).stream()
+                .filter(e -> !e.isConstant()).collect(Collectors.toList());
+        for (Expr unassignedConjunct : unassigned) {
+            addConjunct(unassignedConjunct);
+        }
+        analyzer.markConjunctsAssigned(unassigned);
     }
 
     /**
