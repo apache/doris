@@ -29,6 +29,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/olap_define.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -61,8 +62,18 @@ OlapMeta::~OlapMeta() {
             _db->DestroyColumnFamilyHandle(handle);
             handle = nullptr;
         }
+        rocksdb::Status s = _db->SyncWAL();
+        if (!s.ok()) {
+            LOG(WARNING) << "rocksdb sync wal failed: " << s.ToString();
+        }
+        rocksdb::CancelAllBackgroundWork(_db, true);
+        s = _db->Close();
+        if (!s.ok()) {
+            LOG(WARNING) << "rocksdb close failed: " << s.ToString();
+        }
         delete _db;
         _db = nullptr;
+        LOG(INFO) << "finish close rocksdb for OlapMeta";
     }
 }
 
