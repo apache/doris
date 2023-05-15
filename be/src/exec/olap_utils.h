@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <fmt/core.h>
 #include <gen_cpp/Opcodes_types.h>
+#include <glog/logging.h>
 #include <math.h>
 
 #include "common/logging.h"
@@ -49,6 +51,15 @@ public:
     bool end_include;
     OlapTuple begin_scan_range;
     OlapTuple end_scan_range;
+
+    std::string debug_string() const {
+        fmt::memory_buffer buf;
+        DCHECK_EQ(begin_scan_range.size(), end_scan_range.size());
+        for (int i = 0; i < begin_scan_range.size(); i++) {
+            fmt::format_to(buf, "({}, {})\n", begin_scan_range[i], end_scan_range[i]);
+        }
+        return fmt::to_string(buf);
+    }
 };
 
 static char encoding_table[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
