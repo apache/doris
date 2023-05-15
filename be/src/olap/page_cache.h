@@ -45,6 +45,9 @@ public:
         ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(bytes);
     }
 
+    PageBase(const PageBase&) = delete;
+    PageBase& operator=(const PageBase&) = delete;
+
     ~PageBase() {
         if (data != nullptr) {
             DCHECK(bytes != 0 && size != 0);
