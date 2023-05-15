@@ -174,44 +174,6 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
-// gen_cpp headers
-#include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/BackendService.h>
-#include <gen_cpp/BackendService_types.h>
-#include <gen_cpp/DataSinks_types.h>
-#include <gen_cpp/Data_types.h>
-#include <gen_cpp/Descriptors_types.h>
-#include <gen_cpp/DorisExternalService_types.h>
-#include <gen_cpp/Exprs_types.h>
-#include <gen_cpp/FrontendService.h>
-#include <gen_cpp/FrontendService_types.h>
-#include <gen_cpp/HeartbeatService.h>
-#include <gen_cpp/HeartbeatService_constants.h>
-#include <gen_cpp/HeartbeatService_types.h>
-#include <gen_cpp/MasterService_types.h>
-#include <gen_cpp/Metrics_types.h>
-#include <gen_cpp/Opcodes_types.h>
-#include <gen_cpp/PaloBrokerService_types.h>
-#include <gen_cpp/PaloInternalService_types.h>
-#include <gen_cpp/Partitions_types.h>
-#include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Planner_types.h>
-#include <gen_cpp/QueryPlanExtra_types.h>
-#include <gen_cpp/RuntimeProfile_types.h>
-#include <gen_cpp/Status_types.h>
-#include <gen_cpp/TPaloBrokerService.h>
-#include <gen_cpp/Types_constants.h>
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/data.pb.h>
-#include <gen_cpp/descriptors.pb.h>
-#include <gen_cpp/function_service.pb.h>
-#include <gen_cpp/internal_service.pb.h>
-#include <gen_cpp/olap_common.pb.h>
-#include <gen_cpp/olap_file.pb.h>
-#include <gen_cpp/parquet_types.h>
-#include <gen_cpp/segment_v2.pb.h>
-#include <gen_cpp/types.pb.h>
-
 // gflags headers
 #include <gflags/gflags.h>
 #include <gflags/gflags_declare.h>
@@ -367,6 +329,45 @@
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TTransport.h>
 #include <thrift/transport/TTransportException.h>
+
+// gen_cpp headers
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/BackendService.h>
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/DorisExternalService_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService.h>
+#include <gen_cpp/HeartbeatService_constants.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/PaloBrokerService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Partitions_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Planner_types.h>
+#include <gen_cpp/QueryPlanExtra_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/TPaloBrokerService.h>
+#include <gen_cpp/Types_constants.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/descriptors.pb.h>
+#include <gen_cpp/function_service.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/parquet_types.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <gen_cpp/version.h>
 
 // boost headers
 #include <boost/algorithm/string.hpp>
@@ -552,8 +553,10 @@
 #include <memory_resource>
 #endif
 
-// doris headers
+// doris common headers
+#include "common/compiler_util.h"
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "common/version_internal.h"
-#include "olap/olap_common.h"
+#include "gutil/strings/substitute.h"
