@@ -641,7 +641,6 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
 }
 
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "HashJoinNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (_short_circuit_for_null_in_probe_side) {
@@ -669,14 +668,12 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     while (need_more_input_data()) {
         prepare_for_next();
         SCOPED_TIMER(_probe_next_timer);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &_probe_block, &_probe_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), _probe_eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, &_probe_block, &_probe_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
         RETURN_IF_ERROR(push(state, &_probe_block, _probe_eos));
     }
@@ -731,7 +728,6 @@ void HashJoinNode::_prepare_probe_block() {
 }
 
 Status HashJoinNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     RETURN_IF_CANCELLED(state);
@@ -755,7 +751,6 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
 }
 
 void HashJoinNode::release_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::release_resources");
     VExpr::close(_build_expr_ctxs, state);
     VExpr::close(_probe_expr_ctxs, state);
 
@@ -778,15 +773,12 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
             block.clear_column_data();
             RETURN_IF_CANCELLED(state);
 
-            RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(1)->get_next_after_projects(
-                            state, &block, &eos,
-                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
-                                                           bool*)) &
-                                              ExecNode::get_next,
-                                      _children[1], std::placeholders::_1, std::placeholders::_2,
-                                      std::placeholders::_3)),
-                    child(1)->get_next_span(), eos);
+            RETURN_IF_ERROR(child(1)->get_next_after_projects(
+                    state, &block, &eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[1], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
 
             RETURN_IF_ERROR(sink(state, &block, eos));
         }

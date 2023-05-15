@@ -199,7 +199,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
         tracer = telemetry::get_tracer(print_id(_query_id));
     }
-    START_AND_SCOPE_SPAN(tracer, span, "PipelineFragmentExecutor::prepare");
 
     LOG_INFO("PipelineFragmentContext::prepare")
             .tag("query_id", _query_id)

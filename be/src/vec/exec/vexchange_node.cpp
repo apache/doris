@@ -88,7 +88,6 @@ Status VExchangeNode::alloc_resource(RuntimeState* state) {
 }
 
 Status VExchangeNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExchangeNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
 
@@ -96,7 +95,6 @@ Status VExchangeNode::open(RuntimeState* state) {
 }
 
 Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExchangeNode::get_next");
     SCOPED_TIMER(runtime_profile()->total_time_counter());
     if (_is_merging && state->enable_pipeline_exec() && !_is_ready) {
         RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
@@ -152,8 +150,6 @@ Status VExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExchangeNode::close");
-
     return ExecNode::close(state);
 }
 
