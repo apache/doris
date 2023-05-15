@@ -35,6 +35,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.external.TVFScanNode;
@@ -63,14 +65,22 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
+import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.file.DataFileStream;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericRecord;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.regex.Matcher;
@@ -117,8 +127,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     // Columns got from file
     protected List<Column> columns = null;
-    // User specified csv columns, it will override columns got from file
-    private List<Column> csvSchema = Lists.newArrayList();
+    // User specified csv, avro columns, it will override columns got from file
+    private List<Column> tableSchema = Lists.newArrayList();
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties;
@@ -151,8 +161,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return locationProperties;
     }
 
-    public List<Column> getCsvSchema() {
-        return csvSchema;
+    public List<Column> getTableSchema() {
+        return tableSchema;
     }
 
     public String getFsName() {
@@ -198,6 +208,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             case "json":
                 this.fileFormatType = TFileFormatType.FORMAT_JSON;
                 break;
+            case "avro":
+                this.fileFormatType = TFileFormatType.FORMAT_AVRO;
+                break;
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
@@ -215,7 +228,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         if (formatString.equals("csv") || formatString.equals("csv_with_names")
                 || formatString.equals("csv_with_names_and_types")) {
-            parseCsvSchema(csvSchema, validParams);
+            parseCsvSchema(tableSchema, validParams);
+        } else if (fileFormatType.equals(TFileFormatType.FORMAT_AVRO)) {
+            parseAvroSchema(tableSchema);
         }
     }
 
@@ -290,6 +305,56 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
+    private void parseAvroSchema(List<Column> tableSchema) throws AnalysisException {
+        String filePath = getFilePath();
+        Schema schema;
+        BrokerDesc brokerDesc = getBrokerDesc();
+        RemoteFileSystem remoteFileSystem =
+                FileSystemFactory.get(brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
+        InputStream inputStream = null;
+        try {
+            inputStream = remoteFileSystem.getInputStream(filePath);
+            DataFileStream<GenericRecord> reader = new DataFileStream<>(inputStream, new GenericDatumReader<>());
+            schema = reader.getSchema();
+        } catch (IOException | UserException e) {
+            throw new AnalysisException("Failed to get avro file schema", e);
+        } finally {
+            try {
+                Objects.requireNonNull(inputStream).close();
+            } catch (IOException e) {
+                throw new AnalysisException("Failed to close inputStream source.", e);
+            }
+        }
+        List<Field> schemaFields = schema.getFields();
+        for (Field field : schemaFields) {
+            tableSchema.add(serializeObject(field));
+        }
+    }
+
+    public Column serializeObject(Field field) throws AnalysisException {
+        String name = field.name();
+        Schema schema = field.schema();
+        Schema.Type type = schema.getType();
+        switch (type) {
+            case STRING:
+                return new Column(name, PrimitiveType.VARCHAR, true);
+            case INT:
+                return new Column(name, PrimitiveType.INT, true);
+            case LONG:
+                return new Column(name, PrimitiveType.BIGINT, true);
+            case BOOLEAN:
+                return new Column(name, PrimitiveType.BOOLEAN, true);
+            case FLOAT:
+                return new Column(name, PrimitiveType.FLOAT, true);
+            case DOUBLE:
+                return new Column(name, PrimitiveType.DOUBLE, true);
+            case ARRAY:
+            case MAP:
+            default:
+                throw new AnalysisException("avro format:" + type.getName() + " is not supported.");
+        }
+    }
+
     public List<TBrokerFileStatus> getFileStatuses() {
         return fileStatuses;
     }
@@ -325,8 +390,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (FeConstants.runningUnitTest) {
             return Lists.newArrayList();
         }
-        if (!csvSchema.isEmpty()) {
-            return csvSchema;
+        if (!tableSchema.isEmpty()) {
+            return tableSchema;
         }
         if (this.columns != null) {
             return columns;

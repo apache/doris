@@ -82,7 +82,7 @@ public abstract class JniScanner {
         return vectorTable.getMetaAddress();
     }
 
-    protected void resetTable() {
+    public void resetTable() {
         vectorTable.reset();
     }
 
@@ -90,7 +90,7 @@ public abstract class JniScanner {
         vectorTable.releaseColumn(fieldId);
     }
 
-    protected void releaseTable() {
+    public void releaseTable() {
         if (vectorTable != null) {
             vectorTable.close();
         }
