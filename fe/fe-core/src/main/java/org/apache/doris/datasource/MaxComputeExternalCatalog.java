@@ -38,7 +38,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
 
     public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE);
-        this.type = "max-compute";
+        this.type = "max_compute";
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -54,6 +54,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
             throw new IllegalArgumentException("Missing required property '" + MCProperties.PROJECT + "'.");
         }
         if (region.startsWith("oss-")) {
+            // may use oss-cn-beijing, ensure compatible
             region = region.replace("oss-", "");
         }
         this.tunnelUrl = tunnelUrlTemplate.replace("{}", region);

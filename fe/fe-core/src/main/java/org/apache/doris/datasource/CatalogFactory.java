@@ -113,7 +113,7 @@ public class CatalogFactory {
             case "iceberg":
                 catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props);
                 break;
-            case "max-compute":
+            case "max_compute":
                 catalog = new MaxComputeExternalCatalog(catalogId, name, resource, props);
                 break;
             case "test":
