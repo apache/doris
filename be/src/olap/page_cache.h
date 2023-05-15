@@ -45,10 +45,6 @@ public:
         ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(bytes);
     }
 
-    PageBase(PageBase&& other) : data(other.data), size(other.size) {
-        std::swap(bytes, other.bytes);
-    }
-
     ~PageBase() {
         if (data != nullptr) {
             DCHECK(bytes != 0 && size != 0);
@@ -74,8 +70,7 @@ public:
     size_t bytes = 0;
 };
 
-template <typename TAllocator = Allocator<false>>
-using DataPage = PageBase<TAllocator>;
+using DataPage = PageBase<Allocator<false>>;
 
 // Wrapper around Cache, and used for cache page of column data
 // in Segment.
@@ -132,7 +127,7 @@ public:
     // This function is thread-safe, and when two clients insert two same key
     // concurrently, this function can assure that only one page is cached.
     // The in_memory page will have higher priority.
-    void insert(const CacheKey& key, DataPage<>* data, PageCacheHandle* handle,
+    void insert(const CacheKey& key, DataPage* data, PageCacheHandle* handle,
                 segment_v2::PageTypePB page_type, bool in_memory = false);
 
     // Page cache available check.
@@ -195,7 +190,7 @@ public:
 
     Cache* cache() const { return _cache; }
     Slice data() const {
-        DataPage<>* cache_value = (DataPage<>*)_cache->value(_handle);
+        DataPage* cache_value = (DataPage*)_cache->value(_handle);
         return Slice(cache_value->data, cache_value->size);
     }
 

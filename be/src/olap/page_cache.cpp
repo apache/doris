@@ -64,10 +64,10 @@ bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle,
     return true;
 }
 
-void StoragePageCache::insert(const CacheKey& key, DataPage<>* data, PageCacheHandle* handle,
+void StoragePageCache::insert(const CacheKey& key, DataPage* data, PageCacheHandle* handle,
                               segment_v2::PageTypePB page_type, bool in_memory) {
     auto deleter = [](const doris::CacheKey& key, void* value) {
-        DataPage<>* cache_value = (DataPage<>*)value;
+        DataPage* cache_value = (DataPage*)value;
         delete cache_value;
     };
 

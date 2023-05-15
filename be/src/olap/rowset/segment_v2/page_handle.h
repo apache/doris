@@ -36,7 +36,7 @@ public:
 
     // This class will take the ownership of input data's memory. It will
     // free it when deconstructs.
-    PageHandle(DataPage<>* data) : _is_data_owner(true), _data(data) {}
+    PageHandle(DataPage* data) : _is_data_owner(true), _data(data) {}
 
     // This class will take the content of cache data, and will make input
     // cache_data to a invalid cache handle.
@@ -78,7 +78,7 @@ private:
     // when this is true, it means this struct own data and _data is valid.
     // otherwise _cache_data is valid, and data is belong to cache.
     bool _is_data_owner = false;
-    DataPage<>* _data = nullptr;
+    DataPage* _data = nullptr;
     PageCacheHandle _cache_data;
 
     // Don't allow copy and assign

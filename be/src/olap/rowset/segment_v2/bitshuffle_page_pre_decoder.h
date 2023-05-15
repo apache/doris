@@ -38,7 +38,7 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
      * @param size_of_tail including size of footer and null map
      * @return Status
      */
-    virtual Status decode(std::unique_ptr<DataPage<>>* page, Slice* page_slice,
+    virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice,
                           size_t size_of_tail) override {
         size_t num_elements, compressed_size, num_element_after_padding;
         int size_of_element;
@@ -66,7 +66,7 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
         Slice decoded_slice;
         decoded_slice.size = size_of_dict_header + BITSHUFFLE_PAGE_HEADER_SIZE +
                              num_element_after_padding * size_of_element + size_of_tail;
-        std::unique_ptr<DataPage<>> decoded_page = std::make_unique<DataPage<>>(decoded_slice.size);
+        std::unique_ptr<DataPage> decoded_page = std::make_unique<DataPage>(decoded_slice.size);
         decoded_slice.data = decoded_page->data;
 
         if constexpr (USED_IN_DICT_ENCODING) {
