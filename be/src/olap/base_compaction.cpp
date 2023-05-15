@@ -55,7 +55,7 @@ Status BaseCompaction::prepare_compact() {
     TRACE("got base compaction lock");
 
     // 1. pick rowsets to compact
-    RETURN_NOT_OK(pick_rowsets_to_compact());
+    RETURN_IF_ERROR(pick_rowsets_to_compact());
     TRACE("rowsets picked");
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
     _tablet->set_clone_occurred(false);
@@ -87,7 +87,7 @@ Status BaseCompaction::execute_compact_impl() {
 
     // 2. do base compaction, merge rowsets
     int64_t permits = get_compaction_permits();
-    RETURN_NOT_OK(do_compaction(permits));
+    RETURN_IF_ERROR(do_compaction(permits));
     TRACE("compaction finished");
 
     // 3. set state to success
@@ -126,8 +126,8 @@ void BaseCompaction::_filter_input_rowset() {
 
 Status BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets = _tablet->pick_candidate_rowsets_to_base_compaction();
-    RETURN_NOT_OK(check_version_continuity(_input_rowsets));
-    RETURN_NOT_OK(_check_rowset_overlapping(_input_rowsets));
+    RETURN_IF_ERROR(check_version_continuity(_input_rowsets));
+    RETURN_IF_ERROR(_check_rowset_overlapping(_input_rowsets));
     _filter_input_rowset();
     if (_input_rowsets.size() <= 1) {
         return Status::Error<BE_NO_SUITABLE_VERSION>();

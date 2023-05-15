@@ -71,7 +71,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 - `sql_mode`
 - `enable_profile`
 - `query_timeout`
-- `insert_timeout`<version since="dev"></version>
+- <version since="dev" type="inline">`insert_timeout`</version>
 - `exec_mem_limit`
 - `batch_size`
 - `allow_partition_column_nullable`
@@ -632,6 +632,15 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
     | 10000000     |
     +--------------+
     ```
+  
+* `enable_parquet_lazy_materialization`
+
+  控制 parquet reader 是否启用延迟物化技术。默认为 true。
+
+* `enable_orc_lazy_materialization`
+
+  控制 orc reader 是否启用延迟物化技术。默认为 true。
+
 ***
 
 #### 关于语句执行超时控制的补充说明

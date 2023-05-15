@@ -589,7 +589,7 @@ public class Repository implements Writable {
         // get proper broker for this backend
         FsBroker brokerAddr = null;
         try {
-            brokerAddr = env.getBrokerMgr().getBroker(fileSystem.getName(), be.getIp());
+            brokerAddr = env.getBrokerMgr().getBroker(fileSystem.getName(), be.getHost());
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
                     + fileSystem.getName() + " when try to send upload snapshot task: "

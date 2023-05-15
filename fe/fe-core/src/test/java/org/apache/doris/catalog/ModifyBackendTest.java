@@ -67,7 +67,7 @@ public class ModifyBackendTest {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         Assert.assertEquals(1, backends.size());
-        String beHostPort = backends.get(0).getIp() + ":" + backends.get(0).getHeartbeatPort();
+        String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
 
         // modify backend tag
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('tag.location' = 'zone1')";
@@ -166,7 +166,7 @@ public class ModifyBackendTest {
     public void testModifyBackendAvailableProperty() throws Exception {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
-        String beHostPort = backends.get(0).getIp() + ":" + backends.get(0).getHeartbeatPort();
+        String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
         // modify backend available property
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'true', 'disable_load' = 'true')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);

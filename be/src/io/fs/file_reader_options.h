@@ -80,6 +80,8 @@ public:
     int64_t file_size = -1;
     bool has_cache_base_path = false;
     std::string cache_base_path;
+    // Use modification time to determine whether the file is changed
+    int64_t modification_time = 0;
 
     void specify_cache_path(const std::string& base_path) {
         has_cache_base_path = true;

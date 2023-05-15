@@ -59,7 +59,8 @@ public class AnalysisTaskInfo {
 
     public enum ScheduleType {
         ONCE,
-        PERIOD
+        PERIOD,
+        AUTOMATIC
     }
 
     public final long jobId;
@@ -103,11 +104,15 @@ public class AnalysisTaskInfo {
 
     public String message;
 
+    // True means this task is a table level task for external table.
+    // This kind of task is mainly to collect the number of rows of a table.
+    public boolean externalTableLevelTask;
+
     public AnalysisTaskInfo(long jobId, long taskId, String catalogName, String dbName, String tblName,
             Map<String, Set<String>> colToPartitions, String colName, Long indexId, JobType jobType,
             AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, int sampleRows, int maxBucketNum, long periodTimeInMs, String message,
-            long lastExecTimeInMs, AnalysisState state, ScheduleType scheduleType) {
+            long lastExecTimeInMs, AnalysisState state, ScheduleType scheduleType, boolean isExternalTableLevelTask) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.catalogName = catalogName;
@@ -128,6 +133,7 @@ public class AnalysisTaskInfo {
         this.lastExecTimeInMs = lastExecTimeInMs;
         this.state = state;
         this.scheduleType = scheduleType;
+        this.externalTableLevelTask = isExternalTableLevelTask;
     }
 
     @Override

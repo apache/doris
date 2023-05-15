@@ -466,6 +466,8 @@ struct TMasterOpRequest {
     19: optional map<string, string> session_variables
     20: optional bool foldConstantByBe
     21: optional map<string, string> trace_carrier
+    22: optional string clientNodeHost
+    23: optional i32 clientNodePort
 }
 
 struct TColumnDefinition {

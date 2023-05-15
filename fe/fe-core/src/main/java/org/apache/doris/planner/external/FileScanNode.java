@@ -212,7 +212,7 @@ public class FileScanNode extends ExternalScanNode {
     }
 
     protected List<Split> splitFile(Path path, long blockSize, BlockLocation[] blockLocations, long length,
-                                  boolean splittable, List<String> partitionValues) throws IOException {
+            long modificationTime, boolean splittable, List<String> partitionValues) throws IOException {
         if (blockLocations == null) {
             blockLocations = new BlockLocation[0];
         }
@@ -226,7 +226,7 @@ public class FileScanNode extends ExternalScanNode {
         if (!splittable) {
             LOG.debug("Path {} is not splittable.", path);
             String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
-            result.add(new FileSplit(path, 0, length, length, hosts, partitionValues));
+            result.add(new FileSplit(path, 0, length, length, modificationTime, hosts, partitionValues));
             return result;
         }
         long bytesRemaining;
@@ -234,12 +234,14 @@ public class FileScanNode extends ExternalScanNode {
                 bytesRemaining -= splitSize) {
             int location = getBlockIndex(blockLocations, length - bytesRemaining);
             String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
-            result.add(new FileSplit(path, length - bytesRemaining, splitSize, length, hosts, partitionValues));
+            result.add(new FileSplit(path, length - bytesRemaining, splitSize,
+                    length, modificationTime, hosts, partitionValues));
         }
         if (bytesRemaining != 0L) {
             int location = getBlockIndex(blockLocations, length - bytesRemaining);
             String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
-            result.add(new FileSplit(path, length - bytesRemaining, bytesRemaining, length, hosts, partitionValues));
+            result.add(new FileSplit(path, length - bytesRemaining, bytesRemaining,
+                    length, modificationTime, hosts, partitionValues));
         }
 
         LOG.debug("Path {} includes {} splits.", path, result.size());

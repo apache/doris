@@ -40,10 +40,15 @@ import java.util.Map;
 public class ResourceDesc {
     protected String name;
     protected Map<String, String> properties;
+    /**
+     * TODO(tsy): transfer to LoadType
+     */
     protected EtlJobType etlJobType;
 
+    protected LoadType loadType;
+
     // Only used for recovery
-    private ResourceDesc() {
+    public ResourceDesc() {
     }
 
     public ResourceDesc(String name, Map<String, String> properties) {

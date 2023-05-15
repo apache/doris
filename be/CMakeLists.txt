@@ -506,6 +506,10 @@ if (COMPILER_CLANG)
         message(FATAL_ERROR "Need Clang version at least 13")
     endif()
 
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16")
+        message(WARNING "Doris recommended to use Clang-16 to build backend")
+    endif()
+
     add_compile_options(-fcolor-diagnostics 
                         -Wpedantic
                         -Wunused-template
@@ -652,11 +656,16 @@ include_directories(
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
-include_directories($ENV{JAVA_HOME}/include)
+
+if ("${DORIS_JAVA_HOME}" STREQUAL "") 
+    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}/include")
+endif()
+
+include_directories(${DORIS_JAVA_HOME}/include)
 if (NOT OS_MACOSX)
-    include_directories($ENV{JAVA_HOME}/include/linux)
+    include_directories(${DORIS_JAVA_HOME}/include/linux)
 else()
-    include_directories($ENV{JAVA_HOME}/include/darwin)
+    include_directories(${DORIS_JAVA_HOME}/include/darwin)
 endif()
 
 if (NOT OS_MACOSX)
@@ -975,6 +984,24 @@ if (NOT MAKE_TEST)
 else()
     message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
 endif()
+
+if (ENABLE_PCH) 
+    add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
+    target_precompile_headers(
+        pch
+        PUBLIC
+            ${SRC_DIR}pch/pch.h
+    )
+    if (COMPILER_CLANG)
+        target_compile_options(pch PRIVATE -Xclang -fno-pch-timestamp)
+    endif()
+endif()
+
+function(pch_reuse target)
+    if (ENABLE_PCH)
+        target_precompile_headers(${target} REUSE_FROM pch)
+    endif()
+endfunction(pch_reuse target)
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)

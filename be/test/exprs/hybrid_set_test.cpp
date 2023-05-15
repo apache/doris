@@ -21,7 +21,7 @@
 
 #include <string>
 
-#include "common/configbase.h"
+#include "common/config.h"
 #include "exprs/create_predicate_function.h"
 
 namespace doris {
