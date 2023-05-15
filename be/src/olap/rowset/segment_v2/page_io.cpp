@@ -143,7 +143,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     }
 
     // hold compressed page at first, reset to decompressed page later
-    std::unique_ptr<DataPage<>> page = std::make_unique<DataPage<>>(page_size);
+    std::unique_ptr<DataPage> page = std::make_unique<DataPage>(page_size);
     Slice page_slice(page->data, page_size);
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
@@ -177,8 +177,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
             return Status::Corruption("Bad page: page is compressed but codec is NO_COMPRESSION");
         }
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
-        std::unique_ptr<DataPage<>> decompressed_page =
-                std::make_unique<DataPage<>>(footer->uncompressed_size() + footer_size + 4);
+        std::unique_ptr<DataPage> decompressed_page =
+                std::make_unique<DataPage>(footer->uncompressed_size() + footer_size + 4);
 
         // decompress page body
         Slice compressed_body(page_slice.data, body_size);
