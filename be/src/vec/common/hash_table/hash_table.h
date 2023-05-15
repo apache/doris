@@ -247,6 +247,7 @@ struct HashTableGrower {
     doris::vectorized::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
 
     doris::vectorized::Int64 test_fill_factor = doris::config::test_fill_factor;
+    doris::vectorized::Int64 test_resize_factor = doris::config::test_resize_factor;
 
     /// The size of the hash table in the cells.
     size_t buf_size() const { return 1ULL << size_degree; }
@@ -273,7 +274,7 @@ struct HashTableGrower {
     bool overflow(size_t elems) const { return elems > max_fill(); }
 
     /// Increase the size of the hash table.
-    void increase_size() { size_degree += size_degree >= 23 ? 1 : 2; }
+    void increase_size() { size_degree += size_degree >= test_resize_factor ? 1 : 2; }
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
@@ -338,7 +339,7 @@ public:
     bool overflow(size_t elems) const { return elems > precalculated_max_fill; }
 
     /// Increase the size of the hash table.
-    void increase_size() { increase_size_degree(size_degree_ >= 23 ? 1 : 2); }
+    void increase_size() { increase_size_degree(size_degree_ >= 20 ? 1 : 2); }
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
