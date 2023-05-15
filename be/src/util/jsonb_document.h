@@ -72,6 +72,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <limits>
 #include <string>
 #include <type_traits>
@@ -276,35 +277,39 @@ public:
         skip_whitespace();
     }
 
-    void clear_legPtr() { legPtr = nullptr; }
+    void clear_legPtr() { leg_ptr = nullptr; }
 
     void set_legPtr(char* ptr) {
         clear_legPtr();
-        legPtr = ptr;
+        leg_ptr = ptr;
     }
 
-    char* get_legPtr() { return legPtr; }
+    char* get_legPtr() { return leg_ptr; }
 
-    void clear_legLen() { legLen = 0; }
+    void clear_legLen() { leg_len = 0; }
 
-    void add_legLen() { legLen++; }
+    void add_legLen() { leg_len++; }
 
-    unsigned int get_legLen() { return legLen; }
+    unsigned int get_legLen() const { return leg_len; }
 
     void remove_escapes() {
         int new_len = 0;
-        for (int i = 0; i < legLen; i++) {
-            if (legPtr[i] != '\\') {
-                legPtr[new_len++] = legPtr[i];
+        for (int i = 0; i < leg_len; i++) {
+            if (leg_ptr[i] != '\\') {
+                leg_ptr[new_len++] = leg_ptr[i];
             }
         }
-        legPtr[new_len] = '\0';
-        legLen = new_len;
+        leg_ptr[new_len] = '\0';
+        leg_len = new_len;
     }
 
-    void set_hasEscapes(bool has) { hasEscapes = has; }
+    void set_hasEscapes(bool has) { has_escapes = has; }
 
-    bool get_hasEscapes() { return hasEscapes; }
+    bool get_hasEscapes() const { return has_escapes; }
+
+    void set_is_invalid_json_path(bool has) { is_invalid_json_path = has; }
+
+    bool get_is_invalid_json_path() const { return is_invalid_json_path; }
 
 private:
     /// The current position in the stream.
@@ -314,13 +319,16 @@ private:
     const char* const m_end;
 
     ///path leg ptr
-    char* legPtr;
+    char* leg_ptr;
 
     ///path leg len
-    unsigned int legLen;
+    unsigned int leg_len;
 
-    ///
-    bool hasEscapes = false;
+    ///Whether to contain escape characters
+    bool has_escapes = false;
+
+    ///Is the json path valid
+    bool is_invalid_json_path = false;
 };
 
 class JsonbPath {
@@ -513,12 +521,12 @@ public:
     const char* getValuePtr() const;
 
     // find the JSONB value by a key path string (null terminated)
-    JsonbValue* findPath(const char* key_path, hDictFind handler = nullptr) {
-        return findPath(key_path, (unsigned int)strlen(key_path), handler);
+    JsonbValue* findPath(const char* key_path,bool& is_invalid_json_path , hDictFind handler = nullptr) {
+        return findPath(key_path, (unsigned int)strlen(key_path),is_invalid_json_path, handler);
     }
 
     // find the JSONB value by a key path string (with length)
-    JsonbValue* findPath(const char* key_path, unsigned int len, hDictFind handler);
+    JsonbValue* findPath(const char* key_path, unsigned int len ,bool& is_invalid_json_path , hDictFind handler);
     friend class JsonbDocument;
 
 protected:
@@ -1188,13 +1196,19 @@ inline const char* JsonbValue::getValuePtr() const {
     }
 }
 
-inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_len,
+inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_len,bool& is_invalid_json_path,
                                         hDictFind handler = nullptr) {
     if (!key_path) return nullptr;
-    if (kp_len == 0) return this;
+    if (kp_len == 0) {
+        is_invalid_json_path = true;
+        return nullptr;
+    }
     Stream stream(key_path, kp_len);
     stream.skip_whitespace();
-    if (stream.exhausted() || stream.read() != SCOPE) return nullptr;
+    if (stream.exhausted() || stream.read() != SCOPE) {
+        is_invalid_json_path = true;
+        return nullptr;
+    }
 
     JsonbValue* pval = this;
 
@@ -1204,6 +1218,7 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
         stream.clear_legLen();
 
         if (!JsonbPath::parsePath(&stream, pval)) {
+            is_invalid_json_path = stream.get_is_invalid_json_path();
             return nullptr;
         }
 
@@ -1213,7 +1228,7 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
 
         if (LIKELY(pval->type_ == JsonbType::T_Object)) {
             if (stream.get_legLen() == 1 && *stream.get_legPtr() == WILDCARD) {
-                return pval;
+                continue ;
             } else if (stream.get_hasEscapes()) {
                 stream.remove_escapes();
             }
@@ -1223,32 +1238,50 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
             if (!pval) return nullptr;
         } else if (LIKELY(pval->type_ == JsonbType::T_Array)) {
             int index = 0;
-            std::string idx_string(stream.get_legPtr(), stream.get_legLen());
+            std::string_view idx_string(stream.get_legPtr(), stream.get_legLen());
 
             if (stream.get_legLen() == 1 && *stream.get_legPtr() == WILDCARD) {
-                return pval;
-            } else if (std::string(stream.get_legPtr(), 4) == LAST) {
+                continue ;
+            } else if ( *stream.get_legPtr() == MINUS && stream.get_legLen() > 1){
+                size_t num = ((ArrayVal*)pval)->numElem();
+                auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(), index);
+                if (result.ec != std::errc()) {
+                    is_invalid_json_path = true;
+                    return nullptr;
+                } else if (-index > num) {
+                    return nullptr;
+                }
+                index = num + index;
+
+            } else if (std::equal(LAST, LAST + 4, stream.get_legPtr(), [](char c1, char c2) {
+                           return std::tolower(c1) == std::tolower(c2);
+                       }) && stream.get_legLen() >= 4) {
                 auto pos = idx_string.find(MINUS);
 
                 if (pos != std::string::npos) {
                     idx_string = idx_string.substr(pos + 1);
                     size_t num = ((ArrayVal*)pval)->numElem();
-                    if (std::stoi(idx_string) > num) {
-                        return nullptr; //invalid json path
+                    auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(), index);
+                    if (result.ec != std::errc()) {
+                        is_invalid_json_path = true;
+                        return nullptr;
+                    } else if (index > num) {
+                        return nullptr;
                     }
-                    index = num - 1 - std::stoi(idx_string);
+                    index = num - 1 - index;
                 } else if (stream.get_legLen() == 4) {
                     index = ((ArrayVal*)pval)->numElem() - 1;
                 } else {
-                    return nullptr; //invalid json path
+                    is_invalid_json_path = true;
+                    return nullptr;
                 }
             } else {
-                std::string::size_type pos;
-                index = std::stoi(idx_string, &pos, 10);
-                if (pos != idx_string.size()) {
-                    return nullptr; //invalid json path
+                auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(), index);
+                if (result.ec != std::errc()) {
+                    is_invalid_json_path = true;
+                    return nullptr;
                 } else if (index >= ((ArrayVal*)pval)->numElem()) {
-                    return nullptr; //invalid json path
+                    return nullptr;
                 }
             }
 
@@ -1272,7 +1305,10 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbValue* value) {
 inline bool JsonbPath::parse_array(Stream* stream) {
     assert(stream->peek() == BEGIN_ARRAY);
     stream->skip(1);
-    if (stream->exhausted()) return false; //invalid json path
+    if (stream->exhausted()) {
+        stream->set_is_invalid_json_path(true);
+        return false;
+    }
 
     if (stream->peek() == WILDCARD) {
         stream->set_legPtr(const_cast<char*>(stream->position()));
@@ -1281,7 +1317,8 @@ inline bool JsonbPath::parse_array(Stream* stream) {
         if (stream->peek() == END_ARRAY) {
             return true;
         } else {
-            return false; //invalid json path
+            stream->set_is_invalid_json_path(true);
+            return false;
         }
     }
 
@@ -1295,7 +1332,8 @@ inline bool JsonbPath::parse_array(Stream* stream) {
         stream->skip(1);
         return true;
     } else {
-        return false; //invalid json path
+        stream->set_is_invalid_json_path(true);
+        return false;
     }
 }
 
@@ -1303,7 +1341,10 @@ inline bool JsonbPath::parse_member(Stream* stream) {
     // advance past the .
     assert(stream->peek() == BEGIN_MEMBER);
     stream->skip(1);
-    if (stream->exhausted()) return false; //invalid json path
+    if (stream->exhausted()) {
+        stream->set_is_invalid_json_path(true);
+        return false;
+    }
 
     if (stream->peek() == WILDCARD) {
         stream->set_legPtr(const_cast<char*>(stream->position()));
@@ -1344,6 +1385,7 @@ inline bool JsonbPath::parse_member(Stream* stream) {
     }
 
     if (left_quotation_marks != nullptr && right_quotation_marks == nullptr) {
+        stream->set_is_invalid_json_path(true);
         return false; //invalid json path
     }
 
