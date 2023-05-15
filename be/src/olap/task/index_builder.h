@@ -33,14 +33,14 @@ class RowsetWriter;
 
 using RowsetWriterUniquePtr = std::unique_ptr<RowsetWriter>;
 
-class BuildInvertedIndex { 
+class IndexBuilder { 
 public:
-    BuildInvertedIndex(const TabletSharedPtr& tablet,
+    IndexBuilder(const TabletSharedPtr& tablet,
                        const std::vector<TColumn>& columns,
                        const std::vector<TOlapTableIndex> exist_indexes,
                        const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                        bool is_drop_op = false);
-    ~BuildInvertedIndex();
+    ~IndexBuilder();
 
     Status init();
     Status do_build_inverted_index();
@@ -79,6 +79,6 @@ private:
             std::unique_ptr<segment_v2::InvertedIndexColumnWriter>> _inverted_index_builders;
 };
 
-using BuildInvertedIndexSharedPtr = std::shared_ptr<BuildInvertedIndex>;
+using IndexBuilderSharedPtr = std::shared_ptr<IndexBuilder>;
 
 } // namespace doris

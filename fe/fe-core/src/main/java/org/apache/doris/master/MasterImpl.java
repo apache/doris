@@ -584,7 +584,7 @@ public class MasterImpl {
     private void finishAlterInvertedIndexTask(AgentTask task, TFinishTaskRequest request) {
         TStatus taskStatus = request.getTaskStatus();
         if (taskStatus.getStatusCode() != TStatusCode.OK) {
-            LOG.info("AlterInvertedIndexTask: {} failed, failed times: {}, remaining it in agent task queue",
+            LOG.warn("AlterInvertedIndexTask: {} failed, failed times: {}, remaining it in agent task queue",
                      task.getSignature(), task.getFailedTimes());
             return;
         }

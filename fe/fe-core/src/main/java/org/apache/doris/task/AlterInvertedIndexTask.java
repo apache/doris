@@ -72,8 +72,12 @@ public class AlterInvertedIndexTask extends AgentTask {
     }
 
     public String toString() {
-        StringBuilder sb = new StringBuilder("isDropOp ");
-        sb.append(isDropOp);
+        StringBuilder sb = new StringBuilder("");
+        if (isDropOp) {
+            sb.append("DROP");
+        } else {
+            sb.append("ADD");
+        }
         sb.append(" (");
         for (Index alterIndex : alterInvertedIndexes) {
             sb.append(alterIndex.getIndexId());

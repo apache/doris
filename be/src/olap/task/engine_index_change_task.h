@@ -25,13 +25,13 @@ namespace doris {
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineAlterInvertedIndexTask : public EngineTask {
+class EngineIndexChangeTask : public EngineTask {
 public:
     Status execute() override;
 
 public:
-    EngineAlterInvertedIndexTask(const TAlterInvertedIndexReq& alter_inverted_index_request);
-    ~EngineAlterInvertedIndexTask() = default;
+    EngineIndexChangeTask(const TAlterInvertedIndexReq& alter_inverted_index_request);
+    ~EngineIndexChangeTask() = default;
 
 private:
     const TAlterInvertedIndexReq& _alter_inverted_index_req;

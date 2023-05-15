@@ -121,8 +121,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     // alter index info
     @SerializedName(value = "indexChange")
     private boolean indexChange = false;
-    @SerializedName(value = "invertedIndexChange")
-    private boolean invertedIndexChange = false;
     @SerializedName(value = "isDropOp")
     private boolean isDropOp = false;
     @SerializedName(value = "indexes")
@@ -187,9 +185,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.indexes = indexes;
     }
 
-    public void setAlterInvertedIndexInfo(boolean invertedIndexChange,
-                    boolean isDropOp, List<Index> alterInvertedIndexes) {
-        this.invertedIndexChange = invertedIndexChange;
+    public void setAlterInvertedIndexInfo(boolean isDropOp, List<Index> alterInvertedIndexes) {
         this.isDropOp = isDropOp;
         this.alterInvertedIndexes = alterInvertedIndexes;
     }
@@ -944,13 +940,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         String info = null;
         // can add info as needed
         List<String> infoList = Lists.newArrayList();
-        if (invertedIndexChange) {
-            String invertedIndexChangeInfo = "";
-            for (Index invertedIndex : alterInvertedIndexes) {
-                invertedIndexChangeInfo += "[" + (isDropOp ? "DROP " : "ADD ") + invertedIndex.toString() + "], ";
-            }
-            infoList.add(invertedIndexChangeInfo);
+        String invertedIndexChangeInfo = "";
+        for (Index invertedIndex : alterInvertedIndexes) {
+            invertedIndexChangeInfo += "[" + (isDropOp ? "DROP " : "ADD ") + invertedIndex.toString() + "], ";
         }
+        infoList.add(invertedIndexChangeInfo);
         info = Joiner.on(", ").join(infoList.subList(0, infoList.size()));
         return info;
     }

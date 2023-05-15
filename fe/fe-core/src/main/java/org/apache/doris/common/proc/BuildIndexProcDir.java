@@ -115,17 +115,17 @@ public class BuildIndexProcDir implements ProcDirInterface {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(schemaChangeHandler);
 
-        List<List<Comparable>> invertedIndexJobInfos = schemaChangeHandler.getAllInvertedIndexJobInfos(db);
+        List<List<Comparable>> indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos(db);
 
         //where
         List<List<Comparable>> jobInfos;
         if (filter == null || filter.size() == 0) {
-            jobInfos = invertedIndexJobInfos;
+            jobInfos = indexChangeJobInfos;
         } else {
             jobInfos = Lists.newArrayList();
-            for (List<Comparable> infoStr : invertedIndexJobInfos) {
+            for (List<Comparable> infoStr : indexChangeJobInfos) {
                 if (infoStr.size() != TITLE_NAMES.size()) {
-                    LOG.warn("invertedIndexJobInfos.size() " + invertedIndexJobInfos.size()
+                    LOG.warn("indexChangeJobInfos.size() " + indexChangeJobInfos.size()
                             + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
                     continue;
                 }
@@ -179,14 +179,14 @@ public class BuildIndexProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<Comparable>> invertedIndexJobInfos;
+        List<List<Comparable>> indexChangeJobInfos;
         // db is null means need total result of all databases
         if (db == null) {
-            invertedIndexJobInfos = schemaChangeHandler.getAllInvertedIndexJobInfos();
+            indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos();
         } else {
-            invertedIndexJobInfos = schemaChangeHandler.getAllInvertedIndexJobInfos(db);
+            indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos(db);
         }
-        for (List<Comparable> infoStr : invertedIndexJobInfos) {
+        for (List<Comparable> infoStr : indexChangeJobInfos) {
             List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
             for (Comparable element : infoStr) {
                 oneInfo.add(element.toString());

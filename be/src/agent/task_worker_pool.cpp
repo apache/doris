@@ -60,7 +60,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/task/engine_alter_tablet_task.h"
-#include "olap/task/engine_alter_inverted_index_task.h"
+#include "olap/task/engine_index_change_task.h"
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clone_task.h"
@@ -399,7 +399,7 @@ void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
             finish_task_request.__set_task_type(agent_task_req.task_type);
             finish_task_request.__set_signature(agent_task_req.signature);
 
-            EngineAlterInvertedIndexTask engine_task(alter_inverted_index_rq);
+            EngineIndexChangeTask engine_task(alter_inverted_index_rq);
             status = _env->storage_engine()->execute_task(&engine_task);
             std::vector<TTabletInfo> finish_tablet_infos;
             if (!status.ok()) {

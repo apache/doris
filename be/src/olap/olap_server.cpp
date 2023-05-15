@@ -57,7 +57,7 @@
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/task/build_inverted_index.h"
+#include "olap/task/index_builder.h"
 #include "service/point_query_executor.h"
 #include "util/countdown_latch.h"
 #include "util/doris_metrics.h"
@@ -740,7 +740,7 @@ Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
             std::bind<void>(&StorageEngine::_handle_seg_compaction, this, writer, segments));
 }
 
-Status StorageEngine::process_inverted_index_task(const TAlterInvertedIndexReq& request) {
+Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
     auto tablet_id = request.tablet_id;
     TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
     if (tablet == nullptr) {
@@ -756,16 +756,16 @@ Status StorageEngine::process_inverted_index_task(const TAlterInvertedIndexReq& 
                 "tablet is busy, can not do build inverted index this time, tablet_id={}.", tablet_id);
     }
 
-    BuildInvertedIndexSharedPtr build_inverted_index =
-            std::make_shared<BuildInvertedIndex>(tablet, request.columns, request.indexes_desc,
+    IndexBuilderSharedPtr index_builder =
+            std::make_shared<IndexBuilder>(tablet, request.columns, request.indexes_desc,
                                                  request.alter_inverted_indexes, request.is_drop_op);
-    RETURN_IF_ERROR(_handle_alter_inverted_index(build_inverted_index));
+    RETURN_IF_ERROR(_handle_index_change(index_builder));
     return Status::OK();
 }
 
-Status StorageEngine::_handle_alter_inverted_index(BuildInvertedIndexSharedPtr build_inverted_index) {
-    RETURN_IF_ERROR(build_inverted_index->init());
-    RETURN_IF_ERROR(build_inverted_index->do_build_inverted_index());
+Status StorageEngine::_handle_index_change(IndexBuilderSharedPtr index_builder) {
+    RETURN_IF_ERROR(index_builder->init());
+    RETURN_IF_ERROR(index_builder->do_build_inverted_index());
     return Status::OK();
 }
 

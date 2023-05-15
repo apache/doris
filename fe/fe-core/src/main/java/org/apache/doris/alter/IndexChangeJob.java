@@ -54,8 +54,8 @@ import java.io.IOException;
 import java.util.List;
 
 
-public class InvertedIndexJob implements Writable {
-    private static final Logger LOG = LogManager.getLogger(InvertedIndexJob.class);
+public class IndexChangeJob implements Writable {
+    private static final Logger LOG = LogManager.getLogger(IndexChangeJob.class);
 
 
     public enum JobState {
@@ -107,7 +107,7 @@ public class InvertedIndexJob implements Writable {
     @SerializedName(value = "invertedIndexBatchTask")
     AgentBatchTask invertedIndexBatchTask = new AgentBatchTask();
 
-    public InvertedIndexJob(long jobId, long dbId, long tableId, String tableName) {
+    public IndexChangeJob(long jobId, long dbId, long tableId, String tableName) {
         this.jobId = jobId;
         this.dbId = dbId;
         this.tableId = tableId;
@@ -309,7 +309,7 @@ public class InvertedIndexJob implements Writable {
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
 
-        Env.getCurrentEnv().getEditLog().logInvertedIndexJob(this);
+        Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
         LOG.info("inverted index job finished: {}", jobId);
     }
 
@@ -317,19 +317,19 @@ public class InvertedIndexJob implements Writable {
         return true;
     }
 
-    public void replay(InvertedIndexJob replayedJob) {
+    public void replay(IndexChangeJob replayedJob) {
         try {
-            InvertedIndexJob replayedInvertedIndexJob = (InvertedIndexJob) replayedJob;
+            IndexChangeJob replayedIndexChangeJob = (IndexChangeJob) replayedJob;
             switch (replayedJob.jobState) {
                 case WAITING_TXN:
-                    replayCreateJob(replayedInvertedIndexJob);
+                    replayCreateJob(replayedIndexChangeJob);
                     break;
                 case FINISHED:
-                    replayRunningJob(replayedInvertedIndexJob);
+                    replayRunningJob(replayedIndexChangeJob);
                     break;
                 case CANCELLED:
                     // TODO:
-                    // replayCancelled(replayedInvertedIndexJob);
+                    // replayCancelled(replayedIndexChangeJob);
                     break;
                 default:
                     break;
@@ -339,28 +339,28 @@ public class InvertedIndexJob implements Writable {
         }
     }
 
-    private void replayCreateJob(InvertedIndexJob replayedJob) throws MetaNotFoundException {
+    private void replayCreateJob(IndexChangeJob replayedJob) throws MetaNotFoundException {
         // do nothing, resend inverted index task to be
         this.watershedTxnId = replayedJob.watershedTxnId;
         this.jobState = JobState.WAITING_TXN;
         LOG.info("replay waiting_txn inverted index job: {}, table id: {}", jobId, tableId);
     }
 
-    private void replayRunningJob(InvertedIndexJob replayedJob) {
+    private void replayRunningJob(IndexChangeJob replayedJob) {
         // do nothing, finish inverted index task
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("replay finished inverted index job: {} table id: {}", jobId, tableId);
     }
 
-    public static InvertedIndexJob read(DataInput in) throws IOException {
+    public static IndexChangeJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, InvertedIndexJob.class);
+        return GsonUtils.GSON.fromJson(json, IndexChangeJob.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this, InvertedIndexJob.class);
+        String json = GsonUtils.GSON.toJson(this, IndexChangeJob.class);
         Text.writeString(out, json);
     }
 
