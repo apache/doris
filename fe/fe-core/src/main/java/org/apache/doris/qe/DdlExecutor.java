@@ -348,6 +348,7 @@ public class DdlExecutor {
             }
             env.cleanQueryStats(cleanQueryStatsInfo);
         } else {
+            LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
         }
     }
