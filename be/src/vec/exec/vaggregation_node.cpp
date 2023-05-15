@@ -502,7 +502,8 @@ Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
     // because during prepare and open thread is not the same one,
     // this could cause unable to get JVM
     if (_probe_expr_ctxs.empty()) {
-        _create_agg_status(_agg_data->without_key);
+        // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
+        RETURN_IF_CATCH_EXCEPTION(_create_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = true;
     }
 
@@ -677,7 +678,9 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
         if (!column_type->equals(*data_types[i])) {
             if (!is_array(remove_nullable(column_type))) {
                 DCHECK(column_type->is_nullable());
-                DCHECK(!data_types[i]->is_nullable());
+                DCHECK(!data_types[i]->is_nullable())
+                        << " column type: " << column_type->get_name()
+                        << ", data type: " << data_types[i]->get_name();
                 DCHECK(remove_nullable(column_type)->equals(*data_types[i]))
                         << " column type: " << remove_nullable(column_type)->get_name()
                         << ", data type: " << data_types[i]->get_name();

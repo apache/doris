@@ -88,10 +88,9 @@ public class NormalizeAggregateTest implements MemoPatternMatchSupported {
                                             .equals(aggregateFunction.child(0)))
                                     .when(FieldChecker.check("normalized", true))
                         ).when(project -> project.getProjects().get(0).equals(key))
-                        .when(project -> project.getProjects().get(1) instanceof Alias)
                         .when(project -> (project.getProjects().get(1)).getExprId()
                                 .equals(aggregateFunction.getExprId()))
-                        .when(project -> project.getProjects().get(1).child(0) instanceof SlotReference)
+                        .when(project -> project.getProjects().get(1) instanceof SlotReference)
                 );
     }
 
@@ -102,8 +101,8 @@ public class NormalizeAggregateTest implements MemoPatternMatchSupported {
      *
      * after rewrite:
      * LogicalProject ( projects=[(sum((id * 1))#6 + 2) AS `(sum((id * 1)) + 2)`#4] )
-     * +--LogicalAggregate ( phase=LOCAL, outputExpr=[sum((id * 1)#5) AS `sum((id * 1))`#6], groupByExpr=[name#2] )
-     *    +--LogicalProject ( projects=[name#2, (id#0 * 1) AS `(id * 1)`#5] )
+     * +--LogicalAggregate ( phase=LOCAL, outputExpr=[sum(id#0 * 1) AS `sum((id * 1))`#6], groupByExpr=[name#2] )
+     *    +--LogicalProject ( projects=[name#2, id#0] )
      *       +--GroupPlan( GroupId#0 )
      */
     @Test
@@ -126,8 +125,6 @@ public class NormalizeAggregateTest implements MemoPatternMatchSupported {
                                         logicalProject(
                                                 logicalOlapScan()
                                         ).when(project -> project.getProjects().size() == 2)
-                                                .when(project -> project.getProjects().get(0) instanceof SlotReference)
-                                                .when(project -> project.getProjects().get(1).child(0).equals(multiply))
                                 ).when(agg -> agg.getGroupByExpressions().equals(
                                         ImmutableList.of(rStudent.getOutput().get(2)))
                                 )

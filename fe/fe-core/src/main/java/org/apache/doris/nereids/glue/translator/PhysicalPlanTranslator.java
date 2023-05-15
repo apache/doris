@@ -144,6 +144,7 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -345,8 +346,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate
         //  so complex aggregate plan than legacy planner, and should add forbid parallel scan hint when
         //  generate physical aggregate plan.
-        if (leftMostNode instanceof OlapScanNode) {
-            currentFragment.setHasColocatePlanNode(true);
+        if (leftMostNode instanceof OlapScanNode && aggregate.getAggMode() == AggMode.INPUT_TO_RESULT) {
+            currentFragment.getPlanRoot().setShouldColoScan();
+            currentFragment.setHasColocatePlanNode(!ConnectContext.get().getSessionVariable().enablePipelineEngine());
         }
         setPlanRoot(currentFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {

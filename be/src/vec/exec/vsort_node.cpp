@@ -88,7 +88,7 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
         auto first_sort_expr_node = tnode.sort_node.sort_info.ordering_exprs[0].nodes[0];
         if (first_sort_expr_node.node_type == TExprNodeType::SLOT_REF) {
             auto first_sort_slot = first_sort_expr_node.slot_ref;
-            for (auto tuple_desc : this->row_desc().tuple_descriptors()) {
+            for (auto tuple_desc : this->intermediate_row_desc().tuple_descriptors()) {
                 if (tuple_desc->id() != first_sort_slot.tuple_id) {
                     continue;
                 }

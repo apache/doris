@@ -43,12 +43,14 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
+import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRuntimeFilterMode;
 
@@ -205,7 +207,10 @@ public class OriginalPlanner extends Planner {
          */
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
-
+        if (Config.enable_query_hit_stats && plannerContext.getStatement() != null
+                && plannerContext.getStatement().getExplainOptions() == null) {
+            collectQueryStat(singleNodePlan);
+        }
         // check and set flag for topn detail query opt
         if (VectorizedUtil.isVectorized()) {
             checkAndSetTopnOpt(singleNodePlan);
@@ -442,7 +447,6 @@ public class OriginalPlanner extends Planner {
         topPlanFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
     }
 
-
     private SlotDescriptor injectRowIdColumnSlot(Analyzer analyzer, TupleDescriptor tupleDesc) {
         SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(tupleDesc);
         LOG.debug("inject slot {}", slotDesc);
@@ -537,7 +541,7 @@ public class OriginalPlanner extends Planner {
      *
     */
     private void pushOutColumnUniqueIdsToOlapScan(PlanFragment rootFragment, Analyzer analyzer) {
-        Set<Integer> outputColumnUniqueIds =  new HashSet<>();
+        Set<Integer> outputColumnUniqueIds = new HashSet<>();
         ArrayList<Expr> outputExprs = rootFragment.getOutputExprs();
         for (Expr expr : outputExprs) {
             if (expr instanceof SlotRef) {
@@ -704,5 +708,24 @@ public class OriginalPlanner extends Planner {
     @Override
     public DescriptorTable getDescTable() {
         return analyzer.getDescTbl();
+    }
+
+    private void collectQueryStat(PlanNode root) {
+        try {
+            if (root instanceof ScanNode) {
+                StatsDelta delta = ((ScanNode) root).genQueryStats();
+                if (delta != null && !delta.empty()) {
+                    Env.getCurrentEnv().getQueryStats().addStats(delta);
+                    if (!delta.getTabletStats().isEmpty()) {
+                        Env.getCurrentEnv().getQueryStats().addStats(delta.getTabletStats());
+                    }
+                }
+            }
+            for (PlanNode child : root.getChildren()) {
+                collectQueryStat(child);
+            }
+        } catch (UserException e) {
+            LOG.info("failed to collect query stat: {}", e.getMessage());
+        }
     }
 }

@@ -181,6 +181,8 @@ private:
 
     template <bool is_final>
     void _collect_vskiplist_results();
+    void _collect_dup_table_with_keys();
+    void _collect_dup_table_without_keys();
     bool _is_first_insertion;
 
     void _init_agg_functions(const vectorized::Block* block);

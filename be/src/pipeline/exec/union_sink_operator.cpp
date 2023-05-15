@@ -61,7 +61,8 @@ Status UnionSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
         }
     } else if (_node->get_first_materialized_child_idx() != _node->children_count() &&
                _cur_child_id < _node->children_count()) { //need materialized
-        this->_node->materialize_child_block(state, _cur_child_id, in_block, _output_block.get());
+        RETURN_IF_ERROR(this->_node->materialize_child_block(state, _cur_child_id, in_block,
+                                                             _output_block.get()));
     } else {
         return Status::InternalError("maybe can't reach here, execute const expr: {}, {}, {}",
                                      _cur_child_id, _node->get_first_materialized_child_idx(),

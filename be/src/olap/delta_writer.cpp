@@ -404,8 +404,7 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
                                                     _cur_max_version, true));
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
-                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids,
-                dynamic_cast<BetaRowsetWriter*>(_rowset_writer.get())->get_num_mow_keys());
+                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
     }
 
     _delta_written_success = true;

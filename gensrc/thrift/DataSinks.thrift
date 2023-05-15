@@ -70,6 +70,25 @@ enum TParquetDataType {
     FIXED_LEN_BYTE_ARRAY,
 }
 
+enum TParquetDataLogicalType {
+      UNDEFINED = 0,  // Not a real logical type
+      STRING = 1,
+      MAP,
+      LIST,
+      ENUM,
+      DECIMAL,
+      DATE,
+      TIME,
+      TIMESTAMP,
+      INTERVAL,
+      INT,
+      NIL,  // Thrift NullType: annotates data that is always null
+      JSON,
+      BSON,
+      UUID,
+      NONE  // Not a real logical type; should always be last element
+    }
+
 enum TParquetRepetitionType {
     REQUIRED,
     REPEATED,
@@ -80,6 +99,7 @@ struct TParquetSchema {
     1: optional TParquetRepetitionType schema_repetition_type
     2: optional TParquetDataType schema_data_type
     3: optional string schema_column_name    
+    4: optional TParquetDataLogicalType schema_data_logical_type
 }
 
 struct TResultFileSinkOptions {

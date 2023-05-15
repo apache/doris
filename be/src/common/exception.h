@@ -29,9 +29,11 @@
 #include <utility>
 
 #include "common/status.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
+inline thread_local int enable_thread_catch_bad_alloc = 0;
 class Exception : public std::exception {
 public:
     Exception() : _code(ErrorCode::OK) {}
@@ -73,3 +75,19 @@ inline std::string Exception::to_string() const {
 }
 
 } // namespace doris
+
+#define RETURN_IF_CATCH_EXCEPTION(stmt)                                                      \
+    do {                                                                                     \
+        try {                                                                                \
+            doris::enable_thread_catch_bad_alloc++;                                          \
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                 \
+            { stmt; }                                                                        \
+        } catch (const doris::Exception& e) {                                                \
+            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                            \
+                return Status::MemoryLimitExceeded(                                          \
+                        fmt::format("PreCatch error code:{}, {}", e.code(), e.to_string())); \
+            } else {                                                                         \
+                return Status::Error(e.code(), e.to_string());                               \
+            }                                                                                \
+        }                                                                                    \
+    } while (0)

@@ -57,7 +57,6 @@ VDataStreamRecvr::SenderQueue::~SenderQueue() {
 }
 
 bool VDataStreamRecvr::SenderQueue::should_wait() {
-    DCHECK(false) << "VDataStreamRecvr::SenderQueue::should_wait execute";
     std::unique_lock<std::mutex> l(_lock);
     return !_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0;
 }
@@ -69,16 +68,16 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
         VLOG_ROW << "wait arrival fragment_instance_id=" << _recvr->fragment_instance_id()
                  << " node=" << _recvr->dest_node_id();
         // Don't count time spent waiting on the sender as active time.
-        CANCEL_SAFE_SCOPED_TIMER_ATOMIC(_recvr->_data_arrival_timer, &_is_cancelled);
-        CANCEL_SAFE_SCOPED_TIMER_ATOMIC(
+        CANCEL_SAFE_SCOPED_TIMER(_recvr->_data_arrival_timer, &_is_cancelled);
+        CANCEL_SAFE_SCOPED_TIMER(
                 _received_first_batch ? nullptr : _recvr->_first_batch_wait_total_timer,
                 &_is_cancelled);
         _data_arrival_cv.wait(l);
     }
-    return _inner_get_batch(block, eos);
+    return _inner_get_batch_without_lock(block, eos);
 }
 
-Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) {
+Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block, bool* eos) {
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
     }
@@ -95,7 +94,6 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) 
     auto [next_block, block_byte_size] = std::move(_block_queue.front());
     _recvr->_blocks_memory_usage->add(-block_byte_size);
     _block_queue.pop_front();
-    _update_block_queue_empty();
 
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
@@ -133,12 +131,9 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
         auto pblock_byte_size = pblock.ByteSizeLong();
         COUNTER_UPDATE(_recvr->_bytes_received_counter, pblock_byte_size);
 
-        if (_num_remaining_senders <= 0) {
+        DCHECK(_num_remaining_senders >= 0);
+        if (_num_remaining_senders == 0) {
             DCHECK(_sender_eos_set.end() != _sender_eos_set.find(be_number));
-            return;
-        }
-
-        if (_is_cancelled) {
             return;
         }
     }
@@ -163,7 +158,6 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
 
     _block_queue.emplace_back(std::move(block), block_byte_size);
-    _update_block_queue_empty();
     // if done is nullptr, this function can't delay this response
     if (done != nullptr && _recvr->exceeds_limit(block_byte_size)) {
         MonotonicStopWatch monotonicStopWatch;
@@ -208,7 +202,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_bytes_received);
 
     _block_queue.emplace_back(std::move(nblock), block_mem_size);
-    _update_block_queue_empty();
     _data_arrival_cv.notify_one();
 
     if (_recvr->exceeds_limit(block_mem_size)) {

@@ -326,7 +326,7 @@ Broker is deployed as a plug-in, which is independent of Doris. If you need to i
 
 	You can also check whether the startup was successful by connecting as follows:
 	
-	`http://be_host:be_http_port/api/health`
+	`http://be_host:webserver_port/api/health`
 
 	If it returns:
 	

@@ -24,6 +24,7 @@ import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
@@ -126,6 +127,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
@@ -170,6 +172,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
+import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
@@ -209,6 +212,7 @@ import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.StatisticsAutoAnalyzer;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
+import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
@@ -436,6 +440,8 @@ public class Env {
 
     private ResourceGroupMgr resourceGroupMgr;
 
+    private QueryStats queryStats;
+
     private StatisticsCleaner statisticsCleaner;
 
     /**
@@ -444,6 +450,8 @@ public class Env {
     private final LoadManagerAdapter loadManagerAdapter;
 
     private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
+
+    private HiveTransactionMgr hiveTransactionMgr;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -648,7 +656,9 @@ public class Env {
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.resourceGroupMgr = new ResourceGroupMgr();
+        this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
+        this.hiveTransactionMgr = new HiveTransactionMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -745,6 +755,9 @@ public class Env {
 
     // use this to get correct env's journal version
     public static int getCurrentEnvJournalVersion() {
+        if (MetaContext.get() == null) {
+            return FeMetaVersion.VERSION_CURRENT;
+        }
         return MetaContext.get().getMetaVersion();
     }
 
@@ -763,6 +776,14 @@ public class Env {
     // For unit test only
     public Checkpoint getCheckpointer() {
         return checkpointer;
+    }
+
+    public HiveTransactionMgr getHiveTransactionMgr() {
+        return hiveTransactionMgr;
+    }
+
+    public static HiveTransactionMgr getCurrentHiveTransactionMgr() {
+        return getCurrentEnv().getHiveTransactionMgr();
     }
 
     // Use tryLock to avoid potential dead lock
@@ -2698,6 +2719,11 @@ public class Env {
         getInternalCatalog().addPartition(db, tableName, addPartitionClause);
     }
 
+    public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
+            throws DdlException {
+        getInternalCatalog().addPartitionLike(db, tableName, addPartitionLikeClause);
+    }
+
     public void replayAddPartition(PartitionPersistInfo info) throws MetaNotFoundException {
         getInternalCatalog().replayAddPartition(info);
     }
@@ -2964,7 +2990,7 @@ public class Env {
             }
 
             // unique key table with merge on write
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && !olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
                 sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
             }
@@ -3444,8 +3470,10 @@ public class Env {
                             DataProperty hddProperty = new DataProperty(TStorageMedium.HDD);
                             partitionInfo.setDataProperty(partition.getId(), hddProperty);
                             storageMediumMap.put(partitionId, TStorageMedium.HDD);
-                            LOG.debug("partition[{}-{}-{}] storage medium changed from SSD to HDD", dbId, tableId,
-                                    partitionId);
+                            LOG.info("partition[{}-{}-{}] storage medium changed from SSD to HDD. "
+                                            + "cooldown time: {}. current time: {}", dbId, tableId, partitionId,
+                                    TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()),
+                                    TimeUtils.longToTimeString(currentTimeMs));
 
                             // log
                             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(),
@@ -4160,6 +4188,9 @@ public class Env {
             if (column != null) {
                 column.setName(newColName);
                 hasColumn = true;
+                Env.getCurrentEnv().getQueryStats()
+                        .rename(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId(),
+                                table.getId(), entry.getKey(), colName, newColName);
             }
         }
         if (!hasColumn) {
@@ -5212,7 +5243,6 @@ public class Env {
         return analysisManager;
     }
 
-
     public GlobalFunctionMgr getGlobalFunctionMgr() {
         return globalFunctionMgr;
     }
@@ -5227,5 +5257,14 @@ public class Env {
 
     public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
         return statisticsAutoAnalyzer;
+    }
+
+    public QueryStats getQueryStats() {
+        return queryStats;
+    }
+
+    public void cleanQueryStats(CleanQueryStatsInfo info) throws DdlException {
+        queryStats.clear(info);
+        editLog.logCleanQueryStats(info);
     }
 }

@@ -41,10 +41,12 @@
 #include "util/spinlock.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
+//#include <gen_cpp/internal_service.pb.h>
 
 namespace doris {
 
 class PTabletWriterOpenRequest;
+class OpenPartitionRequest;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
@@ -56,6 +58,8 @@ public:
 
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
+
+    Status open_partition(const OpenPartitionRequest& params);
 
     // this batch must belong to a index in one transaction
     Status add_batch(const PTabletWriterAddBlockRequest& request,

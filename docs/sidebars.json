@@ -91,7 +91,6 @@
                             "type": "category",
                             "label": "Import Way",
                             "items": [
-                                "data-operate/import/import-way/binlog-load-manual",
                                 "data-operate/import/import-way/broker-load-manual",
                                 "data-operate/import/import-way/routine-load-manual",
                                 "data-operate/import/import-way/spark-load-manual",
@@ -183,6 +182,7 @@
                 "query-acceleration/nereids",
                 "query-acceleration/hight-concurrent-point-query",
                 "query-acceleration/materialized-view",
+                "query-acceleration/statistics",
                 {
                     "type": "category",
                     "label": "Join Optimization",
@@ -310,6 +310,7 @@
                                 "sql-manual/sql-functions/array-functions/array_cum_sum",
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
+                                "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"
@@ -983,7 +984,8 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-ID",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SMALL-FILES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-POLICY",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN"
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-QUERY-STATS"
                             ]
                         },
                         {
@@ -1030,7 +1032,8 @@
                                 "sql-manual/sql-reference/Utility-Statements/DESCRIBE",
                                 "sql-manual/sql-reference/Utility-Statements/SWITCH",
                                 "sql-manual/sql-reference/Utility-Statements/REFRESH",
-                                "sql-manual/sql-reference/Utility-Statements/SYNC"
+                                "sql-manual/sql-reference/Utility-Statements/SYNC",
+                                "sql-manual/sql-reference/Utility-Statements/CLEAN-QUERY-STATS"
                             ]
                         }
                     ]
@@ -1166,6 +1169,7 @@
                                 "admin-manual/http-actions/fe/profile-action",
                                 "admin-manual/http-actions/fe/query-detail-action",
                                 "admin-manual/http-actions/fe/query-schema-action",
+                                "admin-manual/http-actions/fe/query-stats-action",
                                 "admin-manual/http-actions/fe/row-count-action",
                                 "admin-manual/http-actions/fe/set-config-action",
                                 "admin-manual/http-actions/fe/show-data-action",

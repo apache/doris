@@ -18,11 +18,13 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
+import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.DBObjects;
@@ -104,7 +106,7 @@ public class StatisticsRepository {
                     + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
                     + " WHERE part_id is NULL "
                     + " ORDER BY update_time DESC LIMIT "
-                    + StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE;
+                    + Config.stats_cache_size;
 
     private static final String FETCH_STATS_FULL_NAME =
             "SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
@@ -288,6 +290,30 @@ public class StatisticsRepository {
 
     public static void persistTableStats(Map<String, String> params) throws Exception {
         StatisticsUtil.execUpdate(PERSIST_TABLE_STATS_TEMPLATE, params);
+    }
+
+    public static void alterTableStatistics(AlterTableStatsStmt alterTableStatsStmt) throws Exception {
+        TableName tableName = alterTableStatsStmt.getTableName();
+        DBObjects objects = StatisticsUtil.convertTableNameToObjects(tableName);
+        String rowCount = alterTableStatsStmt.getValue(StatsType.ROW_COUNT);
+        TableStatisticBuilder builder = new TableStatisticBuilder();
+        builder.setRowCount(Long.parseLong(rowCount));
+        builder.setLastAnalyzeTimeInMs(0);
+        TableStatistic tableStatistic = builder.build();
+        Map<String, String> params = new HashMap<>();
+        String id = StatisticsUtil.constructId(objects.table.getId(), -1);
+        params.put("id", id);
+        params.put("catalogId", String.valueOf(objects.catalog.getId()));
+        params.put("dbId", String.valueOf(objects.db.getId()));
+        params.put("tblId", String.valueOf(objects.table.getId()));
+        params.put("indexId", "-1");
+        params.put("partId", "NULL");
+        params.put("rowCount", String.valueOf(tableStatistic.rowCount));
+        params.put("lastAnalyzeTimeInMs", "0");
+        StatisticsUtil.execUpdate(PERSIST_TABLE_STATS_TEMPLATE, params);
+        // TODO update statistics cache
+        // Env.getCurrentEnv().getStatisticsCache()
+        //         .updateColStatsCache(objects.table.getId(), -1, builder.build());
     }
 
     public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
