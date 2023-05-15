@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 
 import java.util.Optional;
