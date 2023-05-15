@@ -67,6 +67,8 @@ class InvertedIndexIterator;
 
 using io::FileCacheManager;
 
+bvar::Adder<uint64_t> segment_open_counter("segment", "open");
+
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      const io::FileReaderOptions& reader_options,
@@ -105,6 +107,7 @@ Segment::~Segment() {
 }
 
 Status Segment::_open() {
+    segment_open_counter << 1;
     RETURN_IF_ERROR(_parse_footer());
     RETURN_IF_ERROR(_create_column_readers());
     return Status::OK();
