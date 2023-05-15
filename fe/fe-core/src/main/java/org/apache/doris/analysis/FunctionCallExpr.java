@@ -819,7 +819,8 @@ public class FunctionCallExpr extends Expr {
         // SUM and AVG cannot be applied to non-numeric types
         if ((fnName.getFunction().equalsIgnoreCase("sum")
                 || fnName.getFunction().equalsIgnoreCase("avg"))
-                && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isOnlyMetricType())) {
+                && ((!arg.type.isNumericType() && !arg.type.isNull() && !arg.type.isBoolean())
+                        || arg.type.isOnlyMetricType())) {
             throw new AnalysisException(fnName.getFunction() + " requires a numeric parameter: " + this.toSql());
         }
         // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
