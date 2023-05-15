@@ -24,6 +24,7 @@ public enum PlanType {
     UNKNOWN,
 
     // logical plan
+    LOGICAL_OLAP_TABLE_SINK,
     LOGICAL_CTE,
     LOGICAL_WINDOW,
     LOGICAL_SUBQUERY_ALIAS,
@@ -60,6 +61,7 @@ public enum PlanType {
     GROUP_PLAN,
 
     // physical plan
+    PHYSICAL_OLAP_TABLE_SINK,
     PHYSICAL_WINDOW,
     PHYSICAL_EMPTY_RELATION,
     PHYSICAL_ONE_ROW_RELATION,
