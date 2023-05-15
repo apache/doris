@@ -919,8 +919,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr()
+        try {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
                 .addPartitionsCache(catalog.getId(), table, log.getPartitionNames());
+        } catch (HMSClientException e) {
+            LOG.warn("Network problem occurs or hms table has been deleted, fallback to invalidate table cache", e);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(),
+                    db.getFullName(), table.getName());
+        }
     }
 
     public void dropExternalPartitions(String catalogName, String dbName, String tableName, List<String> partitionNames,
