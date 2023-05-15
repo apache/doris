@@ -250,6 +250,9 @@ public class ColumnType {
             case "bigint":
                 type = Type.BIGINT;
                 break;
+            case "long":
+                type = Type.BIGINT;
+                break;
             case "float":
                 type = Type.FLOAT;
                 break;
