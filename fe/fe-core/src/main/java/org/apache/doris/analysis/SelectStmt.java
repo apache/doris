@@ -2660,6 +2660,6 @@ public class SelectStmt extends QueryStmt {
                 || havingClause != null || aggInfo != null || analyticInfo != null) {
             return false;
         }
-        return hasLimit() && hasOffset() && orderByElements == null;
+        return hasLimit() && orderByElements == null;
     }
 }
