@@ -22,7 +22,6 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.URI;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
@@ -233,7 +232,7 @@ public class ScalarFunction extends Function {
     public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
         TFunction fn = super.toThrift(realReturnType, realArgTypes);
         fn.setScalarFn(new TScalarFunction());
-        if (getBinaryType() != TFunctionBinaryType.BUILTIN || !VectorizedUtil.isPipeline()) {
+        if (getBinaryType() != TFunctionBinaryType.BUILTIN) {
             fn.getScalarFn().setSymbol(symbolName);
         } else {
             fn.getScalarFn().setSymbol("");

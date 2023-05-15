@@ -51,7 +51,6 @@ public class FunctionSet<T> {
     // This includes both UDFs and UDAs. Updates are made thread safe by synchronizing
     // on this map. Functions are sorted in a canonical order defined by
     // FunctionResolutionOrder.
-    private final HashMap<String, List<Function>> functions;
     private final HashMap<String, List<Function>> vectorizedFunctions;
     private final HashMap<String, List<Function>> tableFunctions;
     // For most build-in functions, it will return NullLiteral when params contain NullLiteral.
@@ -69,7 +68,6 @@ public class FunctionSet<T> {
     private boolean inited = false;
 
     public FunctionSet() {
-        functions = Maps.newHashMap();
         vectorizedFunctions = Maps.newHashMap();
         tableFunctions = Maps.newHashMap();
     }
@@ -973,10 +971,8 @@ public class FunctionSet<T> {
         List<Function> fns;
         if (isTableFunction) {
             fns = tableFunctions.get(desc.functionName());
-        } else if (desc.isVectorized()) {
-            fns = vectorizedFunctions.get(desc.functionName());
         } else {
-            fns = functions.get(desc.functionName());
+            fns = vectorizedFunctions.get(desc.functionName());
         }
         if (fns == null) {
             return null;
@@ -1207,7 +1203,7 @@ public class FunctionSet<T> {
     }
 
     public Function getFunction(String signatureString, boolean vectorized) {
-        for (List<Function> fns : vectorized ? vectorizedFunctions.values() : functions.values()) {
+        for (List<Function> fns : vectorizedFunctions.values()) {
             for (Function f : fns) {
                 if (f.signatureString().equals(signatureString)) {
                     return f;
@@ -1222,14 +1218,10 @@ public class FunctionSet<T> {
         if (getFunction(fn, Function.CompareMode.IS_INDISTINGUISHABLE) != null) {
             return false;
         }
-        List<Function> fns = fn.isVectorized() ? vectorizedFunctions.get(fn.functionName()) : functions.get(fn.functionName());
+        List<Function> fns = vectorizedFunctions.get(fn.functionName());
         if (fns == null) {
             fns = Lists.newArrayList();
-            if (fn.isVectorized()) {
-                vectorizedFunctions.put(fn.functionName(), fns);
-            } else {
-                functions.put(fn.functionName(), fns);
-            }
+            vectorizedFunctions.put(fn.functionName(), fns);
         }
         fns.add(fn);
         return true;
@@ -2334,7 +2326,7 @@ public class FunctionSet<T> {
 
     public List<Function> getBulitinFunctions() {
         List<Function> builtinFunctions = Lists.newArrayList();
-        for (Map.Entry<String, List<Function>> entry : functions.entrySet()) {
+        for (Map.Entry<String, List<Function>> entry : vectorizedFunctions.entrySet()) {
             builtinFunctions.addAll(entry.getValue());
         }
         return builtinFunctions;
