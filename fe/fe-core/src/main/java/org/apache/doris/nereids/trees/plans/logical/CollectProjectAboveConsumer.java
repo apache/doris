@@ -32,7 +32,7 @@ import java.util.List;
 /**
  * Collect Projects Above CTE Consumer.
  */
-public class CollectProjectAboveConsumer extends OneRewriteRuleFactory {
+public class CollectProjectAboveConsumer implements RewriteRuleFactory {
 
     @Override
     public List<Rule> buildRules() {
