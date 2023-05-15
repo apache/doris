@@ -58,6 +58,8 @@ jsonb_extract functions extract field specified by json_path from JSONB. A serie
 Exception handling is as follows:
 - if the field specified by json_path does not exist, return NULL
 - if datatype of the field specified by json_path is not the same with type of jsonb_extract_t, return t if it can be cast to t else NULL
+- If the key column value contains ".", double quotes are required in json_path, For example: SELECT jsonb_extract('{"k1.a":"abc","k2":300}', '$."k1.a"');
+- Use '$[last]' to get the last element of json_array, and '$[last-1]' to get the penultimate element, and so on.
 
 
 ## jsonb_exists_path and jsonb_type
