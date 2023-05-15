@@ -150,12 +150,14 @@ public class ScalarFunction extends Function {
                     beFn += "_small_int_val";
                     break;
                 case INT:
+                case IPV4:
                     beFn += "_int_val";
                     break;
                 case BIGINT:
                     beFn += "_big_int_val";
                     break;
                 case LARGEINT:
+                case IPV6:
                     beFn += "_large_int_val";
                     break;
                 case FLOAT:
@@ -233,12 +235,14 @@ public class ScalarFunction extends Function {
                     beFn.append("_small_int_val");
                     break;
                 case INT:
+                case IPV4:
                     beFn.append("_int_val");
                     break;
                 case BIGINT:
                     beFn.append("_big_int_val");
                     break;
                 case LARGEINT:
+                case IPV6:
                     beFn.append("_large_int_val");
                     break;
                 case FLOAT:

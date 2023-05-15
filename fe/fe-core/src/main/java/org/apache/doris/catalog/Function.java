@@ -549,10 +549,12 @@ public class Function implements Writable {
             case SMALLINT:
                 return "small_int_val";
             case INT:
+            case IPV4:
                 return "int_val";
             case BIGINT:
                 return "big_int_val";
             case LARGEINT:
+            case IPV6:
                 return "large_int_val";
             case FLOAT:
                 return "float_val";
@@ -601,10 +603,12 @@ public class Function implements Writable {
             case SMALLINT:
                 return "SmallIntVal";
             case INT:
+            case IPV4:
                 return "IntVal";
             case BIGINT:
                 return "BigIntVal";
             case LARGEINT:
+            case IPV6:
                 return "LargeIntVal";
             case FLOAT:
                 return "FloatVal";
