@@ -534,7 +534,7 @@ For Oracle mode, please refer to [Oracle type mapping](#Oracle)
    failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
    ```
 
-   Such errors occur because the `driver_class` has been wrongly put when creating the Resource. The problem with the above example is the letter case. It should be corrected as `"driver_class" = "com.mysql.jdbc.Driver"`.
+   Such errors occur because the `driver_class` has been wrongly put when creating the catalog. The problem with the above example is the letter case. It should be corrected as `"driver_class" = "com.mysql.jdbc.Driver"`.
 
 5. How to fix communication link failures?
 

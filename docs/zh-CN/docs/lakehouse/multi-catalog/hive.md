@@ -120,8 +120,6 @@ CREATE CATALOG hive PROPERTIES (
 
 ### Hive On S3
 
-数据存储在S3，示例如下：
-
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
@@ -141,8 +139,6 @@ CREATE CATALOG hive PROPERTIES (
 
 ### Hive On OSS
 
-数据存储在OSS，示例如下：
-
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
@@ -154,8 +150,6 @@ CREATE CATALOG hive PROPERTIES (
 ```
 
 ### Hive On OBS
-
-数据存储在OBS，示例如下：
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
@@ -169,8 +163,6 @@ CREATE CATALOG hive PROPERTIES (
 
 ### Hive On COS
 
-数据存储在COS，示例如下：
-
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
@@ -182,8 +174,6 @@ CREATE CATALOG hive PROPERTIES (
 ```
 
 ### Hive With Glue
-
-元数据存储在Glue，示例如下：
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
@@ -324,7 +314,7 @@ Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以�
         </configuration>
         ```
 
-    3. 为获取到 Ranger 鉴权本身的日志，可在 <doris_home>/conf 目录下添加配置文件 log4j.properties。
+    3. 为获取到 Ranger 鉴权本身的日志，可在 `<doris_home>/conf` 目录下添加配置文件 log4j.properties。
 
     4. 重启 FE。
 
