@@ -38,41 +38,44 @@ class PageCacheHandle;
 template <typename TAllocator>
 class PageBase : private TAllocator {
 public:
-    PageBase() : data(nullptr), size(0), capacity(0) {}
+    PageBase() : _data(nullptr), _size(0), _capacity(0) {}
 
-    PageBase(size_t b) : size(b), capacity(b) {
-        data = reinterpret_cast<char*>(TAllocator::alloc(capacity, ALLOCATOR_ALIGNMENT_16));
-        ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(capacity);
+    PageBase(size_t b) : _size(b), _capacity(b) {
+        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
+        ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(_capacity);
     }
 
     PageBase(const PageBase&) = delete;
     PageBase& operator=(const PageBase&) = delete;
 
     ~PageBase() {
-        if (data != nullptr) {
-            DCHECK(capacity != 0 && size != 0);
-            TAllocator::free(data, capacity);
-            ExecEnv::GetInstance()->page_no_cache_mem_tracker()->release(capacity);
+        if (_data != nullptr) {
+            DCHECK(_capacity != 0 && _size != 0);
+            TAllocator::free(_data, _capacity);
+            ExecEnv::GetInstance()->page_no_cache_mem_tracker()->release(_capacity);
         }
     }
 
+    char* data() { return _data; }
+    size_t size() { return _size; }
+    size_t capacity() { return _capacity; }
+
     void reset_size(size_t n) {
-        DCHECK(n <= capacity);
-        size = n;
+        DCHECK(n <= _capacity);
+        _size = n;
     }
 
     void release() {
-        data = nullptr;
-        size = 0;
-        capacity = 0;
+        _data = nullptr;
+        _size = 0;
+        _capacity = 0;
     }
 
-    char* data;
-    // Effective size, smaller than capacity, such as data page remove checksum suffix.
-    size_t size;
-
 private:
-    size_t capacity = 0;
+    char* _data;
+    // Effective size, smaller than capacity, such as data page remove checksum suffix.
+    size_t _size;
+    size_t _capacity = 0;
 };
 
 using DataPage = PageBase<Allocator<false>>;
@@ -196,7 +199,7 @@ public:
     Cache* cache() const { return _cache; }
     Slice data() const {
         DataPage* cache_value = (DataPage*)_cache->value(_handle);
-        return Slice(cache_value->data, cache_value->size);
+        return Slice(cache_value->data(), cache_value->size());
     }
 
 private:

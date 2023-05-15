@@ -67,7 +67,7 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
         decoded_slice.size = size_of_dict_header + BITSHUFFLE_PAGE_HEADER_SIZE +
                              num_element_after_padding * size_of_element + size_of_tail;
         std::unique_ptr<DataPage> decoded_page = std::make_unique<DataPage>(decoded_slice.size);
-        decoded_slice.data = decoded_page->data;
+        decoded_slice.data = decoded_page->data();
 
         if constexpr (USED_IN_DICT_ENCODING) {
             memcpy(decoded_slice.data, page_slice->data, size_of_dict_header);

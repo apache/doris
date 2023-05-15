@@ -144,7 +144,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
 
     // hold compressed page at first, reset to decompressed page later
     std::unique_ptr<DataPage> page = std::make_unique<DataPage>(page_size);
-    Slice page_slice(page->data, page_size);
+    Slice page_slice(page->data(), page_size);
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
         size_t bytes_read = 0;
@@ -182,7 +182,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
 
         // decompress page body
         Slice compressed_body(page_slice.data, body_size);
-        Slice decompressed_body(decompressed_page->data, footer->uncompressed_size());
+        Slice decompressed_body(decompressed_page->data(), footer->uncompressed_size());
         RETURN_IF_ERROR(opts.codec->decompress(compressed_body, &decompressed_body));
         if (decompressed_body.size != footer->uncompressed_size()) {
             return Status::Corruption(
@@ -194,7 +194,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
                footer_size + 4);
         // free memory of compressed page
         page = std::move(decompressed_page);
-        page_slice = Slice(page->data, footer->uncompressed_size() + footer_size + 4);
+        page_slice = Slice(page->data(), footer->uncompressed_size() + footer_size + 4);
         opts.stats->uncompressed_bytes_read += page_slice.size;
     } else {
         opts.stats->uncompressed_bytes_read += body_size;

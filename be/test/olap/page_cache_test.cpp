@@ -47,11 +47,11 @@ TEST(StoragePageCacheTest, data_page_only) {
         DataPage* data = new DataPage(1024);
         cache.insert(key, data, &handle, page_type, false);
 
-        EXPECT_EQ(handle.data().data, data->data);
+        EXPECT_EQ(handle.data().data, data->data());
 
         auto found = cache.lookup(key, &handle, page_type);
         EXPECT_TRUE(found);
-        EXPECT_EQ(data->data, handle.data().data);
+        EXPECT_EQ(data->data(), handle.data().data);
     }
 
     {
@@ -60,7 +60,7 @@ TEST(StoragePageCacheTest, data_page_only) {
         DataPage* data = new DataPage(1024);
         cache.insert(memory_key, data, &handle, page_type, true);
 
-        EXPECT_EQ(handle.data().data, data->data);
+        EXPECT_EQ(handle.data().data, data->data());
 
         auto found = cache.lookup(memory_key, &handle, page_type);
         EXPECT_TRUE(found);
@@ -113,11 +113,11 @@ TEST(StoragePageCacheTest, index_page_only) {
         DataPage* data = new DataPage(1024);
         cache.insert(key, data, &handle, page_type, false);
 
-        EXPECT_EQ(handle.data().data, data->data);
+        EXPECT_EQ(handle.data().data, data->data());
 
         auto found = cache.lookup(key, &handle, page_type);
         EXPECT_TRUE(found);
-        EXPECT_EQ(data->data, handle.data().data);
+        EXPECT_EQ(data->data(), handle.data().data);
     }
 
     {
@@ -126,7 +126,7 @@ TEST(StoragePageCacheTest, index_page_only) {
         DataPage* data = new DataPage(1024);
         cache.insert(memory_key, data, &handle, page_type, true);
 
-        EXPECT_EQ(handle.data().data, data->data);
+        EXPECT_EQ(handle.data().data, data->data());
 
         auto found = cache.lookup(memory_key, &handle, page_type);
         EXPECT_TRUE(found);
@@ -184,15 +184,15 @@ TEST(StoragePageCacheTest, mixed_pages) {
         cache.insert(data_key, data, &data_handle, page_type_data, false);
         cache.insert(index_key, index, &index_handle, page_type_index, false);
 
-        EXPECT_EQ(data_handle.data().data, data->data);
-        EXPECT_EQ(index_handle.data().data, index->data);
+        EXPECT_EQ(data_handle.data().data, data->data());
+        EXPECT_EQ(index_handle.data().data, index->data());
 
         auto found_data = cache.lookup(data_key, &data_handle, page_type_data);
         auto found_index = cache.lookup(index_key, &index_handle, page_type_index);
         EXPECT_TRUE(found_data);
         EXPECT_TRUE(found_index);
-        EXPECT_EQ(data->data, data_handle.data().data);
-        EXPECT_EQ(index->data, index_handle.data().data);
+        EXPECT_EQ(data->data(), data_handle.data().data);
+        EXPECT_EQ(index->data(), index_handle.data().data);
     }
 
     {
@@ -203,8 +203,8 @@ TEST(StoragePageCacheTest, mixed_pages) {
         cache.insert(data_key_mem, data, &data_handle, page_type_data, true);
         cache.insert(index_key_mem, index, &index_handle, page_type_index, true);
 
-        EXPECT_EQ(data_handle.data().data, data->data);
-        EXPECT_EQ(index_handle.data().data, index->data);
+        EXPECT_EQ(data_handle.data().data, data->data());
+        EXPECT_EQ(index_handle.data().data, index->data());
 
         auto found_data = cache.lookup(data_key_mem, &data_handle, page_type_data);
         auto found_index = cache.lookup(index_key_mem, &index_handle, page_type_index);
