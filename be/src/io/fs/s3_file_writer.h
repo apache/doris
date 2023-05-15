@@ -48,8 +48,6 @@ public:
                  FileSystemSPtr fs);
     ~S3FileWriter() override;
 
-    Status open();
-
     Status close() override;
 
     Status abort() override;
@@ -102,7 +100,10 @@ private:
         std::condition_variable _cv;
         std::atomic_int64_t _count {0};
     };
+    void _wait_until_finish(std::string task_name);
     Status _complete();
+    Status _create_multi_upload_request();
+    void _put_object(S3FileBuffer& buf);
     void _upload_one_part(int64_t part_num, S3FileBuffer& buf);
 
     std::string _bucket;
@@ -110,7 +111,7 @@ private:
     bool _closed = true;
     bool _opened = false;
 
-    std::shared_ptr<int64_t> _upload_cost_ms;
+    std::unique_ptr<int64_t> _upload_cost_ms;
 
     std::shared_ptr<Aws::S3::S3Client> _client;
     std::string _upload_id;
@@ -119,7 +120,7 @@ private:
     // Current Part Num for CompletedPart
     int _cur_part_num = 1;
     std::mutex _completed_lock;
-    std::vector<std::shared_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
+    std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
     WaitGroup _wait;
 

@@ -104,9 +104,8 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
 
     if (tnode.__isset.vconjunct) {
-        _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
-                                                                   _vconjunct_ctx_ptr.get()));
+                                                                   &_vconjunct_ctx_ptr));
     }
 
     // create the projections expr
@@ -131,8 +130,8 @@ Status ExecNode::prepare(RuntimeState* state) {
     _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
                                                 _runtime_profile.get(), nullptr, "PeakMemoryUsage");
 
-    if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
+    if (_vconjunct_ctx_ptr != nullptr) {
+        RETURN_IF_ERROR(_vconjunct_ctx_ptr->prepare(state, intermediate_row_desc()));
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
@@ -145,8 +144,8 @@ Status ExecNode::prepare(RuntimeState* state) {
 }
 
 Status ExecNode::alloc_resource(doris::RuntimeState* state) {
-    if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
+    if (_vconjunct_ctx_ptr != nullptr) {
+        RETURN_IF_ERROR(_vconjunct_ctx_ptr->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
     return Status::OK();
@@ -167,7 +166,7 @@ Status ExecNode::reset(RuntimeState* state) {
 Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
     DCHECK(statistics != nullptr);
     for (auto child_node : _children) {
-        child_node->collect_query_statistics(statistics);
+        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics));
     }
     return Status::OK();
 }
@@ -178,8 +177,8 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
-        if (_vconjunct_ctx_ptr) {
-            (*_vconjunct_ctx_ptr)->close(state);
+        if (_vconjunct_ctx_ptr != nullptr) {
+            _vconjunct_ctx_ptr->close(state);
         }
         vectorized::VExpr::close(_projections, state);
 

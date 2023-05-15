@@ -302,11 +302,11 @@ Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners) {
     if (_is_pipeline_scan) {
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
                 _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
-                _state->query_options().mem_limit / 20, _col_distribute_ids);
+                _state->scan_queue_mem_limit(), _col_distribute_ids);
     } else {
-        _scanner_ctx = ScannerContext::create_shared(_state, this, _input_tuple_desc,
-                                                     _output_tuple_desc, scanners, limit(),
-                                                     _state->query_options().mem_limit / 20);
+        _scanner_ctx =
+                ScannerContext::create_shared(_state, this, _input_tuple_desc, _output_tuple_desc,
+                                              scanners, limit(), _state->scan_queue_mem_limit());
     }
     RETURN_IF_ERROR(_scanner_ctx->init());
     return Status::OK();
@@ -391,8 +391,8 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
     }
 
     VExpr* last_expr = nullptr;
-    if (_vconjunct_ctx_ptr) {
-        last_expr = (*_vconjunct_ctx_ptr)->root();
+    if (_vconjunct_ctx_ptr != nullptr) {
+        last_expr = _vconjunct_ctx_ptr->root();
     } else {
         DCHECK(_rf_vexpr_set.find(vexprs[0]) == _rf_vexpr_set.end());
         last_expr = vexprs[0];
@@ -430,15 +430,14 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
     }
     auto new_vconjunct_ctx_ptr = _pool->add(VExprContext::create_unique(last_expr).release());
     if (_vconjunct_ctx_ptr) {
-        (*_vconjunct_ctx_ptr)->clone_fn_contexts(new_vconjunct_ctx_ptr);
+        _vconjunct_ctx_ptr->clone_fn_contexts(new_vconjunct_ctx_ptr);
     }
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(_state, _row_descriptor));
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(_state));
     if (_vconjunct_ctx_ptr) {
-        _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
+        _stale_vexpr_ctxs.push_back(_vconjunct_ctx_ptr);
     }
-    _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
-    *_vconjunct_ctx_ptr = new_vconjunct_ctx_ptr;
+    _vconjunct_ctx_ptr = new_vconjunct_ctx_ptr;
     return Status::OK();
 }
 
@@ -468,10 +467,10 @@ void VScanNode::release_resource(RuntimeState* state) {
     }
 
     for (auto& ctx : _stale_vexpr_ctxs) {
-        (*ctx)->close(state);
+        ctx->close(state);
     }
     if (_common_vexpr_ctxs_pushdown) {
-        (*_common_vexpr_ctxs_pushdown)->close(state);
+        _common_vexpr_ctxs_pushdown->close(state);
     }
 
     ExecNode::release_resource(state);
@@ -538,18 +537,18 @@ Status VScanNode::_normalize_conjuncts() {
         }
     }
     if (_vconjunct_ctx_ptr) {
-        if ((*_vconjunct_ctx_ptr)->root()) {
+        if (_vconjunct_ctx_ptr->root()) {
             VExpr* new_root;
-            RETURN_IF_ERROR(_normalize_predicate((*_vconjunct_ctx_ptr)->root(), &new_root));
+            RETURN_IF_ERROR(_normalize_predicate(_vconjunct_ctx_ptr->root(), &new_root));
             if (new_root) {
-                (*_vconjunct_ctx_ptr)->set_root(new_root);
+                _vconjunct_ctx_ptr->set_root(new_root);
                 if (_should_push_down_common_expr()) {
-                    _common_vexpr_ctxs_pushdown = std::move(_vconjunct_ctx_ptr);
-                    _vconjunct_ctx_ptr.reset(nullptr);
+                    _common_vexpr_ctxs_pushdown = _vconjunct_ctx_ptr;
+                    _vconjunct_ctx_ptr = nullptr;
                 }
             } else { // All conjucts are pushed down as predicate column
-                _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
-                _vconjunct_ctx_ptr.reset(nullptr);
+                _stale_vexpr_ctxs.push_back(_vconjunct_ctx_ptr);
+                _vconjunct_ctx_ptr = nullptr;
             }
         }
     }
@@ -604,7 +603,7 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
-            RETURN_IF_ERROR(_eval_const_conjuncts(cur_expr, *_vconjunct_ctx_ptr, &pdt));
+            RETURN_IF_ERROR(_eval_const_conjuncts(cur_expr, _vconjunct_ctx_ptr, &pdt));
             if (pdt == PushDownType::ACCEPTABLE) {
                 *output_expr = nullptr;
                 return Status::OK();
@@ -618,28 +617,23 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                                         is_runtimer_filter_predicate);
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_match_predicate(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             if (_is_key_column(slot->col_name())) {
                                 RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
-                                        cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &pdt));
+                                        cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
                                 RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
-                                        cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &pdt));
+                                        cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
                                 if (_state->enable_function_pushdown()) {
                                     RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                            cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &pdt));
+                                            cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
                                 }
                             }
                         },
@@ -648,7 +642,7 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
 
             if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, *(_vconjunct_ctx_ptr.get()), &pdt,
+                _normalize_compound_predicate(cur_expr, _vconjunct_ctx_ptr, &pdt,
                                               is_runtimer_filter_predicate, in_predicate_checker,
                                               eq_predicate_checker);
                 *output_expr = conjunct_expr_root; // remaining in conjunct tree
@@ -676,18 +670,18 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             } else {
                 if (left_child == nullptr) {
                     conjunct_expr_root->children()[0]->close(
-                            _state, *_vconjunct_ctx_ptr,
-                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                            _state, _vconjunct_ctx_ptr,
+                            _vconjunct_ctx_ptr->get_function_state_scope());
                 }
                 if (right_child == nullptr) {
                     conjunct_expr_root->children()[1]->close(
-                            _state, *_vconjunct_ctx_ptr,
-                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                            _state, _vconjunct_ctx_ptr,
+                            _vconjunct_ctx_ptr->get_function_state_scope());
                 }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
-                conjunct_expr_root->close(_state, *_vconjunct_ctx_ptr,
-                                          (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                conjunct_expr_root->close(_state, _vconjunct_ctx_ptr,
+                                          _vconjunct_ctx_ptr->get_function_state_scope());
             }
 
             // here do not close VExpr* now
@@ -861,6 +855,12 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
             InState* state = reinterpret_cast<InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+
+            // xx in (col, xx, xx) should not be push down
+            if (!state->use_set) {
+                return Status::OK();
+            }
+
             iter = state->hybrid_set->begin();
         }
 
@@ -936,6 +936,12 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
         InState* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(pred->fn_context_index())
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+
+        // xx in (col, xx, xx) should not be push down
+        if (!state->use_set) {
+            return Status::OK();
+        }
+
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
         if (!is_fixed_range && state->null_in_set) {
@@ -1358,7 +1364,7 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
 Status VScanNode::clone_vconjunct_ctx(VExprContext** _vconjunct_ctx) {
     if (_vconjunct_ctx_ptr) {
         std::unique_lock l(_rf_locks);
-        return (*_vconjunct_ctx_ptr)->clone(_state, _vconjunct_ctx);
+        return _vconjunct_ctx_ptr->clone(_state, _vconjunct_ctx);
     }
     return Status::OK();
 }

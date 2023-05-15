@@ -195,7 +195,7 @@ struct TQueryOptions {
   // deprecated
   60: optional i32 partitioned_hash_agg_rows_threshold = 0
 
-  61: optional bool enable_file_cache = true
+  61: optional bool enable_file_cache = false
   
   62: optional i32 insert_timeout = 14400
 
@@ -212,6 +212,15 @@ struct TQueryOptions {
 
   // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
   69: optional i32 external_agg_partition_bits = 4
+
+  // Specify base path for file cache
+  70: optional string file_cache_base_path
+
+  71: optional bool enable_parquet_lazy_mat = true
+
+  72: optional bool enable_orc_lazy_mat = true
+
+  73: optional i64 scan_queue_mem_limit
 }
     
 
@@ -219,16 +228,6 @@ struct TQueryOptions {
 struct TScanRangeParams {
   1: required PlanNodes.TScanRange scan_range
   2: optional i32 volume_id = -1
-}
-
-// Specification of one output destination of a plan fragment
-struct TPlanFragmentDestination {
-  // the globally unique fragment instance id
-  1: required Types.TUniqueId fragment_instance_id
-
-  // ... which is being executed on this server
-  2: required Types.TNetworkAddress server
-  3: optional Types.TNetworkAddress brpc_server
 }
 
 struct TRuntimeFilterTargetParams {
@@ -281,7 +280,7 @@ struct TPlanFragmentExecParams {
   // The partitioning of the output is specified by
   // TPlanFragment.output_sink.output_partition.
   // The number of output partitions is destinations.size().
-  5: list<TPlanFragmentDestination> destinations
+  5: list<DataSinks.TPlanFragmentDestination> destinations
 
   // Debug options: perform some action in a particular phase of a particular node
   // 6: optional Types.TPlanNodeId debug_node_id // Never used
@@ -606,7 +605,7 @@ struct TPipelineFragmentParams {
   5: optional Descriptors.TDescriptorTable desc_tbl
   // Deprecated
   6: optional Types.TResourceInfo resource_info
-  7: list<TPlanFragmentDestination> destinations
+  7: list<DataSinks.TPlanFragmentDestination> destinations
   8: optional i32 num_senders
   9: optional bool send_query_statistics_with_every_batch
   10: optional Types.TNetworkAddress coord

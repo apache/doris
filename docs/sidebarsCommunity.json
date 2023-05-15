@@ -24,6 +24,8 @@
                 "release-and-verify/release-doris-core",
                 "release-and-verify/release-doris-connectors",
                 "release-and-verify/release-doris-manager",
+                "release-and-verify/release-doris-shade",
+                "release-and-verify/release-doris-sdk",
                 "release-and-verify/release-complete",
                 "release-and-verify/release-verify"
             ]
@@ -51,6 +53,15 @@
                 "developer-guide/fe-vscode-dev",
                 "developer-guide/be-vscode-dev",
                 "developer-guide/be-clion-dev",
+                {
+                    "type": "category",
+                    "label": "Mac Local Dev",
+                    "items": [
+                        "developer-guide/mac-dev/dev-prepare",
+                        "developer-guide/mac-dev/be-clion-dev",
+                        "developer-guide/mac-dev/fe-idea-dev"
+                    ]
+                },
                 "developer-guide/java-format-code",
                 "developer-guide/cpp-format-code",
                 "developer-guide/cpp-diagnostic-code",

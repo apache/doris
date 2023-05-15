@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -49,6 +50,10 @@ public interface CatalogIf<T extends DatabaseIf> {
     String getName();
 
     List<String> getDbNames();
+
+    default boolean isInternalCatalog() {
+        return this instanceof InternalCatalog;
+    }
 
     // Will be used when querying the information_schema table
     // Unable to get db for uninitialized catalog to avoid query timeout

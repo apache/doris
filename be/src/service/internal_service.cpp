@@ -89,6 +89,7 @@
 #include "util/doris_metrics.h"
 #include "util/md5.h"
 #include "util/metrics.h"
+#include "util/network_util.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
@@ -233,6 +234,29 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
             LOG(WARNING) << "load channel open failed, message=" << st << ", id=" << request->id()
                          << ", index_id=" << request->index_id()
                          << ", txn_id=" << request->txn_id();
+        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
+void PInternalServiceImpl::open_partition(google::protobuf::RpcController* controller,
+                                          const OpenPartitionRequest* request,
+                                          OpenPartitionResult* response,
+                                          google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        VLOG_RPC << "partition open"
+                 << ", index_id=" << request->index_id();
+        brpc::ClosureGuard closure_guard(done);
+        auto st = _exec_env->load_channel_mgr()->open_partition(*request);
+        if (!st.ok()) {
+            LOG(WARNING) << "load channel open failed, message=" << st
+                         << ", index_ids=" << request->index_id();
         }
         st.to_protobuf(response->mutable_status());
     });
@@ -394,6 +418,13 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
 
 Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
                                                  PFragmentRequestVersion version, bool compact) {
+    // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
+    // If BE execute this fragment, it will core when it wants to get some property from master info.
+    if (ExecEnv::GetInstance()->master_info() == nullptr) {
+        return Status::InternalError(
+                "Have not receive the first heartbeat message from master, not ready to provide "
+                "service");
+    }
     if (version == PFragmentRequestVersion::VERSION_1) {
         // VERSION_1 should be removed in v1.2
         TExecPlanFragmentParams t_request;
@@ -512,8 +543,11 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
 
+        // make sure profile is desctructed after reader cause PrefetchBufferedReader
+        // might asynchronouslly access the profile
+        std::unique_ptr<RuntimeProfile> profile =
+                std::make_unique<RuntimeProfile>("FetchTableSchema");
         std::unique_ptr<vectorized::GenericReader> reader(nullptr);
-        std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
@@ -1210,9 +1244,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             }
 
             std::stringstream ss;
-            ss << "http://" << host << ":" << http_port << "/api/_tablet/_download?token=" << token
-               << "&file=" << rowset_path << "/" << remote_rowset_id << "_" << segment.first
-               << ".dat";
+            ss << "http://" << get_host_port(host, http_port)
+               << "/api/_single_replica/_download?token=" << token << "&file=" << rowset_path << "/"
+               << remote_rowset_id << "_" << segment.first << ".dat";
             std::string remote_file_url = ss.str();
             ss.str("");
             ss << tablet->tablet_path() << "/" << rowset_meta->rowset_id() << "_" << segment.first

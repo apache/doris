@@ -233,10 +233,10 @@ public class CreateTableTest {
         Assert.assertTrue(tbl8.getColumn("k1").isKey());
         Assert.assertTrue(tbl8.getColumn("k2").isKey());
         Assert.assertFalse(tbl8.getColumn("v1").isKey());
-        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
+        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
 
         OlapTable tbl13 = (OlapTable) db.getTableOrDdlException("tbl13");
-        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
+        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
         Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getType() == Type.INT);
         Assert.assertEquals(tbl13.getSequenceMapCol(), "v1");
     }
@@ -271,7 +271,7 @@ public class CreateTableTest {
                         + "properties('replication_num' = '1', 'short_key' = '4');"));
 
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Failed to find 3 backend(s) for policy",
+                .expectThrowsWithMsg(DdlException.class, "replication num should be less than the number of available backends. replication num is 3, available backend num is 1",
                         () -> createTable("create table test.atbl5\n" + "(k1 int, k2 int, k3 int)\n"
                                 + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                                 + "properties('replication_num' = '3');"));
@@ -288,7 +288,9 @@ public class CreateTableTest {
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, " Failed to find 1 backend(s) for policy:",
+                .expectThrowsWithMsg(DdlException.class, "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
+                                + "Create failed replications:\n"
+                                + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
                                 + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 

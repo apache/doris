@@ -67,6 +67,7 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
           _version(-1),
           _scan_range(scan_range),
           _key_ranges(key_ranges) {
+    DCHECK(rs_readers.size() == rs_reader_seg_offsets.size());
     _tablet_reader_params.rs_readers = rs_readers;
     _tablet_reader_params.rs_readers_segment_offsets = rs_reader_seg_offsets;
     _tablet_schema = std::make_shared<TabletSchema>();
@@ -100,11 +101,11 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
 Status NewOlapScanner::init() {
     _is_init = true;
     auto parent = static_cast<NewOlapScanNode*>(_parent);
-    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_vconjunct_ctx_ptr.get()));
+    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_vconjunct_ctx_ptr));
     if (parent->_common_vexpr_ctxs_pushdown != nullptr) {
         // Copy common_vexpr_ctxs_pushdown from scan node to this scanner's _common_vexpr_ctxs_pushdown, just necessary.
-        RETURN_IF_ERROR((*parent->_common_vexpr_ctxs_pushdown)
-                                ->clone(_state, &_common_vexpr_ctxs_pushdown));
+        RETURN_IF_ERROR(
+                parent->_common_vexpr_ctxs_pushdown->clone(_state, &_common_vexpr_ctxs_pushdown));
     }
 
     // set limit to reduce end of rowset and segment mem use

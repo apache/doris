@@ -34,12 +34,11 @@
 namespace doris {
 
 const std::string FILE_PARAMETER = "file";
-const std::string DB_PARAMETER = "db";
-const std::string LABEL_PARAMETER = "label";
 const std::string TOKEN_PARAMETER = "token";
 
-DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs)
-        : _exec_env(exec_env), _download_type(NORMAL) {
+DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs,
+                               int32_t num_workers)
+        : _exec_env(exec_env), _download_type(NORMAL), _num_workers(num_workers) {
     for (auto& dir : allow_dirs) {
         std::string p;
         Status st = io::global_local_filesystem()->canonicalize(dir, &p);
@@ -48,10 +47,17 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
         }
         _allow_paths.emplace_back(std::move(p));
     }
+    if (_num_workers > 0) {
+        // for single-replica-load
+        ThreadPoolBuilder("DownloadThreadPool")
+                .set_min_threads(num_workers)
+                .set_max_threads(num_workers)
+                .build(&_download_workers);
+    }
 }
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
-        : _exec_env(exec_env), _download_type(ERROR_LOG) {
+        : _exec_env(exec_env), _download_type(ERROR_LOG), _num_workers(0) {
     io::global_local_filesystem()->canonicalize(error_log_root_dir, &_error_log_root_dir);
 }
 
@@ -141,6 +147,18 @@ void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_
 }
 
 void DownloadAction::handle(HttpRequest* req) {
+    if (_num_workers > 0) {
+        // async for heavy download job, currently mainly for single-replica-load
+        auto status = _download_workers->submit_func([this, req]() { _handle(req); });
+        if (!status.ok()) {
+            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status.to_string());
+        }
+    } else {
+        _handle(req);
+    }
+}
+
+void DownloadAction::_handle(HttpRequest* req) {
     VLOG_CRITICAL << "accept one download request " << req->debug_string();
 
     // Get 'file' parameter, then assembly file absolute path

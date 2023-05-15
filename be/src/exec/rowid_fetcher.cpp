@@ -112,7 +112,7 @@ static Status MergeRPCResults(const std::vector<PMultiGetResponse>& rsps,
             return st;
         }
         vectorized::Block partial_block(resp.block());
-        output_block->merge(partial_block);
+        RETURN_IF_ERROR(output_block->merge(partial_block));
     }
     return Status::OK();
 }

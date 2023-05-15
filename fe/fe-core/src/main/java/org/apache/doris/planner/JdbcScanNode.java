@@ -20,16 +20,20 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.external.JdbcExternalTable;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
+import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TJdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -53,10 +57,12 @@ public class JdbcScanNode extends ScanNode {
     private final List<String> filters = new ArrayList<String>();
     private String tableName;
     private TOdbcTableType jdbcType;
+    private String graphQueryString = "";
+
+    private JdbcTable tbl;
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
         super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE);
-        JdbcTable tbl = null;
         if (isJdbcExternalTable) {
             JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
             tbl = jdbcExternalTable.getJdbcTable();
@@ -71,6 +77,26 @@ public class JdbcScanNode extends ScanNode {
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         computeStats(analyzer);
+        getGraphQueryString();
+    }
+
+    private boolean isNebula() {
+        return jdbcType == TOdbcTableType.NEBULA;
+    }
+
+    private void getGraphQueryString() {
+        if (!isNebula()) {
+            return;
+        }
+        for (Expr expr : conjuncts) {
+            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
+            if ("g".equals(functionCallExpr.getFnName().getFunction())) {
+                graphQueryString = functionCallExpr.getChild(0).getStringValue();
+                break;
+            }
+        }
+        //clean conjusts cause graph sannnode no need conjuncts
+        conjuncts = Lists.newArrayList();
     }
 
     /**
@@ -130,6 +156,9 @@ public class JdbcScanNode extends ScanNode {
     }
 
     private String getJdbcQueryStr() {
+        if (isNebula()) {
+            return graphQueryString;
+        }
         StringBuilder sql = new StringBuilder("SELECT ");
 
         // Oracle use the where clause to do top n
@@ -218,5 +247,12 @@ public class JdbcScanNode extends ScanNode {
     @Override
     public int getNumInstances() {
         return 1;
+    }
+
+    @Override
+    public StatsDelta genStatsDelta() throws AnalysisException {
+        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
+                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(tbl.getQualifiedDbName()).getId(),
+                tbl.getId(), -1L);
     }
 }

@@ -234,6 +234,9 @@ PROPERTIES (
 );
 ```
 
+**Note:**
+<version since="dev" type="inline"> Connections using the Presto JDBC Driver are also supported </version>
+
 #### 8.OceanBase Test
 
 | OceanBase Version | OceanBase JDBC Driver Version |
@@ -261,6 +264,98 @@ PROPERTIES (
     "table_type"="oceanbase"
 );
 ```
+
+### 9.NebulaGraphTest (only supports queries)
+| Nebula version | Nebula JDBC Driver Version |
+|------------|-------------------|
+| 3.0.0       | nebula-jdbc-3.0.0-jar-with-dependencies.jar         |
+
+
+```
+#step1.crate test data in nebula
+#1.1 create tag
+(root@nebula) [basketballplayer]> CREATE TAG test(t_str string, 
+    t_int int, 
+    t_date date,
+    t_datetime datetime,
+    t_bool bool,
+    t_timestamp timestamp,
+    t_float float,
+    t_double double
+);
+#1.2 insert test data
+(root@nebula) [basketballplayer]> INSERT VERTEX test_type(t_str,t_int,t_date,t_datetime,t_bool,t_timestamp,t_float,t_double) values "zhangshan":("zhangshan",1000,date("2023-01-01"),datetime("2023-01-23 15:23:32"),true,1234242423,1.2,1.35);
+#1.3 check the data
+(root@nebula) [basketballplayer]> match (v:test_type) where id(v)=="zhangshan" return v.test_type.t_str,v.test_type.t_int,v.test_type.t_date,v.test_type.t_datetime,v.test_type.t_bool,v.test_type.t_timestamp,v.test_type.t_float,v.test_type.t_double,v limit 30;
++-------------------+-------------------+--------------------+----------------------------+--------------------+-------------------------+---------------------+----------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| v.test_type.t_str | v.test_type.t_int | v.test_type.t_date | v.test_type.t_datetime     | v.test_type.t_bool | v.test_type.t_timestamp | v.test_type.t_float | v.test_type.t_double | v                                                                                                                                                                                                         |
++-------------------+-------------------+--------------------+----------------------------+--------------------+-------------------------+---------------------+----------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| "zhangshan"       | 1000              | 2023-01-01         | 2023-01-23T15:23:32.000000 | true               | 1234242423              | 1.2000000476837158  | 1.35                 | ("zhangshan" :test_type{t_bool: true, t_date: 2023-01-01, t_datetime: 2023-01-23T15:23:32.000000, t_double: 1.35, t_float: 1.2000000476837158, t_int: 1000, t_str: "zhangshan", t_timestamp: 1234242423}) |
++-------------------+-------------------+--------------------+----------------------------+--------------------+-------------------------+---------------------+----------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+Got 1 rows (time spent 1616/2048 us)
+Mon, 17 Apr 2023 17:23:14 CST
+#step2. create table in doris
+#2.1 create a resource
+MySQL [test_db]> CREATE EXTERNAL RESOURCE gg_jdbc_resource 
+properties (
+   "type"="jdbc",
+   "user"="root",
+   "password"="123",
+   "jdbc_url"="jdbc:nebula://127.0.0.1:9669/basketballplayer",
+   "driver_url"="file:///home/clz/baidu/bdg/doris/be/lib/nebula-jdbc-3.0.0-jar-with-dependencies.jar",  --Need to be placed in the be/lib directory--
+   "driver_class"="com.vesoft.nebula.jdbc.NebulaDriver"
+);
+#2.2 Create a facade that mainly tells Doris how to parse the data returned by Nebulagraph
+MySQL [test_db]> CREATE TABLE `test_type` ( 
+ `t_str` varchar(64),
+ `t_int` bigint,
+ `t_date` date,
+ `t_datetime` datetime,
+ `t_bool` boolean,
+ `t_timestamp` bigint,
+ `t_float` double,
+ `t_double` double,
+ `t_vertx`  varchar(128) --vertex map type varchar in doris---
+) ENGINE=JDBC
+PROPERTIES (
+"resource" = "gg_jdbc_resource",
+"table" = "xx",  --please fill in any value here, we do not use it --
+"table_type"="nebula"
+);
+#2.3 Query the graph surface and use the g() function to transparently pass the nGQL of the graph to Nebula
+MySQL [test_db]> select * from test_type where g('match (v:test_type) where id(v)=="zhangshan" return v.test_type.t_str,v.test_type.t_int,v.test_type.t_date,v.test_type.t_datetime,v.test_type.t_bool,v.test_type.t_timestamp,v.test_type.t_float,v.test_type.t_double,v')\G;
+*************************** 1. row ***************************
+      t_str: zhangshan
+      t_int: 1000
+     t_date: 2023-01-01
+ t_datetime: 2023-01-23 15:23:32
+     t_bool: 1
+t_timestamp: 1234242423
+    t_float: 1.2000000476837158
+   t_double: 1.35
+    t_vertx: ("zhangshan" :test_type {t_datetime: utc datetime: 2023-01-23T15:23:32.000000, timezoneOffset: 0, t_timestamp: 1234242423, t_date: 2023-01-01, t_double: 1.35, t_str: "zhangshan", t_int: 1000, t_bool: true, t_float: 1.2000000476837158})
+1 row in set (0.024 sec)
+#2.3 Associate queries with other tables in Doris
+#Assuming there is a user table
+MySQL [test_db]> select * from t_user;
++-----------+------+---------------------------------+
+| username  | age  | addr                            |
++-----------+------+---------------------------------+
+| zhangshan |   26 | 北京市西二旗街道1008号          |
++-----------+------+---------------------------------+
+| lisi |   29 | 北京市西二旗街道1007号          |
++-----------+------+---------------------------------+
+1 row in set (0.013 sec)
+#Associate with this table to query user related information
+MySQL [test_db]> select u.* from (select t_str username  from test_type where g('match (v:test_type) where id(v)=="zhangshan" return v.test_type.t_str limit 1')) g left join t_user u on g.username=u.username;
++-----------+------+---------------------------------+
+| username  | age  | addr                            |
++-----------+------+---------------------------------+
+| zhangshan |   26 | 北京市西二旗街道1008号          |
++-----------+------+---------------------------------+
+1 row in set (0.029 sec)
+```
+
 
 > **Note:**
 >
@@ -407,6 +502,17 @@ The followings list how data types in different databases are mapped in Doris.
 
 For MySQL mode, please refer to [MySQL type mapping](#MySQL)
 For Oracle mode, please refer to [Oracle type mapping](#Oracle)
+
+### Nebula-graph
+|   nebula   |        Doris        |
+|:------------:|:-------------------:|
+|   tinyint/samllint/int/int64    |       bigint       |
+|   double/float    |       double       |
+|   date   |      date       |
+|   timestamp   |         bigint         |
+|    datetime    |       datetime        |
+| bool |  boolean  |
+|   vertex/edge/path/list/set/time etc    |  varchar  |
 
 ## Q&A
 

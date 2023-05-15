@@ -61,11 +61,6 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
-> `specified_database_list`:
-> 
-> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
-> 
-
 ### Iceberg Native Catalog
 
 <version since="dev">
@@ -97,18 +92,10 @@ CREATE CATALOG glue PROPERTIES (
 "type"="iceberg",
 "iceberg.catalog.type" = "glue",
 "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
-"warehouse" = "s3://bucket/warehouse",
-"AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
-"AWS_REGION" = "us-east-1",
-"AWS_ACCESS_KEY" = "ak",
-"AWS_SECRET_KEY" = "sk",
-"use_path_style" = "true"
+"glue.access_key" = "ak",
+"glue.secret_key" = "sk"
 );
 ```
-
-`glue.endpoint`: Glue Endpoint. See [AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
-
-`warehouse`: Glue Warehouse Location.  To determine the root path of the data warehouse in storage.
 
 The other properties can refer to [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
@@ -127,11 +114,10 @@ CREATE CATALOG iceberg PROPERTIES (
 If you want to use S3 storage, the following properties need to be set.
 
 ```
-"AWS_ACCESS_KEY" = "ak"
-"AWS_SECRET_KEY" = "sk"
-"AWS_REGION" = "region-name"
-"AWS_ENDPOINT" = "http://endpoint-uri"
-"AWS_CREDENTIALS_PROVIDER" = "provider-class-name" // Optional. The default credentials class is based on BasicAWSCredentials.
+"s3.access_key" = "ak"
+"s3.secret_key" = "sk"
+"s3.endpoint" = "http://endpoint-uri"
+"s3.credentials.provider" = "provider-class-name" // Optional. The default credentials class is based on BasicAWSCredentials.
 ```
 
 ## Column Type Mapping

@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "exec/exec_node.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
@@ -296,7 +297,7 @@ public:
             return Status::OK();
         }
         _fresh_exec_timer(_sink);
-        RETURN_IF_ERROR(_sink->close(state, Status::OK()));
+        RETURN_IF_ERROR(_sink->close(state, state->query_status()));
         _is_closed = true;
         return Status::OK();
     }
@@ -305,9 +306,6 @@ public:
 
 protected:
     void _fresh_exec_timer(NodeType* node) {
-        if (_runtime_profile == nullptr) {
-            return;
-        }
         node->profile()->total_time_counter()->update(
                 _runtime_profile->total_time_counter()->value());
     }
@@ -381,9 +379,6 @@ public:
 
 protected:
     void _fresh_exec_timer(NodeType* node) {
-        if (_runtime_profile == nullptr) {
-            return;
-        }
         node->runtime_profile()->total_time_counter()->update(
                 _runtime_profile->total_time_counter()->value());
     }

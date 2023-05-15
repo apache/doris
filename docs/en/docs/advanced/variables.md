@@ -69,7 +69,7 @@ Variables that support both session-level and global-level setting include:
 * `sql_mode`
 * `enable_profile`
 * `query_timeout`
-* `insert_timeout`<version since="dev"></version>
+* <version since="dev" type="inline">`insert_timeout`</version>
 * `exec_mem_limit`
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
@@ -606,7 +606,11 @@ Translated with www.DeepL.com/Translator (free version)
 
 * `enable_file_cache`
 
-    Set wether to use block file cache. This variable takes effect only if the BE config enable_file_cache=true. The cache is not used when BE config enable_file_cache=false.
+    Set wether to use block file cache, default false. This variable takes effect only if the BE config enable_file_cache=true. The cache is not used when BE config enable_file_cache=false.
+
+* `file_cache_base_path`
+
+    Specify the storage path of the block file cache on BE, default 'random', and randomly select the storage path configured by BE.
 
 * `topn_opt_limit_threshold`
 
@@ -642,6 +646,14 @@ Translated with www.DeepL.com/Translator (free version)
     | 10000000     |
     +--------------+
     ```
+  
+* `enable_parquet_lazy_materialization`
+
+  Controls whether to use lazy materialization technology in parquet reader. The default value is true.
+
+* `enable_orc_lazy_materialization`
+
+  Controls whether to use lazy materialization technology in orc reader. The default value is true.
 
 ***
 

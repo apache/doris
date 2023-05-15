@@ -26,7 +26,7 @@ under the License.
 
 ## array_map
 
-<version since="1.2.2">
+<version since="dev">
 
 array_map(lambda,array,....)
 

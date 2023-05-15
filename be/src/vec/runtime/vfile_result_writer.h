@@ -94,6 +94,8 @@ private:
     Status _send_result();
     // save result into batch rather than send it
     Status _fill_result_block();
+    // delete the dir of file_path
+    Status _delete_dir();
 
     RuntimeState* _state; // not owned, set when init
     const ResultFileOptions* _file_opts;

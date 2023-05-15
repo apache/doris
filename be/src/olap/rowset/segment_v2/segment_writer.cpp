@@ -203,6 +203,15 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
                 return Status::NotSupported("Do not support bitmap index for jsonb type");
             }
         }
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
+            opts.need_zone_map = false;
+            if (opts.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for agg_state type");
+            }
+            if (opts.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for agg_state type");
+            }
+        }
         if (column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
             opts.need_zone_map = false;
             if (opts.need_bloom_filter) {
@@ -244,9 +253,6 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
             _primary_key_index_builder.reset(
                     new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
             RETURN_IF_ERROR(_primary_key_index_builder->init());
-#ifndef NDEBUG
-            _key_set.reset(new std::unordered_set<std::string>());
-#endif
         } else {
             _short_key_index_builder.reset(
                     new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
@@ -571,17 +577,18 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     if (_has_key) {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             // create primary indexes
+            std::string last_key;
             for (size_t pos = 0; pos < num_rows; pos++) {
                 std::string key = _full_encode_keys(key_columns, pos);
-#ifndef NDEBUG
-                DCHECK(_key_set.get() != nullptr);
-                _key_set->insert(key);
-#endif
                 if (_tablet_schema->has_sequence_col()) {
                     _encode_seq_column(seq_column, pos, &key);
                 }
+                DCHECK(key.compare(last_key) > 0)
+                        << "found duplicate key or key is not sorted! current key: " << key
+                        << ", last key" << last_key;
                 RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
                 _maybe_invalid_row_cache(key);
+                last_key = std::move(key);
             }
         } else {
             // create short key indexes'
@@ -787,6 +794,8 @@ Status SegmentWriter::finalize_footer() {
 }
 
 Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+    MonotonicStopWatch timer;
+    timer.start();
     // check disk capacity
     if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
         return Status::InternalError("disk {} exceed capacity limit.", _data_dir->path_hash());
@@ -801,6 +810,10 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     RETURN_IF_ERROR(_file_writer->finalize());
     *segment_file_size = _file_writer->bytes_appended();
 
+    if (timer.elapsed_time() > 5000000000l) {
+        LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()
+                  << ", segmemt_size " << *segment_file_size;
+    }
     return Status::OK();
 }
 

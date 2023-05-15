@@ -19,12 +19,10 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -47,7 +45,7 @@ public class BackendsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(BackendsProcDir.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
+            .add("BackendId").add("Cluster").add("Host").add("HeartbeatPort")
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
@@ -70,7 +68,7 @@ public class BackendsProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        final List<List<String>> backendInfos = getClusterBackendInfos(null);
+        final List<List<String>> backendInfos = getBackendInfos();
         for (List<String> backendInfo : backendInfos) {
             List<String> oneInfo = new ArrayList<>(backendInfo.size());
             oneInfo.addAll(backendInfo);
@@ -80,26 +78,16 @@ public class BackendsProcDir implements ProcDirInterface {
     }
 
     /**
-     * get backends of cluster
-     * @param clusterName
+     * get backends info
+     *
      * @return
      */
-    public static List<List<String>> getClusterBackendInfos(String clusterName) {
+    public static List<List<String>> getBackendInfos() {
         final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
         List<List<String>> backendInfos = new LinkedList<>();
-        List<Long> backendIds;
-        if (!Strings.isNullOrEmpty(clusterName)) {
-            final Cluster cluster = Env.getCurrentEnv().getCluster(clusterName);
-            // root not in any cluster
-            if (null == cluster) {
-                return backendInfos;
-            }
-            backendIds = cluster.getBackendIdList();
-        } else {
-            backendIds = clusterInfoService.getBackendIds(false);
-            if (backendIds == null) {
-                return backendInfos;
-            }
+        List<Long> backendIds = clusterInfoService.getBackendIds(false);
+        if (backendIds == null) {
+            return backendInfos;
         }
 
         long start = System.currentTimeMillis();
@@ -117,18 +105,11 @@ public class BackendsProcDir implements ProcDirInterface {
             List<Comparable> backendInfo = Lists.newArrayList();
             backendInfo.add(String.valueOf(backendId));
             backendInfo.add(backend.getOwnerClusterName());
-            backendInfo.add(backend.getIp());
-            if (Strings.isNullOrEmpty(clusterName)) {
-                if (backend.getHostName() != null) {
-                    backendInfo.add(backend.getHostName());
-                } else {
-                    backendInfo.add(NetUtils.getHostnameByIp(backend.getIp()));
-                }
-                backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
-                backendInfo.add(String.valueOf(backend.getBePort()));
-                backendInfo.add(String.valueOf(backend.getHttpPort()));
-                backendInfo.add(String.valueOf(backend.getBrpcPort()));
-            }
+            backendInfo.add(backend.getHost());
+            backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
+            backendInfo.add(String.valueOf(backend.getBePort()));
+            backendInfo.add(String.valueOf(backend.getHttpPort()));
+            backendInfo.add(String.valueOf(backend.getBrpcPort()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
             backendInfo.add(String.valueOf(backend.isAlive()));

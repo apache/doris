@@ -104,7 +104,7 @@ suite("test_map_load_and_compaction", "p0") {
         String[][] tablets = sql """ show tablets from ${testTable}; """
         String[] tablet = tablets[0]
         // check rowsets number
-        String compactionStatus = tablet[17]
+        String compactionStatus = tablet[18]
         checkCompactionStatus.call(compactionStatus, 6)
 
         // trigger compaction
@@ -115,7 +115,7 @@ suite("test_map_load_and_compaction", "p0") {
         def backendId_to_backendHttpPort = [:]
         for (String[] backend in backends) {
             backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[6])
+            backendId_to_backendHttpPort.put(backend[0], backend[5])
         }
         String tablet_id = tablet[0]
         backend_id = tablet[2]
@@ -168,7 +168,7 @@ suite("test_map_load_and_compaction", "p0") {
         backends = sql """ show backends; """
         assertTrue(backends.size() > 0)
         for (String[] b : backends) {
-            assertEquals("true", b[10])
+            assertEquals("true", b[9])
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")

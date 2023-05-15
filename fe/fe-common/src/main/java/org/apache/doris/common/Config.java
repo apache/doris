@@ -21,16 +21,14 @@ import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
 
 public class Config extends ConfigBase {
 
-    /**
-     * Dir of custom config file
-     */
-    @ConfField
-    public static String custom_config_dir = System.getenv("DORIS_HOME") + "/conf";
+    @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
+            "The path of the user-defined configuration file, used to store fe_custom.conf. "
+                    + "The configuration in this file will override the configuration in fe.conf"})
+    public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
 
-    /**
-     * The max size of one sys log and audit log
-     */
-    @ConfField public static int log_roll_size_mb = 1024; // 1 GB
+    @ConfField(description = {"fe.log 和 fe.audit.log 的最大文件大小。超过这个大小后，日志文件会被切分",
+            "The maximum file size of fe.log and fe.audit.log. After exceeding this size, the log file will be split"})
+    public static int log_roll_size_mb = 1024; // 1 GB
 
     /**
      * sys_log_dir:
@@ -63,881 +61,614 @@ public class Config extends ConfigBase {
      *          60m     60 mins
      *          120s    120 seconds
      */
-    @ConfField
+    @ConfField(description = {"FE 日志文件的存放路径，用于存放 fe.log。",
+            "The path of the FE log file, used to store fe.log"})
     public static String sys_log_dir = System.getenv("DORIS_HOME") + "/log";
-    @ConfField
+
+    @ConfField(description = {"FE 日志的级别", "The level of FE log"}, options = {"INFO", "WARNING", "ERROR", "FATAL"})
     public static String sys_log_level = "INFO";
-    @ConfField public static int sys_log_roll_num = 10;
-    @ConfField
+
+    @ConfField(description = {"FE 日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
+            "The maximum number of FE log files. After exceeding this number, the oldest log file will be deleted"})
+    public static int sys_log_roll_num = 10;
+
+    @ConfField(description = {
+            "Verbose 模块。VERBOSE 级别的日志是通过 log4j 的 DEBUG 级别实现的。"
+                    + "如设置为 `org.apache.doris.catalog`，则会打印这个 package 下的类的 DEBUG 日志。",
+            "Verbose module. The VERBOSE level log is implemented by the DEBUG level of log4j. "
+                    + "If set to `org.apache.doris.catalog`, "
+                    + "the DEBUG log of the class under this package will be printed."})
     public static String[] sys_log_verbose_modules = {};
-    @ConfField public static String sys_log_roll_interval = "DAY";
-    @ConfField public static String sys_log_delete_age = "7d";
-    @Deprecated
-    @ConfField public static String sys_log_roll_mode = "SIZE-MB-1024";
+    @ConfField(description = {"FE 日志文件的切分周期", "The split cycle of the FE log file"}, options = {"DAY", "HOUR"})
+    public static String sys_log_roll_interval = "DAY";
+    @ConfField(description = {
+            "FE 日志文件的最大存活时间。超过这个时间后，日志文件会被删除。支持的格式包括：7d, 10h, 60m, 120s",
+            "The maximum survival time of the FE log file. After exceeding this time, the log file will be deleted. "
+                    + "Supported formats include: 7d, 10h, 60m, 120s"})
+    public static String sys_log_delete_age = "7d";
 
-    /**
-     * audit_log_dir:
-     *      This specifies FE audit log dir.
-     *      Audit log fe.audit.log contains all requests with related infos such as user, host, cost, status, etc.
-     *
-     * audit_log_roll_num:
-     *      Maximal FE audit log files to be kept within an audit_log_roll_interval.
-     *
-     * audit_log_modules:
-     *       Slow query contains all queries which cost exceed *qe_slow_log_ms*
-     *
-     * qe_slow_log_ms:
-     *      If the response time of a query exceed this threshold, it will be recorded in audit log as slow_query.
-     *
-     * audit_log_roll_interval:
-     *      DAY:  log suffix is yyyyMMdd
-     *      HOUR: log suffix is yyyyMMddHH
-     *
-     * audit_log_delete_age:
-     *      default is 30 days, if log's last modify time is 30 days ago, it will be deleted.
-     *      support format:
-     *          7d      7 days
-     *          10h     10 hours
-     *          60m     60 mins
-     *          120s    120 seconds
-     */
-    @ConfField
+    @ConfField(description = {"FE 审计日志文件的存放路径，用于存放 fe.audit.log。",
+            "The path of the FE audit log file, used to store fe.audit.log"})
     public static String audit_log_dir = System.getenv("DORIS_HOME") + "/log";
-    @ConfField
+    @ConfField(description = {"FE 审计日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
+            "The maximum number of FE audit log files. "
+                    + "After exceeding this number, the oldest log file will be deleted"})
     public static int audit_log_roll_num = 90;
-    @ConfField
+    @ConfField(description = {"FE 审计日志文件的种类", "The type of FE audit log file"},
+            options = {"slow_query", "query", "load", "stream_load"})
     public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load"};
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {"慢查询的阈值，单位为毫秒。如果一个查询的响应时间超过这个阈值，"
+            + "则会被记录在 audit log 中。",
+            "The threshold of slow query, in milliseconds. "
+                    + "If the response time of a query exceeds this threshold, it will be recorded in audit log."})
     public static long qe_slow_log_ms = 5000;
-    @ConfField
+    @ConfField(description = {"FE 审计日志文件的切分周期", "The split cycle of the FE audit log file"},
+            options = {"DAY", "HOUR"})
     public static String audit_log_roll_interval = "DAY";
-    @ConfField
+    @ConfField(description = {
+            "FE 审计日志文件的最大存活时间。超过这个时间后，日志文件会被删除。支持的格式包括：7d, 10h, 60m, 120s",
+            "The maximum survival time of the FE audit log file. "
+                    + "After exceeding this time, the log file will be deleted. "
+                    + "Supported formats include: 7d, 10h, 60m, 120s"})
     public static String audit_log_delete_age = "30d";
-    @Deprecated
-    @ConfField
-    public static String audit_log_roll_mode = "TIME-DAY";
 
-    /**
-     * plugin_dir:
-     * plugin install directory
-     */
-    @ConfField
+    @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
     public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"是否启用插件", "Whether to enable the plugin"})
     public static boolean plugin_enable = true;
 
-    /**
-     * The default path to save jdbc drivers.
-     * You can put all jdbc drivers in this path, and when creating jdbc resource with only jdbc driver file name,
-     * Doris will find jars from this path.
-     */
-    @ConfField
+    @ConfField(description = {
+            "JDBC 驱动的存放路径。在创建 JDBC Catalog 时，如果指定的驱动文件路径不是绝对路径，则会在这个目录下寻找",
+            "The path to save jdbc drivers. When creating JDBC Catalog,"
+                    + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
     public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
-    /**
-     * The default parallelism of the load execution plan
-     * on a single node when the broker load is submitted
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
+            "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 1;
 
-    /**
-     * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
-     * The removed labels can be reused.
-     * Set a short time will lower the FE memory usage.
-     * (Because all load jobs' info is kept in memory before being removed)
-     */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "已完成或取消的导入作业信息的 label 会在这个时间后被删除。被删除的 label 可以被重用。",
+            "Labels of finished or cancelled load jobs will be removed after this time"
+                    + "The removed labels can be reused."})
     public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
 
-    // For some high frequency load job such as
-    // INSERT, STREAMING LOAD, ROUTINE_LOAD_TASK, DELETE
-    // Remove the finished job or task if expired.
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "针对一些高频的导入作业，比如 INSERT, STREAMING LOAD, ROUTINE_LOAD_TASK, DELETE"
+                    + "如果导入作业或者任务已经完成，且超过这个时间后，会被删除。被删除的作业或者任务可以被重用。",
+            "For some high frequency load jobs such as INSERT, STREAMING LOAD, ROUTINE_LOAD_TASK, DELETE"
+                    + "Remove the finished job or task if expired. The removed job or task can be reused."})
     public static int streaming_label_keep_max_second = 43200; // 12 hour
 
-    /**
-     * The max keep time of some kind of jobs.
-     * like alter job or export job.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "针对 ALTER, EXPORT 作业，如果作业已经完成，且超过这个时间后，会被删除。",
+            "For ALTER, EXPORT jobs, remove the finished job if expired."})
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
 
-    /**
-     * the transaction will be cleaned after transaction_clean_interval_second seconds
-     * if the transaction is visible or aborted
-     * we should make this interval as short as possible and each clean cycle as soon as possible
-     */
-    @ConfField
+    @ConfField(description = {"事务的清理周期，单位为秒。每个周期内，将会清理已经结束的并且过期的历史事务信息",
+            "The clean interval of transaction, in seconds. "
+                    + "In each cycle, the expired history transaction will be cleaned"})
     public static int transaction_clean_interval_second = 30;
 
-    /**
-     * Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
-     */
-    @ConfField
+    @ConfField(description = {"导入作业的清理周期，单位为秒。每个周期内，将会清理已经结束的并且过期的导入作业",
+            "The clean interval of load job, in seconds. "
+                    + "In each cycle, the expired history load job will be cleaned"})
     public static int label_clean_interval_second = 1 * 3600; // 1 hours
 
-    // Configurations for meta data durability
-    /**
-     * Doris meta data will be saved here.
-     * The storage of this dir is highly recommended as to be:
-     * 1. High write performance (SSD)
-     * 2. Safe (RAID)
-     */
-    @ConfField
+    @ConfField(description = {"元数据的存储目录", "The directory to save Doris meta data"})
     public static String meta_dir = System.getenv("DORIS_HOME") + "/doris-meta";
 
-    /**
-     * temp dir is used to save intermediate results of some process, such as backup and restore process.
-     * file in this dir will be cleaned after these process is finished.
-     */
-    @ConfField
+    @ConfField(description = {"临时文件的存储目录", "The directory to save Doris temp data"})
     public static String tmp_dir = System.getenv("DORIS_HOME") + "/temp_dir";
 
-    /**
-     * Edit log type.
-     * BDB: write log to bdbje
-     * LOCAL: use local file to save edit log, only used for unit test
-     */
-    @ConfField
+    @ConfField(description = {"元数据日志的存储类型。BDB: 日志存储在 BDBJE 中。LOCAL：日志存储在本地文件中（仅用于测试）",
+            "The storage type of the metadata log. BDB: Logs are stored in BDBJE. "
+                    + "LOCAL: logs are stored in a local file (for testing only)"}, options = {"BDB", "LOCAL"})
     public static String edit_log_type = "bdb";
 
-    /**
-     * bdbje port
-     */
-    @ConfField
+    @ConfField(description = {"BDBJE 的端口号", "The port of BDBJE"})
     public static int edit_log_port = 9010;
 
-    /**
-     * Master FE will save image every *edit_log_roll_num* meta journals.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "BDBJE 的日志滚动大小。当日志条目数超过这个值后，会触发日志滚动",
+            "The log roll size of BDBJE. When the number of log entries exceeds this value, the log will be rolled"})
     public static int edit_log_roll_num = 50000;
 
-    /**
-     * Non-master FE will stop offering service
-     * if meta data delay gap exceeds *meta_delay_toleration_second*
-     */
-    @ConfField public static int meta_delay_toleration_second = 300;    // 5 min
+    @ConfField(description = {"元数据同步的容忍延迟时间，单位为秒。如果元数据的延迟超过这个值，非主 FE 会停止提供服务",
+            "The toleration delay time of meta data synchronization, in seconds. "
+                    + "If the delay of meta data exceeds this value, non-master FE will stop offering service"})
+    public static int meta_delay_toleration_second = 300;    // 5 min
 
-    /**
-     * Master FE sync policy of bdbje.
-     * If you only deploy one Follower FE, set this to 'SYNC'. If you deploy more than 3 Follower FE,
-     * you can set this and the following 'replica_sync_policy' to WRITE_NO_SYNC.
-     * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html
-     */
-    @ConfField public static String master_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
+    @ConfField(description = {"元数据日志的写同步策略。如果仅部署一个 Follower FE，"
+            + "则推荐设置为 `SYNC`，如果有多个 Follower FE，则可以设置为 `WRITE_NO_SYNC`。"
+            + "可参阅：http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html",
+            "The sync policy of meta data log. If you only deploy one Follower FE, "
+                    + "set this to `SYNC`. If you deploy more than 3 Follower FE, "
+                    + "you can set this and the following `replica_sync_policy` to `WRITE_NO_SYNC`. "
+                    + "See: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html"},
+            options = {"SYNC", "NO_SYNC", "WRITE_NO_SYNC"})
+    public static String master_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
 
-    /**
-     * Follower FE sync policy of bdbje.
-     */
-    @ConfField public static String replica_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
+    @ConfField(description = {"同 `master_sync_policy`", "Same as `master_sync_policy`"},
+            options = {"SYNC", "NO_SYNC", "WRITE_NO_SYNC"})
+    public static String replica_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
 
-    /**
-     * Replica ack policy of bdbje.
-     * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html
-     */
-    @ConfField public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
+    @ConfField(description = {"BDBJE 节点间同步策略，"
+            + "可参阅：http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html",
+            "The replica ack policy of bdbje. "
+                    + "See: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html"},
+            options = {"ALL", "NONE", "SIMPLE_MAJORITY"})
+    public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
 
-    /**
-     * The heartbeat timeout of bdbje between master and follower.
-     * the default is 30 seconds, which is same as default value in bdbje.
-     * If the network is experiencing transient problems, of some unexpected long java GC annoying you,
-     * you can try to increase this value to decrease the chances of false timeouts
-     */
-    @ConfField
+    @ConfField(description = {"BDBJE 主从节点间心跳超时时间，单位为秒。默认值为 30 秒，与 BDBJE 的默认值相同。"
+            + "如果网络不稳定，或者 Java GC 经常导致长时间的暂停，可以适当增大这个值，减少误报超时的概率",
+            "The heartbeat timeout of bdbje between master and follower, in seconds. "
+                    + "The default is 30 seconds, which is same as default value in bdbje. "
+                    + "If the network is experiencing transient problems, "
+                    + "of some unexpected long java GC annoying you, "
+                    + "you can try to increase this value to decrease the chances of false timeouts"})
     public static int bdbje_heartbeat_timeout_second = 30;
 
-    /**
-     * The lock timeout of bdbje operation
-     * If there are many LockTimeoutException in FE WARN log, you can try to increase this value
-     */
-    @ConfField
+    @ConfField(description = {"BDBJE 操作的锁超时时间，单位为秒。如果 FE 的 WARN 日志中出现大量的 LockTimeoutException，"
+            + "可以适当增大这个值",
+            "The lock timeout of bdbje operation, in seconds. "
+                    + "If there are many LockTimeoutException in FE WARN log, you can try to increase this value"})
     public static int bdbje_lock_timeout_second = 1;
 
-    /**
-     * The replica ack timeout when writing to bdbje
-     * When writing some relatively large logs, the ack time may time out, resulting in log writing failure.
-     * At this time, you can increase this value appropriately.
-     */
-    @ConfField
+    @ConfField(description = {"BDBJE 主从节点间同步的超时时间，单位为秒。如果出现大量的 ReplicaWriteException，"
+            + "可以适当增大这个值",
+            "The replica ack timeout of bdbje between master and follower, in seconds. "
+                    + "If there are many ReplicaWriteException in FE WARN log, you can try to increase this value"})
     public static int bdbje_replica_ack_timeout_second = 10;
 
-    /**
-     * The desired upper limit on the number of bytes of reserved space to
-     * retain in a replicated JE Environment.
-     * You only need to decrease this value if your FE meta disk is really small.
-     * And don't need to increase this value.
-     */
-    @ConfField
+    @ConfField(description = {"BDBJE 所需的空闲磁盘空间大小。如果空闲磁盘空间小于这个值，则BDBJE将无法写入。",
+            "Amount of free disk space required by BDBJE. "
+                    + "If the free disk space is less than this value, BDBJE will not be able to write."})
     public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
-    /**
-     * num of thread to handle heartbeat events in heartbeat_mgr.
-     */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {"心跳线程池的线程数",
+            "Num of thread to handle heartbeat events"})
     public static int heartbeat_mgr_threads_num = 8;
 
-    /**
-     * blocking queue size to store heartbeat task in heartbeat_mgr.
-     */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {"心跳线程池的队列大小",
+            "Queue size to store heartbeat task in heartbeat_mgr"})
     public static int heartbeat_mgr_blocking_queue_size = 1024;
 
-    /**
-     * max num of thread to handle agent task in agent task thread-pool.
-     */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {"Agent任务线程池的线程数",
+            "Num of thread to handle agent task in agent task thread-pool"})
     public static int max_agent_task_threads_num = 4096;
 
-    /**
-     * the max txn number which bdbje can rollback when trying to rejoin the group
-     */
-    @ConfField public static int txn_rollback_limit = 100;
+    @ConfField(description = {"BDBJE 重加入集群时，最多回滚的事务数。如果回滚的事务数超过这个值，"
+            + "则 BDBJE 将无法重加入集群，需要手动清理 BDBJE 的数据。",
+            "The max txn number which bdbje can rollback when trying to rejoin the group. "
+                    + "If the number of rollback txn is larger than this value, "
+                    + "bdbje will not be able to rejoin the group, and you need to clean up bdbje data manually."})
+    public static int txn_rollback_limit = 100;
 
-    /**
-     * Specified an IP for frontend, instead of the ip get by *InetAddress.getByName*.
-     * This can be used when *InetAddress.getByName* get an unexpected IP address.
-     * Default is "0.0.0.0", which means not set.
-     * CAN NOT set this as a hostname, only IP.
-     */
-    @Deprecated
-    @ConfField
-    public static String frontend_address = "0.0.0.0";
+    @ConfField(description = {"优先使用的网络地址，如果 FE 有多个网络地址，"
+            + "可以通过这个配置来指定优先使用的网络地址。"
+            + "这是一个分号分隔的列表，每个元素是一个 CIDR 表示的网络地址",
+            "The preferred network address. If FE has multiple network addresses, "
+                    + "this configuration can be used to specify the preferred network address. "
+                    + "This is a semicolon-separated list, "
+                    + "each element is a CIDR representation of the network address"})
+    public static String priority_networks = "";
 
-    /**
-     * Declare a selection strategy for those servers have many ips.
-     * Note that there should at most one ip match this list.
-     * this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
-     * If no ip match this rule, will choose one randomly.
-     */
-    @ConfField public static String priority_networks = "";
+    @ConfField(description = {"是否重置 BDBJE 的复制组，如果所有的可选节点都无法启动，"
+            + "可以将元数据拷贝到另一个节点，并将这个配置设置为 true，尝试重启 FE。更多信息请参阅官网的元数据故障恢复文档。",
+            "If true, FE will reset bdbje replication group(that is, to remove all electable nodes info) "
+                    + "and is supposed to start as Master. "
+                    + "If all the electable nodes can not start, we can copy the meta data "
+                    + "to another node and set this config to true to try to restart the FE. "
+                    + "For more information, please refer to the metadata failure recovery document "
+                    + "on the official website."})
+    public static String metadata_failure_recovery = "false";
 
-    /**
-     * If true, FE will reset bdbje replication group(that is, to remove all electable nodes info)
-     * and is supposed to start as Master.
-     * If all the electable nodes can not start, we can copy the meta data
-     * to another node and set this config to true to try to restart the FE.
-     */
-    @ConfField public static String metadata_failure_recovery = "false";
-
-    /**
-     * If true, non-master FE will ignore the meta data delay gap between Master FE and its self,
-     * even if the metadata delay gap exceeds *meta_delay_toleration_second*.
-     * Non-master FE will still offer read service.
-     *
-     * This is helpful when you try to stop the Master FE for a relatively long time for some reason,
-     * but still wish the non-master FE can offer read service.
-     */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {"是否忽略元数据延迟，如果 FE 的元数据延迟超过这个阈值，"
+            + "则非 Master FE 仍然提供读服务。这个配置可以用于当 Master FE 因为某些原因停止了较长时间，"
+            + "但是仍然希望非 Master FE 可以提供读服务。",
+            "If true, non-master FE will ignore the meta data delay gap between Master FE and its self, "
+                    + "even if the metadata delay gap exceeds this threshold. "
+                    + "Non-master FE will still offer read service. "
+                    + "This is helpful when you try to stop the Master FE for a relatively long time for some reason, "
+                    + "but still wish the non-master FE can offer read service."})
     public static boolean ignore_meta_check = false;
 
-    /**
-     * Set the maximum acceptable clock skew between non-master FE to Master FE host.
-     * This value is checked whenever a non-master FE establishes a connection to master FE via BDBJE.
-     * The connection is abandoned if the clock skew is larger than this value.
-     */
-    @ConfField public static long max_bdbje_clock_delta_ms = 5000; // 5s
+    @ConfField(description = {"非 Master FE 与 Master FE 的最大时钟偏差，单位为毫秒。"
+            + "这个配置用于在非 Master FE 与 Master FE 之间建立 BDBJE 连接时检查时钟偏差，"
+            + "如果时钟偏差超过这个阈值，则 BDBJE 连接会被放弃。",
+            "The maximum clock skew between non-master FE to Master FE host, in milliseconds. "
+                    + "This value is checked whenever a non-master FE establishes a connection to master FE via BDBJE. "
+                    + "The connection is abandoned if the clock skew is larger than this value."})
+    public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
-    /**
-     * Whether to enable all http interface authentication
-     */
-    @ConfField public static boolean enable_all_http_auth = false;
+    @ConfField(description = {"是否启用所有 http 接口的认证",
+            "Whether to enable all http interface authentication"}, expType = ExperimentalType.EXPERIMENTAL)
+    public static boolean enable_all_http_auth = false;
 
-    /**
-     * Fe http port
-     * Currently, all FEs' http port must be same.
-     */
-    @ConfField public static int http_port = 8030;
+    @ConfField(description = {"FE http 端口，目前所有 FE 的 http 端口必须相同",
+            "Fe http port, currently all FE's http port must be same"})
+    public static int http_port = 8030;
 
-    /**
-     * Fe https port
-     * Currently, all FEs' https port must be same.
-     */
-    @ConfField public static int https_port = 8050;
+    @ConfField(description = {"FE https 端口，目前所有 FE 的 https 端口必须相同",
+            "Fe https port, currently all FE's https port must be same"})
+    public static int https_port = 8050;
 
-    /**
-     * ssl key store path.
-     * If you want to change the path, you need to create corresponding directory.
-     */
-    @ConfField public static String key_store_path = System.getenv("DORIS_HOME")
-        + "/conf/ssl/doris_ssl_certificate.keystore";
+    @ConfField(description = {"FE https 服务的 key store 路径",
+            "The key store path of FE https service"})
+    public static String key_store_path = System.getenv("DORIS_HOME")
+            + "/conf/ssl/doris_ssl_certificate.keystore";
 
-    /**
-     * ssl key store password. Null by default.
-     */
-    @ConfField public static String key_store_password = "";
+    @ConfField(description = {"FE https 服务的 key store 密码",
+            "The key store password of FE https service"})
+    public static String key_store_password = "";
 
-    /**
-     * ssl key store type. "JKS" by default.
-     */
-    @ConfField public static String key_store_type = "JKS";
+    @ConfField(description = {"FE https 服务的 key store 类型",
+            "The key store type of FE https service"})
+    public static String key_store_type = "JKS";
 
-    /**
-     * ssl key store alias. "doris_ssl_certificate" by default.
-     */
-    @ConfField public static String key_store_alias = "doris_ssl_certificate";
+    @ConfField(description = {"FE https 服务的 key store 别名",
+            "The key store alias of FE https service"})
+    public static String key_store_alias = "doris_ssl_certificate";
 
-    /**
-     * https enable flag. false by default.
-     * If the value is false, http is supported. Otherwise, https is supported.
-     * Currently doris uses many ports, so http and https are not supported at the same time.
-     */
-    @ConfField public static boolean enable_https = false;
+    @ConfField(description = {"是否启用 https，如果启用，http 端口将不可用",
+            "Whether to enable https, if enabled, http port will not be available"},
+            expType = ExperimentalType.EXPERIMENTAL)
+    public static boolean enable_https = false;
 
-    /**
-     * Jetty container default configuration
-     * Jetty's thread architecture model is very simple, divided into three thread pools:
-     * acceptors,selectors and workers. Acceptors are responsible for accepting new connections,
-     * and then hand over to selectors to process the unpacking of the HTTP message protocol,
-     * and finally workers process the request. The first two thread pools adopt a non-blocking model,
-     * and one thread can handle the read and write of many sockets, so the number of thread pools is small.
-     *
-     * For most projects, only 1-2 acceptors threads are needed, and 2 to 4 selectors threads are sufficient.
-     * Workers are obstructive business logic, often have more database operations, and require a large number of
-     * threads. The specific number depends on the proportion of QPS and IO events of the application. The higher the
-     * QPS, the more threads are required, the higher the proportion of IO, the more threads waiting, and the more
-     * total threads required.
-     */
-    @ConfField public static int jetty_server_acceptors = 2;
-    @ConfField public static int jetty_server_selectors = 4;
-    @ConfField public static int jetty_server_workers = 0;
+    @ConfField(description = {"Jetty 的 acceptor 线程数。Jetty的线程架构模型很简单，分为三个线程池：acceptor、selector 和 worker。"
+            + "acceptor 负责接受新的连接，然后交给 selector 处理HTTP报文协议的解包，最后由 worker 处理请求。"
+            + "前两个线程池采用非阻塞模型，并且一个线程可以处理很多socket的读写，所以线程池的数量少。"
+            + "对于大多数项目，只需要 1-2 个 acceptor 线程，2 到 4 个就足够了。Worker 的数量取决于应用的QPS和IO事件的比例。"
+            + "越高QPS，或者IO占比越高，等待的线程越多，需要的线程总数越多。",
+            "The number of acceptor threads for Jetty. Jetty's thread architecture model is very simple, "
+                    + "divided into three thread pools: acceptor, selector and worker. "
+                    + "The acceptor is responsible for accepting new connections, "
+                    + "and then handing it over to the selector to process the unpacking of the HTTP message protocol, "
+                    + "and finally the worker processes the request. "
+                    + "The first two thread pools adopt a non-blocking model, "
+                    + "and one thread can handle many socket reads and writes, "
+                    + "so the number of thread pools is small. For most projects, "
+                    + "only 1-2 acceptor threads are needed, 2 to 4 should be enough. "
+                    + "The number of workers depends on the ratio of QPS and IO events of the application. "
+                    + "The higher the QPS, or the higher the IO ratio, the more threads are waiting, "
+                    + "and the more threads are required."})
+    public static int jetty_server_acceptors = 2;
+    @ConfField(description = {"Jetty 的 selector 线程数。", "The number of selector threads for Jetty."})
+    public static int jetty_server_selectors = 4;
+    @ConfField(description = {"Jetty 的 worker 线程数。0 表示使用默认线程池。",
+            "The number of worker threads for Jetty. 0 means using the default thread pool."})
+    public static int jetty_server_workers = 0;
 
-    /**
-     * Configure the default minimum and maximum number of threads for jetty.
-     * The default minimum and maximum number of threads for jetty is 10 and the maximum is 200.
-     * If this is relatively small in a high-concurrency import scenario,
-     * users can adjust it according to their own conditions.
-     */
-    @ConfField public static int jetty_threadPool_minThreads = 20;
-    @ConfField public static int jetty_threadPool_maxThreads = 400;
+    @ConfField(description = {"Jetty 的线程池的默认最小线程数。",
+            "The default minimum number of threads for jetty."})
+    public static int jetty_threadPool_minThreads = 20;
+    @ConfField(description = {"Jetty 的线程池的默认最大线程数。",
+            "The default maximum number of threads for jetty."})
+    public static int jetty_threadPool_maxThreads = 400;
 
-    /**
-     * Jetty maximum number of bytes in put or post method,default:100MB
-     */
-    @ConfField public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
+    @ConfField(description = {"Jetty 的最大 HTTP POST 大小，单位是字节，默认值是 100MB。",
+            "The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
+    public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
-    /**
-     * http header size configuration parameter, the default value is 10K
-     */
-    @ConfField public static int jetty_server_max_http_header_size = 10240;
+    @ConfField(description = {"Jetty 的最大 HTTP header 大小，单位是字节，默认值是 10KB。",
+            "The maximum HTTP header size of Jetty, in bytes, the default value is 10KB."})
+    public static int jetty_server_max_http_header_size = 10240;
 
-    /**
-     * Mini load disabled by default
-     */
-    @ConfField public static boolean disable_mini_load = true;
+    @ConfField(description = {"是否禁用 mini load，默认禁用",
+            "Whether to disable mini load, disabled by default"})
+    public static boolean disable_mini_load = true;
 
-    /**
-     * The backlog_num for mysql nio server
-     * When you enlarge this backlog_num, you should enlarge the value in
-     * the linux /proc/sys/net/core/somaxconn file at the same time
-     */
-    @ConfField public static int mysql_nio_backlog_num = 1024;
+    @ConfField(description = {"mysql nio server 的 backlog 数量。"
+            + "如果调大这个值，则需同时调整 /proc/sys/net/core/somaxconn 的值",
+            "The backlog number of mysql nio server. "
+                    + "If you enlarge this value, you should enlarge the value in "
+                    + "`/proc/sys/net/core/somaxconn` at the same time"})
+    public static int mysql_nio_backlog_num = 1024;
 
-    /**
-     * The connection timeout and socket timeout config for thrift server
-     * The default value for thrift_client_timeout_ms is set to be zero to prevent readtimeout
-     *
-     */
-    @ConfField public static int thrift_client_timeout_ms = 0;
+    @ConfField(description = {"thrift client 的连接超时时间，单位是毫秒。0 表示不设置超时时间。",
+            "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
+    public static int thrift_client_timeout_ms = 0;
 
-    /**
-     * The backlog_num for thrift server
-     * When you enlarge this backlog_num, you should ensure it's value larger than
-     * the linux /proc/sys/net/core/somaxconn config
-     */
-    @ConfField public static int thrift_backlog_num = 1024;
+    @ConfField(description = {"thrift server 的 backlog 数量。"
+            + "如果调大这个值，则需同时调整 /proc/sys/net/core/somaxconn 的值",
+            "The backlog number of thrift server. "
+                    + "If you enlarge this value, you should enlarge the value in "
+                    + "`/proc/sys/net/core/somaxconn` at the same time"})
+    public static int thrift_backlog_num = 1024;
 
-    /**
-     * FE thrift server port
-     */
-    @ConfField public static int rpc_port = 9020;
+    @ConfField(description = {"FE thrift server 的端口号", "The port of FE thrift server"})
+    public static int rpc_port = 9020;
 
-    /**
-     * FE mysql server port
-     */
-    @ConfField public static int query_port = 9030;
+    @ConfField(description = {"FE MySQL server 的端口号", "The port of FE MySQL server"})
+    public static int query_port = 9030;
 
-    /**
-     * num of thread to handle io events in mysql.
-     */
-    @ConfField public static int mysql_service_io_threads_num = 4;
+    @ConfField(description = {"MySQL 服务的 IO 线程数", "The number of IO threads in MySQL service"})
+    public static int mysql_service_io_threads_num = 4;
 
-    /**
-     * max num of thread to handle task in mysql.
-     */
-    @ConfField public static int max_mysql_service_task_threads_num = 4096;
+    @ConfField(description = {"MySQL 服务的最大任务线程数", "The max number of task threads in MySQL service"})
+    public static int max_mysql_service_task_threads_num = 4096;
 
-    /**
-     * node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.
-     * Cluster id is usually a random integer generated when master FE start at first time.
-     * You can also specify one.
-     */
-    @ConfField public static int cluster_id = -1;
+    @ConfField(description = {
+            "集群 ID，用于内部认证。通常在集群第一次启动时，会随机生成一个 cluster id. 用户也可以手动指定。",
+            "Cluster id used for internal authentication. Usually a random integer generated when master FE "
+                    + "start at first time. You can also specify one."})
+    public static int cluster_id = -1;
 
-    /**
-     * Cluster token used for internal authentication.
-     */
-    @ConfField public static String auth_token = "";
+    @ConfField(description = {"集群 token，用于内部认证。",
+            "Cluster token used for internal authentication."})
+    public static String auth_token = "";
 
-    // Configurations for load, clone, create table, alter table etc. We will rarely change them
-    /**
-     * Maximal waiting time for creating a single replica.
-     * eg.
-     *      if you create a table with #m tablets and #n replicas for each tablet,
-     *      the create table request will run at most (m * n * tablet_create_timeout_second) before timeout.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true,
+            description = {"创建单个 Replica 的最大超时时间，单位是秒。如果你要创建 m 个 tablet，每个 tablet 有 n 个 replica。"
+                    + "则总的超时时间为 `m * n * tablet_create_timeout_second`",
+                    "Maximal waiting time for creating a single replica, in seconds. "
+                            + "eg. if you create a table with #m tablets and #n replicas for each tablet, "
+                            + "the create table request will run at most "
+                            + "(m * n * tablet_create_timeout_second) before timeout"})
     public static int tablet_create_timeout_second = 1;
 
-    /**
-     * In order not to wait too long for create table(index), set a max timeout.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"创建表的最大超时时间，单位是秒。",
+            "Maximal waiting time for creating a table, in seconds."})
     public static int max_create_table_timeout_second = 3600;
 
-    /**
-     * Maximal waiting time for all publish version tasks of one transaction to be finished
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段的最大超时时间，单位是秒。",
+            "Maximal waiting time for all publish version tasks of one transaction to be finished, in seconds."})
     public static int publish_version_timeout_second = 30; // 30 seconds
 
-    /**
-     * Maximal waiting time for all data inserted before one transaction to be committed
-     * This is the timeout second for the command "commit"
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
+            + "该参数仅用于事务型 insert 操作中。",
+            "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
+                    + "This parameter is only used for transactional insert operation"})
     public static int commit_timeout_second = 30; // 30 seconds
 
-    /**
-     * minimal intervals between two publish version action
-     */
-    @ConfField public static int publish_version_interval_ms = 10;
+    @ConfField(masterOnly = true, description = {"Publish 任务触发线程的执行间隔，单位是毫秒。",
+            "The interval of publish task trigger thread, in milliseconds"})
+    public static int publish_version_interval_ms = 10;
 
-    /**
-     * The thrift server max worker threads
-     */
-    @ConfField public static int thrift_server_max_worker_threads = 4096;
+    @ConfField(description = {"thrift server 的最大 worker 线程数", "The max worker threads of thrift server"})
+    public static int thrift_server_max_worker_threads = 4096;
 
-    /**
-     * Maximal wait seconds for straggler node in load
-     * eg.
-     *      there are 3 replicas A, B, C
-     *      load is already quorum finished(A,B) at t1 and C is not finished
-     *      if (current_time - t1) > 300s, then palo will treat C as a failure node
-     *      will call transaction manager to commit the transaction and tell transaction manager
-     *      that C is failed
-     *
-     * This is also used when waiting for publish tasks
-     *
-     * TODO this parameter is the default value for all job and the DBA could specify it for separate job
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int load_straggler_wait_second = 300;
+    @ConfField(mutable = true, masterOnly = true, description = {"Delete 操作的最大超时时间，单位是秒。",
+            "Maximal timeout for delete job, in seconds."})
+    public static int delete_job_max_timeout_second = 300;
 
-    /**
-     * The load scheduler running interval.
-     * A load job will transfer its state from PENDING to LOADING to FINISHED.
-     * The load scheduler will transfer load job from PENDING to LOADING
-     *      while the txn callback will transfer load job from LOADING to FINISHED.
-     * So a load job will cost at most one interval to finish when the concurrency has not reached the upper limit.
-     */
-    @ConfField public static int load_checker_interval_second = 5;
+    @ConfField(description = {"load job 调度器的执行间隔，单位是秒。",
+            "The interval of load job scheduler, in seconds."})
+    public static int load_checker_interval_second = 5;
 
-    /**
-     * The spark load scheduler running interval.
-     * Default 60 seconds, because spark load job is heavy and yarn client returns slowly.
-     */
-    @ConfField public static int spark_load_checker_interval_second = 60;
+    @ConfField(description = {"spark load job 调度器的执行间隔，单位是秒。",
+            "The interval of spark load job scheduler, in seconds."})
+    public static int spark_load_checker_interval_second = 60;
 
-    /**
-     * Concurrency of HIGH priority pending load jobs.
-     * Load job priority is defined as HIGH or NORMAL.
-     * All mini batch load jobs are HIGH priority, other types of load jobs are NORMAL priority.
-     * Priority is set to avoid that a slow load job occupies a thread for a long time.
-     * This is just a internal optimized scheduling policy.
-     * Currently, you can not specified the job priority manually,
-     * and do not change this if you know what you are doing.
-     */
-    @ConfField public static int load_pending_thread_num_high_priority = 3;
-    /**
-     * Concurrency of NORMAL priority pending load jobs.
-     * Do not change this if you know what you are doing.
-     */
-    @ConfField public static int load_pending_thread_num_normal_priority = 10;
-    /**
-     * Concurrency of HIGH priority etl load jobs.
-     * Do not change this if you know what you are doing.
-     */
-    @ConfField public static int load_etl_thread_num_high_priority = 3;
-    /**
-     * Concurrency of NORMAL priority etl load jobs.
-     * Do not change this if you know what you are doing.
-     */
-    @ConfField public static int load_etl_thread_num_normal_priority = 10;
-    /**
-     * Not available.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int load_input_size_limit_gb = 0; // GB, 0 is no limit
-    /**
-     * Not available.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int load_running_job_num_limit = 0; // 0 is no limit
-    /**
-     * Default broker load timeout
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Broker load 的默认超时时间，单位是秒。",
+            "Default timeout for broker load job, in seconds."})
     public static int broker_load_default_timeout_second = 14400; // 4 hour
 
-    /**
-     * Broker rpc timeout
-     */
-    @ConfField public static int broker_timeout_ms = 10000; // 10s
-    /**
-     * Default non-streaming mini load timeout
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int mini_load_default_timeout_second = 3600; // 1 hour
+    @ConfField(description = {"和 Broker 进程交互的 RPC 的超时时间，单位是毫秒。",
+            "The timeout of RPC between FE and Broker, in milliseconds"})
+    public static int broker_timeout_ms = 10000; // 10s
 
-    /**
-     * Default insert load timeout
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Insert load 的默认超时时间，单位是秒。",
+            "Default timeout for insert load job, in seconds."})
     public static int insert_load_default_timeout_second = 3600; // 1 hour
 
-    /**
-     * Default stream load and streaming mini load timeout
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
+            "Default timeout for stream load job, in seconds."})
     public static int stream_load_default_timeout_second = 86400 * 3; // 3days
 
-    /**
-     * Default stream load pre-commit status timeout
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认预提交超时时间，单位是秒。",
+            "Default pre-commit timeout for stream load job, in seconds."})
     public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
 
-    /**
-     * Max load timeout applicable to all type of load except for stream load
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Load 的最大超时时间，单位是秒。",
+            "Maximal timeout for load job, in seconds."})
     public static int max_load_timeout_second = 259200; // 3days
 
-    /**
-     * Max stream load and streaming mini load timeout
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的最大超时时间，单位是秒。",
+            "Maximal timeout for stream load job, in seconds."})
     public static int max_stream_load_timeout_second = 259200; // 3days
 
-    /**
-     * Min stream load timeout applicable to all type of load
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Load 的最小超时时间，单位是秒。",
+            "Minimal timeout for load job, in seconds."})
     public static int min_load_timeout_second = 1; // 1s
 
-    /**
-     * Default hadoop load timeout
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Hadoop load 的默认超时时间，单位是秒。",
+            "Default timeout for hadoop load job, in seconds."})
     public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
 
-    // Configurations for spark load
-    /**
-     * Default spark dpp version
-     */
-    @ConfField
+    @ConfField(description = {"Spark DPP 程序的版本", "Default spark dpp version"})
     public static String spark_dpp_version = "1.0.0";
-    /**
-     * Default spark load timeout
-     */
-    @ConfField(mutable = true, masterOnly = true)
+
+    @ConfField(mutable = true, masterOnly = true, description = {"Spark load 的默认超时时间，单位是秒。",
+            "Default timeout for spark load job, in seconds."})
     public static int spark_load_default_timeout_second = 86400; // 1 day
 
-    /**
-     * Default spark home dir
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Spark Load 所使用的 Spark 程序目录",
+            "Spark dir for Spark Load"})
     public static String spark_home_default_dir = System.getenv("DORIS_HOME") + "/lib/spark2x";
 
-    /**
-     * Default spark dependencies path
-     */
-    @ConfField
+    @ConfField(description = {"Spark load 所使用的依赖项目录", "Spark dependencies dir for Spark Load"})
     public static String spark_resource_path = "";
 
-    /**
-     * The specified spark launcher log dir
-     */
-    @ConfField
+    @ConfField(description = {"Spark launcher 日志路径", "Spark launcher log dir"})
     public static String spark_launcher_log_dir = sys_log_dir + "/spark_launcher_log";
 
-    /**
-     * Default yarn client path
-     */
-    @ConfField
+    @ConfField(description = {"Yarn client 的路径", "Yarn client path"})
     public static String yarn_client_path = System.getenv("DORIS_HOME") + "/lib/yarn-client/hadoop/bin/yarn";
 
-    /**
-     * Default yarn config file directory
-     * Each time before running the yarn command, we need to check that the
-     * config file exists under this path, and if not, create them.
-     */
-    @ConfField
+    @ConfField(description = {"Yarn 配置文件的路径", "Yarn config path"})
     public static String yarn_config_dir = System.getenv("DORIS_HOME") + "/lib/yarn-config";
 
-    /**
-     * Maximal intervals between two syncJob's commits.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最大提交间隔，单位是秒。",
+            "Maximal intervals between two sync job's commits."})
     public static long sync_commit_interval_second = 10;
 
-    /**
-     * Sync checker's running interval.
-     */
-    @ConfField public static int sync_checker_interval_second = 5;
+    @ConfField(description = {"Sync job 调度器的执行间隔，单位是秒。",
+            "The interval of sync job scheduler, in seconds."})
+    public static int sync_checker_interval_second = 5;
 
-    /**
-     * max num of thread to handle sync task in sync task thread-pool.
-     */
-    @ConfField public static int max_sync_task_threads_num = 10;
+    @ConfField(description = {"Sync job 的最大并发数。",
+            "Maximal concurrent num of sync job."})
+    public static int max_sync_task_threads_num = 10;
 
-
-    /**
-     * Min event size that a sync job will commit.
-     * When receiving events less than it, SyncJob will continue
-     * to wait for the next batch of data until the time exceeds
-     * `sync_commit_interval_second`.
-     * The default value is 10000 (canal default event buffer size is 16384).
-     * You should set it smaller than canal buffer size.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最小提交事件数。如果收到的事件数小于该值，"
+            + "Sync Job 会继续等待下一批数据，直到时间超过 `sync_commit_interval_second`。这个值应小于 canal 的缓冲区大小。",
+            "Min events that a sync job will commit. When receiving events less than it, SyncJob will continue "
+                    + "to wait for the next batch of data until the time exceeds `sync_commit_interval_second`."})
     public static long min_sync_commit_size = 10000;
 
-    /**
-     * Min bytes that a sync job will commit.
-     * When receiving bytes less than it, SyncJob will continue
-     * to wait for the next batch of data until the time exceeds
-     * `sync_commit_interval_second`.
-     * The default value is 15 MB (canal default memory is 16 MB).
-     * You should set it slightly smaller than canal memory.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最小提交字节数。如果收到的字节数小于该值，"
+            + "Sync Job 会继续等待下一批数据，直到时间超过 `sync_commit_interval_second`。这个值应小于 canal 的缓冲区大小。",
+            "Min bytes that a sync job will commit. When receiving bytes less than it, SyncJob will continue "
+                    + "to wait for the next batch of data until the time exceeds `sync_commit_interval_second`."})
     public static long min_bytes_sync_commit = 15 * 1024 * 1024; // 15 MB
 
-    /**
-     * Max bytes that a sync job will commit.
-     * When receiving bytes less than it, SyncJob will commit
-     * all data immediately.
-     * The default value is 64 MB (canal default memory is 16 MB).
-     * You should set it larger than canal memory and
-     * `min_bytes_sync_commit`.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最大提交字节数。如果收到的字节数大于该值，"
+            + "Sync Job 会立即提交所有数据。这个值应大于 canal 的缓冲区大小和 `min_bytes_sync_commit`。",
+            "Max bytes that a sync job will commit. When receiving bytes larger than it, SyncJob will commit "
+                    + "all data immediately. You should set it larger than canal memory and "
+                    + "`min_bytes_sync_commit`."})
     public static long max_bytes_sync_commit = 64 * 1024 * 1024; // 64 MB
 
-    /**
-     * Default number of waiting jobs for routine load and version 2 of load
-     * This is a desired number.
-     * In some situation, such as switch the master, the current number is maybe more than desired_max_waiting_jobs
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Broker Load 的最大等待 job 数量。"
+            + "这个值是一个期望值。在某些情况下，比如切换 master，当前等待的 job 数量可能会超过这个值。",
+            "Maximal number of waiting jobs for Broker Load. This is a desired number. "
+                    + "In some situation, such as switch the master, "
+                    + "the current number is maybe more than this value."})
     public static int desired_max_waiting_jobs = 100;
 
-    /**
-     * fetch stream load record interval.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"FE 从 BE 获取 Stream Load 作业信息的间隔。",
+            "The interval of FE fetch stream load record from BE."})
     public static int fetch_stream_load_record_interval_second = 120;
 
-    /**
-     * Default max number of recent stream load record that can be stored in memory.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认最大记录数。",
+            "Default max number of recent stream load record that can be stored in memory."})
     public static int max_stream_load_record_size = 5000;
 
-    /**
-     * Default max number of recent iceberg database table creation record that can be stored in memory.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_iceberg_table_creation_record_size = 2000;
-
-    /**
-     * Whether to disable show stream load and clear stream load records in memory.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁用 show stream load 和 clear stream load 命令，以及是否清理内存中的 stream load 记录。",
+            "Whether to disable show stream load and clear stream load records in memory."})
     public static boolean disable_show_stream_load = false;
 
-    /**
-     * Whether to enable to write single replica for stream load and broker load.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否启用 stream load 和 broker load 的单副本写入。",
+            "Whether to enable to write single replica for stream load and broker load."},
+            expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_single_replica_load = false;
 
-    /**
-     * maximum concurrent running txn num including prepare, commit txns under a single db
-     * txn manager will reject coming txns
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "单个数据库最大并发运行的事务数，包括 prepare 和 commit 事务。",
+            "Maximum concurrent running txn num including prepare, commit txns under a single db.",
+            "Txn manager will reject coming txns."})
     public static int max_running_txn_num_per_db = 100;
 
-    /**
-     * This configuration is just for compatible with old version,
-     * this config has been replaced by async_loading_load_task_pool_size,
-     * it will be removed in the future.
-     */
-    @Deprecated
-    @ConfField(mutable = false, masterOnly = true)
-    public static int async_load_task_pool_size = 10;
-
-    /**
-     * The pending_load task executor pool size. This pool size limits the max running pending_load tasks.
-     * Currently, it only limits the pending_load task of broker load and spark load.
-     * It should be less than 'max_running_txn_num_per_db'
-     */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(masterOnly = true, description = {"pending load task 执行线程数。这个配置可以限制当前等待的导入作业数。"
+            + "并且应小于 `max_running_txn_num_per_db`。",
+            "The pending load task executor pool size. "
+                    + "This pool size limits the max running pending load tasks.",
+            "Currently, it only limits the pending load task of broker load and spark load.",
+            "It should be less than `max_running_txn_num_per_db`"})
     public static int async_pending_load_task_pool_size = 10;
 
-    /**
-     * The loading_load task executor pool size. This pool size limits the max running loading_load tasks.
-     * Currently, it only limits the loading_load task of broker load.
-     */
-    @ConfField(mutable = false, masterOnly = true)
-    public static int async_loading_load_task_pool_size = async_load_task_pool_size;
+    @ConfField(masterOnly = true, description = {"loading load task 执行线程数。这个配置可以限制当前正在导入的作业数。",
+            "The loading load task executor pool size. "
+                    + "This pool size limits the max running loading load tasks.",
+            "Currently, it only limits the loading load task of broker load."})
+    public static int async_loading_load_task_pool_size = 10;
 
-    /**
-     * Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "和 `tablet_create_timeout_second` 含义相同，但是是用于 Delete 操作的。",
+            "The same meaning as `tablet_create_timeout_second`, but used when delete a tablet."})
     public static int tablet_delete_timeout_second = 2;
-    /**
-     * the minimal delay seconds between a replica is failed and fe try to recovery it using clone.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int replica_delay_recovery_second = 0;
-    /**
-     * Balance threshold of data size in BE.
-     * The balance algorithm is:
-     * 1. Calculate the average used capacity(AUC) of the entire cluster. (total data size / total backends num)
-     * 2. The high water level is (AUC * (1 + clone_capacity_balance_threshold))
-     * 3. The low water level is (AUC * (1 - clone_capacity_balance_threshold))
-     * The Clone checker will try to move replica from high water level BE to low water level BE.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static double clone_capacity_balance_threshold = 0.2;
-    /**
-     * Balance threshold of num of replicas in Backends.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static double clone_distribution_balance_threshold = 0.2;
-    /**
-     * The high water of disk capacity used percent.
-     * This is used for calculating load score of a backend.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static double capacity_used_percent_high_water = 0.75;
-    /**
-     * Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int alter_table_timeout_second = 86400 * 30; // 1month
-    /**
-     * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
-     * Do not set this if you know what you are doing.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_backend_down_time_second = 3600; // 1h
 
-    /**
-     * If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium
-     * and disable storage cool down function, the default value is false.
-     * You can set the value true when you don't care what the storage medium of the tablet is.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "磁盘使用率的高水位线。用于计算 BE 的负载分数。",
+            "The high water of disk capacity used percent. This is used for calculating load score of a backend."})
+    public static double capacity_used_percent_high_water = 0.75;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "ALTER TABLE 请求的最大超时时间。设置的足够长以适应表的数据量。",
+            "Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size."})
+    public static int alter_table_timeout_second = 86400 * 30; // 1month
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁用存储介质检查。如果禁用，ReportHandler 将不会检查 tablet 的存储介质，"
+                    + "并且禁用存储介质冷却功能。默认值为 false。",
+            "When disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium "
+                    + "and disable storage cool down function."})
     public static boolean disable_storage_medium_check = false;
-    /**
-     * When create a table(or partition), you can specify its storage medium(HDD or SSD).
-     * If not set, this specifies the default medium when created.
-     */
-    @ConfField public static String default_storage_medium = "HDD";
-    /**
-     * After dropping database(table/partition), you can recover it by using RECOVER stmt.
-     * And this specifies the maximal data retention time. After time, the data will be deleted permanently.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+
+    @ConfField(description = {"创建表或分区时，可以指定存储介质(HDD 或 SSD)。如果未指定，"
+            + "则使用此配置指定的默认介质。",
+            "When create a table(or partition), you can specify its storage medium(HDD or SSD)."})
+    public static String default_storage_medium = "HDD";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "删除数据库(表/分区)后，可以使用 RECOVER 语句恢复。此配置指定了数据的最大保留时间。"
+                    + "超过此时间，数据将被永久删除。",
+            "After dropping database(table/partition), you can recover it by using RECOVER stmt.",
+            "And this specifies the maximal data retention time. After time, the data will be deleted permanently."})
     public static long catalog_trash_expire_second = 86400L; // 1day
-    /**
-     * Maximal bytes that a single broker scanner will read.
-     * Do not set this if you know what you are doing.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "单个 broker scanner 读取的最小字节数。Broker Load 切分文件时，"
+                    + "如果切分后的文件大小小于此值，将不会切分。",
+            "Minimal bytes that a single broker scanner will read. When splitting file in broker load, "
+                    + "if the size of split file is less than this value, it will not be split."})
     public static long min_bytes_per_broker_scanner = 67108864L; // 64MB
-    /**
-     * Maximal concurrency of broker scanners.
-     * Do not set this if you know what you are doing.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "单个 broker scanner 的最大并发数。", "Maximal concurrency of broker scanners."})
     public static int max_broker_concurrency = 10;
 
-    /**
-     * Export checker's running interval.
-     */
-    @ConfField public static int export_checker_interval_second = 5;
-    /**
-     * Limitation of the concurrency of running export jobs.
-     * Default is 5.
-     * 0 is unlimited
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "导出作业的最大并发数。", "Limitation of the concurrency of running export jobs."})
     public static int export_running_job_num_limit = 5;
-    /**
-     * Default timeout of export jobs.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "导出作业的默认超时时间。", "Default timeout of export jobs."})
     public static int export_task_default_timeout_second = 2 * 3600; // 2h
-    /**
-     * Number of tablets per export query plan
-     */
-    @ConfField(mutable = true, masterOnly = true)
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "每个导出作业的需要处理的 tablet 数量。", "Number of tablets need to be handled per export job."})
     public static int export_tablet_num_per_task = 5;
 
-    // Configurations for consistency check
-    /**
-     * Consistency checker will run from *consistency_check_start_time* to *consistency_check_end_time*.
-     * If start time == end time, the checker will stop scheduling.
-     * And default is disabled.
-     * TODO(cmy): Disable by default because current checksum logic has some bugs.
-     * And it will also bring some overhead.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    // TODO(cmy): Disable by default because current checksum logic has some bugs.
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "一致性检查的开始时间。与 `consistency_check_end_time` 配合使用，决定一致性检查的起止时间。"
+                    + "如果将两个参数设置为相同的值，则一致性检查将不会被调度。",
+            "Start time of consistency check. Used with `consistency_check_end_time` "
+                    + "to decide the start and end time of consistency check. "
+                    + "If set to the same value, consistency check will not be scheduled."})
     public static String consistency_check_start_time = "23";
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "一致性检查的结束时间。与 `consistency_check_start_time` 配合使用，决定一致性检查的起止时间。"
+                    + "如果将两个参数设置为相同的值，则一致性检查将不会被调度。",
+            "End time of consistency check. Used with `consistency_check_start_time` "
+                    + "to decide the start and end time of consistency check. "
+                    + "If set to the same value, consistency check will not be scheduled."})
     public static String consistency_check_end_time = "23";
-    /**
-     * Default timeout of a single consistency check task. Set long enough to fit your tablet size.
-     */
-    @ConfField(mutable = true, masterOnly = true)
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "单个一致性检查任务的默认超时时间。设置的足够长以适应表的数据量。",
+            "Default timeout of a single consistency check task. Set long enough to fit your tablet size."})
     public static long check_consistency_default_timeout_second = 600; // 10 min
 
-    // Configurations for query engine
-    /**
-     * Maximal number of connections per FE.
-     */
-    @ConfField public static int qe_max_connection = 1024;
+    @ConfField(description = {"单个 FE 的 MySQL Server 的最大连接数。",
+            "Maximal number of connections of MySQL server per FE."})
+    public static int qe_max_connection = 1024;
 
-    /**
-     * Maximal number of thread in connection-scheduler-pool.
-     */
-    @ConfField public static int max_connection_scheduler_threads_num = 4096;
+    @ConfField(description = {"MySQL 连接调度线程池的最大线程数。",
+            "Maximal number of thread in MySQL connection-scheduler-pool."})
+    public static int max_connection_scheduler_threads_num = 4096;
 
-    /**
-     * The memory_limit for colocote join PlanFragment instance =
-     * exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
-     */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {"Colocate join 每个 instance 的内存 penalty 系数。"
+            + "计算方式：`exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)`",
+            "Colocate join PlanFragment instance memory limit penalty factor.",
+            "The memory_limit for colocote join PlanFragment instance = "
+                    + "`exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)`"})
     public static int query_colocate_join_memory_limit_penalty_factor = 1;
 
     /**
@@ -1302,17 +1033,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean force_do_metadata_checkpoint = false;
-
-    /**
-     * The multi cluster feature will be deprecated in version 0.12
-     * set this config to true will disable all operations related to cluster feature, include:
-     *   create/drop cluster
-     *   add free backend/add backend to cluster/decommission cluster balance
-     *   change the backends num of cluster
-     *   link/migration db
-     */
-    @ConfField(mutable = true)
-    public static boolean disable_cluster_feature = true;
 
     /**
      * Decide how often to check dynamic partition
@@ -1711,6 +1431,18 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
 
+    /*
+     * if true, will allow the system to collect statistics automatically
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_auto_collect_statistics = true;
+
+    /*
+     * the system automatically checks the time interval for statistics
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int auto_check_statistics_in_sec = 300;
+
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
      */
@@ -1947,6 +1679,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static long max_hive_partition_cache_num = 100000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {"Hive表到分区名列表缓存的最大数量。",
+        "Max cache number of hive table to partition names list."})
+    public static long max_hive_table_catch_num = 1000;
+
+    @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
+        "Max number of hive partition values to return while list partitions, -1 means no limitation."})
+    public static short max_hive_list_partition_num = -1;
+
     /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
@@ -2162,7 +1902,10 @@ public class Config extends ConfigBase {
      * This is to solve the case that user forgot the password.
      */
     @ConfField(mutable = false)
-    public static boolean skip_localhost_auth_check  = false;
+    public static boolean skip_localhost_auth_check  = true;
+
+    @ConfField(mutable = true)
+    public static boolean enable_round_robin_create_tablet = false;
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -2188,5 +1931,43 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
-}
 
+    /*
+     * "max_instance_num" is used to set the maximum concurrency. When the value set
+     * by "parallel_fragment_exec_instance_num" is greater than "max_instance_num",
+     * an error will be reported.
+     */
+    @ConfField(mutable = true)
+    public static int max_instance_num = 128;
+
+    /**
+     * This config used for export/outfile.
+     * Whether delete all files in the directory specified by export/outfile.
+     * It is a very dangerous operation, should only be used in test env.
+     */
+
+    @ConfField(mutable = false)
+    public static boolean enable_delete_existing_files  = false;
+    /*
+     * The actual memory size taken by stats cache highly depends on characteristics of data, since on the different
+     * dataset and scenarios the max/min literal's average size and buckets count of histogram would be highly
+     * different. Besides, JVM version etc. also has influence on it, though not much as data itself.
+     * Here I would give the mem size taken by stats cache with 10_0000 items.Each item's avg length of max/min literal
+     * is 32, and the avg column name length is 16, and each column has a histogram with 128 buckets
+     * In this case, stats cache takes total 911.954833984MiB mem.
+     * If without histogram, stats cache takes total 61.2777404785MiB mem.
+     * It's strongly discourage analyzing a column with a very large STRING value in the column, since it would cause
+     * FE OOM.
+     */
+    @ConfField
+    public static long stats_cache_size = 10_0000;
+
+    /**
+     * This configuration is used to enable the statistics of query information, which will record
+     * the access status of databases, tables, and columns, and can be used to guide the
+     * optimization of table structures
+     *
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean enable_query_hit_stats = false;
+}

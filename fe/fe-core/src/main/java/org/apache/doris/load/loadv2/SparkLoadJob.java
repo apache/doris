@@ -44,7 +44,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -503,7 +502,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                         Backend backend = Env.getCurrentEnv().getCurrentSystemInfo()
                                                 .getBackend(backendId);
                                         FsBroker fsBroker = Env.getCurrentEnv().getBrokerMgr().getBroker(
-                                                brokerDesc.getName(), backend.getIp());
+                                                brokerDesc.getName(), backend.getHost());
                                         tBrokerScanRange.getBrokerAddresses().add(
                                                 new TNetworkAddress(fsBroker.ip, fsBroker.port));
 
@@ -617,7 +616,7 @@ public class SparkLoadJob extends BulkLoadJob {
             }
 
             // if all replicas are finished or stay in quorum finished for long time, try to commit it.
-            long stragglerTimeout = Config.load_straggler_wait_second * 1000;
+            long stragglerTimeout = 300 * 1000;
             if ((quorumFinishTimestamp > 0 && System.currentTimeMillis() - quorumFinishTimestamp > stragglerTimeout)
                     || fullTablets.containsAll(totalTablets)) {
                 canCommitJob = true;

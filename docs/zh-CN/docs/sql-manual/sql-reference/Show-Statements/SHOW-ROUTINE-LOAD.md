@@ -66,7 +66,7 @@ ReasonOfStateChanged: 作业状态变更的原因
 
 * State
   
-        有以下4种State：
+        有以下5种State：
         * NEED_SCHEDULE：作业等待被调度
         * RUNNING：作业运行中
         * PAUSED：作业被暂停

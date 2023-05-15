@@ -78,15 +78,18 @@ github:
         dismiss_stale_reviews: true
         required_approving_review_count: 1
   collaborators:
-    - tinkerrrr
     - spaces-X
-    - zuochunwei
-    - thomascai126
     - dataalive
     - LemonLiTree
     - zy-kkk
     - Yukang-Lian
     - xiaokang
+    - TangSiyang2001
+    - platoneko
+    - Lchangliang
+    - freemandealer
+    - nanfeng1999
+    - gitccl
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

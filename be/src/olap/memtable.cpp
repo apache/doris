@@ -118,8 +118,8 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
                     "replace_load", {block->get_data_type(cid)},
                     block->get_data_type(cid)->is_nullable());
         } else {
-            function = _tablet_schema->column(cid).get_aggregate_function(
-                    {block->get_data_type(cid)}, vectorized::AGG_LOAD_SUFFIX);
+            function =
+                    _tablet_schema->column(cid).get_aggregate_function(vectorized::AGG_LOAD_SUFFIX);
         }
 
         DCHECK(function != nullptr);
@@ -269,30 +269,16 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
 }
 template <bool is_final>
 void MemTable::_collect_vskiplist_results() {
-    VecTable::Iterator it(_vec_skip_list.get());
-    vectorized::Block in_block = _input_mutable_block.to_block();
     if (_keys_type == KeysType::DUP_KEYS) {
-        vectorized::MutableBlock mutable_block =
-                vectorized::MutableBlock::build_mutable_block(&in_block);
-        _vec_row_comparator->set_block(&mutable_block);
-        std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
-                  [this](const RowInBlock* l, const RowInBlock* r) -> bool {
-                      auto value = (*(this->_vec_row_comparator))(l, r);
-                      if (value == 0) {
-                          return l->_row_pos > r->_row_pos;
-                      } else {
-                          return value < 0;
-                      }
-                  });
-        std::vector<int> row_pos_vec;
-        DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
-        row_pos_vec.reserve(in_block.rows());
-        for (int i = 0; i < _row_in_blocks.size(); i++) {
-            row_pos_vec.emplace_back(_row_in_blocks[i]->_row_pos);
+        if (_schema->num_key_columns() > 0) {
+            _collect_dup_table_with_keys();
+        } else {
+            // skip sort if the table is dup table without keys
+            _collect_dup_table_without_keys();
         }
-        _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
-                                       row_pos_vec.data() + in_block.rows());
     } else {
+        VecTable::Iterator it(_vec_skip_list.get());
+        vectorized::Block in_block = _input_mutable_block.to_block();
         size_t idx = 0;
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
             auto& block_data = in_block.get_columns_with_type_and_name();
@@ -341,6 +327,34 @@ void MemTable::_collect_vskiplist_results() {
     if (is_final) {
         _vec_skip_list.reset();
     }
+}
+
+void MemTable::_collect_dup_table_with_keys() {
+    vectorized::Block in_block = _input_mutable_block.to_block();
+    vectorized::MutableBlock mutable_block =
+            vectorized::MutableBlock::build_mutable_block(&in_block);
+    _vec_row_comparator->set_block(&mutable_block);
+    std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
+              [this](const RowInBlock* l, const RowInBlock* r) -> bool {
+                  auto value = (*(this->_vec_row_comparator))(l, r);
+                  if (value == 0) {
+                      return l->_row_pos > r->_row_pos;
+                  } else {
+                      return value < 0;
+                  }
+              });
+    std::vector<int> row_pos_vec;
+    DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
+    row_pos_vec.reserve(in_block.rows());
+    for (int i = 0; i < _row_in_blocks.size(); i++) {
+        row_pos_vec.emplace_back(_row_in_blocks[i]->_row_pos);
+    }
+    _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
+                                   row_pos_vec.data() + in_block.rows());
+}
+
+void MemTable::_collect_dup_table_without_keys() {
+    _output_mutable_block.swap(_input_mutable_block);
 }
 
 void MemTable::shrink_memtable_by_agg() {
@@ -409,11 +423,11 @@ Status MemTable::flush() {
     // and new segment ids is between [atomic_num_segments_before_flush, atomic_num_segments_after_flush),
     // and use the ids to load segment data file for calc delete bitmap.
     int64_t atomic_num_segments_before_flush = _rowset_writer->get_atomic_num_segment();
-    RETURN_NOT_OK(_do_flush(duration_ns));
+    RETURN_IF_ERROR(_do_flush(duration_ns));
     int64_t atomic_num_segments_after_flush = _rowset_writer->get_atomic_num_segment();
     if (!_tablet_schema->is_partial_update()) {
-        RETURN_NOT_OK(_generate_delete_bitmap(atomic_num_segments_before_flush,
-                                              atomic_num_segments_after_flush));
+        RETURN_IF_ERROR(_generate_delete_bitmap(atomic_num_segments_before_flush,
+                                                atomic_num_segments_after_flush));
     }
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
@@ -432,7 +446,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
         // Unfold variant column
         unfold_variant_column(block);
     }
-    RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size));
+    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size));
     return Status::OK();
 }
 

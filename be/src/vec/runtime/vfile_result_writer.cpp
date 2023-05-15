@@ -32,8 +32,12 @@
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
 #include "io/file_factory.h"
+#include "io/fs/broker_file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/s3_file_system.h"
+#include "io/hdfs_builder.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
@@ -46,6 +50,8 @@
 #include "util/metrics.h"
 #include "util/mysql_global.h"
 #include "util/mysql_row_buffer.h"
+#include "util/s3_uri.h"
+#include "util/s3_util.h"
 #include "util/types.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
@@ -87,6 +93,10 @@ VFileResultWriter::VFileResultWriter(
 Status VFileResultWriter::init(RuntimeState* state) {
     _state = state;
     _init_profile();
+    // Delete existing files
+    if (_file_opts->delete_existing_files) {
+        RETURN_IF_ERROR(_delete_dir());
+    }
     return _create_next_file_writer();
 }
 
@@ -229,14 +239,11 @@ Status VFileResultWriter::append_block(Block& block) {
     Status status = Status::OK();
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
-    auto output_block =
-            VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, block, status);
-    auto num_rows = output_block.rows();
-    if (UNLIKELY(num_rows == 0)) {
-        return status;
-    }
+    Block output_block;
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, block,
+                                                                       &output_block));
     if (_vfile_writer) {
-        _write_file(output_block);
+        RETURN_IF_ERROR(_write_file(output_block));
     } else {
         RETURN_IF_ERROR(_write_csv_file(output_block));
     }
@@ -562,6 +569,46 @@ Status VFileResultWriter::_fill_result_block() {
                     _output_row_descriptor.tuple_descriptors()[0]->slots()[i]->type().type);
         }
     }
+    return Status::OK();
+}
+
+Status VFileResultWriter::_delete_dir() {
+    // get dir of file_path
+    std::string dir = _file_opts->file_path.substr(0, _file_opts->file_path.find_last_of('/') + 1);
+    std::shared_ptr<io::FileSystem> file_system = nullptr;
+    switch (_storage_type) {
+    case TStorageBackendType::LOCAL:
+        file_system = io::LocalFileSystem::create(dir, "");
+        break;
+    case TStorageBackendType::BROKER: {
+        std::shared_ptr<io::BrokerFileSystem> broker_fs = nullptr;
+        RETURN_IF_ERROR(io::BrokerFileSystem::create(_file_opts->broker_addresses[0],
+                                                     _file_opts->broker_properties, &broker_fs));
+        file_system = broker_fs;
+        break;
+    }
+    case TStorageBackendType::HDFS: {
+        THdfsParams hdfs_params = parse_properties(_file_opts->broker_properties);
+        std::shared_ptr<io::HdfsFileSystem> hdfs_fs = nullptr;
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &hdfs_fs));
+        file_system = hdfs_fs;
+        break;
+    }
+    case TStorageBackendType::S3: {
+        S3URI s3_uri(dir);
+        RETURN_IF_ERROR(s3_uri.parse());
+        S3Conf s3_conf;
+        std::shared_ptr<io::S3FileSystem> s3_fs = nullptr;
+        RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(
+                _file_opts->broker_properties, s3_uri, &s3_conf));
+        RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", &s3_fs));
+        file_system = s3_fs;
+        break;
+    }
+    default:
+        return Status::NotSupported("Unsupported storage type: {}", std::to_string(_storage_type));
+    }
+    RETURN_IF_ERROR(file_system->delete_directory(dir));
     return Status::OK();
 }
 

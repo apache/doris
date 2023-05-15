@@ -154,6 +154,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true);
+        _runtime_state->set_process_status(_exec_status);
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
@@ -278,18 +279,19 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 #endif
         ) {
             auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
-            const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
-                    local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
+                                                 no_scan_ranges);
             const bool shared_scan =
                     find_with_default(local_params.per_node_shared_scans, scan_node->id(), false);
             scan_node->set_scan_ranges(scan_ranges);
             scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
             ScanNode* scan_node = static_cast<ScanNode*>(node);
-            const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
-                    local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
+                                                 no_scan_ranges);
             scan_node->set_scan_ranges(scan_ranges);
-            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
+            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
+                          << " size=" << scan_ranges.get().size();
         }
     }
 
@@ -654,6 +656,7 @@ Status PipelineFragmentContext::submit() {
     for (auto& task : _tasks) {
         st = scheduler->schedule_task(task.get());
         if (!st) {
+            std::lock_guard<std::mutex> l(_status_lock);
             cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             _total_tasks = submit_tasks;
             break;
@@ -661,6 +664,7 @@ Status PipelineFragmentContext::submit() {
         submit_tasks++;
     }
     if (!st.ok()) {
+        std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks == _total_tasks) {
             std::call_once(_close_once_flag, [this] { _close_action(); });
         }
@@ -727,6 +731,7 @@ void PipelineFragmentContext::_close_action() {
 }
 
 void PipelineFragmentContext::close_a_pipeline() {
+    std::lock_guard<std::mutex> l(_task_mutex);
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
         std::call_once(_close_once_flag, [this] { _close_action(); });

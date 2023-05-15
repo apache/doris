@@ -112,7 +112,6 @@ public:
     Status save(const std::string& file_path);
     Status save_as_json(const string& file_path, DataDir* dir);
     static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
-    static Status reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
                                                   int64_t tablet_id);
     Status save_meta(DataDir* data_dir);
@@ -134,6 +133,7 @@ public:
     int64_t partition_id() const;
     int64_t tablet_id() const;
     int64_t replica_id() const;
+    void set_replica_id(int64_t replica_id) { _replica_id = replica_id; }
     int32_t schema_hash() const;
     int16_t shard_id() const;
     void set_shard_id(int32_t shard_id);
@@ -388,8 +388,6 @@ public:
      * @param other
      */
     void merge(const DeleteBitmap& other);
-
-    uint64_t cardinality();
 
     /**
      * Checks if the given row is marked deleted in bitmap with the condition:

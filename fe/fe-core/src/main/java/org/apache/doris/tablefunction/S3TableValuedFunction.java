@@ -18,7 +18,6 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -88,7 +87,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
         if (FeConstants.runningUnitTest) {
             // Just check
-            FileSystemFactory.get(StorageBackend.StorageType.S3, locationProperties);
+            FileSystemFactory.getS3FileSystem(locationProperties);
         } else {
             parseFile();
         }

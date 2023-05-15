@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -29,7 +28,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.fs.obj.BlobStorage;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
 import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
@@ -85,9 +86,9 @@ public class BrokerUtil {
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
         try {
-            BlobStorage storage = BlobStorage.create(
+            RemoteFileSystem fileSystem = FileSystemFactory.get(
                     brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
-            Status st = storage.list(path, rfiles, false);
+            Status st = fileSystem.list(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(brokerDesc.getName() + " list path failed. path=" + path
                         + ",msg=" + st.getErrMsg());
@@ -101,6 +102,7 @@ public class BrokerUtil {
             if (r.isFile()) {
                 TBrokerFileStatus status = new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile());
                 status.setBlockSize(r.getBlockSize());
+                status.setModificationTime(r.getModificationTime());
                 fileStatuses.add(status);
             }
         }
@@ -263,7 +265,7 @@ public class BrokerUtil {
                         LOG.warn("Broker close reader failed. path={}, address={}", path, address, ex);
                     }
                 }
-                if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close reader failed. path={}, address={}, error={}", path, address,
                              tOperationStatus.getMessage());
                 } else {
@@ -564,7 +566,9 @@ public class BrokerUtil {
                         LOG.warn("Broker close writer failed. filePath={}, address={}", brokerFilePath, address, ex);
                     }
                 }
-                if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                if (tOperationStatus == null) {
+                    LOG.warn("Broker close reader failed. fd={}, address={}", fd.toString(), address);
+                } else if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close writer failed. filePath={}, address={}, error={}", brokerFilePath,
                              address, tOperationStatus.getMessage());
                 } else {

@@ -133,18 +133,6 @@ There are two ways to configure BE configuration items:
 * Description: Whether https is supported. If so, configure `ssl_certificate_path` and `ssl_private_key_path` in be.conf.
 * Default value: false
 
-#### `single_replica_load_brpc_port`
-
-* Type: int32
-* Description: The port of BRPC on BE, used for single replica load. There is a independent BRPC thread pool for the communication between the Master replica and Slave replica during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for data distribution and query tasks when the load concurrency is large.
-* Default value: 9070
-
-#### `single_replica_load_download_port`
-
-* Type: int32
-* Description: The port of http for segment download on BE, used for single replica load. There is a independent HTTP thread pool for the Slave replica to download segments during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for other http tasks when the load concurrency is large.
-* Default value: 8050
-
 #### `priority_networks`
 
 * Description: Declare a selection strategy for those servers with many IPs. Note that at most one ip should match this list. This is a semicolon-separated list in CIDR notation, such as 10.10.10.0/24. If there is no IP matching this rule, one will be randomly selected
@@ -460,21 +448,21 @@ There are two ways to configure BE configuration items:
 
 #### `vertical_compaction_num_columns_per_group`
 
-* Type: bool
+* Type: int32
 * Description: In vertical compaction, column number for every group
-* Default value: true
+* Default value: 5
 
 #### `vertical_compaction_max_row_source_memory_mb`
 
-* Type: bool
-* Description: In vertical compaction, max memory usage for row_source_buffer
-* Default value: true
+* Type: int32
+* Description: In vertical compaction, max memory usage for row_source_buffer,The unit is MB.
+* Default value: 200
 
 #### `vertical_compaction_max_segment_size`
 
-* Type: bool
-* Description: In vertical compaction, max dest segment file size
-* Default value: true
+* Type: int32
+* Description: In vertical compaction, max dest segment file size, The unit is m bytes.
+* Default value: 268435456
 
 #### `enable_ordered_data_compaction`
 
@@ -484,9 +472,9 @@ There are two ways to configure BE configuration items:
 
 #### `ordered_data_compaction_min_segment_size`
 
-* Type: bool
-* Description: In ordered data compaction, min segment size for input rowset
-* Default value: true
+* Type: int32
+* Description: In ordered data compaction, min segment size for input rowset, The unit is m bytes.
+* Default value: 10485760
 
 #### `max_base_compaction_threads`
 
@@ -695,18 +683,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The thread pool size of the routine load task. This should be greater than the FE configuration'max_concurrent_task_num_per_be'
 * Default value: 10
 
-#### `single_replica_load_brpc_num_threads`
-
-* Type: int32
-* Description: This configuration is mainly used to modify the number of bthreads for single replica load brpc. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
-* Default value: 64
-
-#### `single_replica_load_download_num_workers`
-
-* Type: int32
-* Description:This configuration is mainly used to modify the number of http threads for segment download, used for single replica load. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
-* Default value: 64
-
 #### `slave_replica_writer_rpc_timeout_sec`
 
 * Type: int32
@@ -730,6 +706,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Type: int32
 * Description: The number of caches for the data consumer used by the routine load.
 * Default value: 10
+
+#### `single_replica_load_download_num_workers`
+
+* Type: int32
+* Description:This configuration is mainly used to modify the number of http worker threads for segment download, used for single replica load. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely. If needed, `webserver_num_workers` should also be increased for better IO performance.
+* Default value: 64
 
 #### `load_task_high_priority_threshold_second`
 
@@ -1232,6 +1214,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Type: bool
 * Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data.
 * Default value: false
+
+#### `enable_lazy_open_partition`
+
+* Type: bool
+* Description: When importing, most partitions may not need to be written, and lazy opening can be used to only open the partitions that need to be written.When there is mixed deployment in the upgraded version, it needs to be set to false.
+* Default value: true
 
 #### `streaming_load_rpc_max_alive_time_sec`
 

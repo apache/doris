@@ -51,7 +51,8 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         this.createTableStmt = createTableStmt;
         this.columnNames = columnNames;
         this.queryStmt = queryStmt;
-        this.insertStmt = new InsertStmt(createTableStmt.getDbTbl(), queryStmt);
+        this.insertStmt = new NativeInsertStmt(createTableStmt.getDbTbl(), null, null,
+                queryStmt, null, columnNames);
     }
 
     /**

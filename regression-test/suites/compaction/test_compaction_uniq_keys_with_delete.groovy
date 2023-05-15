@@ -29,7 +29,7 @@ suite("test_compaction_uniq_keys_with_delete") {
         def backendId_to_backendHttpPort = [:]
         for (String[] backend in backends) {
             backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[6])
+            backendId_to_backendHttpPort.put(backend[0], backend[5])
         }
 
         backend_id = backendId_to_backendIP.keySet()[0]
@@ -196,7 +196,7 @@ suite("test_compaction_uniq_keys_with_delete") {
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             StringBuilder sb = new StringBuilder();
-            def compactionStatusUrlIndex = 17
+            def compactionStatusUrlIndex = 18
             sb.append("curl -X GET ")
             sb.append(tablet[compactionStatusUrlIndex])
             String command = sb.toString()

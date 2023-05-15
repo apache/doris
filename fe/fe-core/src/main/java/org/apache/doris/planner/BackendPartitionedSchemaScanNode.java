@@ -110,7 +110,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
             TScanRangeLocations locations = new TScanRangeLocations();
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(be.getId());
-            location.setServer(new TNetworkAddress(be.getIp(), be.getBePort()));
+            location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
             locations.addToLocations(location);
             locations.setScanRange(new TScanRange());
             result.add(locations);

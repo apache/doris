@@ -28,13 +28,13 @@ add_library(Webserver STATIC
   http_channel.cpp
   http_status.cpp
   http_parser.cpp
+  http_handler_with_auth.cpp
   web_page_handler.cpp
   default_path_handlers.cpp
   utils.cpp
   ev_http_server.cpp
   http_client.cpp
   action/download_action.cpp
-  action/monitor_action.cpp
   action/pad_rowset_action.cpp
   action/health_action.cpp
   action/tablet_migration_action.cpp
@@ -56,4 +56,6 @@ add_library(Webserver STATIC
   action/check_tablet_segment_action.cpp
   action/version_action.cpp
   action/jeprofile_actions.cpp
-)
+  action/file_cache_action.cpp)
+
+pch_reuse(Webserver)

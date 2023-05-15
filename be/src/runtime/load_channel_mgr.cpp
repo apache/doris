@@ -134,6 +134,19 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
+Status LoadChannelMgr::open_partition(const OpenPartitionRequest& params) {
+    UniqueId load_id(params.id());
+    std::shared_ptr<LoadChannel> channel;
+    auto it = _load_channels.find(load_id);
+    if (it != _load_channels.end()) {
+        channel = it->second;
+    } else {
+        return Status::InternalError("unknown load id, load id=" + load_id.to_string());
+    }
+    RETURN_IF_ERROR(channel->open_partition(params));
+    return Status::OK();
+}
+
 static void dummy_deleter(const CacheKey& key, void* value) {}
 
 Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
@@ -304,12 +317,15 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     std::vector<std::tuple<std::shared_ptr<LoadChannel>, int64_t, int64_t, int64_t>>
             writers_to_reduce_mem;
     {
+        MonotonicStopWatch timer;
+        timer.start();
         std::unique_lock<std::mutex> l(_lock);
         while (_should_wait_flush) {
-            LOG(INFO) << "Reached the load hard limit " << _load_hard_mem_limit
-                      << ", waiting for flush";
             _wait_flush_cond.wait(l);
         }
+        LOG(INFO) << "Reached the load hard limit " << _load_hard_mem_limit
+                  << ", waited for flush, time_ns:" << timer.elapsed_time();
+
         bool hard_limit_reached = _mem_tracker->consumption() >= _load_hard_mem_limit ||
                                   proc_mem_no_allocator_cache >= process_mem_limit;
         // Some other thread is flushing data, and not reached hard limit now,

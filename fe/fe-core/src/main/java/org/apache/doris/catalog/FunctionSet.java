@@ -1290,8 +1290,7 @@ public class FunctionSet<T> {
             if (f.hasTemplateArg()) {
                 f = specializeTemplateFunction(f, desc, f.hasVariadicTemplateArg());
             }
-            f = resolveInferenceFunction(f, desc);
-            if (f != null) {
+            if (f != null && (f = resolveInferenceFunction(f, desc)) != null) {
                 inferredFunctions.add(f);
             }
         }
@@ -1664,8 +1663,7 @@ public class FunctionSet<T> {
         // retention vectorization
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.RETENTION,
                 Lists.newArrayList(Type.BOOLEAN),
-                // Type.BOOLEAN will return non-numeric results so we use Type.TINYINT
-                new ArrayType(Type.TINYINT),
+                new ArrayType(Type.BOOLEAN),
                 Type.VARCHAR,
                 true,
                 "",
@@ -2460,6 +2458,13 @@ public class FunctionSet<T> {
 
             // vectorized
             addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.BOOLEAN), Type.BIGINT, Type.BIGINT, initNull,
+                    "",
+                    "",
+                    null, null,
+                    "",
+                    null, false, true, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
                     Lists.<Type>newArrayList(Type.TINYINT), Type.BIGINT, Type.BIGINT, initNull,
                     prefix + "3sumIN9doris_udf9BigIntValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     prefix + "3sumIN9doris_udf9BigIntValES3_EEvPNS2_15FunctionContextERKT_PT0_",
@@ -2914,6 +2919,10 @@ public class FunctionSet<T> {
                 false, true, false));
 
         // vectorized avg
+        addBuiltin(AggregateFunction.createBuiltin("avg",
+                Lists.<Type>newArrayList(Type.BOOLEAN), Type.DOUBLE, Type.TINYINT,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
         addBuiltin(AggregateFunction.createBuiltin("avg",
                 Lists.<Type>newArrayList(Type.TINYINT), Type.DOUBLE, Type.TINYINT,
                 "", "", "", "", "", "", "",

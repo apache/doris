@@ -73,7 +73,7 @@ public class CheckDecommissionAction extends RestBaseController {
         List<HostInfo> hostInfos = Lists.newArrayList();
         for (String hostPort : hostPortArr) {
             try {
-                HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort, true);
+                HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
                 hostInfos.add(hostInfo);
             } catch (AnalysisException e) {
                 return ResponseEntityBuilder.badRequest(e.getMessage());
@@ -82,7 +82,7 @@ public class CheckDecommissionAction extends RestBaseController {
 
         try {
             List<Backend> backends = SystemHandler.checkDecommission(hostInfos);
-            List<String> backendsList = backends.stream().map(b -> b.getIp() + ":"
+            List<String> backendsList = backends.stream().map(b -> b.getHost() + ":"
                     + b.getHeartbeatPort()).collect(Collectors.toList());
             return ResponseEntityBuilder.ok(backendsList);
         } catch (DdlException e) {

@@ -77,14 +77,6 @@ public class PlanReceiver implements AbstractReceiver {
     HyperGraph hyperGraph;
     final Set<Slot> finalOutputs;
 
-    public PlanReceiver() {
-        throw new RuntimeException("");
-    }
-
-    public PlanReceiver(int limit) {
-        throw new RuntimeException("");
-    }
-
     public PlanReceiver(JobContext jobContext, int limit, HyperGraph hyperGraph, Set<Slot> outputs) {
         this.jobContext = jobContext;
         this.limit = limit;
@@ -95,6 +87,10 @@ public class PlanReceiver implements AbstractReceiver {
 
     /**
      * Emit a new plan from bottom to top
+     * <p>
+     * The purpose of EmitCsgCmp is to combine the optimal plans for S1 and S2 into a csg-cmp-pair.
+     * It requires calculating the proper join predicate and costs of the resulting joins.
+     * In the end, update dpTables.
      *
      * @param left the bitmap of left child tree
      * @param right the bitmap of the right child tree
@@ -106,11 +102,7 @@ public class PlanReceiver implements AbstractReceiver {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
 
-        // check if the missed edges can be correctly connected by add it to edges
-        // if not, the plan is invalid because of the missed edges, just return and seek for another valid plan
-        if (!processMissedEdges(left, right, edges)) {
-            return true;
-        }
+        processMissedEdges(left, right, edges);
 
         Memo memo = jobContext.getCascadesContext().getMemo();
         emitCount += 1;
@@ -169,37 +161,27 @@ public class PlanReceiver implements AbstractReceiver {
         return outputSlots;
     }
 
-    // check if the missed edges can be used to connect left and right together with edges
-    // return true if no missed edge or the missed edge can be used to connect left and right
-    // the returned edges includes missed edges if there is any.
-    private boolean processMissedEdges(long left, long right, List<Edge> edges) {
-        boolean canAddMisssedEdges = true;
-
-        // find all reference nodes assume left and right sub graph is connected
+    // add any missed edge into edges to connect left and right
+    private void processMissedEdges(long left, long right, List<Edge> edges) {
+        // find all used edges
         BitSet usedEdgesBitmap = new BitSet();
         usedEdgesBitmap.or(usdEdges.get(left));
         usedEdgesBitmap.or(usdEdges.get(right));
-        edges.stream().forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
-        long allReferenceNodes = getAllReferenceNodes(usedEdgesBitmap);
+        edges.forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
 
-        // check all edges
-        // the edge is a missed edge if the edge is not used and its reference nodes is a subset of allReferenceNodes
+        // find all referenced nodes
+        long allReferenceNodes = LongBitmap.or(left, right);
+
+        // find the edge which is not in usedEdgesBitmap and its referenced nodes is subset of allReferenceNodes
         for (Edge edge : hyperGraph.getEdges()) {
-            if (LongBitmap.isSubset(edge.getReferenceNodes(), allReferenceNodes) && !usedEdgesBitmap.get(
-                    edge.getIndex())) {
-                // check the missed edge can be used to connect left and right together with edges
-                // if the missed edge meet the 2 conditions, it is a valid edge
-                // 1. the edge's left child's referenced nodes is subset of the left
-                // 2. the edge's original right node is subset of right
-                canAddMisssedEdges = canAddMisssedEdges && LongBitmap.isSubset(edge.getLeft(),
-                        left) && LongBitmap.isSubset(edge.getOriginalRight(), right);
-
-                // always add the missed edge to edges
-                // because the caller will return immediately if canAddMisssedEdges is false
+            long referenceNodes =
+                    LongBitmap.newBitmapUnion(edge.getOriginalLeft(), edge.getOriginalRight());
+            if (LongBitmap.isSubset(referenceNodes, allReferenceNodes)
+                    && !usedEdgesBitmap.get(edge.getIndex())) {
+                // add the missed edge to edges
                 edges.add(edge);
             }
         }
-        return canAddMisssedEdges;
     }
 
     private long getAllReferenceNodes(BitSet edgesBitmap) {
@@ -304,8 +286,8 @@ public class PlanReceiver implements AbstractReceiver {
 
     @Override
     public Group getBestPlan(long bitmap) {
-        Preconditions.checkArgument(planTable.containsKey(bitmap));
         Group root = planTable.get(bitmap);
+        Preconditions.checkState(root != null);
         // If there are some rules relied on the logical join, we need to make logical Expression
         // However, it cost 15% of total optimized time.
         makeLogicalExpression(root);

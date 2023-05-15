@@ -66,6 +66,7 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.MetadataGenerator;
@@ -96,6 +97,7 @@ import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
@@ -119,6 +121,7 @@ import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
+import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
@@ -129,6 +132,8 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
+import org.apache.doris.thrift.TTableIndexQueryStats;
+import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
@@ -329,7 +334,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             defaultVal = ColumnDef.DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE;
         }
         return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, defaultVal,
-                    comment, true);
+                comment, true);
     }
 
     @Override
@@ -420,6 +425,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             colUniqueIdSupplier = new IntSupplier() {
                                 public int pendingMaxColUniqueId = olapTable
                                         .getIndexMetaByIndexId(entry.getKey()).getMaxColUniqueId();
+
                                 @Override
                                 public int getAsInt() {
                                     pendingMaxColUniqueId++;
@@ -464,7 +470,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
             status.addToErrorMsgs(e.getMessage());
-        } catch (Exception e)  {
+        } catch (Exception e) {
             LOG.warn("got exception add columns: ", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getMessage());
@@ -851,20 +857,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        TNetworkAddress clientAddr = getClientAddr();
-        if (clientAddr != null) {
-            Frontend fe = Env.getCurrentEnv().getFeByIp(clientAddr.getHostname());
-            if (fe == null) {
-                LOG.warn("reject request from invalid host. client: {}", clientAddr);
-                throw new TException("request from invalid host was rejected.");
-            }
+        Frontend fe = Env.getCurrentEnv().checkFeExist(params.getClientNodeHost(), params.getClientNodePort());
+        if (fe == null) {
+            LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
+            throw new TException("request from invalid host was rejected.");
         }
 
         // add this log so that we can track this stmt
-        LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), clientAddr.getHostname());
+        LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
         ConnectContext context = new ConnectContext();
         // Set current connected FE to the client address, so that we can know where this request come from.
-        context.setCurrentConnectedFEIp(clientAddr.getHostname());
+        context.setCurrentConnectedFEIp(params.getClientNodeHost());
         ConnectProcessor processor = new ConnectProcessor(context);
         TMasterOpResult result = processor.proxyExecute(params);
         if (QueryState.MysqlStateType.ERR.name().equalsIgnoreCase(result.getStatus())) {
@@ -1522,6 +1525,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private PrivPredicate getPrivPredicate(TPrivilegeType privType) {
+        if (privType == null) {
+            return null;
+        }
         switch (privType) {
             case SHOW:
                 return PrivPredicate.SHOW;
@@ -1548,6 +1554,135 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             default:
                 return null;
         }
+    }
+
+    @Override
+    public TQueryStatsResult getQueryStats(TGetQueryStatsRequest request) throws TException {
+        TQueryStatsResult result = new TQueryStatsResult();
+        result.setStatus(new TStatus(TStatusCode.OK));
+        if (!request.isSetType()) {
+            TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs("type is not set");
+            result.setStatus(status);
+            return result;
+        }
+        try {
+            switch (request.getType()) {
+                case CATALOG: {
+                    if (!request.isSetCatalog()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("catalog is not set");
+                        result.setStatus(status);
+                    } else {
+                        result.setSimpleResult(Env.getCurrentEnv().getQueryStats().getCatalogStats(request.catalog));
+                    }
+                    break;
+                }
+                case DATABASE: {
+                    if (!request.isSetCatalog() || !request.isSetDb()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("catalog or db is not set");
+                        result.setStatus(status);
+                        return result;
+                    } else {
+                        result.setSimpleResult(
+                                Env.getCurrentEnv().getQueryStats().getDbStats(request.catalog, request.db));
+                    }
+                    break;
+                }
+                case TABLE: {
+                    if (!request.isSetCatalog() || !request.isSetDb() || !request.isSetTbl()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("catalog or db or table is not set");
+                        result.setStatus(status);
+                        return result;
+                    } else {
+                        Env.getCurrentEnv().getQueryStats().getTblStats(request.catalog, request.db, request.tbl)
+                                .forEach((col, stat) -> {
+                                    TTableQueryStats colunmStat = new TTableQueryStats();
+                                    colunmStat.setField(col);
+                                    colunmStat.setQueryStats(stat.first);
+                                    colunmStat.setFilterStats(stat.second);
+                                    result.addToTableStats(colunmStat);
+                                });
+                    }
+                    break;
+                }
+                case TABLE_ALL: {
+                    if (!request.isSetCatalog() || !request.isSetDb() || !request.isSetTbl()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("catalog or db or table is not set");
+                        result.setStatus(status);
+                    } else {
+                        result.setSimpleResult(Env.getCurrentEnv().getQueryStats()
+                                .getTblAllStats(request.catalog, request.db, request.tbl));
+                    }
+                    break;
+                }
+                case TABLE_ALL_VERBOSE: {
+                    if (!request.isSetCatalog() || !request.isSetDb() || !request.isSetTbl()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("catalog or db or table is not set");
+                        result.setStatus(status);
+                    } else {
+                        Env.getCurrentEnv().getQueryStats()
+                                .getTblAllVerboseStats(request.catalog, request.db, request.tbl)
+                                .forEach((indexName, indexStats) -> {
+                                    TTableIndexQueryStats indexStat = new TTableIndexQueryStats();
+                                    indexStat.setIndexName(indexName);
+                                    indexStats.forEach((col, stat) -> {
+                                        TTableQueryStats colunmStat = new TTableQueryStats();
+                                        colunmStat.setField(col);
+                                        colunmStat.setQueryStats(stat.first);
+                                        colunmStat.setFilterStats(stat.second);
+                                        indexStat.addToTableStats(colunmStat);
+                                    });
+                                    result.addToTableVerbosStats(indexStat);
+                                });
+                    }
+                    break;
+                }
+                case TABLET: {
+                    if (!request.isSetReplicaId()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("Replica Id is not set");
+                        result.setStatus(status);
+                    } else {
+                        Map<Long, Long> tabletStats = new HashMap<>();
+                        tabletStats.put(request.getReplicaId(),
+                                Env.getCurrentEnv().getQueryStats().getStats(request.getReplicaId()));
+                        result.setTabletStats(tabletStats);
+                    }
+                    break;
+                }
+                case TABLETS: {
+                    if (!request.isSetReplicaIds()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("Replica Ids is not set");
+                        result.setStatus(status);
+                    } else {
+                        Map<Long, Long> tabletStats = new HashMap<>();
+                        QueryStats qs = Env.getCurrentEnv().getQueryStats();
+                        for (long replicaId : request.getReplicaIds()) {
+                            tabletStats.put(replicaId, qs.getStats(replicaId));
+                        }
+                        result.setTabletStats(tabletStats);
+                    }
+                    break;
+                }
+                default: {
+                    TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                    status.addToErrorMsgs("unknown type: " + request.getType());
+                    result.setStatus(status);
+                    break;
+                }
+            }
+        } catch (UserException e) {
+            TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+            result.setStatus(status);
+        }
+        return result;
     }
 }
 

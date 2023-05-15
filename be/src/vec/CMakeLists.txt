@@ -87,6 +87,9 @@ set(VEC_FILES
   data_types/serde/data_type_array_serde.cpp
   data_types/serde/data_type_struct_serde.cpp
   data_types/serde/data_type_number_serde.cpp
+  data_types/serde/data_type_datev2_serde.cpp
+  data_types/serde/data_type_datetimev2_serde.cpp
+  data_types/serde/data_type_date64_serde.cpp
   data_types/serde/data_type_string_serde.cpp
   data_types/serde/data_type_decimal_serde.cpp
   data_types/serde/data_type_object_serde.cpp
@@ -174,7 +177,7 @@ set(VEC_FILES
   exprs/table_function/vexplode_numbers.cpp
   exprs/table_function/vexplode_bitmap.cpp
   exprs/lambda_function/varray_map_function.cpp
-  exprs/lambda_function/varray_filter_function.cpp
+  exprs/lambda_function/varray_filter_function.cpp  
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
@@ -357,4 +360,6 @@ endif ()
 
 add_library(Vec STATIC
         ${VEC_FILES}
-        )
+)
+
+pch_reuse(Vec)

@@ -431,9 +431,9 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     SCOPED_TIMER(_scanner_init_timer);
     auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
-    if (_vconjunct_ctx_ptr && (*_vconjunct_ctx_ptr)->root()) {
+    if (_vconjunct_ctx_ptr && _vconjunct_ctx_ptr->root()) {
         _runtime_profile->add_info_string("RemainedDownPredicates",
-                                          (*_vconjunct_ctx_ptr)->root()->debug_string());
+                                          _vconjunct_ctx_ptr->root()->debug_string());
     }
 
     if (!_olap_scan_node.output_column_unique_ids.empty()) {
@@ -536,6 +536,13 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
             std::vector<std::pair<int, int>> rs_reader_seg_offsets;
 
             while (rs_seg_count_index < rs_seg_count.size()) {
+                // do not generator range of segment (0, 0)
+                if (rs_seg_count[rs_seg_count_index] == 0) {
+                    rs_seg_start_scan = 0;
+                    rs_seg_count_index++;
+                    continue;
+                }
+
                 auto max_add_seg_nums = rs_seg_count[rs_seg_count_index] - rs_seg_start_scan;
                 rs_readers.emplace_back(rowset_readers_vector[i][rs_seg_count_index]->clone());
 
@@ -571,6 +578,12 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                     rs_seg_count_index++;
                 }
             }
+
+#ifndef NDEBUG
+            for (const auto& offset : rs_reader_seg_offsets) {
+                DCHECK_NE(offset.first, offset.second);
+            }
+#endif
 
             // dispose some segment tail
             if (!rs_readers.empty()) {

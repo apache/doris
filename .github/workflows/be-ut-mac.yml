@@ -79,7 +79,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@15'
+            'llvm@16'
           )
           brew install "${cellars[@]}"
 
@@ -95,5 +95,4 @@ jobs:
           tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
           popd
 
-          ./run-be-ut.sh --run -j "$(nproc)" --clean
-
+          ENABLE_PCH=OFF ./run-be-ut.sh --run -j "$(nproc)" --clean

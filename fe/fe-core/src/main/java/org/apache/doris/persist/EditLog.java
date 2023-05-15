@@ -33,8 +33,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.cluster.BaseParam;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -59,7 +57,6 @@ import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
@@ -485,41 +482,6 @@ public class EditLog {
                     MetaContext.get().setMetaVersion(version);
                     break;
                 }
-                case OperationType.OP_CREATE_CLUSTER: {
-                    final Cluster value = (Cluster) journal.getData();
-                    env.replayCreateCluster(value);
-                    break;
-                }
-                case OperationType.OP_DROP_CLUSTER: {
-                    final ClusterInfo value = (ClusterInfo) journal.getData();
-                    env.replayDropCluster(value);
-                    break;
-                }
-                case OperationType.OP_EXPAND_CLUSTER: {
-                    final ClusterInfo info = (ClusterInfo) journal.getData();
-                    env.replayExpandCluster(info);
-                    break;
-                }
-                case OperationType.OP_LINK_CLUSTER: {
-                    final BaseParam param = (BaseParam) journal.getData();
-                    env.replayLinkDb(param);
-                    break;
-                }
-                case OperationType.OP_MIGRATE_CLUSTER: {
-                    final BaseParam param = (BaseParam) journal.getData();
-                    env.replayMigrateDb(param);
-                    break;
-                }
-                case OperationType.OP_UPDATE_DB: {
-                    final DatabaseInfo param = (DatabaseInfo) journal.getData();
-                    env.replayUpdateDb(param);
-                    break;
-                }
-                case OperationType.OP_DROP_LINKDB: {
-                    final DropLinkDbAndUpdateDbInfo param = (DropLinkDbAndUpdateDbInfo) journal.getData();
-                    env.replayDropLinkDb(param);
-                    break;
-                }
                 case OperationType.OP_ADD_BROKER: {
                     final BrokerMgr.ModifyBrokerInfo param = (BrokerMgr.ModifyBrokerInfo) journal.getData();
                     env.getBrokerMgr().replayAddBrokers(param.brokerName, param.brokerAddresses);
@@ -538,11 +500,6 @@ public class EditLog {
                 case OperationType.OP_SET_LOAD_ERROR_HUB: {
                     // final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
                     // ignore load error hub
-                    break;
-                }
-                case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
-                    final BackendIdsUpdateInfo info = (BackendIdsUpdateInfo) journal.getData();
-                    env.replayUpdateClusterAndBackends(info);
                     break;
                 }
                 case OperationType.OP_UPSERT_TRANSACTION_STATE: {
@@ -899,6 +856,11 @@ public class EditLog {
                 case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
                     final AlterLightSchemaChangeInfo info = (AlterLightSchemaChangeInfo) journal.getData();
                     env.getSchemaChangeHandler().replayAlterLightSchChange(info);
+                    break;
+                }
+                case OperationType.OP_CLEAN_QUERY_STATS: {
+                    final CleanQueryStatsInfo info = (CleanQueryStatsInfo) journal.getData();
+                    env.getQueryStats().clear(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
@@ -1354,10 +1316,6 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_DB, databaseInfo);
     }
 
-    public void logUpdateDatabase(DatabaseInfo databaseInfo) {
-        logEdit(OperationType.OP_UPDATE_DB, databaseInfo);
-    }
-
     public void logTableRename(TableInfo tableInfo) {
         logEdit(OperationType.OP_RENAME_TABLE, tableInfo);
     }
@@ -1378,30 +1336,6 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_COLUMN, info);
     }
 
-    public void logCreateCluster(Cluster cluster) {
-        logEdit(OperationType.OP_CREATE_CLUSTER, cluster);
-    }
-
-    public void logDropCluster(ClusterInfo info) {
-        logEdit(OperationType.OP_DROP_CLUSTER, info);
-    }
-
-    public void logExpandCluster(ClusterInfo ci) {
-        logEdit(OperationType.OP_EXPAND_CLUSTER, ci);
-    }
-
-    public void logLinkCluster(BaseParam param) {
-        logEdit(OperationType.OP_LINK_CLUSTER, param);
-    }
-
-    public void logMigrateCluster(BaseParam param) {
-        logEdit(OperationType.OP_MIGRATE_CLUSTER, param);
-    }
-
-    public void logDropLinkDb(DropLinkDbAndUpdateDbInfo info) {
-        logEdit(OperationType.OP_DROP_LINKDB, info);
-    }
-
     public void logAddBroker(BrokerMgr.ModifyBrokerInfo info) {
         logEdit(OperationType.OP_ADD_BROKER, info);
     }
@@ -1414,10 +1348,6 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_ALL_BROKER, new Text(brokerName));
     }
 
-    public void logSetLoadErrorHub(LoadErrorHub.Param param) {
-        logEdit(OperationType.OP_SET_LOAD_ERROR_HUB, param);
-    }
-
     public void logExportCreate(ExportJob job) {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
     }
@@ -1425,10 +1355,6 @@ public class EditLog {
     public void logExportUpdateState(long jobId, ExportJob.JobState newState) {
         ExportJob.StateTransfer transfer = new ExportJob.StateTransfer(jobId, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
-    }
-
-    public void logUpdateClusterAndBackendState(BackendIdsUpdateInfo info) {
-        logEdit(OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS, info);
     }
 
     // for TransactionState
@@ -1791,5 +1717,9 @@ public class EditLog {
 
     public void logAlterMTMV(AlterMultiMaterializedView log) {
         logEdit(OperationType.OP_ALTER_MTMV_STMT, log);
+    }
+
+    public void logCleanQueryStats(CleanQueryStatsInfo log) {
+        logEdit(OperationType.OP_CLEAN_QUERY_STATS, log);
     }
 }

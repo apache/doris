@@ -19,7 +19,7 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.Cluster;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -48,6 +48,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
@@ -60,7 +61,7 @@ import java.util.concurrent.TimeUnit;
 public class MetadataGenerator {
     private static final Logger LOG = LogManager.getLogger(MetadataGenerator.class);
 
-    public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) {
+    public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
         if (!request.isSetMetadaTableParams()) {
             return errorResult("Metadata table params is not set. ");
         }
@@ -146,17 +147,7 @@ public class MetadataGenerator {
         }
         TBackendsMetadataParams backendsParam = params.getBackendsMetadataParams();
         final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
-        List<Long> backendIds = null;
-        if (!Strings.isNullOrEmpty(backendsParam.cluster_name)) {
-            final Cluster cluster = Env.getCurrentEnv().getCluster(backendsParam.cluster_name);
-            // root not in any cluster
-            if (null == cluster) {
-                return errorResult("Cluster is not existed.");
-            }
-            backendIds = cluster.getBackendIdList();
-        } else {
-            backendIds = clusterInfoService.getBackendIds(false);
-        }
+        List<Long> backendIds = clusterInfoService.getBackendIds(false);
 
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         long start = System.currentTimeMillis();
@@ -176,11 +167,11 @@ public class MetadataGenerator {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setLongVal(backendId));
             trow.addToColumnValue(new TCell().setStringVal(backend.getOwnerClusterName()));
-            trow.addToColumnValue(new TCell().setStringVal(backend.getIp()));
-            if (backend.getHostName() != null) {
-                trow.addToColumnValue(new TCell().setStringVal(backend.getHostName()));
+            trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
+            if (backend.getHost() != null) {
+                trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
             } else {
-                trow.addToColumnValue(new TCell().setStringVal(backend.getIp()));
+                trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
             }
             if (Strings.isNullOrEmpty(backendsParam.cluster_name)) {
                 trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
@@ -190,17 +181,18 @@ public class MetadataGenerator {
             }
             trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastStartTime())));
             trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastUpdateMs())));
-            trow.addToColumnValue(new TCell().setStringVal(String.valueOf(backend.isAlive())));
+            trow.addToColumnValue(new TCell().setBoolVal(backend.isAlive()));
+
             if (backend.isDecommissioned() && backend.getDecommissionType() == DecommissionType.ClusterDecommission) {
-                trow.addToColumnValue(new TCell().setStringVal("false"));
-                trow.addToColumnValue(new TCell().setStringVal("true"));
+                trow.addToColumnValue(new TCell().setBoolVal(false));
+                trow.addToColumnValue(new TCell().setBoolVal(true));
             } else if (backend.isDecommissioned()
                     && backend.getDecommissionType() == DecommissionType.SystemDecommission) {
-                trow.addToColumnValue(new TCell().setStringVal("true"));
-                trow.addToColumnValue(new TCell().setStringVal("false"));
+                trow.addToColumnValue(new TCell().setBoolVal(true));
+                trow.addToColumnValue(new TCell().setBoolVal(false));
             } else {
-                trow.addToColumnValue(new TCell().setStringVal("false"));
-                trow.addToColumnValue(new TCell().setStringVal("false"));
+                trow.addToColumnValue(new TCell().setBoolVal(false));
+                trow.addToColumnValue(new TCell().setBoolVal(false));
             }
             trow.addToColumnValue(new TCell().setLongVal(tabletNum));
 
@@ -277,27 +269,18 @@ public class MetadataGenerator {
     }
 
     private static void filterColumns(TFetchSchemaTableDataResult result,
-            List<String> columnNames, TMetadataType type) {
+            List<String> columnNames, TMetadataType type) throws TException {
         List<TRow> fullColumnsRow = result.getDataBatch();
         List<TRow> filterColumnsRows = Lists.newArrayList();
         for (TRow row : fullColumnsRow) {
             TRow filterRow = new TRow();
-            for (String columnName : columnNames) {
-                Integer index = 0;
-                switch (type) {
-                    case ICEBERG:
-                        index = IcebergTableValuedFunction.getColumnIndexFromColumnName(columnName);
-                        break;
-                    case BACKENDS:
-                        index = BackendsTableValuedFunction.getColumnIndexFromColumnName(columnName);
-                        break;
-                    case RESOURCE_GROUPS:
-                        index = ResourceGroupsTableValuedFunction.getColumnIndexFromColumnName(columnName);
-                        break;
-                    default:
-                        break;
+            try {
+                for (String columnName : columnNames) {
+                    Integer index = MetadataTableValuedFunction.getColumnIndexFromColumnName(type, columnName);
+                    filterRow.addToColumnValue(row.getColumnValue().get(index));
                 }
-                filterRow.addToColumnValue(row.getColumnValue().get(index));
+            } catch (AnalysisException e) {
+                throw new TException(e);
             }
             filterColumnsRows.add(filterRow);
         }

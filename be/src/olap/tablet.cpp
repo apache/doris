@@ -401,9 +401,9 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
         return Status::OK();
     }
     // Otherwise, the version should be not contained in any existing rowset.
-    RETURN_NOT_OK(_contains_version(rowset->version()));
+    RETURN_IF_ERROR(_contains_version(rowset->version()));
 
-    RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
+    RETURN_IF_ERROR(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
     _timestamped_version_tracker.add_version(rowset->version());
 
@@ -638,9 +638,9 @@ Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     if (_contains_rowset(rowset->rowset_id())) {
         return Status::OK();
     }
-    RETURN_NOT_OK(_contains_version(rowset->version()));
+    RETURN_IF_ERROR(_contains_version(rowset->version()));
 
-    RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
+    RETURN_IF_ERROR(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
 
     // Update rowset tree
@@ -883,8 +883,8 @@ void Tablet::acquire_version_and_rowsets(
 Status Tablet::capture_consistent_rowsets(const Version& spec_version,
                                           std::vector<RowsetSharedPtr>* rowsets) const {
     std::vector<Version> version_path;
-    RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
-    RETURN_NOT_OK(_capture_consistent_rowsets_unlocked(version_path, rowsets));
+    RETURN_IF_ERROR(capture_consistent_versions(spec_version, &version_path));
+    RETURN_IF_ERROR(_capture_consistent_rowsets_unlocked(version_path, rowsets));
     return Status::OK();
 }
 
@@ -922,8 +922,8 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
 Status Tablet::capture_rs_readers(const Version& spec_version,
                                   std::vector<RowsetReaderSharedPtr>* rs_readers) const {
     std::vector<Version> version_path;
-    RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
-    RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
+    RETURN_IF_ERROR(capture_consistent_versions(spec_version, &version_path));
+    RETURN_IF_ERROR(capture_rs_readers(version_path, rs_readers));
     return Status::OK();
 }
 
@@ -2371,7 +2371,7 @@ void Tablet::remove_unused_remote_files() {
 }
 
 TabletSchemaSPtr Tablet::tablet_schema() const {
-    std::shared_lock wrlock(_meta_lock);
+    std::shared_lock rlock(_meta_lock);
     return _max_version_schema;
 }
 
@@ -2382,10 +2382,6 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
         tablet_schema->schema_version() > _max_version_schema->schema_version()) {
         _max_version_schema = tablet_schema;
     }
-}
-
-TabletSchemaSPtr Tablet::get_max_version_schema(std::lock_guard<std::shared_mutex>&) {
-    return _max_version_schema;
 }
 
 // fetch value by row column
@@ -2565,7 +2561,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
             continue;
         }
         SegmentCacheHandle segment_cache_handle;
-        RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                 std::static_pointer_cast<BetaRowset>(rs.first), &segment_cache_handle, true));
         auto& segments = segment_cache_handle.get_segments();
         DCHECK_GT(segments.size(), rs.second);
@@ -2688,10 +2684,15 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
             auto index_column = index_type->create_column();
             Slice last_key_slice(last_key);
             RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
+            auto current_ordinal = iter->get_current_ordinal();
+            DCHECK(total == remaining + current_ordinal)
+                    << "total: " << total << ", remaining: " << remaining
+                    << ", current_ordinal: " << current_ordinal;
 
             size_t num_read = num_to_read;
             RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
-            DCHECK(num_to_read == num_read);
+            DCHECK(num_to_read == num_read)
+                    << "num_to_read: " << num_to_read << ", num_read: " << num_read;
             last_key = index_column->get_data_at(num_read - 1).to_string();
 
             // exclude last_key, last_key will be read in next batch.
@@ -3004,24 +3005,6 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletT
 
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, &rowset_ids_to_add, delete_bitmap,
                                        cur_version - 1, false, rowset_writer));
-
-    // Check the delete_bitmap correctness, now the check is only enabled in DEBUG env.
-    if (load_info->num_keys != 0) {
-        DeleteBitmap rs_bm(tablet_id());
-        delete_bitmap->subset({rowset->rowset_id(), 0, 0},
-                              {rowset->rowset_id(), UINT32_MAX, INT64_MAX}, &rs_bm);
-        auto num_rows = rowset->num_rows();
-        auto bitmap_cardinality = rs_bm.cardinality();
-        std::string err_msg = fmt::format(
-                "The delete bitmap of unique key table may not correct, expect num unique keys:"
-                "{}, "
-                "now the num_rows: {}, delete bitmap cardinality: {}, num sgements: {}",
-                load_info->num_keys, num_rows, bitmap_cardinality, rowset->num_segments());
-        DCHECK_EQ(load_info->num_keys, num_rows - bitmap_cardinality) << err_msg;
-        if (load_info->num_keys != num_rows - bitmap_cardinality) {
-            return Status::InternalError(err_msg);
-        }
-    }
 
     // update version without write lock, compaction and publish_txn
     // will update delete bitmap, handle compaction with _rowset_update_lock

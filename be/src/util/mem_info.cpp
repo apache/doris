@@ -246,7 +246,7 @@ void MemInfo::init() {
 
     bool is_percent = true;
     if (config::mem_limit == "auto") {
-        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.9, _s_physical_mem - 6871947672);
+        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.8, _s_physical_mem - 6871947672);
     } else {
         _s_mem_limit =
                 ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
@@ -325,7 +325,7 @@ void MemInfo::init() {
     }
 
     if (config::mem_limit == "auto") {
-        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.9, _s_physical_mem - 6871947672);
+        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.8, _s_physical_mem - 6871947672);
     } else {
         bool is_percent = true;
         _s_mem_limit =

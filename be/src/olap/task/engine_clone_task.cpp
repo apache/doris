@@ -79,6 +79,14 @@ const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
 const uint32_t GET_LENGTH_TIMEOUT = 10;
 
+#define RETURN_IF_ERROR_(status, stmt) \
+    do {                               \
+        status = (stmt);               \
+        if (UNLIKELY(!status.ok())) {  \
+            return status;             \
+        }                              \
+    } while (false)
+
 EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& master_info,
                                  int64_t signature, std::vector<TTabletInfo>* tablet_infos)
         : _clone_req(clone_req),
@@ -113,16 +121,15 @@ Status EngineCloneTask::_do_clone() {
     std::vector<Version> missed_versions;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {
-        if (tablet->replica_id() != _clone_req.replica_id) {
-            // `tablet` may be a dropped replica in FE, e.g: BE1 migrates replica of tablet_1 to BE2,
-            // but before BE1 drop this replica, another new replica of tablet_1 is migrated to BE1.
-            // If we allow to clone success on dropped replica, replica id may never be consistent between FE and BE.
-            return Status::InternalError("replica_id not match({} vs {})", tablet->replica_id(),
-                                         _clone_req.replica_id);
-        }
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
             return Status::Error<TRY_LOCK_FAILED>();
+        }
+        if (tablet->replica_id() < _clone_req.replica_id) {
+            // `tablet` may be a dropped replica in FE, e.g:
+            //   BE1 migrates replica of tablet_1 to BE2, but before BE1 drop this replica, another new replica of tablet_1 is migrated to BE1.
+            // Clone can still continue in this case. But to keep `replica_id` consitent with FE, MUST reset `replica_id` with request `replica_id`.
+            tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
         }
 
         // get download path
@@ -179,21 +186,27 @@ Status EngineCloneTask::_do_clone() {
         }};
 
         bool allow_incremental_clone = false;
-        status = _make_and_download_snapshots(*store, tablet_dir, &src_host, &src_file_path,
-                                              missed_versions, &allow_incremental_clone);
-        if (!status.ok()) {
-            return status;
-        }
+        RETURN_IF_ERROR_(status,
+                         _make_and_download_snapshots(*store, tablet_dir, &src_host, &src_file_path,
+                                                      missed_versions, &allow_incremental_clone));
 
         LOG(INFO) << "clone copy done. src_host: " << src_host.host
                   << " src_file_path: " << src_file_path;
+        auto tablet_manager = StorageEngine::instance()->tablet_manager();
+        RETURN_IF_ERROR_(status, tablet_manager->load_tablet_from_dir(store, _clone_req.tablet_id,
+                                                                      _clone_req.schema_hash,
+                                                                      tablet_dir, false));
+        auto tablet = tablet_manager->get_tablet(_clone_req.tablet_id);
+        if (!tablet) {
+            status = Status::NotFound("tablet not found, tablet_id={}", _clone_req.tablet_id);
+            return status;
+        }
+        // MUST reset `replica_id` to request `replica_id` to keep consistent with FE
+        tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
+        // clone success, delete .hdr file because tablet meta is stored in rocksdb
         string header_path =
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
-        RETURN_IF_ERROR(TabletMeta::reset_tablet_uid(header_path));
-        RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
-                store, _clone_req.tablet_id, _clone_req.schema_hash, tablet_dir, false));
-        // clone success, delete .hdr file because tablet meta is stored in rocksdb
-        RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(header_path));
+        io::global_local_filesystem()->delete_file(header_path);
     }
     return _set_tablet_info(is_new_tablet);
 }

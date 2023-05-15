@@ -605,10 +605,10 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
 
 1. 启动 Container
 
-    Doris 目前支持 es, mysql, pg, hive, sqlserver, oracle, iceberg 等数据源的 Docker compose。相关文件存放在 `docker/thirdparties/docker-compose` 目录下。
+    Doris 目前支持 es, mysql, pg, hive, sqlserver, oracle, iceberg, hudi 等数据源的 Docker compose。相关文件存放在 `docker/thirdparties/docker-compose` 目录下。
 
     默认情况下，可以直接通过以下命令启动所有外部数据源的 Docker container：
-    （注意，hive container 需要下载预制的数据文件，请参阅下面 hive 相关的文档。）
+    （注意，hive和hudi container 需要下载预制的数据文件，请参阅下面 hive和hudi 相关的文档。）
 
     ```
     cd docker/thirdparties && sh run-thirdparties-docker.sh
@@ -692,48 +692,109 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
        * `clickhouse.yaml.tpl`：Docker compose 文件模板。无需修改。
        * `clickhouse.env`：配置 ClickHouse 对外端口，默认为 8123。
 
-    8. Iceberg
+   8. Iceberg
 
-        提供 Iceberg + Spark + Minio 镜像组合。存放在 docker/thirdparties/docker-compose/iceberg/ 下。
+       提供 Iceberg + Spark + Minio 镜像组合。存放在 docker/thirdparties/docker-compose/iceberg/ 下。
 
-        * `iceberg.yaml.tpl`：Docker compose 文件模板。无需修改。
-        * `entrypoint.sh.tpl`：镜像启动后的初始化脚本模板。无需修改。
-        * `spark-defaults.conf.tpl`：Spark 的配置文件模板。无需修改。
-        * `iceberg.env`：对外端口配置文件，需修改各个对外端口，避免端口冲突。
+       * `iceberg.yaml.tpl`：Docker compose 文件模板。无需修改。
+       * `entrypoint.sh.tpl`：镜像启动后的初始化脚本模板。无需修改。
+       * `spark-defaults.conf.tpl`：Spark 的配置文件模板。无需修改。
+       * `iceberg.env`：对外端口配置文件，需修改各个对外端口，避免端口冲突。
 
-        启动后，可以通过如下命令启动 spark-sql
+       启动后，可以通过如下命令启动 spark-sql
 
-        `docker exec -it doris-xx-spark-iceberg spark-sql`        
+       `docker exec -it doris-xx-spark-iceberg spark-sql`        
 
-        其中 `doris-xx-spark-iceberg` 为 container 名称。
+       其中 `doris-xx-spark-iceberg` 为 container 名称。
 
-        spark-sql iceberg 操作示例：
+       spark-sql iceberg 操作示例：
 
-        ```
-        create database db1;
-        show databases;
-        create table db1.test1(k1 bigint, k2 bigint, k3 string) partitioned by (k1);
-        insert into db1.test1 values(1,2,'abc');
-        select * from db1.test1;
-        quit;
-        ```
+       ```
+       create database db1;
+       show databases;
+       create table db1.test1(k1 bigint, k2 bigint, k3 string) partitioned by (k1);
+       insert into db1.test1 values(1,2,'abc');
+       select * from db1.test1;
+       quit;
+       ```
 
-        也可以通过 spark-shell 进行访问：
+       也可以通过 spark-shell 进行访问：
 
-        ```
-        docker exec -it doris-xx-spark-iceberg spark-shell
+       ```
+       docker exec -it doris-xx-spark-iceberg spark-shell
+       
+       spark.sql(s"create database db1")
+       spark.sql(s"show databases").show()
+       spark.sql(s"create table db1.test1(k1 bigint, k2 bigint, k3 string) partitioned by (k1)").show()
+       spark.sql(s"show tables from db1").show()
+       spark.sql(s"insert into db1.test1 values(1,2,'abc')").show()
+       spark.sql(s"select * from db1.test1").show()
+       :q
+       ```
+
+       更多使用方式可参阅 [Tabular 官方文档](https://tabular.io/blog/docker-spark-and-iceberg/)。
+   9. Hudi
+
+      Hudi 相关的 Docker compose 文件存放在 docker/thirdparties/docker-compose/hudi 下。
+
+      * `hudi.yaml.tpl`：Docker compose 文件模板，无需修改。
+      * `hadoop.env`：配置文件的模板，无需修改。
+      * `scripts/` 目录会在 container 启动后挂载到 container 中。其中的文件内容无需修改。但须注意，在启动 container 之前，需要先下载预制文件：
+        将 `https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/hudi/hudi_docker_compose_attached_file.zip` 文件下载到 `scripts/` 目录并解压即可。
         
-        spark.sql(s"create database db1")
-        spark.sql(s"show databases").show()
-        spark.sql(s"create table db1.test1(k1 bigint, k2 bigint, k3 string) partitioned by (k1)").show()
-        spark.sql(s"show tables from db1").show()
-        spark.sql(s"insert into db1.test1 values(1,2,'abc')").show()
-        spark.sql(s"select * from db1.test1").show()
-        :q
-        ```
+      * 
+      启动前，可以将以下设置添加到`/etc/hosts`中，以避免出现`UnknownHostException`错误
+      ```
+      127.0.0.1 adhoc-1
+      127.0.0.1 adhoc-2
+      127.0.0.1 namenode
+      127.0.0.1 datanode1
+      127.0.0.1 hiveserver
+      127.0.0.1 hivemetastore
+      127.0.0.1 sparkmaster
+      ```
+         
+      启动后，可以通过如下命令启动 hive query
+      
+      ```
+      docker exec -it adhoc-2 /bin/bash
+      
+      beeline -u jdbc:hive2://hiveserver:10000 \
+      --hiveconf hive.input.format=org.apache.hadoop.hive.ql.io.HiveInputFormat \
+      --hiveconf hive.stats.autogather=false
+      
+      show tables;
+      show partitions stock_ticks_mor_rt;
+      select symbol, max(ts) from stock_ticks_cow group by symbol HAVING symbol = 'GOOG';
+      select symbol, max(ts) from stock_ticks_mor_ro group by symbol HAVING symbol = 'GOOG';
+      exit;
+      ```
 
-        更多使用方式可参阅 [Tabular 官方文档](https://tabular.io/blog/docker-spark-and-iceberg/)。
+      也可以通过 spark-shell 进行访问：
 
+      ```
+      docker exec -it adhoc-1 /bin/bash
+      
+      $SPARK_INSTALL/bin/spark-shell \
+        --jars /var/scripts/hudi_docker_compose_attached_file/jar/hoodie-hive-sync-bundle.jar \
+        --master local[2] \
+        --driver-class-path $HADOOP_CONF_DIR \
+        --conf spark.sql.hive.convertMetastoreParquet=false \
+        --deploy-mode client \
+        --driver-memory 1G \
+        --executor-memory 3G \
+        --num-executors 1
+      
+      spark.sql("show tables").show(100, false)
+      spark.sql("select symbol, max(ts) from stock_ticks_cow group by symbol HAVING symbol = 'GOOG'").show(100, false)
+      spark.sql("select `_hoodie_commit_time`, symbol, ts, volume, open, close  from stock_ticks_cow where  symbol = 'GOOG'").show(100, false)
+      spark.sql("select symbol, max(ts) from stock_ticks_mor_ro group by symbol HAVING symbol = 'GOOG'").show(100, false)
+      spark.sql("select symbol, max(ts) from stock_ticks_mor_rt group by symbol HAVING symbol = 'GOOG'").show(100, false)
+      spark.sql("select `_hoodie_commit_time`, symbol, ts, volume, open, close  from stock_ticks_mor_ro where  symbol = 'GOOG'").show(100, false)
+      :q
+      ```
+
+      更多使用方式可参阅 [Hudi 官方文档](https://hudi.apache.org/docs/docker_demo)。
 2. 运行回归测试
 
     外表相关的回归测试默认是关闭的，可以修改 `regression-test/conf/regression-conf.groovy` 中的以下配置来开启：

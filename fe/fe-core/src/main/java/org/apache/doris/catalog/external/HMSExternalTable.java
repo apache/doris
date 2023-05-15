@@ -18,12 +18,15 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.HiveAnalysisTask;
 import org.apache.doris.statistics.IcebergAnalysisTask;
 import org.apache.doris.thrift.THiveTable;
@@ -36,6 +39,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
@@ -54,6 +58,9 @@ public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
+
+    private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
+    private static final String TBL_PROP_INSERT_ONLY = "insert_only";
 
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
@@ -138,6 +145,27 @@ public class HMSExternalTable extends ExternalTable {
      * Support managed_table and external_table.
      */
     private boolean supportedHiveTable() {
+        boolean isTxnTbl = AcidUtils.isTransactionalTable(remoteTable);
+        if (isTxnTbl) {
+            // Only support "insert_only" transactional table
+            // There are 2 types of parameter:
+            //  "transactional_properties" = "insert_only",
+            //  or,
+            //  "insert_only" = "true"
+            // And must check "insert_only" first, because "transactional_properties" may be "default"
+            Map<String, String> parameters = remoteTable.getParameters();
+            if (parameters.containsKey(TBL_PROP_INSERT_ONLY)) {
+                if (!parameters.get(TBL_PROP_INSERT_ONLY).equalsIgnoreCase("true")) {
+                    return false;
+                }
+            } else if (parameters.containsKey(TBL_PROP_TXN_PROPERTIES)) {
+                if (!parameters.get(TBL_PROP_TXN_PROPERTIES).equalsIgnoreCase(TBL_PROP_INSERT_ONLY)) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
         LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
@@ -162,6 +190,10 @@ public class HMSExternalTable extends ExternalTable {
         makeSureInitialized();
         getFullSchema();
         return partitionColumns;
+    }
+
+    public boolean isHiveTransactionalTable() {
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
     }
 
     @Override
@@ -320,6 +352,18 @@ public class HMSExternalTable extends ExternalTable {
         }
         initPartitionColumns(columns);
         return columns;
+    }
+
+    @Override
+    public long estimatedRowCount() {
+        ColumnStatistic cache = Config.enable_stats
+                ? Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(id, "")
+                : ColumnStatistic.UNKNOWN;
+        if (cache == ColumnStatistic.UNKNOWN) {
+            return 1;
+        } else {
+            return (long) cache.count;
+        }
     }
 
     private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {

@@ -71,7 +71,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 - `sql_mode`
 - `enable_profile`
 - `query_timeout`
-- `insert_timeout`<version since="dev"></version>
+- <version since="dev" type="inline">`insert_timeout`</version>
 - `exec_mem_limit`
 - `batch_size`
 - `allow_partition_column_nullable`
@@ -592,7 +592,11 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
 * `enable_file_cache`
 
-    控制是否启用block file cache。该变量只有在be.conf中enable_file_cache=true时才有效，如果be.conf中enable_file_cache=false，则block file cache一直处于禁用状态。
+    控制是否启用block file cache，默认 false。该变量只有在be.conf中enable_file_cache=true时才有效，如果be.conf中enable_file_cache=false，该BE节点的block file cache处于禁用状态。
+
+* `file_cache_base_path`
+
+    指定block file cache在BE上的存储路径，默认 'random'，随机选择BE配置的存储路径。
 	
 * `topn_opt_limit_threshold`
 
@@ -628,6 +632,15 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
     | 10000000     |
     +--------------+
     ```
+  
+* `enable_parquet_lazy_materialization`
+
+  控制 parquet reader 是否启用延迟物化技术。默认为 true。
+
+* `enable_orc_lazy_materialization`
+
+  控制 orc reader 是否启用延迟物化技术。默认为 true。
+
 ***
 
 #### 关于语句执行超时控制的补充说明

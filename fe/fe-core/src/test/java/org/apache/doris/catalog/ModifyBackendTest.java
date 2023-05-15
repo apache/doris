@@ -67,7 +67,7 @@ public class ModifyBackendTest {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         Assert.assertEquals(1, backends.size());
-        String beHostPort = backends.get(0).getIp() + ":" + backends.get(0).getHeartbeatPort();
+        String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
 
         // modify backend tag
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('tag.location' = 'zone1')";
@@ -80,7 +80,9 @@ public class ModifyBackendTest {
         String createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n"
                 + "buckets 3 properties(\n" + "\"replication_num\" = \"1\"\n" + ");";
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 1 backend(s) for policy:",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
+                        + "Create failed replications:\n"
+                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: HDD",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
 
         createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n" + "buckets 3 properties(\n"
@@ -100,7 +102,7 @@ public class ModifyBackendTest {
                 + ");";
         CreateTableStmt createStmt3 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         //partition create failed, because there is no BE with "default" tag
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 3 backend(s) for policy",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "replication num should be less than the number of available backends. replication num is 3, available backend num is 1",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt3));
         Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
 
@@ -164,7 +166,7 @@ public class ModifyBackendTest {
     public void testModifyBackendAvailableProperty() throws Exception {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
-        String beHostPort = backends.get(0).getIp() + ":" + backends.get(0).getHeartbeatPort();
+        String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
         // modify backend available property
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'true', 'disable_load' = 'true')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);

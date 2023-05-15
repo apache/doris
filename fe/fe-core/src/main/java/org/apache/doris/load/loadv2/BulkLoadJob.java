@@ -19,6 +19,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -33,7 +34,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -77,11 +77,9 @@ public abstract class BulkLoadJob extends LoadJob {
 
     // input params
     protected BrokerDesc brokerDesc;
-    // queryId of OriginStatement
-    protected String queryId;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
-    // the expr of columns will be reanalyze when the log is replayed
+    // the expr of columns will be reanalyzed when the log is replayed
     private OriginStatement originStmt;
 
     // include broker desc and data desc
@@ -104,11 +102,9 @@ public abstract class BulkLoadJob extends LoadJob {
         this.userInfo = userInfo;
 
         if (ConnectContext.get() != null) {
-            this.queryId = DebugUtil.printId(ConnectContext.get().queryId());
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
         } else {
-            this.queryId = "N/A";
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
     }
@@ -375,5 +371,38 @@ public abstract class BulkLoadJob extends LoadJob {
             return properties.get("fs.s3a.access.key");
         }
         return null;
+    }
+
+    // ---------------- for load stmt ----------------
+    public static BulkLoadJob fromInsertStmt(InsertStmt insertStmt) throws DdlException {
+        // get db id
+        String dbName = insertStmt.getLoadLabel().getDbName();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        // create job
+        BulkLoadJob bulkLoadJob;
+        try {
+            switch (insertStmt.getLoadType()) {
+                case BROKER_LOAD:
+                    bulkLoadJob = new BrokerLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
+                            (BrokerDesc) insertStmt.getResourceDesc(),
+                            insertStmt.getOrigStmt(), insertStmt.getUserInfo());
+                    break;
+                case SPARK_LOAD:
+                    bulkLoadJob = new SparkLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
+                            insertStmt.getResourceDesc(),
+                            insertStmt.getOrigStmt(), insertStmt.getUserInfo());
+                    break;
+                default:
+                    throw new DdlException("Unknown load job type.");
+            }
+            bulkLoadJob.setComment(insertStmt.getComments());
+            bulkLoadJob.setJobProperties(insertStmt.getProperties());
+            // TODO(tsy): use generic and change the param in checkAndSetDataSourceInfo
+            bulkLoadJob.checkAndSetDataSourceInfo(db, (List<DataDescription>) insertStmt.getDataDescList());
+            return bulkLoadJob;
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
+        }
     }
 }

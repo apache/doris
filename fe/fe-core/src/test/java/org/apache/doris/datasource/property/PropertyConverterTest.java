@@ -148,7 +148,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateRepositoryStmt analyzedStmt = createStmt(s3Repo);
         Assertions.assertEquals(analyzedStmt.getProperties().size(), 4);
         Repository repository = getRepository(analyzedStmt, "s3_repo");
-        Assertions.assertEquals(repository.getStorage().getProperties().size(), 5);
+        Assertions.assertEquals(repository.getRemoteFileSystem().getProperties().size(), 5);
 
         String s3RepoNew = "CREATE REPOSITORY `s3_repo_new`\n"
                 + "WITH S3\n"
@@ -162,7 +162,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateRepositoryStmt analyzedStmtNew = createStmt(s3RepoNew);
         Assertions.assertEquals(analyzedStmtNew.getProperties().size(), 3);
         Repository repositoryNew = getRepository(analyzedStmtNew, "s3_repo_new");
-        Assertions.assertEquals(repositoryNew.getStorage().getProperties().size(), 4);
+        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
     }
 
     private static Repository getRepository(CreateRepositoryStmt analyzedStmt, String name) throws DdlException {
@@ -190,7 +190,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Env.getCurrentEnv().getBrokerMgr().addBrokers("bos_broker", brokers);
 
         Repository repositoryNew = getRepository(analyzedStmt, "bos_broker_repo");
-        Assertions.assertEquals(repositoryNew.getStorage().getProperties().size(), 4);
+        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
     }
 
     @Test
@@ -237,7 +237,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3_old");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 7);
+        Assertions.assertEquals(properties.size(), 11);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(hdProps.size(), 20);

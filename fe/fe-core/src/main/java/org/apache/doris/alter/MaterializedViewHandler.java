@@ -554,10 +554,14 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
-            newMVColumns.add(new Column(olapTable.getDeleteSignColumn()));
+            Column newColumn = new Column(olapTable.getDeleteSignColumn());
+            newColumn.setAggregationType(AggregateType.REPLACE, true);
+            newMVColumns.add(newColumn);
         }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
-            newMVColumns.add(new Column(olapTable.getSequenceCol()));
+            Column newColumn = new Column(olapTable.getSequenceCol());
+            newColumn.setAggregationType(AggregateType.REPLACE, true);
+            newMVColumns.add(newColumn);
         }
         // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {
@@ -966,6 +970,13 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
         olapTable.deleteIndexInfo(mvName);
+        try {
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(),
+                    Env.getCurrentInternalCatalog().getDbOrDdlException(olapTable.getQualifiedDbName()).getId(),
+                    olapTable.getId(), mvIndexId);
+        } catch (DdlException e) {
+            LOG.info("failed to clean stats for mv {} from {}", mvName, olapTable.getName(), e);
+        }
         return mvIndexId;
     }
 
@@ -989,9 +1000,11 @@ public class MaterializedViewHandler extends AlterHandler {
                     }
                 }
             }
-
             String rollupIndexName = olapTable.getIndexNameById(rollupIndexId);
             olapTable.deleteIndexInfo(rollupIndexName);
+
+            env.getQueryStats().clear(env.getCurrentCatalog().getId(), db.getId(),
+                    olapTable.getId(), rollupIndexId);
         } finally {
             olapTable.writeUnlock();
         }

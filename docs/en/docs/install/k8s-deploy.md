@@ -77,9 +77,9 @@ Connect to the FE using mysql-client and perform operations such as' show backen
   Users need to mount PVC on their own to persist metadata information, data information, or log information
 - How to safely shrink the BE node?
 
-  BE:User manual execution is required before current resizing[ALTER-SYSTEM-DECOMMISSION-BACKEND](../../docs/sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND)
+  BE:User manual execution is required before current resizing[ALTER-SYSTEM-DECOMMISSION-BACKEND](../../sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND)
 
-  BE(The role type is Compute Node): Do not store data files and can directly shrink，[About Computing Nodes](../../docs/advanced/compute_node)
+  BE(The role type is Compute Node): Do not store data files and can directly shrink，[About Computing Nodes](../../advanced/compute_node)
 - FE startup error "failed to init statefulSetName"
 
   doris_ The environment variables statefulSetName and serviceName for follower. yml must appear in pairs, such as CN configured_ SERVICE, CN must be configured_ STATEFULSET

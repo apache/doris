@@ -181,11 +181,20 @@ doris3	20
 -- !test_insert4 --
 1	abcHa1.12345	1.123450xkalowadawd	2022-10-01	3.14159	1	2	0	100000	1.2345678	24.000	07:09:51	2022	2022-11-27T07:09:51	2022-11-27T07:09:51
 
--- !specified_database --
+-- !specified_database_1 --
 doris_test
 
--- !specified_database --
+-- !specified_database_2 --
 doris_test
+
+-- !specified_database_3 --
+information_schema
+init_db
+mysql
+performance_schema
+sys
+
+-- !specified_database_4 --
 
 -- !ex_tb1 --
 {"k1":"v1", "k2":"v2"}

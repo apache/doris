@@ -164,10 +164,12 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     return Status::OK();
 }
 
-void TxnManager::set_txn_related_delete_bitmap(
-        TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
-        SchemaHash schema_hash, TabletUid tablet_uid, bool unique_key_merge_on_write,
-        DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids, uint64_t num_keys) {
+void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
+                                               TTransactionId transaction_id, TTabletId tablet_id,
+                                               SchemaHash schema_hash, TabletUid tablet_uid,
+                                               bool unique_key_merge_on_write,
+                                               DeleteBitmapPtr delete_bitmap,
+                                               const RowsetIdUnorderedSet& rowset_ids) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
 
@@ -189,7 +191,6 @@ void TxnManager::set_txn_related_delete_bitmap(
         load_info.unique_key_merge_on_write = unique_key_merge_on_write;
         load_info.delete_bitmap = delete_bitmap;
         load_info.rowset_ids = rowset_ids;
-        load_info.num_keys = num_keys;
     }
 }
 
@@ -275,7 +276,6 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
                 load_info.unique_key_merge_on_write = true;
                 load_info.delete_bitmap.reset(new DeleteBitmap(tablet->tablet_id()));
-                load_info.num_keys = 0;
             }
         }
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
@@ -337,7 +337,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                                                  rowset_writer.get()));
                     if (rowset_ptr->tablet_schema()->is_partial_update()) {
                         // build rowset writer and merge transient rowset
-                        RETURN_NOT_OK(rowset_writer->flush());
+                        RETURN_IF_ERROR(rowset_writer->flush());
                         RowsetSharedPtr transient_rowset = rowset_writer->build();
                         rowset_ptr->merge_rowset_meta(transient_rowset->rowset_meta());
 
@@ -396,7 +396,7 @@ Status TxnManager::_create_transient_rowset_writer(std::shared_ptr<Tablet> table
     context.tablet_id = tablet->table_id();
     context.tablet = tablet;
     context.is_direct_write = true;
-    RETURN_NOT_OK(tablet->create_transient_rowset_writer(context, rowset_id, rowset_writer));
+    RETURN_IF_ERROR(tablet->create_transient_rowset_writer(context, rowset_id, rowset_writer));
     (*rowset_writer)->set_segment_start_id(num_segments_ori);
     return Status::OK();
 }

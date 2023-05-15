@@ -71,14 +71,34 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
 
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return Impl::get_return_type();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        ColumnPtr haystack_ptr = block.get_by_position(arguments[0]).column;
-        ColumnPtr needles_ptr = block.get_by_position(arguments[1]).column;
+        auto haystack_column = block.get_by_position(arguments[0]).column;
+        auto haystack_ptr = haystack_column;
+
+        auto needles_column = block.get_by_position(arguments[1]).column;
+        auto needles_ptr = needles_column;
+
+        bool haystack_nullable = false;
+        bool needles_nullable = false;
+
+        if (haystack_column->is_nullable()) {
+            haystack_ptr = check_and_get_column<ColumnNullable>(haystack_column.get())
+                                   ->get_nested_column_ptr();
+            haystack_nullable = true;
+        }
+
+        if (needles_column->is_nullable()) {
+            needles_ptr = check_and_get_column<ColumnNullable>(needles_column.get())
+                                  ->get_nested_column_ptr();
+            needles_nullable = true;
+        }
 
         const ColumnString* col_haystack_vector =
                 check_and_get_column<ColumnString>(&*haystack_ptr);
@@ -104,24 +124,44 @@ public:
         auto& offsets_res = col_offsets->get_data();
 
         Status status;
-        if (col_needles_const)
+        if (col_needles_const) {
             status = Impl::vector_constant(
                     col_haystack_vector->get_chars(), col_haystack_vector->get_offsets(),
                     col_needles_const->get_value<Array>(), vec_res, offsets_res, allow_hyperscan_,
                     max_hyperscan_regexp_length_, max_hyperscan_regexp_total_length_);
-        else
+        } else {
             status = Impl::vector_vector(
                     col_haystack_vector->get_chars(), col_haystack_vector->get_offsets(),
                     col_needles_vector->get_data(), col_needles_vector->get_offsets(), vec_res,
                     offsets_res, allow_hyperscan_, max_hyperscan_regexp_length_,
                     max_hyperscan_regexp_total_length_);
-        if (!status.ok()) return status;
+        }
 
-        if constexpr (Impl::is_column_array)
-            block.get_by_position(result).column =
-                    ColumnArray::create(std::move(col_res), std::move(col_offsets));
-        else
-            block.replace_by_position(result, std::move(col_res));
+        if (!status.ok()) {
+            return status;
+        }
+
+        if (haystack_nullable) {
+            auto column_nullable = check_and_get_column<ColumnNullable>(haystack_column.get());
+            auto& null_map = column_nullable->get_null_map_data();
+            for (size_t i = 0; i != input_rows_count; ++i) {
+                if (null_map[i] == 1) {
+                    vec_res[i] = 0;
+                }
+            }
+        }
+
+        if (needles_nullable) {
+            auto column_nullable = check_and_get_column<ColumnNullable>(needles_column.get());
+            auto& null_map = column_nullable->get_null_map_data();
+            for (size_t i = 0; i != input_rows_count; ++i) {
+                if (null_map[i] == 1) {
+                    vec_res[i] = 0;
+                }
+            }
+        }
+
+        block.replace_by_position(result, std::move(col_res));
 
         return status;
     }
@@ -145,7 +185,6 @@ struct FunctionMultiMatchAnyImpl {
     static constexpr bool FindAnyIndex = (Find == MultiMatchTraits::Find::AnyIndex);
 
     static constexpr auto name = "multi_match_any";
-    static constexpr bool is_column_array = false;
 
     static auto get_return_type() { return std::make_shared<DataTypeNumber<ResultType>>(); }
 
@@ -230,6 +269,10 @@ struct FunctionMultiMatchAnyImpl {
                 vectorized::check_and_get_column<vectorized::ColumnNullable>(needles_data)
                         ->get_nested_column();
         const ColumnString* needles_data_string = check_and_get_column<ColumnString>(nested_column);
+
+        if (!needles_data_string) {
+            return Status::InvalidArgument("needles should be string");
+        }
 
         std::vector<StringRef> needles;
         for (size_t i = 0; i < haystack_offsets.size(); ++i) {

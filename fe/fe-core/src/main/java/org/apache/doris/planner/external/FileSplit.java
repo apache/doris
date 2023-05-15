@@ -17,7 +17,7 @@
 
 package org.apache.doris.planner.external;
 
-import org.apache.doris.planner.Split;
+import org.apache.doris.spi.Split;
 
 import lombok.Data;
 import org.apache.hadoop.fs.Path;
@@ -25,7 +25,7 @@ import org.apache.hadoop.fs.Path;
 import java.util.List;
 
 @Data
-public class FileSplit extends Split {
+public class FileSplit implements Split {
     protected Path path;
     protected long start;
     // length of this split, in bytes
@@ -34,6 +34,8 @@ public class FileSplit extends Split {
     // -1 means unset.
     // If the file length is not set, the file length will be fetched from the file system.
     protected long fileLength;
+    protected long modificationTime;
+    protected String[] hosts;
     protected TableFormatType tableFormatType;
     // The values of partitions.
     // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
@@ -41,20 +43,27 @@ public class FileSplit extends Split {
     protected List<String> partitionValues;
 
     public FileSplit(Path path, long start, long length, long fileLength,
-                     String[] hosts, List<String> partitionValues) {
+            long modificationTime, String[] hosts, List<String> partitionValues) {
         this.path = path;
         this.start = start;
         this.length = length;
         this.fileLength = fileLength;
-        this.hosts = hosts;
+        this.modificationTime = modificationTime;
+        this.hosts = hosts == null ? new String[0] : hosts;
         this.partitionValues = partitionValues;
     }
 
+    public FileSplit(Path path, long start, long length, long fileLength,
+            String[] hosts, List<String> partitionValues) {
+        this(path, start, length, fileLength, 0, hosts, partitionValues);
+    }
+
     public String[] getHosts() {
-        if (this.hosts == null) {
-            return new String[]{};
-        } else {
-            return this.hosts;
-        }
+        return hosts;
+    }
+
+    @Override
+    public Object getInfo() {
+        return null;
     }
 }

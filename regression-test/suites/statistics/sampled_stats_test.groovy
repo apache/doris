@@ -17,7 +17,7 @@
 
 suite("test_sampled_stats") {
     def dbName = "test_sampled_stats"
-    def tblName = "${dbName}.example_tbl"
+    def tblName = "${dbName}.sampled_stats_tbl"
 
     def colStatisticsTblName = "__internal_schema.column_statistics"
     def colHistogramTblName = "__internal_schema.histogram_statistics"
@@ -41,28 +41,23 @@ suite("test_sampled_stats") {
 
     def query_col_statistics_with_order_sql = """
         SELECT 
-            count, 
-            ndv, 
-            null_count, 
-            min, 
-            max, 
-            data_size_in_bytes 
+            col_id, min, max, count, ndv, null_count
         FROM 
             ${colStatisticsTblName} 
         WHERE 
             col_id IN ${columnNameValues}
         ORDER BY 
             col_id,
-            min, 
+            min,
             max,
-            count, 
-            ndv, 
-            null_count, 
-            data_size_in_bytes;
+            count,
+            ndv,
+            null_count;
     """
 
     def query_col_histogram_with_order_sql = """
-        SELECT 
+        SELECT
+            col_id, 
             sample_rate, 
             buckets
         FROM 
@@ -90,7 +85,7 @@ suite("test_sampled_stats") {
     sql """
         CREATE TABLE IF NOT EXISTS ${tblName} (
             `t_1682570060000_user_id` LARGEINT NOT NULL,
-            `t_1682570060000_date` DATE NOT NULL,
+            `t_1682570060000_date` DATEV2 NOT NULL,
             `t_1682570060000_city` VARCHAR(20),
             `t_1682570060000_age` SMALLINT,
             `t_1682570060000_sex` TINYINT,
@@ -127,23 +122,23 @@ suite("test_sampled_stats") {
             (10009, "2017-10-03", "Shenzhen", 35, 0, "2017-10-03 10:20:22", 11, 6, 6);
     """
 
-    sql """  
-        DELETE FROM __internal_schema.column_statistics
-        WHERE col_id IN (
-            't_1682570060000_user_id', 't_1682570060000_date', 't_1682570060000_city', 
-            't_1682570060000_age', 't_1682570060000_sex', 't_1682570060000_last_visit_date', 
-            't_1682570060000_cost', 't_1682570060000_max_dwell_time', 't_1682570060000_min_dwell_time'
-        );  
-    """
+    // sql """
+    //     DELETE FROM ${colStatisticsTblName}
+    //     WHERE col_id IN (
+    //         't_1682570060000_user_id', 't_1682570060000_date', 't_1682570060000_city',
+    //         't_1682570060000_age', 't_1682570060000_sex', 't_1682570060000_last_visit_date',
+    //         't_1682570060000_cost', 't_1682570060000_max_dwell_time', 't_1682570060000_min_dwell_time'
+    //     );
+    // """
 
-    sql """  
-        DELETE FROM __internal_schema.histogram_statistics
-        WHERE col_id IN (
-            't_1682570060000_user_id', 't_1682570060000_date', 't_1682570060000_city', 
-            't_1682570060000_age', 't_1682570060000_sex', 't_1682570060000_last_visit_date', 
-            't_1682570060000_cost', 't_1682570060000_max_dwell_time', 't_1682570060000_min_dwell_time'
-        );  
-    """
+    // sql """
+    //     DELETE FROM ${colHistogramTblName}
+    //     WHERE col_id IN (
+    //         't_1682570060000_user_id', 't_1682570060000_date', 't_1682570060000_city',
+    //         't_1682570060000_age', 't_1682570060000_sex', 't_1682570060000_last_visit_date',
+    //         't_1682570060000_cost', 't_1682570060000_max_dwell_time', 't_1682570060000_min_dwell_time'
+    //     );
+    // """
 
     sql """
         ANALYZE TABLE ${tblName} WITH sync;
@@ -153,9 +148,9 @@ suite("test_sampled_stats") {
         ANALYZE TABLE ${tblName} UPDATE HISTOGRAM WITH sync;
     """
 
-    qt_sql query_col_statistics_with_order_sql
+    qt_sql_1 query_col_statistics_with_order_sql
 
-    qt_sql query_col_histogram_with_order_sql
+    qt_sql_2 query_col_histogram_with_order_sql
 
     sql """
         ANALYZE TABLE ${tblName} WITH sync WITH SAMPLE ROWS 100;
@@ -165,9 +160,9 @@ suite("test_sampled_stats") {
         ANALYZE TABLE ${tblName} UPDATE HISTOGRAM WITH sync WITH SAMPLE ROWS 100;
     """
 
-    qt_sql query_col_statistics_with_order_sql
+    qt_sql_3 query_col_statistics_with_order_sql
 
-    qt_sql query_col_histogram_with_order_sql
+    qt_sql_4 query_col_histogram_with_order_sql
 
     sql """
         ANALYZE TABLE ${tblName} WITH sync WITH SAMPLE PERCENT 100;
@@ -177,9 +172,9 @@ suite("test_sampled_stats") {
         ANALYZE TABLE ${tblName} UPDATE HISTOGRAM WITH sync WITH SAMPLE PERCENT 100;
     """
 
-    qt_sql query_col_statistics_with_order_sql
+    qt_sql_5 query_col_statistics_with_order_sql
 
-    qt_sql query_col_histogram_with_order_sql
+    qt_sql_6 query_col_histogram_with_order_sql
 
     sql """
         ANALYZE TABLE ${tblName} WITH sync WITH SAMPLE ROWS 3;
@@ -190,7 +185,7 @@ suite("test_sampled_stats") {
     """
 
      // TODO Optimize the calculation method of the sample rate of the number of sampling rows
-     // qt_sql """
+     // qt_sql_7 """
      //     SELECT
      //         sample_rate
      //     FROM
@@ -210,34 +205,36 @@ suite("test_sampled_stats") {
         ANALYZE TABLE ${tblName} UPDATE HISTOGRAM WITH sync WITH SAMPLE PERCENT 50;
     """
 
-    qt_sql """
+    qt_sql_8 """
         SELECT 
+            col_id,
             sample_rate
         FROM 
             ${colHistogramTblName} 
         WHERE 
             col_id IN ${columnNameValues}
         ORDER BY 
+            col_id,
             sample_rate
     """
 
-    sql """  
-        DELETE FROM __internal_schema.column_statistics
-        WHERE col_id IN (
-            't_1682570060000_user_id', 't_1682570060000_date', 't_1682570060000_city', 
-            't_1682570060000_age', 't_1682570060000_sex', 't_1682570060000_last_visit_date', 
-            't_1682570060000_cost', 't_1682570060000_max_dwell_time', 't_1682570060000_min_dwell_time'
-        );  
-    """
+    // sql """
+    //     DELETE FROM ${colStatisticsTblName}
+    //     WHERE col_id IN (
+    //         't_1682570060000_user_id', 't_1682570060000_date', 't_1682570060000_city',
+    //         't_1682570060000_age', 't_1682570060000_sex', 't_1682570060000_last_visit_date',
+    //         't_1682570060000_cost', 't_1682570060000_max_dwell_time', 't_1682570060000_min_dwell_time'
+    //     );
+    // """
 
-    sql """  
-        DELETE FROM __internal_schema.histogram_statistics
-        WHERE col_id IN (
-            't_1682570060000_user_id', 't_1682570060000_date', 't_1682570060000_city', 
-            't_1682570060000_age', 't_1682570060000_sex', 't_1682570060000_last_visit_date', 
-            't_1682570060000_cost', 't_1682570060000_max_dwell_time', 't_1682570060000_min_dwell_time'
-        );  
-    """
+    // sql """
+    //     DELETE FROM ${colHistogramTblName}
+    //     WHERE col_id IN (
+    //         't_1682570060000_user_id', 't_1682570060000_date', 't_1682570060000_city',
+    //         't_1682570060000_age', 't_1682570060000_sex', 't_1682570060000_last_visit_date',
+    //         't_1682570060000_cost', 't_1682570060000_max_dwell_time', 't_1682570060000_min_dwell_time'
+    //     );
+    // """
 
     sql """
         DROP DATABASE IF EXISTS ${dbName};
