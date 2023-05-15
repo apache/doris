@@ -201,7 +201,7 @@ if [[ -f "${pidfile}" ]]; then
 fi
 
 chmod 755 "${DORIS_HOME}/lib/doris_be"
-echo "start time: $(date)" >>"${LOG_DIR}/be.out"
+echo "start time: $(date +"%Y-%m-%d %H:%M:%S")" >>"${LOG_DIR}/be.out"
 
 if [[ ! -f '/bin/limit3' ]]; then
     LIMIT=''
