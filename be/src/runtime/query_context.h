@@ -73,6 +73,9 @@ public:
                     MemTracker::print_bytes(query_mem_tracker->consumption()),
                     MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
         }
+        if (_task_group) {
+            _task_group->remove_mem_tracker_limiter(query_mem_tracker);
+        }
     }
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.

@@ -871,10 +871,6 @@ public class StmtExecutor {
                 || (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager())
                 || parsedStmt instanceof CreateTableAsSelectStmt
                 || parsedStmt instanceof InsertOverwriteTableStmt) {
-            if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
-                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
-                        .getResourceGroup(context.sessionVariable.resourceGroup));
-            }
             Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
             Set<String> parentViewNameSet = Sets.newHashSet();
@@ -1059,6 +1055,11 @@ public class StmtExecutor {
                 if (explainOptions != null) {
                     parsedStmt.setIsExplain(explainOptions);
                 }
+            }
+            if (parsedStmt instanceof QueryStmt && Config.enable_resource_group
+                    && context.sessionVariable.enablePipelineEngine()) {
+                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
+                        .getResourceGroup(context.sessionVariable.resourceGroup));
             }
         }
         profile.getSummaryProfile().setQueryAnalysisFinishTime();

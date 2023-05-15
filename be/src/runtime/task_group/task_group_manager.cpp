@@ -20,6 +20,7 @@
 #include <memory>
 #include <mutex>
 
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/task_group/task_group.h"
 
 namespace doris::taskgroup {
@@ -35,20 +36,38 @@ TaskGroupManager* TaskGroupManager::instance() {
 TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& task_group_info) {
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-        if (_task_groups.count(task_group_info._id)) {
-            return _task_groups[task_group_info._id];
+        if (LIKELY(_task_groups.count(task_group_info.id))) {
+            auto task_group = _task_groups[task_group_info.id];
+            task_group->check_and_update(task_group_info);
+            return task_group;
         }
     }
 
-    auto new_task_group =
-            std::make_shared<TaskGroup>(task_group_info._id, task_group_info._name,
-                                        task_group_info._cpu_share, task_group_info._version);
+    auto new_task_group = std::make_shared<TaskGroup>(task_group_info);
     std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
-    if (_task_groups.count(task_group_info._id)) {
-        return _task_groups[task_group_info._id];
+    if (_task_groups.count(task_group_info.id)) {
+        auto task_group = _task_groups[task_group_info.id];
+        task_group->check_and_update(task_group_info);
+        return task_group;
     }
-    _task_groups[task_group_info._id] = new_task_group;
+    _task_groups[task_group_info.id] = new_task_group;
     return new_task_group;
+}
+
+int64_t TaskGroupManager::memory_limit_gc() {
+    int64_t total_free_memory = 0;
+    std::vector<TaskGroupPtr> task_groups;
+    {
+        std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+        task_groups.reserve(_task_groups.size());
+        for (const auto& [id, task_group] : _task_groups) {
+            task_groups.push_back(task_group);
+        }
+    }
+    for (const auto& task_group : task_groups) {
+        total_free_memory += task_group->memory_limit_gc();
+    }
+    return total_free_memory;
 }
 
 } // namespace doris::taskgroup
