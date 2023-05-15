@@ -31,4 +31,4 @@ add_library(Exprs
   json_functions.cpp
 )
 
-pch_reuse(Exprs)
+include_pch(Exprs thirdparty_pch)

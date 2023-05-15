@@ -1,0 +1,5 @@
+#include "olap/olap_common.h"
+#include "runtime/exec_env.h"
+#include "service/backend_options.h"
+#include "util/runtime_profile.h"
+#include "util/uid_util.h"

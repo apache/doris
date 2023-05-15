@@ -68,4 +68,5 @@ add_library(Exec STATIC
     ${EXEC_FILES}
 )
 
-pch_reuse(Exec)
+include_pch(Exec exec_pch)
+# include_pch(Exec thirdparty_pch)

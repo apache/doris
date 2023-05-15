@@ -62,4 +62,5 @@ add_library(IO STATIC
     ${IO_FILES}
 )
 
-pch_reuse(IO)
+# include_pch(IO thirdparty_pch)
+include_pch(IO io_pch)
