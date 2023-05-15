@@ -33,9 +33,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.math.NumberUtils;
-import static org.apache.doris.catalog.HdfsResource.DSF_NAMENODES;
-import static org.apache.doris.catalog.HdfsResource.DSF_NAMESRPCADDRESS;
-import static org.apache.doris.catalog.HdfsResource.DSF_PROXY;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
@@ -48,6 +45,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
 
 /**
  * External catalog for hive metastore compatible data sources.
@@ -102,9 +100,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (Strings.isNullOrEmpty(dfsNameservices)) {
             return;
         }
-        String namenodes = this.catalogProperty.getOrDefault(DSF_NAMENODES + dfsNameservices, "");
+        String namenodes = this.catalogProperty.getOrDefault(HdfsResource.DSF_NAMENODES + dfsNameservices, "");
         if (Strings.isNullOrEmpty(namenodes)) {
-            throw new DdlException("Missing" + DSF_NAMENODES + dfsNameservices + " property");
+            throw new DdlException("Missing" + HdfsResource.DSF_NAMENODES + dfsNameservices + " property");
         }
         for (Map.Entry<String, String> entry : this.catalogProperty.getProperties().entrySet()) {
             System.out.println(entry.getKey() + ": " + entry.getValue());
@@ -112,19 +110,19 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String[] names = namenodes.split(",");
         for (String name : names) {
             String address = this.catalogProperty.getOrDefault(
-                    DSF_NAMESRPCADDRESS + dfsNameservices + "." + name,
+                    HdfsResource.DSF_NAMESRPCADDRESS + dfsNameservices + "." + name,
                     "");
             if (Strings.isNullOrEmpty(address)) {
                 throw new DdlException(
-                        "Missing" + DSF_NAMESRPCADDRESS + dfsNameservices + "." + name + " property");
+                        "Missing" + HdfsResource.DSF_NAMESRPCADDRESS + dfsNameservices + "." + name + " property");
             }
         }
         String failoverProvider = this.catalogProperty.getOrDefault(
-                DSF_PROXY + dfsNameservices,
+                HdfsResource.DSF_PROXY + dfsNameservices,
                 "");
         if (Strings.isNullOrEmpty(failoverProvider)) {
             throw new DdlException(
-                    "Missing " + DSF_PROXY + dfsNameservices + " property");
+                    "Missing " + HdfsResource.DSF_PROXY + dfsNameservices + " property");
         }
 
     }
@@ -150,15 +148,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
             //    use old dfs.nameservices
             dfsNameservices = this.catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
             if (Strings.isNullOrEmpty(dfsNameservices)) {
-                String namenodes = properties.getOrDefault(DSF_NAMENODES + dfsNameservices, "");
-                properties.remove(DSF_NAMENODES + dfsNameservices);
+                String namenodes = properties.getOrDefault(HdfsResource.DSF_NAMENODES + dfsNameservices, "");
+                properties.remove(HdfsResource.DSF_NAMENODES + dfsNameservices);
                 if (!Strings.isNullOrEmpty(namenodes)) {
                     String[] names = namenodes.split(",");
                     for (String name : names) {
-                        properties.remove(DSF_NAMESRPCADDRESS + dfsNameservices + "." + name);
+                        properties.remove(HdfsResource.DSF_NAMESRPCADDRESS + dfsNameservices + "." + name);
                     }
                 }
-                properties.remove(DSF_PROXY + dfsNameservices);
+                properties.remove(HdfsResource.DSF_PROXY + dfsNameservices);
                 return;
             }
         }
@@ -166,24 +164,24 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException("Missing " + HdfsResource.DSF_NAMESERVICES + " property");
         }
         //if contains dfs.nameservices,others are also required to have
-        String namenodes = properties.getOrDefault(DSF_NAMENODES + dfsNameservices, "");
+        String namenodes = properties.getOrDefault(HdfsResource.DSF_NAMENODES + dfsNameservices, "");
         if (Strings.isNullOrEmpty(namenodes)) {
-            throw new DdlException("Missing" + DSF_NAMENODES + dfsNameservices + " property");
+            throw new DdlException("Missing" + HdfsResource.DSF_NAMENODES + dfsNameservices + " property");
         }
         String[] names = namenodes.split(",");
         for (String name : names) {
-            String address = properties.getOrDefault(DSF_NAMESRPCADDRESS + dfsNameservices + "." + name,
+            String address = properties.getOrDefault(HdfsResource.DSF_NAMESRPCADDRESS + dfsNameservices + "." + name,
                     "");
             if (Strings.isNullOrEmpty(address)) {
                 throw new DdlException(
-                        "Missing" + DSF_NAMESRPCADDRESS + dfsNameservices + "." + name + " property");
+                        "Missing" + HdfsResource.DSF_NAMESRPCADDRESS + dfsNameservices + "." + name + " property");
             }
         }
-        String failoverProvider = properties.getOrDefault(DSF_PROXY + dfsNameservices,
+        String failoverProvider = properties.getOrDefault(HdfsResource.DSF_PROXY + dfsNameservices,
                 "");
         if (Strings.isNullOrEmpty(failoverProvider)) {
             throw new DdlException(
-                    "Missing " + DSF_PROXY + dfsNameservices + " property");
+                    "Missing " + HdfsResource.DSF_PROXY + dfsNameservices + " property");
         }
 
     }
