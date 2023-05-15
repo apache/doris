@@ -48,6 +48,7 @@ Usage: $0 <options>
      --hive-udf         build Hive UDF library for Spark Load. Default ON.
      --java-udf         build Java UDF. Default ON.
      --clean            clean and build target
+     --output           specify the output directory
      -j                 build Backend parallel
 
   Environment variables:
@@ -65,6 +66,7 @@ Usage: $0 <options>
     $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
+    $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -120,6 +122,7 @@ if ! OPTS="$(getopt \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
+    -l 'output:' \
     -o 'hj:' \
     -- "$@")"; then
     usage
@@ -210,6 +213,10 @@ else
         -j)
             PARALLEL="$2"
             PARAMETER_FLAG=1
+            shift 2
+            ;;
+        --output)
+            DORIS_OUTPUT="$2"
             shift 2
             ;;
         --)
@@ -530,7 +537,8 @@ if [[ "${FE_MODULES}" != '' ]]; then
 fi
 
 # Clean and prepare output dir
-DORIS_OUTPUT=${DORIS_HOME}/output/
+DORIS_OUTPUT=${DORIS_OUTPUT:="${DORIS_HOME}/output/"}
+echo "OUTPUT DIR=${DORIS_OUTPUT}"
 mkdir -p "${DORIS_OUTPUT}"
 
 # Copy Frontend and Backend
