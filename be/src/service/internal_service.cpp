@@ -1187,7 +1187,8 @@ constexpr auto Permissions = S_IRUSR | S_IWUSR;
 
 std::string construct_url(const std::string& host_port, const std::string& token,
                           const std::string& path) {
-    return fmt::format("{}{}{}{}{}{}", HttpProtocol, host_port, DownloadApiPath, token, FileParam, path);
+    return fmt::format("{}{}{}{}{}{}", HttpProtocol, host_port, DownloadApiPath, token, FileParam,
+                       path);
 }
 
 std::string construct_file_path(const std::string& tablet_path, const std::string& rowset_id,
@@ -1308,7 +1309,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                 return;
             }
             VLOG_CRITICAL << "succeed to download file for slave replica. url=" << remote_file_url
-                      << ", local_path=" << local_file_path << ", txn_id=" << rowset_meta->txn_id();
+                          << ", local_path=" << local_file_path
+                          << ", txn_id=" << rowset_meta->txn_id();
             PTabletWriteSlaveRequest_IndexSizeMap segment_indices_size =
                     indices_size.at(segment.first);
             for (auto index_size : segment_indices_size.index_sizes()) {
@@ -1334,9 +1336,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                     return;
                 }
                 VLOG_CRITICAL << "succeed to download inverted index file for slave replica. url="
-                          << remote_inverted_index_file_url
-                          << ", local_path=" << local_inverted_index_file
-                          << ", txn_id=" << rowset_meta->txn_id();
+                              << remote_inverted_index_file_url
+                              << ", local_path=" << local_inverted_index_file
+                              << ", txn_id=" << rowset_meta->txn_id();
             }
         }
 
