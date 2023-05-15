@@ -40,6 +40,24 @@ public class ColumnStatistic {
     public static final StatsType MIN_VALUE = StatsType.MIN_VALUE;
     public static final StatsType MAX_VALUE = StatsType.MAX_VALUE;
 
+    public static final String NDV_NAME = "Ndv";
+    public static final String MIN_VALUE_NAN_NAME = "MinValueNaN";
+    public static final String MIN_VALUE_INFINITE_NAME = "MinValueInfinite";
+    public static final String MIN_VALUE_NAME = "MinValue";
+    public static final String MAX_VALUE_NAN_NAME = "MaxValueNaN";
+    public static final String MAX_VALUE_INFINITE_NAME = "MaxValueInfinite";
+    public static final String MAX_VALUE_NAME = "MaxValue";
+    public static final String SELECTIVITY_NAME = "Selectivity";
+    public static final String COUNT_NAME = "Count";
+    public static final String AVG_SIZE_BYTE_NAME = "AvgSizeByte";
+    public static final String NUM_NULLS_NAME = "NumNulls";
+    public static final String DATA_SIZE_NAME = "DataSize";
+    public static final String MIN_EXPR_NAME = "MinExpr";
+    public static final String MAX_EXPR_NAME = "MaxExpr";
+    public static final String IS_UNKNOWN_NAME = "IsUnKnown";
+    public static final String HISTOGRAM_NAME = "Histogram";
+    public static final String ORIGINAL_NDV_NAME = "OriginalNdv";
+
     private static final Logger LOG = LogManager.getLogger(ColumnStatistic.class);
 
     public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
@@ -274,30 +292,40 @@ public class ColumnStatistic {
 
     public JSONObject toJson() {
         JSONObject statistic = new JSONObject();
-        statistic.put("Ndv", ndv);
-        if (Double.isInfinite(minValue)) {
-            statistic.put("MinValueInfinite", true);
+        statistic.put(NDV_NAME, ndv);
+        if (Double.isNaN(minValue)) {
+            statistic.put(MIN_VALUE_NAN_NAME, true);
         } else {
-            statistic.put("MinValueInfinite", false);
-            statistic.put("MinValue", minValue);
+            statistic.put(MIN_VALUE_NAN_NAME, false);
+            if (Double.isInfinite(minValue)) {
+                statistic.put(MIN_VALUE_INFINITE_NAME, true);
+            } else {
+                statistic.put(MIN_VALUE_INFINITE_NAME, false);
+                statistic.put(MIN_VALUE_NAME, minValue);
+            }
         }
-        if (Double.isInfinite(maxValue)) {
-            statistic.put("MaxValueInfinite", true);
+        if (Double.isNaN(maxValue)) {
+            statistic.put(MAX_VALUE_NAN_NAME, true);
         } else {
-            statistic.put("MaxValueInfinite", false);
-            statistic.put("MaxValue", maxValue);
+            statistic.put(MAX_VALUE_NAN_NAME, false);
+            if (Double.isInfinite(maxValue)) {
+                statistic.put(MAX_VALUE_INFINITE_NAME, true);
+            } else {
+                statistic.put(MAX_VALUE_INFINITE_NAME, false);
+                statistic.put(MAX_VALUE_NAME, maxValue);
+            }
         }
-        statistic.put("Selectivity", selectivity);
-        statistic.put("Count", count);
-        statistic.put("AvgSizeByte", avgSizeByte);
-        statistic.put("NumNulls", numNulls);
-        statistic.put("DataSize", dataSize);
-        statistic.put("Selectivity", selectivity);
-        statistic.put("MinExpr", minExpr);
-        statistic.put("MaxExpr", maxExpr);
-        statistic.put("IsUnKnown", isUnKnown);
-        statistic.put("Histogram", Histogram.serializeToJson(histogram));
-        statistic.put("OriginalNdv", originalNdv);
+        statistic.put(SELECTIVITY_NAME, selectivity);
+        statistic.put(COUNT_NAME, count);
+        statistic.put(AVG_SIZE_BYTE_NAME, avgSizeByte);
+        statistic.put(NUM_NULLS_NAME, numNulls);
+        statistic.put(DATA_SIZE_NAME, dataSize);
+        statistic.put(SELECTIVITY_NAME, selectivity);
+        statistic.put(MIN_EXPR_NAME, minExpr);
+        statistic.put(MAX_EXPR_NAME, maxExpr);
+        statistic.put(IS_UNKNOWN_NAME, isUnKnown);
+        statistic.put(HISTOGRAM_NAME, Histogram.serializeToJson(histogram));
+        statistic.put(ORIGINAL_NDV_NAME, originalNdv);
         return statistic;
     }
 
@@ -305,22 +333,24 @@ public class ColumnStatistic {
     // Histogram is got by other place
     public static ColumnStatistic fromJson(String statJson) {
         JSONObject stat = new JSONObject(statJson);
-        Double minValue = stat.getBoolean("MinValueInfinite") ? Double.NEGATIVE_INFINITY : stat.getDouble("MinValue");
-        Double maxValue = stat.getBoolean("MaxValueInfinite") ? Double.POSITIVE_INFINITY : stat.getDouble("MaxValue");
+        Double minValue = stat.getBoolean(MIN_VALUE_NAN_NAME) ? Double.NaN :
+                (stat.getBoolean(MIN_VALUE_INFINITE_NAME) ? Double.NEGATIVE_INFINITY : stat.getDouble(MIN_VALUE_NAME));
+        Double maxValue = stat.getBoolean(MAX_VALUE_NAN_NAME) ? Double.NaN :
+                (stat.getBoolean(MAX_VALUE_INFINITE_NAME) ? Double.POSITIVE_INFINITY : stat.getDouble(MAX_VALUE_NAME));
         return new ColumnStatistic(
-            stat.getDouble("Count"),
-            stat.getDouble("Ndv"),
-            stat.getDouble("OriginalNdv"),
-            stat.getDouble("AvgSizeByte"),
-            stat.getDouble("NumNulls"),
-            stat.getDouble("DataSize"),
+            stat.getDouble(COUNT_NAME),
+            stat.getDouble(NDV_NAME),
+            stat.getDouble(ORIGINAL_NDV_NAME),
+            stat.getDouble(AVG_SIZE_BYTE_NAME),
+            stat.getDouble(NUM_NULLS_NAME),
+            stat.getDouble(DATA_SIZE_NAME),
             minValue,
             maxValue,
-            stat.getDouble("Selectivity"),
+            stat.getDouble(SELECTIVITY_NAME),
             null,
             null,
-            stat.getBoolean("IsUnKnown"),
-            Histogram.deserializeFromJson(stat.getString("Histogram"))
+            stat.getBoolean(IS_UNKNOWN_NAME),
+            Histogram.deserializeFromJson(stat.getString(HISTOGRAM_NAME))
         );
     }
 

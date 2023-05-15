@@ -34,9 +34,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -713,7 +713,7 @@ public class Memo {
             builder.append("  stats=").append(group.getStatistics()).append("\n");
             Statistics stats = group.getStatistics();
             if (stats != null && !group.getLogicalExpressions().isEmpty()
-                    && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
+                    && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalRelation) {
                 for (Entry e : stats.columnStatistics().entrySet()) {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }
