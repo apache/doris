@@ -443,4 +443,8 @@ public abstract class PlanVisitor<R, C> {
         return visit(cteAnchor, context);
     }
 
+
+    public R visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, C context) {
+        return visit(olapTableSink, context);
+    }
 }
