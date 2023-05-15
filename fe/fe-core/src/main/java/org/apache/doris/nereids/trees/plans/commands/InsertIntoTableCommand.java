@@ -72,6 +72,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     private final LogicalPlan logicalQuery;
     private final String labelName;
     private Table table;
+    private Database database;
     private NereidsPlanner planner;
     private final List<String> partitions;
 
@@ -102,24 +103,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("insert into table command is not supported in txn model");
         }
 
-        // Check database and table
-        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
-        String catalogName = qualifiedTableName.get(0);
-        String dbName = qualifiedTableName.get(1);
-        String tableName = qualifiedTableName.get(2);
-        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-        if (catalog == null) {
-            throw new AnalysisException(String.format("Catalog %s does not exist.", catalogName));
-        }
-        Database database;
-        try {
-            database = ((Database) catalog.getDb(dbName).orElseThrow(() ->
-                    new AnalysisException("Database [" + dbName + "] does not exist.")));
-            table = database.getTable(tableName).orElseThrow(() ->
-                    new AnalysisException("Table [" + tableName + "] does not exist in database [" + dbName + "]."));
-        } catch (Throwable e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
+        getTable(ctx);
 
         // collect column
         List<Column> targetColumns;
@@ -214,7 +198,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         txn.executeInsertIntoSelectCommand(executor);
     }
 
-    public LogicalPlan extractQueryPlan() {
+    public LogicalPlan initTargetTableAndGetQuery(ConnectContext ctx) {
+        getTable(ctx);
         return logicalQuery;
     }
 
@@ -227,6 +212,27 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         List<ExprId> exprIds = outputs.subList(0, ((OlapTable) table).getKeysNum()).stream()
                 .map(NamedExpression::getExprId).collect(Collectors.toList());
         return PhysicalProperties.createHash(new DistributionSpecHash(exprIds, ShuffleType.NATURAL));
+    }
+
+    private void getTable(ConnectContext ctx) {
+        // Check database and table
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
+        String catalogName = qualifiedTableName.get(0);
+        String dbName = qualifiedTableName.get(1);
+        String tableName = qualifiedTableName.get(2);
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (catalog == null) {
+            throw new AnalysisException(String.format("Catalog %s does not exist.", catalogName));
+        }
+        Database database;
+        try {
+            database = ((Database) catalog.getDb(dbName).orElseThrow(() ->
+                    new AnalysisException("Database [" + dbName + "] does not exist.")));
+            table = database.getTable(tableName).orElseThrow(() ->
+                    new AnalysisException("Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+        } catch (Throwable e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
     }
 
     @Override
