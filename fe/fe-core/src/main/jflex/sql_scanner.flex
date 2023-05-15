@@ -341,6 +341,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("outer", new Integer(SqlParserSymbols.KW_OUTER));
         keywordMap.put("outfile", new Integer(SqlParserSymbols.KW_OUTFILE));
         keywordMap.put("over", new Integer(SqlParserSymbols.KW_OVER));
+        keywordMap.put("overwrite", new Integer(SqlParserSymbols.KW_OVERWRITE));
         keywordMap.put("parameter", new Integer(SqlParserSymbols.KW_PARAMETER));
         keywordMap.put("partition", new Integer(SqlParserSymbols.KW_PARTITION));
         keywordMap.put("partitions", new Integer(SqlParserSymbols.KW_PARTITIONS));

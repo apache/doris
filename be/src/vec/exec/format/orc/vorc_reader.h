@@ -280,14 +280,14 @@ private:
             DecimalScaleParams temp_scale_params;
             _init_decimal_converter<DecimalPrimitiveType>(data_type, temp_scale_params,
                                                           data->scale);
-            _decimal_scale_params.emplace_back(std::move(temp_scale_params));
+            _decimal_scale_params.emplace_back(temp_scale_params);
         }
         DecimalScaleParams& scale_params = _decimal_scale_params[_decimal_scale_params_index];
         ++_decimal_scale_params_index;
 
         auto* cvb_data = data->values.data();
         auto& column_data =
-                static_cast<ColumnVector<DecimalPrimitiveType>&>(*data_column).get_data();
+                static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
 

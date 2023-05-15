@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -532,6 +533,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             fullNameToDb.remove(db.getFullName());
             DropDbInfo info = new DropDbInfo(dbName, stmt.isForceDrop(), recycleTime);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
         } finally {
             unlock();
         }
@@ -573,6 +575,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else {
                     Env.getCurrentEnv().eraseDatabase(db.getId(), false);
                 }
+                Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getInternalCatalog().getId(), db.getId());
             } finally {
                 db.writeUnlock();
             }
@@ -864,6 +867,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop(), recycleTime);
             Env.getCurrentEnv().getEditLog().logDropTable(info);
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
+                    db.getId(), table.getId());
         } finally {
             db.writeUnlock();
         }
@@ -909,6 +914,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         table.writeLock();
         try {
             unprotectDropTable(db, table, isForceDrop, true, recycleTime);
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(),
+                    tableId);
         } finally {
             table.writeUnlock();
             db.writeUnlock();
@@ -1251,6 +1258,51 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } // end for partitions
                 DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(dbId, olapTable, true);
             }
+        }
+    }
+
+    public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
+            throws DdlException {
+        try {
+            Table table = db.getTableOrDdlException(tableName);
+
+            if (table.getType() != TableType.OLAP) {
+                throw new DdlException("Only support create partition from a OLAP table");
+            }
+
+            // Lock the table to prevent other SQL from performing write operation during table structure modification
+            AddPartitionClause clause = null;
+            table.readLock();
+            try {
+                String partitionName = addPartitionLikeClause.getPartitionName();
+                String existedName = addPartitionLikeClause.getExistedPartitionName();
+                OlapTable olapTable = (OlapTable) table;
+                Partition part = olapTable.getPartition(existedName);
+                if (part == null) {
+                    throw new DdlException("Failed to ADD PARTITION" + partitionName + " LIKE "
+                            + existedName + ". Reason: " + "partition " + existedName + "not exist");
+                }
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                PartitionDesc partitionDesc = partitionInfo.toPartitionDesc((OlapTable) table);
+                SinglePartitionDesc oldPartitionDesc = partitionDesc.getSinglePartitionDescByName(existedName);
+                if (oldPartitionDesc == null) {
+                    throw new DdlException("Failed to ADD PARTITION" + partitionName + " LIKE "
+                            + existedName + ". Reason: " + "partition " + existedName + "desc not exist");
+                }
+                DistributionDesc distributionDesc = part.getDistributionInfo().toDistributionDesc();
+                SinglePartitionDesc newPartitionDesc = new SinglePartitionDesc(false, partitionName,
+                        oldPartitionDesc.getPartitionKeyDesc(), oldPartitionDesc.getProperties());
+                Map<String, String> properties = newPartitionDesc.getProperties();
+                clause = new AddPartitionClause(newPartitionDesc, distributionDesc,
+                        properties, addPartitionLikeClause.getIsTempPartition());
+            } finally {
+                table.readUnlock();
+            }
+            addPartition(db, tableName, clause);
+
+        } catch (UserException e) {
+            throw new DdlException("Failed to ADD PARTITION " + addPartitionLikeClause.getPartitionName()
+                    + " LIKE " + addPartitionLikeClause.getExistedPartitionName() + ". Reason: " + e.getMessage());
         }
     }
 

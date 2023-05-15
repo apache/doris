@@ -131,6 +131,8 @@ role_list 是需要赋予的角色列表，以逗号分隔，指定的角色必�
     ```sql
     GRANT USAGE_PRIV ON RESOURCE 'spark_resource' TO ROLE 'my_role';
     ```
+   
+<version since="2.0.0"></version>
 
 7. 将指定角色授予某用户
 

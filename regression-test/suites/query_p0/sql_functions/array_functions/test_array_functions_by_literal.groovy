@@ -350,7 +350,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_cum_sum([])"
     qt_sql "select array_cum_sum(array(cast (12.99 as decimal(10,3)), cast (34.99 as decimal(10,3)), cast (999.28 as decimal(10,3))))"
     qt_sql "select array_cum_sum(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))))"
-    qt_sql "select array_cum_sum(array(cast (111.9999 as decimalv3(6,4)),cast (222.0001 as decimalv3(6,4))))"
+    qt_sql "select array_cum_sum(array(cast (11.9999 as decimalv3(6,4)),cast (22.0001 as decimalv3(6,4))))"
 
     // abnormal test
     try {

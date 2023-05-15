@@ -89,7 +89,7 @@ public class PushdownProjectThroughSemiJoin implements ExplorationRuleFactory {
                 .forEach(newProject::add);
         Plan newLeft = CBOUtils.projectOrSelf(newProject, join.left());
 
-        Plan newJoin = join.withChildrenNoContext(newLeft, join.right());
+        Plan newJoin = join.withChildren(newLeft, join.right());
         return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
     }
 }

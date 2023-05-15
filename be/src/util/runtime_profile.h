@@ -62,9 +62,6 @@ class TRuntimeProfileTree;
     ScopedTimer<ThreadCpuStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define CANCEL_SAFE_SCOPED_TIMER(c, is_cancelled) \
     ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c, is_cancelled)
-#define CANCEL_SAFE_SCOPED_TIMER_ATOMIC(c, is_cancelled)                                       \
-    ScopedTimer<MonotonicStopWatch, std::atomic_bool> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)( \
-            c, is_cancelled)
 #define SCOPED_RAW_TIMER(c)                                                                  \
     doris::ScopedRawTimer<doris::MonotonicStopWatch, int64_t> MACRO_CONCAT(SCOPED_RAW_TIMER, \
                                                                            __COUNTER__)(c)

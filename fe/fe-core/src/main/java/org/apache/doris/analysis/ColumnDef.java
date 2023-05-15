@@ -126,6 +126,10 @@ public class ColumnDef {
         this(name, typeDef, false, null, false, DefaultValue.NOT_SET, "");
     }
 
+    public ColumnDef(String name, TypeDef typeDef, boolean isAllowNull) {
+        this(name, typeDef, false, null, isAllowNull, DefaultValue.NOT_SET, "");
+    }
+
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
                      boolean isAllowNull, DefaultValue defaultValue, String comment) {
         this(name, typeDef, isKey, aggregateType, isAllowNull, defaultValue, comment, true);

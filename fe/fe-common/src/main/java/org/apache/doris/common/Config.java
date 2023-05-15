@@ -1902,7 +1902,7 @@ public class Config extends ConfigBase {
      * This is to solve the case that user forgot the password.
      */
     @ConfField(mutable = false)
-    public static boolean skip_localhost_auth_check  = false;
+    public static boolean skip_localhost_auth_check  = true;
 
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = false;
@@ -1940,12 +1940,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int max_instance_num = 128;
 
-
     /**
      * This config used for export/outfile.
      * Whether delete all files in the directory specified by export/outfile.
      * It is a very dangerous operation, should only be used in test env.
      */
+
     @ConfField(mutable = false)
     public static boolean enable_delete_existing_files  = false;
     /*
@@ -1961,4 +1961,13 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long stats_cache_size = 10_0000;
+
+    /**
+     * This configuration is used to enable the statistics of query information, which will record
+     * the access status of databases, tables, and columns, and can be used to guide the
+     * optimization of table structures
+     *
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean enable_query_hit_stats = false;
 }
