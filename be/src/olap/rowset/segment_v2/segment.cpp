@@ -21,6 +21,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <string.h>
+#include <bvar/bvar.h>
 
 #include <memory>
 #include <utility>
