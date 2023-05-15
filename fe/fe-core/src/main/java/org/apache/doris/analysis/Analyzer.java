@@ -180,6 +180,7 @@ public class Analyzer {
 
     // The runtime filter that is expected to be used
     private final List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
+    private LimitElement currentLimit;
 
     public void setIsSubquery() {
         isSubquery = true;
@@ -201,6 +202,14 @@ public class Analyzer {
 
     public boolean isWithClause() {
         return isWithClause;
+    }
+
+    public void setCurrentLimit(LimitElement currentLimit) {
+        this.currentLimit = currentLimit;
+    }
+
+    public LimitElement getCurrentLimit() {
+        return currentLimit;
     }
 
     public void setUDFAllowed(boolean val) {

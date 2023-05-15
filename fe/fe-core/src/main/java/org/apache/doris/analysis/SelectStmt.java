@@ -462,6 +462,7 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         super.analyze(analyzer);
+        analyzer.setCurrentLimit(limitElement);
 
         if (mvSMap.size() != 0) {
             mvSMap.useNotCheckDescIdEquals();
@@ -678,6 +679,10 @@ public class SelectStmt extends QueryStmt {
 
         // if the query contains limit clause but not order by clause, order by keys by default.
         if (isAddDefaultOrderBy()) {
+            // when run here, we ensure the query is like: select {columns} from {table} {where} {limit}.
+            if (limitElement == null) {
+                analyzer.getParentAnalyzer();
+            }
             orderByElements = Lists.newArrayList();
             TableRef ref = getTableRefs().get(0);
             OlapTable olapTable = ((OlapTable) ref.getTable());
@@ -2659,6 +2664,14 @@ public class SelectStmt extends QueryStmt {
         if (getTableRefs().size() != 1 || !(getTableRefs().get(0) instanceof BaseTableRef)
                 || getTableRefs().get(0).getTable().getType() != TableType.OLAP) {
             return false;
+        }
+        // to handle the specific case: select {columns} from (select {columns} from {table} {where}) t {limit}
+        // no we are at the inner scope.
+        if (analyzer.hasAncestors() && analyzer.getParentAnalyzer().hasAncestors()) {
+            return false;
+        }
+        if (!hasLimit()) {
+            limitElement = analyzer.getParentAnalyzer().getCurrentLimit();
         }
         return hasLimit() && orderByElements == null;
     }
