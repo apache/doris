@@ -421,7 +421,7 @@ private:
         }
 
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-        JsonbValue* value = doc->getValue()->findPath(r_raw, r_size, ".", nullptr);
+        JsonbValue* value = doc->getValue()->findPath(r_raw, r_size, nullptr);
         if (UNLIKELY(!value)) {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
             return;
@@ -572,7 +572,7 @@ private:
         }
 
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-        JsonbValue* value = doc->getValue()->findPath(r_raw_str, r_str_size, ".", nullptr);
+        JsonbValue* value = doc->getValue()->findPath(r_raw_str, r_str_size, nullptr);
 
         if (UNLIKELY(!value)) {
             if constexpr (!only_check_exists) {
