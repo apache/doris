@@ -65,12 +65,6 @@ public:
         _size = n;
     }
 
-    void release() {
-        _data = nullptr;
-        _size = 0;
-        _capacity = 0;
-    }
-
 private:
     char* _data;
     // Effective size, smaller than capacity, such as data page remove checksum suffix.
