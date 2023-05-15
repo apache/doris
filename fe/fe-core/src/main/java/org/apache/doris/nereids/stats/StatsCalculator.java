@@ -118,6 +118,7 @@ import java.util.stream.Collectors;
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 0.5;
+    public static double DEFAULT_COLUMN_NDV_RATION = 0.5;
     private final GroupExpression groupExpression;
 
     private StatsCalculator(GroupExpression groupExpression) {
@@ -479,10 +480,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private Statistics computePartitionTopN(PartitionTopN partitionTopN) {
         Statistics stats = groupExpression.childStatistics(0);
-        long rowCount = partitionTopN.getPartitionLimit();
+        double rowCount = stats.getRowCount();
         List<Expression> partitionKeys = partitionTopN.getPartitionKeys();
         if (!partitionTopN.hasGlobalLimit() && !partitionKeys.isEmpty()) {
-            // TODO: Need use the NDV for the partition key
+            // If there is no global limit. So result for the cardinality estimation is:
+            // NDV(partition key) * partitionLimit
+            Map<Expression, ColumnStatistic> childSlotToColumnStats = stats.columnStatistics();
+            List<ColumnStatistic> partitionByKeyStats = partitionKeys.stream()
+                .filter(childSlotToColumnStats::containsKey)
+                .map(childSlotToColumnStats::get)
+                .filter(s -> !s.isUnKnown)
+                .collect(Collectors.toList());
+            if (partitionByKeyStats.isEmpty()) {
+                // all column stats are unknown, use default ratio
+                rowCount = rowCount * DEFAULT_COLUMN_NDV_RATION;
+            } else {
+                rowCount = Math.min(rowCount, partitionByKeyStats.stream().map(s -> s.ndv)
+                    .max(Double::compare).get());
+            }
+        } else {
+            rowCount = Math.min(rowCount, partitionTopN.getPartitionLimit());
         }
         return stats.withRowCount(rowCount);
     }

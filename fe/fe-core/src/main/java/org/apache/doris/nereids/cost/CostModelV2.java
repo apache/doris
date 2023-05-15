@@ -162,8 +162,8 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
 
-        // Random set a value. The partitionTopN is from rewrite phase, and it only has one physical implementation.
-        // So the cost will not affect the result.
+        // Random set a value. The partitionTopN is generated in the rewrite phase,
+        // and it only has one physical implementation. So this cost will not affect the result.
         double runCost = childStatistics.getRowCount() * CMP_COST * Math.log(statistics.getRowCount())
                 / statistics.getBENumber();
 
