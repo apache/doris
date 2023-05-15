@@ -26,6 +26,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -37,41 +40,45 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     private final List<Long> partitionIds;
 
     public LogicalOlapTableSink(CHILD_TYPE child, OlapTable targetTable, List<Long> partitionIds) {
-        this(child, Optional.empty(), Optional.empty(), targetTable, partitionIds);
+        this(child, targetTable, partitionIds, Optional.empty(), Optional.empty());
     }
 
-    public LogicalOlapTableSink(CHILD_TYPE child, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, OlapTable targetTable, List<Long> partitionIds) {
+    public LogicalOlapTableSink(CHILD_TYPE child, OlapTable targetTable, List<Long> partitionIds,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
+        this.targetTable = Preconditions.checkNotNull(targetTable, "targetTable != null in LogicalOlapTableSink");
+        this.partitionIds = Preconditions.checkNotNull(partitionIds, "partitionIds != null in LogicalOlapTableSink");
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return null;
+        Preconditions.checkArgument(children.size() == 1, "LogicalOlapTableSink only accepts one child");
+        return new LogicalOlapTableSink<>(children.get(0), targetTable, partitionIds);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return null;
+        return visitor.visitLogicalOlapTableSink(this, context);
     }
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return null;
+        return ImmutableList.of();
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return null;
+        return new LogicalOlapTableSink<>(child(), targetTable, partitionIds,
+                groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return null;
+        return new LogicalOlapTableSink<>(child(), targetTable, partitionIds, groupExpression, logicalProperties);
     }
 
     @Override
     public List<Slot> computeOutput() {
-        return null;
+        return child().computeOutput();
     }
 }
