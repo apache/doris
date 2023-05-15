@@ -75,8 +75,8 @@ import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspo
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
-//import org.apache.doris.nereids.trees.plans.logical.CollectFilterAboveConsumer;
-//import org.apache.doris.nereids.trees.plans.logical.CollectProjectAboveConsumer;
+import org.apache.doris.nereids.trees.plans.logical.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.trees.plans.logical.CollectProjectAboveConsumer;
 
 import com.google.common.collect.ImmutableList;
 
@@ -273,9 +273,10 @@ public class NereidsRewriter extends BatchRewriteJob {
 
             topic("CTE", topDown(
                     // TODO: jichang to fix this
-                    //new CollectFilterAboveConsumer(),
-                    //new CollectProjectAboveConsumer(),
-                    new BuildCTEAnchorAndCTEProducer()))
+                    new CollectFilterAboveConsumer(),
+                    new CollectProjectAboveConsumer(),
+                    new BuildCTEAnchorAndCTEProducer()),
+                    topDown(new CTEProducerRewrite()))
     );
 
     public NereidsRewriter(CascadesContext cascadesContext) {

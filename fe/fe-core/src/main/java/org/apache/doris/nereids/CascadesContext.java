@@ -470,6 +470,9 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         return this.cteIdToFilter.get(cteId);
     }
 
+    /**
+     * Placeholder
+     */
     public CascadesContext forkForCTEProducer(Plan plan) {
         CascadesContext cascadesContext = new CascadesContext(plan, memo, statementContext, PhysicalProperties.ANY);
         cascadesContext.cteIdToConsumerId = cteIdToConsumerId;

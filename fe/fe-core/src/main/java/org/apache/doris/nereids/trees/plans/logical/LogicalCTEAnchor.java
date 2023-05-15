@@ -25,8 +25,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
-import com.google.common.collect.ImmutableList;
-
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -86,7 +84,7 @@ public class LogicalCTEAnchor<
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return ImmutableList.of();
+        return child(1).getExpressions();
     }
 
     @Override

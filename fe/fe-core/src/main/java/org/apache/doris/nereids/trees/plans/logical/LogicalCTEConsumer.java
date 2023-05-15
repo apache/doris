@@ -63,7 +63,9 @@ public class LogicalCTEConsumer extends LogicalLeaf {
         this.childPlan = childPlan;
         this.cteId = cteId;
         initProducerToConsumerOutputMap(childPlan);
-        initConsumerToProducerOutputMap(childPlan);
+        for (Map.Entry<Slot, Slot> entry : producerToConsumerOutputMap.entrySet()) {
+            this.consumerToProducerOutputMap.put(entry.getValue(), entry.getKey());
+        }
         this.consumerId = System.identityHashCode(this);
         this.predicates = Collections.emptyList();
         this.projections = Collections.emptyList();
@@ -75,11 +77,13 @@ public class LogicalCTEConsumer extends LogicalLeaf {
      */
     public LogicalCTEConsumer(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, LogicalPlan childPlan, int cteId,
+            Map<Slot, Slot> consumerToProducerOutputMap,
             Map<Slot, Slot> producerToConsumerOutputMap, int consumerId,
                               List<Expression> predicates, List<Expression> projections) {
         super(PlanType.LOGICAL_CTE_RELATION, groupExpression, logicalProperties);
         this.childPlan = childPlan;
         this.cteId = cteId;
+        this.consumerToProducerOutputMap.putAll(consumerToProducerOutputMap);
         this.producerToConsumerOutputMap.putAll(producerToConsumerOutputMap);
         this.consumerId = consumerId;
         this.predicates = predicates;
@@ -92,15 +96,6 @@ public class LogicalCTEConsumer extends LogicalLeaf {
             Slot consumerSlot = new SlotReference(producerOutputSlot.getName(),
                     producerOutputSlot.getDataType(), producerOutputSlot.nullable(), producerOutputSlot.getQualifier());
             producerToConsumerOutputMap.put(producerOutputSlot, consumerSlot);
-        }
-    }
-
-    private void initConsumerToProducerOutputMap(LogicalPlan childPlan) {
-        List<Slot> producerOutput = childPlan.getOutput();
-        for (Slot producerOutputSlot : producerOutput) {
-            Slot consumerSlot = new SlotReference(producerOutputSlot.getName(),
-                    producerOutputSlot.getDataType(), producerOutputSlot.nullable(), producerOutputSlot.getQualifier());
-            consumerToProducerOutputMap.put(consumerSlot, producerOutputSlot);
         }
     }
 
@@ -133,13 +128,16 @@ public class LogicalCTEConsumer extends LogicalLeaf {
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalCTEConsumer(groupExpression, Optional.of(getLogicalProperties()), childPlan, cteId,
+                consumerToProducerOutputMap,
                 producerToConsumerOutputMap,
                 consumerId, predicates, projections);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTEConsumer(groupExpression, logicalProperties, childPlan, cteId, producerToConsumerOutputMap,
+        return new LogicalCTEConsumer(groupExpression, logicalProperties, childPlan, cteId,
+                consumerToProducerOutputMap,
+                producerToConsumerOutputMap,
                 consumerId, predicates, projections);
     }
 

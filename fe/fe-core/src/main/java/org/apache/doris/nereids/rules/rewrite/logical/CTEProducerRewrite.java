@@ -37,6 +37,9 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.ArrayList;
 import java.util.Set;
 
+/**
+ * Placeholder
+ */
 public class CTEProducerRewrite extends OneRewriteRuleFactory {
     @Override
     public Rule build() {

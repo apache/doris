@@ -87,7 +87,7 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
 
             LogicalSubQueryAlias<Plan> logicalSubQueryAlias =
                     aliasQuery.withChildren(ImmutableList.of(analyzedCteBody));
-            cteCtx.setAnalyzedPlanCacheOnce(logicalSubQueryAlias);
+            cteCtx.setAnalyzedPlan(logicalSubQueryAlias);
             cteCtx.setAnalyzePlanBuilder(analyzeCte);
             cascadesContext.putCteIDToCTE(aliasQuery);
             analyzedCTE.add(logicalSubQueryAlias);
