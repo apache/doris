@@ -970,6 +970,13 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
         olapTable.deleteIndexInfo(mvName);
+        try {
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(),
+                    Env.getCurrentInternalCatalog().getDbOrDdlException(olapTable.getQualifiedDbName()).getId(),
+                    olapTable.getId(), mvIndexId);
+        } catch (DdlException e) {
+            LOG.info("failed to clean stats for mv {} from {}", mvName, olapTable.getName(), e);
+        }
         return mvIndexId;
     }
 
@@ -993,9 +1000,11 @@ public class MaterializedViewHandler extends AlterHandler {
                     }
                 }
             }
-
             String rollupIndexName = olapTable.getIndexNameById(rollupIndexId);
             olapTable.deleteIndexInfo(rollupIndexName);
+
+            env.getQueryStats().clear(env.getCurrentCatalog().getId(), db.getId(),
+                    olapTable.getId(), rollupIndexId);
         } finally {
             olapTable.writeUnlock();
         }
