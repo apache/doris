@@ -95,10 +95,6 @@ public class HMSExternalTable extends ExternalTable {
         return dlaType != DLAType.UNKNOWN;
     }
 
-    public boolean exists() {
-        return remoteTable != null ? true : ((HMSExternalCatalog) catalog).getClient().tableExists(dbName, name);
-    }
-
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
