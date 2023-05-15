@@ -712,7 +712,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     public void init() throws UserException {}
 
     public void init(Analyzer analyzer) throws UserException {
-        assignConjuncts(analyzer);
         createDefaultSmap(analyzer);
     }
 
@@ -728,7 +727,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         for (Expr unassignedConjunct : unassigned) {
             addConjunct(unassignedConjunct);
         }
-        analyzer.markConjunctsAssigned(unassigned);
     }
 
     /**

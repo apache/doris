@@ -157,9 +157,6 @@ public class AggregationNode extends PlanNode {
             ArrayList<Expr> bindingPredicates = Lists.newArrayList();
             conjuncts.addAll(bindingPredicates);
 
-            // also add remaining unassigned conjuncts_
-            assignConjuncts(analyzer);
-
             // TODO(zc)
             // analyzer.createEquivConjuncts(tupleIds_.get(0), conjuncts_, groupBySlots);
         }

@@ -332,6 +332,7 @@ public class SingleNodePlanner {
             return node;
         }
 
+        root.assignConjuncts(analyzer);
         return root;
     }
 
@@ -1281,7 +1282,6 @@ public class SingleNodePlanner {
                     aggregateInfo.materializeRequiredSlots(analyzer, null);
                 }
                 root.getChildren().get(1).setCompactData(true);
-                root.assignConjuncts(analyzer);
             }
         }
 
@@ -1312,6 +1312,9 @@ public class SingleNodePlanner {
             root = createAggregationPlan(selectStmt, analyzer, root);
         }
 
+        if (root != null) {
+            root.assignConjuncts(analyzer);
+        }
         return root;
     }
 
