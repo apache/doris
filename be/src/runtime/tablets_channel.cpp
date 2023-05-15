@@ -521,7 +521,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                 }
             }
         }
-        if (open_partition_flag == true) {
+        if (open_partition_flag) {
             RETURN_IF_ERROR(_open_all_writers_for_partition(tablet_id, request));
         }
         {
