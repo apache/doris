@@ -25,6 +25,10 @@
 
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
+#include "runtime/jsonb_value.h"
+#include "runtime/primitive_type.h"
+#include "runtime/types.h"
+#include "util/bitmap_value.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"

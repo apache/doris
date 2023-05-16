@@ -402,7 +402,7 @@ public:
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                            RowsetSharedPtr rowset, const TupleDescriptor* desc,
-                           OlapReaderStatistics& stats, vectorized::Block* block,
+                           OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false);
 
     Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
