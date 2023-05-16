@@ -494,6 +494,14 @@
                         },
                         {
                             "type": "category",
+                            "label": "Struct Functions",
+                            "items": [
+                                "sql-manual/sql-functions/struct-functions/struct",
+                                "sql-manual/sql-functions/struct-functions/named_struct"
+                            ]
+                        },
+                        {
+                            "type": "category",
                             "label": "Aggregate Functions",
                             "items": [
                                 "sql-manual/sql-functions/aggregate-functions/collect_set",
