@@ -170,9 +170,9 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     public JSONObject toJson() {
         JSONObject olapScan = super.toJson();
         JSONObject properties = new JSONObject();
-        properties.put("OlapTable", olapTable.toString());
+        properties.put("OlapTable", olapTable.toJson());
         properties.put("DistributionSpec", distributionSpec.toString());
-        properties.put("SelectedIndexId", selectedIndexId);
+        properties.put("SelectedIndexId", Long.toString(selectedIndexId));
         properties.put("SelectedTabletIds", selectedTabletIds.toString());
         properties.put("SelectedPartitionIds", selectedPartitionIds.toString());
         properties.put("PreAggStatus", preAggStatus.toString());

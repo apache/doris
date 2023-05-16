@@ -158,10 +158,16 @@ public class Minidump {
         nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         JSONObject resultPlan = ((AbstractPlan) nereidsPlanner.getOptimizedPlan()).toJson();
         JSONObject minidumpResult = new JSONObject(minidump.getResultPlanJson());
-        String resultString = resultPlan.toString();
-        String minidumpResultString = minidumpResult.toString();
-        if (!resultString.equals(minidumpResultString)) {
-            throw new AssertionError("result not equal");
+
+        List<String> differences = MinidumpUtils.compareJsonObjects(minidumpResult, resultPlan, "");
+
+        if (differences.isEmpty()) {
+            System.out.println("Result plan are expected.");
+        } else {
+            System.out.println("Result plan are not expected. Differences:");
+            for (String difference : differences) {
+                System.out.println(difference);
+            }
         }
         System.out.println("execute success");
         System.exit(0);

@@ -39,6 +39,7 @@ import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -487,6 +488,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public String toString() {
         return "Table [id=" + id + ", name=" + name + ", type=" + type + "]";
+    }
+
+    public JSONObject toJson() {
+        JSONObject table = new JSONObject();
+        table.put("Id", Long.toString(id));
+        table.put("Name", name);
+        table.put("Type", type.toString());
+        return table;
     }
 
     /*
