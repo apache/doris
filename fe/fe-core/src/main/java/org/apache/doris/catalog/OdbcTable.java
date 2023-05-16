@@ -72,57 +72,6 @@ public class OdbcTable extends Table {
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
-    // For different databases, special characters need to be escaped
-    private static String mysqlProperName(String name) {
-        // In JdbcExternalTable, the name contains databaseName, like: db.table
-        // So, we should split db and table, then switch to `db`.`table`.
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "`" + s + "`").collect(Collectors.joining("."));
-    }
-
-    private static String mssqlProperName(String name) {
-        // In JdbcExternalTable, the name contains databaseName, like: db.table
-        // So, we should split db and table, then switch to [db].[table].
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "[" + s + "]").collect(Collectors.joining("."));
-    }
-
-    private static String psqlProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String oracleProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String clickhouseProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String saphanaProperName(String name) {
-        int index = name.indexOf(".");
-        if (index == -1) {
-            return "\"" + name + "\"";
-        } else {
-            String schemaName = name.substring(0, index);
-            String tableName = name.substring(index + 1);
-            return "\"" + schemaName + "\".\"" + tableName + "\"";
-        }
-    }
-
-    private static String trinoProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String oceanbaseOracleProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
     public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase, boolean toLowerCase) {
         int index = name.indexOf(".");
         if (index == -1) { // No dot in the name
