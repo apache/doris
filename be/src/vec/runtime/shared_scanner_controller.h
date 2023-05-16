@@ -31,7 +31,7 @@ namespace doris::vectorized {
 class SharedScannerController {
 public:
     std::pair<bool, int> should_build_scanner_and_queue_id(int my_node_id) {
-        std::lock_guard<bthread::Mutex> lock(bthread::Mutex);
+        std::lock_guard<std::mutex> lock(_mutex);
         auto it = _scanner_parallel.find(my_node_id);
 
         if (it == _scanner_parallel.cend()) {
