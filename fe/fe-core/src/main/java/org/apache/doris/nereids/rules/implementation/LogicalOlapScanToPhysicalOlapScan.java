@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 
@@ -80,10 +81,9 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
             HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
             List<Slot> output = olapScan.getOutput();
             List<ExprId> hashColumns = Lists.newArrayList();
-            List<Column> schemaColumns = olapScan.getTable().getFullSchema();
-            for (int i = 0; i < schemaColumns.size(); i++) {
+            for (int i = 0; i < output.size(); i++) {
                 for (Column column : hashDistributionInfo.getDistributionColumns()) {
-                    if (schemaColumns.get(i).equals(column)) {
+                    if (((SlotReference) output.get(i)).getColumn().get().equals(column)) {
                         hashColumns.add(output.get(i).getExprId());
                     }
                 }

@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -37,8 +36,13 @@ public class JsonArray extends ScalarFunction
         implements ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT)
     );
+
+    public JsonArray() {
+        super("json_array");
+    }
 
     /**
      * constructor with 1 or more arguments.
@@ -52,9 +56,12 @@ public class JsonArray extends ScalarFunction
      */
     @Override
     public JsonArray withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new JsonArray(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        if (children.isEmpty()) {
+            return new JsonArray();
+        } else {
+            return new JsonArray(children.get(0),
+                    children.subList(1, children.size()).toArray(new Expression[0]));
+        }
     }
 
     @Override
