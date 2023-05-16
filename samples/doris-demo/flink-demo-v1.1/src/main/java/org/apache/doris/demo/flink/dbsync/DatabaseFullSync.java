@@ -45,27 +45,33 @@ import java.util.UUID;
 /***
  *
  * Synchronize the full database through flink cdc
- *
+ * 1. you need to create doris tables first, table name equal to mysql table
+ * 2. modify params of mysql/doris/db/table
+ * 3. mvn clean package
+ * 4. Uploaded Jars to flink
+ * 5. Submit a new job
  */
 public class DatabaseFullSync {
     private static final Logger LOG = LoggerFactory.getLogger(DatabaseFullSync.class);
-    private static String HOST = "127.0.0.1";
+    private static String MYSQL_HOST = "127.0.0.1";
+    private static String MYSQL_USER = "root";
     private static String MYSQL_PASSWD = "password";
     private static int MYSQL_PORT = 3306;
-    private static int DORIS_PORT = 8030;
-    private static String MYSQL_USER = "root";
-
 
     private static String SYNC_DB = "test";
-    private static String SYNC_TBLS = "test.*";
-    private static String TARGET_DORIS_DB = "test";
+    private static String SYNC_TBLS = "^test\\..*";
+
+    private static String DROIS_FE = "127.0.0.1:8030";
+    private static String DORIS_USER = "root";
+    private static String DORIS_PASSWD = "";
+    private static String TARGET_DORIS_DB = "target_test";
 
     public static void main(String[] args) throws Exception {
         Map<String, Object> customConverterConfigs = new HashMap<>();
         customConverterConfigs.put(JsonConverterConfig.DECIMAL_FORMAT_CONFIG, "numeric");
 
         MySqlSource<String> mySqlSource = MySqlSource.<String>builder()
-            .hostname(HOST)
+            .hostname(MYSQL_HOST)
             .port(MYSQL_PORT)
             .databaseList(SYNC_DB) // set captured database
             .tableList(SYNC_TBLS) // set captured table
@@ -86,6 +92,10 @@ public class DatabaseFullSync {
         //get table list
         List<String> tableList = getTableList();
         LOG.info("sync table list:{}",tableList);
+        if (tableList.size() == 0) {
+            LOG.warn("no table to sync, job exit");
+            return;
+        }
         for(String tbl : tableList){
             SingleOutputStreamOperator<String> filterStream = filterTableData(cdcSource, tbl);
             DorisSink dorisSink = buildDorisSink(tbl);
@@ -100,7 +110,7 @@ public class DatabaseFullSync {
     private static SingleOutputStreamOperator<String> filterTableData(DataStreamSource<String> source, String table) {
         return source.filter(new FilterFunction<String>() {
             @Override
-            public boolean filter(String row) throws Exception {
+            public boolean filter(String row) {
                 try {
                     JSONObject rowJson = JSON.parseObject(row);
                     JSONObject source = rowJson.getJSONObject("source");
@@ -120,7 +130,7 @@ public class DatabaseFullSync {
     private static List<String> getTableList() {
         List<String> tables = new ArrayList<>();
         String sql = "SELECT TABLE_SCHEMA,TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = '" + SYNC_DB + "'";
-        List<JSONObject> tableList = JdbcUtil.executeQuery(HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWD, sql);
+        List<JSONObject> tableList = JdbcUtil.executeQuery(MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWD, sql);
         for(JSONObject jsob : tableList){
             String schemaName = jsob.getString("TABLE_SCHEMA");
             String tblName = jsob.getString("TABLE_NAME");
@@ -138,17 +148,17 @@ public class DatabaseFullSync {
     public static DorisSink buildDorisSink(String table){
         DorisSink.Builder<String> builder = DorisSink.builder();
         DorisOptions.Builder dorisBuilder = DorisOptions.builder();
-        dorisBuilder.setFenodes(HOST + ":" + DORIS_PORT)
+        dorisBuilder.setFenodes(DROIS_FE)
             .setTableIdentifier(TARGET_DORIS_DB + "." + table)
-            .setUsername("root")
-            .setPassword("");
+            .setUsername(DORIS_USER)
+            .setPassword(DORIS_PASSWD);
 
         Properties pro = new Properties();
         //json data format
         pro.setProperty("format", "json");
         pro.setProperty("read_json_by_line", "true");
         DorisExecutionOptions executionOptions = DorisExecutionOptions.builder()
-            .setLabelPrefix("label-" + table + UUID.randomUUID()) //streamload label prefix,
+            .setLabelPrefix("label-" + table + "-" + UUID.randomUUID()) //streamload label prefix,
             .setStreamLoadProp(pro).setDeletable(true).build();
 
         builder.setDorisReadOptions(DorisReadOptions.builder().build())
