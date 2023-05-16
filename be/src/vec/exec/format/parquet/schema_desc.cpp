@@ -248,6 +248,9 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
         } else if (time_unit.__isset.NANOS) {
             // will lose precision
             type.scale = 6;
+        } else {
+            // default precision
+            type.scale = 6;
         }
     } else {
         type = TypeDescriptor(INVALID_TYPE);

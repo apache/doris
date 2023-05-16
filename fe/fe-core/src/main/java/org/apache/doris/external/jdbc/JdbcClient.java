@@ -527,6 +527,7 @@ public class JdbcClient {
             case "DATETIME":
             case "DATETIMEV2": // for jdbc catalog connecting Doris database
                 // mysql can support microsecond
+                // todo(gaoxin): Get real precision of DATETIMEV2
                 return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
             case "FLOAT":
                 return Type.FLOAT;
