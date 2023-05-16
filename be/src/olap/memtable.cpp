@@ -231,7 +231,7 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
     }
 }
 void MemTable::prepare_block_for_flush(vectorized::Block& in_block) {
-    if(_keys_type == KeysType::DUP_KEYS && _schema->num_key_columns() == 0){
+    if (_keys_type == KeysType::DUP_KEYS && _schema->num_key_columns() == 0) {
         // skip sort if the table is dup table without keys
         _output_mutable_block.swap(_input_mutable_block);
         return;

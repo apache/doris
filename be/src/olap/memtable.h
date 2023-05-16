@@ -185,7 +185,8 @@ private:
     //return number of same keys
     int _sort();
     template <bool is_final>
-    void finalize_one_row(RowInBlock *row, const vectorized::ColumnsWithTypeAndName& block_data, int row_pos);
+    void finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
+                          int row_pos);
     template <bool is_final>
     void _aggregate();
     void prepare_block_for_flush(vectorized::Block& in_block);
