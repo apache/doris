@@ -2431,7 +2431,7 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     assert(column_ptr->size() == rowids.size());
     auto string_column = static_cast<vectorized::ColumnString*>(column_ptr.get());
     vectorized::DataTypeSerDeSPtrs serdes;
-    serdes.reserve(cids.size());
+    serdes.resize(cids.size());
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
     for (int i = 0; i < cids.size(); ++i) {
         const TabletColumn& column = tablet_schema->column(cids[i]);
