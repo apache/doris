@@ -312,6 +312,7 @@
                                 "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
+                                "sql-manual/sql-functions/array-functions/array_count",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"
                             ]
@@ -1014,7 +1015,8 @@
                                 "sql-manual/sql-reference/Data-Types/QUANTILE_STATE",
                                 "sql-manual/sql-reference/Data-Types/ARRAY",
                                 "sql-manual/sql-reference/Data-Types/MAP",
-                                "sql-manual/sql-reference/Data-Types/JSONB"
+                                "sql-manual/sql-reference/Data-Types/JSONB",
+                                "sql-manual/sql-reference/Data-Types/STRUCT"
                             ]
                         },
                         {
