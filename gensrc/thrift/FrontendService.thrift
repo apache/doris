@@ -1090,7 +1090,7 @@ service FrontendService {
 
     TAddColumnsResult addColumns(1: TAddColumnsRequest request)
 
-    TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
+    TCreatePartitionResult createAutomaticPartition(1: TCreatePartitionRequest request)
 
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 

@@ -19,21 +19,38 @@ package org.apache.doris.service;
 
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.AddColumnsClause;
+import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.LabelName;
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
+import org.apache.doris.catalog.AutomaticPartitionProperty;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -57,6 +74,9 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.util.AutomaticPartitionUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -136,6 +156,9 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TNodeInfo;
+import org.apache.doris.thrift.TOlapTableIndexTablets;
+import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
@@ -162,6 +185,7 @@ import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
@@ -176,12 +200,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -521,14 +547,169 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TCreatePartitionResult createPartition(TCreatePartitionRequest request) throws TException {
+    public TCreatePartitionResult createAutomaticPartition(TCreatePartitionRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         LOG.debug("create partition clientAddr: {}, request: {}", clientAddr, request);
 
         TStatus status = new TStatus(TStatusCode.OK);
         TCreatePartitionResult result = new TCreatePartitionResult();
+        Env env = Env.getCurrentEnv();
+        InternalCatalog catalog = env.getInternalCatalog();
         try {
             // create partition by automatic partition property and add partition
+            long dbId = request.getDbId();
+            long tableId = request.getTableId();
+            Database db = catalog.getDbNullable(dbId);
+            if (db == null) {
+                throw new MetaNotFoundException("db " + dbId + " does not exist");
+            }
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+            if (!olapTable.automaticPartitionExists() || !olapTable.automaticPartitionEnable()) {
+                throw new TException("table " + tableId + " is not automatic partition table");
+            }
+            if (request.getPartitionValues() == null) {
+                throw new TException("partition values should not be null");
+            }
+            if (request.getPartitionValuesSize() != 1) {
+                throw new TException("automatic partition only support single-column range partition");
+            }
+
+            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
+            if (rangePartitionInfo.getPartitionColumns().size() != 1) {
+                throw new TException("automatic partition only support single-column range partition");
+            }
+
+            Column partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
+            String partitionFormat;
+            partitionFormat = AutomaticPartitionUtil.getPartitionFormat(partitionColumn);
+
+            List<String> partitionValues = request.getPartitionValues().get(0);
+            Map<String, AddPartitionClause> addPartitionClausesMap = new HashMap<>();
+            AutomaticPartitionProperty automaticPartitionProperty =
+                                                olapTable.getTableProperty().getAutomaticPartitionProperty();
+            for (String partitionValue : partitionValues) {
+                if ("NULL".equalsIgnoreCase(partitionValue)) {
+                    partitionValue = "0000-01-01";
+                }
+                LocalDateTime partitionDateTime =
+                                        new DateLiteral(partitionValue, partitionColumn.getType()).getTimeFormatter();
+                //addPartitionClauses = getAddPartitionClause(db, olapTable, partitionColumn, partitionFormat);
+                String prevBorder = AutomaticPartitionUtil.getPartitionRangeString(
+                            automaticPartitionProperty, partitionDateTime, 0, partitionFormat);
+                String nextBorder = AutomaticPartitionUtil.getPartitionRangeString(
+                            automaticPartitionProperty, partitionDateTime, 1, partitionFormat);
+                PartitionValue lowerValue = new PartitionValue(prevBorder);
+                PartitionValue upperValue = new PartitionValue(nextBorder);
+
+                boolean isPartitionExists = false;
+                Range<PartitionKey> addPartitionKeyRange;
+                try {
+                    PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerValue),
+                                Collections.singletonList(partitionColumn));
+                    PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperValue),
+                                Collections.singletonList(partitionColumn));
+                    addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
+                } catch (AnalysisException | IllegalArgumentException e) {
+                    // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
+                    // IllegalArgumentException: lb is greater than ub
+                    LOG.warn("Error in gen addPartitionKeyRange. Error={}, db: {}, table: {}", e.getMessage(),
+                                db.getFullName(), olapTable.getName());
+                    continue;
+                }
+                for (PartitionItem partitionItem : rangePartitionInfo.getIdToItem(false).values()) {
+                    try {
+                        RangeUtils.checkRangeIntersect(partitionItem.getItems(), addPartitionKeyRange);
+                    } catch (Exception e) {
+                        isPartitionExists = true;
+                        break;
+                    }
+                }
+                if (isPartitionExists) {
+                    continue;
+                }
+
+                // construct partition desc
+                PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(Collections.singletonList(lowerValue),
+                            Collections.singletonList(upperValue));
+                HashMap<String, String> partitionProperties = new HashMap<>(1);
+                partitionProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                            olapTable.getDefaultReplicaAllocation().toCreateStmt());
+
+                String partitionName = automaticPartitionProperty.getPrefix()
+                            + AutomaticPartitionUtil.getFormattedPartitionName(prevBorder,
+                                                            automaticPartitionProperty.getTimeUnit());
+                SinglePartitionDesc rangePartitionDesc = new SinglePartitionDesc(true, partitionName,
+                            partitionKeyDesc, partitionProperties);
+
+                DistributionDesc distributionDesc = null;
+                DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+                int bucketsNum = distributionInfo.getBucketNum();
+                if (distributionInfo.getType() == DistributionInfo.DistributionInfoType.HASH) {
+                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                    List<String> distColumnNames = new ArrayList<>();
+                    for (Column distributionColumn : hashDistributionInfo.getDistributionColumns()) {
+                        distColumnNames.add(distributionColumn.getName());
+                    }
+                    distributionDesc = new HashDistributionDesc(bucketsNum, distColumnNames);
+                } else {
+                    distributionDesc = new RandomDistributionDesc(bucketsNum);
+                }
+                // add partition according to partition desc and distribution desc
+                addPartitionClausesMap.put(partitionName,
+                            new AddPartitionClause(rangePartitionDesc, distributionDesc, null, false));
+            }
+
+            for (AddPartitionClause addPartitionClause : addPartitionClausesMap.values()) {
+                try {
+                    Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause);
+                } catch (Exception e) {
+                    LOG.warn("add partition error: ", e);
+                }
+            }
+
+            List<TOlapTablePartition> partitions = Lists.newArrayList();
+            List<TTabletLocation> tablets = Lists.newArrayList();
+            for (String partitionName : addPartitionClausesMap.keySet()) {
+                Partition partition = olapTable.getPartition(partitionName);
+                TOlapTablePartition tPartition = new TOlapTablePartition();
+                tPartition.setId(partition.getId());
+                PartitionItem partitionItem = rangePartitionInfo.getItem(partition.getId());
+                Range<PartitionKey> range = partitionItem.getItems();
+                int partColNum = rangePartitionInfo.getPartitionColumns().size();
+                // set start keys
+                if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
+                    for (int i = 0; i < partColNum; i++) {
+                        tPartition.addToStartKeys(
+                                    range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                    }
+                }
+                // set end keys
+                if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
+                    for (int i = 0; i < partColNum; i++) {
+                        tPartition.addToEndKeys(
+                                    range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                    }
+                }
+
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
+                                index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
+                    tPartition.setNumBuckets(index.getTablets().size());
+                }
+                tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
+                partitions.add(tPartition);
+
+                // tablet
+                // TODO
+            }
+            result.setPartitions(partitions);
+            result.setTablets(tablets);
+
+            // build nodes
+            List<TNodeInfo> nodeInfos = Lists.newArrayList();
+            // TODO
+            result.setNodes(nodeInfos);
+
         } catch (Exception e) {
             LOG.warn("got exception create partition: ", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);

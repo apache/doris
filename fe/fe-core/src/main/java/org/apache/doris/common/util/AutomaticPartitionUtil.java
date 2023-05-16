@@ -41,13 +41,12 @@ import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.ZonedDateTime;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -216,7 +215,7 @@ public class AutomaticPartitionUtil {
         }
     }
 
-    public static String getFormattedPartitionName(TimeZone tz, String formattedDateStr, String timeUnit) {
+    public static String getFormattedPartitionName(String formattedDateStr, String timeUnit) {
         formattedDateStr = formattedDateStr.replace("-", "").replace(":", "").replace(" ", "");
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
             return formattedDateStr.substring(0, 8);
@@ -229,7 +228,7 @@ public class AutomaticPartitionUtil {
         }
     }
 
-    public static String getPartitionRangeString(AutomaticPartitionProperty property, ZonedDateTime current,
+    public static String getPartitionRangeString(AutomaticPartitionProperty property, LocalDateTime current,
                                                  int offset, String format) {
         String timeUnit = property.getTimeUnit();
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
@@ -243,33 +242,31 @@ public class AutomaticPartitionUtil {
         }
     }
 
-    public static String getPartitionRangeOfHour(ZonedDateTime current, int offset, String format) {
+    public static String getPartitionRangeOfHour(LocalDateTime current, int offset, String format) {
         return getFormattedTimeWithoutMinuteSecond(current.plusHours(offset), format);
     }
 
-    private static String getPartitionRangeOfDay(ZonedDateTime current, int offset, String format) {
+    private static String getPartitionRangeOfDay(LocalDateTime current, int offset, String format) {
         return getFormattedTimeWithoutHourMinuteSecond(current.plusDays(offset), format);
     }
 
-    private static String getPartitionRangeOfMonth(ZonedDateTime current, int offset, String format) {
-        int realOffset = offset;
-        ZonedDateTime resultTime = current.plusMonths(realOffset).withDayOfMonth(1);
+    private static String getPartitionRangeOfMonth(LocalDateTime current, int offset, String format) {
+        LocalDateTime resultTime = current.plusMonths(offset).withDayOfMonth(1);
         return getFormattedTimeWithoutHourMinuteSecond(resultTime, format);
     }
 
-    private static String getPartitionRangeOfYEAR(ZonedDateTime current, int offset, String format) {
-        int realOffset = offset;
-        ZonedDateTime resultTime = current.plusYears(realOffset).withMonth(1).withDayOfMonth(1);
+    private static String getPartitionRangeOfYEAR(LocalDateTime current, int offset, String format) {
+        LocalDateTime resultTime = current.plusYears(offset).withMonth(1).withDayOfMonth(1);
         return getFormattedTimeWithoutHourMinuteSecond(resultTime, format);
     }
 
-    private static String getFormattedTimeWithoutHourMinuteSecond(ZonedDateTime zonedDateTime, String format) {
-        ZonedDateTime timeWithoutHourMinuteSecond = zonedDateTime.withHour(0).withMinute(0).withSecond(0);
+    private static String getFormattedTimeWithoutHourMinuteSecond(LocalDateTime zonedDateTime, String format) {
+        LocalDateTime timeWithoutHourMinuteSecond = zonedDateTime.withHour(0).withMinute(0).withSecond(0);
         return DateTimeFormatter.ofPattern(format).format(timeWithoutHourMinuteSecond);
     }
 
-    private static String getFormattedTimeWithoutMinuteSecond(ZonedDateTime zonedDateTime, String format) {
-        ZonedDateTime timeWithoutMinuteSecond = zonedDateTime.withMinute(0).withSecond(0);
+    private static String getFormattedTimeWithoutMinuteSecond(LocalDateTime zonedDateTime, String format) {
+        LocalDateTime timeWithoutMinuteSecond = zonedDateTime.withMinute(0).withSecond(0);
         return DateTimeFormatter.ofPattern(format).format(timeWithoutMinuteSecond);
     }
 
