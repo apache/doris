@@ -158,6 +158,7 @@ public enum RuleType {
     // Merge Consecutive plan
     MERGE_PROJECTS(RuleTypeClass.REWRITE),
     MERGE_FILTERS(RuleTypeClass.REWRITE),
+    MERGE_IN_PREDICATE_FILTER(RuleTypeClass.REWRITE),
     MERGE_LIMITS(RuleTypeClass.REWRITE),
     MERGE_GENERATES(RuleTypeClass.REWRITE),
     // Eliminate plan

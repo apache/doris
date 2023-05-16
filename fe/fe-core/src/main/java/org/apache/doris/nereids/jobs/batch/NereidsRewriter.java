@@ -57,6 +57,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeInPredicateInFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
@@ -231,7 +232,8 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new EliminateAggregate(),
                     new MergeSetOperations(),
                     new PushdownLimit(),
-                    new BuildAggForUnion()
+                    new BuildAggForUnion(),
+                    new MergeInPredicateInFilter()
                     // after eliminate filter, the project maybe can push down again,
                     // so we add push down rules
                 )).addAll(RuleSet.PUSH_DOWN_FILTERS).build())
