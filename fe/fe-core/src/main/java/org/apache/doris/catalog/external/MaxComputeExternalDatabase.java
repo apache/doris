@@ -17,34 +17,29 @@
 
 package org.apache.doris.catalog.external;
 
-import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.MaxComputeExternalCatalog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
 /**
- * Elasticsearch metastore external database.
+ * MaxCompute external database.
  */
-public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implements GsonPostProcessable {
-
+public class MaxComputeExternalDatabase extends ExternalDatabase<MaxComputeExternalTable>
+            implements GsonPostProcessable {
     /**
-     * Create Elasticsearch external database.
+     * Create MaxCompute external database.
      *
-     * @param extCatalog External data source this database belongs to.
+     * @param extCatalog External catalog this database belongs to.
      * @param id database id.
      * @param name database name.
      */
-    public EsExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
-        super(extCatalog, id, name, InitDatabaseLog.Type.ES);
+    public MaxComputeExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
+        super(extCatalog, id, name, InitDatabaseLog.Type.MAX_COMPUTE);
     }
 
     @Override
-    protected EsExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
-        return new EsExternalTable(tblId, tableName, name, (EsExternalCatalog) extCatalog);
-    }
-
-    public void addTableForTest(EsExternalTable tbl) {
-        idToTbl.put(tbl.getId(), tbl);
-        tableNameToId.put(tbl.getName(), tbl.getId());
+    protected MaxComputeExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+        return new MaxComputeExternalTable(tblId, tableName, name, (MaxComputeExternalCatalog) extCatalog);
     }
 }

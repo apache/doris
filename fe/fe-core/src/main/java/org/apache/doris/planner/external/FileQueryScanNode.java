@@ -325,13 +325,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return rangeDesc;
     }
 
-    protected TFileType getLocationType() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract TFileType getLocationType() throws UserException;
 
-    protected TFileFormatType getFileFormatType() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract TFileFormatType getFileFormatType() throws UserException;
 
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
         return Util.inferFileCompressTypeByPath(fileSplit.getPath().toString());
@@ -341,17 +337,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         throw new NotImplementedException("");
     }
 
-    protected List<String> getPathPartitionKeys() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract List<String> getPathPartitionKeys() throws UserException;
 
-    protected TableIf getTargetTable() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract TableIf getTargetTable() throws UserException;
 
-    protected Map<String, String> getLocationProperties() throws UserException  {
-        throw new NotImplementedException("");
-    }
+    protected abstract Map<String, String> getLocationProperties() throws UserException;
 
     // eg: hdfs://namenode  s3://buckets
     protected String getFsName(FileSplit split) {

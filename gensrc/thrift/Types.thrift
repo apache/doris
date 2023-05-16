@@ -596,6 +596,7 @@ enum TTableType {
     HUDI_TABLE,
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
+    MAX_COMPUTE_TABLE,
 }
 
 enum TKeysType {
