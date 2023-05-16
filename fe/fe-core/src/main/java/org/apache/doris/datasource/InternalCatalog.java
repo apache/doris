@@ -2087,7 +2087,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         int schemaHash = Util.generateSchemaHash();
         olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash, shortKeyColumnCount,
-                baseIndexStorageType, keysType);
+                baseIndexStorageType, keysType, olapTable.getIndexes());
 
         for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
             AddRollupClause addRollupClause = (AddRollupClause) alterClause;
@@ -2110,7 +2110,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
-                    rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
+                    rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType, null);
         }
 
         // analyse sequence map column
