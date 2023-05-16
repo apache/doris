@@ -678,7 +678,7 @@ public class SelectStmt extends QueryStmt {
         }
 
         // if the query contains limit clause but not order by clause, order by keys by default.
-        if (isAddDefaultOrderBy()) {
+        if (isAddDefaultOrderBy(this, analyzer)) {
             // when run here, we ensure the query is like: select {columns} from {table} {where} {limit}.
             if (limitElement == null) {
                 analyzer.getParentAnalyzer();
@@ -2651,27 +2651,50 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-    private boolean isAddDefaultOrderBy() {
+    /**
+     * in the checker, we check if the query satisfy:
+     * if it has not sub-query, match the pattern: select {columns} from t limit m, n
+     * and change to: select {columns} from t order by {keys of t} limit m, n
+     * if it has sub-query, match the pattern: select {columns} from (select {columns} from t) t1 limit m, n
+     * and change to: select {columns} from (select {columns} from t) t1 order by {keys of t} limit m, n
+     */
+    private boolean isAddDefaultOrderBy(SelectStmt stmt, Analyzer analyzer) {
         if (ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable() == null
                 || !ConnectContext.get().getSessionVariable().isEnableDefaultOrder()) {
             return false;
         }
-        // we only add order by at the most outer scope.
-        if (analyzer.hasAncestors()) {
-            return false;
-        }
+
         // if the sql contains a lateral view, like sql:
         // select * from table lateral view explode([0, 1, 2]) lv as e limit 100, 0
         // the analyzer.getAliases will record the name of the lateral view, additionally the lateral view cannot be
         // the only one table in a from clause, so the analyzer.getAliases.size() != 1 filtrates the case.
-        if (fromInsert || analyzer.getAliases().size() != 1 || groupByClause != null
-                || havingClause != null || aggInfo != null || analyticInfo != null) {
+        if (stmt.fromInsert || analyzer.getAliases().size() != 1 || stmt.groupByClause != null
+                || stmt.havingClause != null || stmt.aggInfo != null || stmt.analyticInfo != null) {
             return false;
         }
-        if (getTableRefs().size() != 1 || !(getTableRefs().get(0) instanceof BaseTableRef)
-                || getTableRefs().get(0).getTable().getType() != TableType.OLAP) {
+
+        if (getTableRefs().size() != 1) {
             return false;
+        }
+        // case 1:
+        if (getTableRefs().get(0) instanceof BaseTableRef) {
+            BaseTableRef ref = ((BaseTableRef) getTableRefs().get(0));
+            if (ref.getTable().getType() != TableType.OLAP) {
+                return false;
+            }
+            return hasLimit() && orderByElements == null;
+        }
+
+        //case 2:
+        if (getTableRefs().get(0) instanceof InlineViewRef) {
+            InlineViewRef ref = ((InlineViewRef) getTableRefs().get(0));
+            if (!(ref.getViewStmt() instanceof SelectStmt)) {
+                return false;
+            }
+            if (!isAddDefaultOrderBy(((SelectStmt) ref.getQueryStmt()), ref.getAnalyzer())) {
+                return false;
+            }
         }
         return hasLimit() && orderByElements == null;
     }
