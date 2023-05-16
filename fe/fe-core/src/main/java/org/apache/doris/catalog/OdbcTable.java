@@ -72,6 +72,24 @@ public class OdbcTable extends Table {
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
+    /**
+     * Formats the provided name (for example, a database, table, or schema name) according to the specified parameters.
+     *
+     * @param name The name to be formatted.
+     * @param wrapStart The character(s) to be added at the start of each name component.
+     * @param wrapEnd The character(s) to be added at the end of each name component.
+     * @param toUpperCase If true, convert the name to upper case.
+     * @param toLowerCase If true, convert the name to lower case.
+     * <p>
+     * Note: If both toUpperCase and toLowerCase are true, the name will ultimately be converted to lower case.
+     * <p>
+     * The name is expected to be in the format of 'schemaName.tableName'. If there is no '.',
+     * the function will treat the entire string as one name component.
+     * If there is a '.', the function will treat the string before the first '.' as the schema name
+     * and the string after the '.' as the table name.
+     *
+     * @return The formatted name.
+     */
     public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase,
             boolean toLowerCase) {
         int index = name.indexOf(".");
