@@ -46,21 +46,19 @@ fi
 # Check args
 usage() {
     echo "
-Usage: $0 <options>
+Usage: $0 [options...] [packages...]
   Optional options:
-     -j                 build thirdparty parallel
-     --clean            clean the extracted data
+     -j <num>               build thirdparty parallel
+     --clean                clean the extracted data
+     --continue <package>   continue to build the remaining packages (starts from the specified package)
   "
     exit 1
 }
 
 if ! OPTS="$(getopt \
     -n "$0" \
-    -o '' \
-    -o 'h' \
-    -l 'help' \
-    -l 'clean' \
-    -o 'j:' \
+    -o 'hj:' \
+    -l 'help,clean,continue:' \
     -- "$@")"; then
     usage
 fi
@@ -75,36 +73,47 @@ else
     PARALLEL="$(($(nproc) / 4 + 1))"
 fi
 
-if [[ "$#" -ne 1 ]]; then
-    while true; do
-        case "$1" in
-        -j)
-            PARALLEL="$2"
-            shift 2
-            ;;
-        -h)
-            HELP=1
-            shift
-            ;;
-        --help)
-            HELP=1
-            shift
-            ;;
-        --clean)
-            CLEAN=1
-            shift
-            ;;
-        --)
-            shift
-            break
-            ;;
-        *)
-            echo "Internal error"
-            exit 1
-            ;;
-        esac
-    done
+while true; do
+    case "$1" in
+    -j)
+        PARALLEL="$2"
+        shift 2
+        ;;
+    -h)
+        HELP=1
+        shift
+        ;;
+    --help)
+        HELP=1
+        shift
+        ;;
+    --clean)
+        CLEAN=1
+        shift
+        ;;
+    --continue)
+        CONTINUE=1
+        start_package="${2}"
+        shift 2
+        ;;
+    --)
+        shift
+        break
+        ;;
+    *)
+        echo "Internal error"
+        exit 1
+        ;;
+    esac
+done
+
+if [[ "${CONTINUE}" -eq 1 ]]; then
+    if [[ -z "${start_package}" ]] || [[ "${#}" -ne 0 ]]; then
+        usage
+    fi
 fi
+
+read -r -a packages <<<"${@}"
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
@@ -113,6 +122,8 @@ fi
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
+    PACKAGES            -- ${packages[*]}
+    CONTINUE            -- ${start_package}
 "
 
 if [[ ! -f "${TP_DIR}/download-thirdparty.sh" ]]; then
@@ -1615,73 +1626,82 @@ build_hadoop_libs_x86() {
     cp -r ./* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
 }
 
-if [[ "$(uname -s)" == 'Darwin' ]]; then
-    echo 'build for Darwin'
-    build_binutils
-    build_gettext
+if [[ "${#packages[@]}" -eq 0 ]]; then
+    packages=(
+        libunixodbc
+        openssl
+        libevent
+        zlib
+        lz4
+        bzip
+        lzo2
+        zstd
+        boost # must before thrift
+        protobuf
+        gflags
+        gtest
+        glog
+        rapidjson
+        snappy
+        gperftools
+        curl
+        re2
+        hyperscan
+        thrift
+        leveldb
+        brpc
+        jemalloc
+        rocksdb
+        krb5 # before cyrus_sasl
+        cyrus_sasl
+        librdkafka
+        flatbuffers
+        orc
+        arrow
+        abseil
+        s2
+        bitshuffle
+        croaringbitmap
+        fmt
+        parallel_hashmap
+        pdqsort
+        libdivide
+        cctz
+        tsan_header
+        mysql
+        aws_sdk
+        js_and_css
+        lzma
+        xml2
+        idn
+        gsasl
+        hdfs3
+        benchmark
+        simdjson
+        nlohmann_json
+        opentelemetry
+        libbacktrace
+        sse2neon
+        xxhash
+        concurrentqueue
+        fast_float
+        clucene
+    )
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        read -r -a packages <<<"binutils gettext ${packages[*]}"
+    elif [[ "$(uname -s)" == 'Linux' ]] && [[ "$(uname -m)" == 'x86_64' ]]; then
+        read -r -a packages <<<"${packages[*]} hadoop_libs_x86"
+    fi
 fi
 
-build_libunixodbc
-build_openssl
-build_libevent
-build_zlib
-build_lz4
-build_bzip
-build_lzo2
-build_zstd
-build_boost # must before thrift
-build_protobuf
-build_gflags
-build_gtest
-build_glog
-build_rapidjson
-build_snappy
-build_gperftools
-build_curl
-build_re2
-build_hyperscan
-build_thrift
-build_leveldb
-build_brpc
-build_jemalloc
-build_rocksdb
-build_krb5 # before cyrus_sasl
-build_cyrus_sasl
-build_librdkafka
-build_flatbuffers
-build_orc
-build_arrow
-build_abseil
-build_s2
-build_bitshuffle
-build_croaringbitmap
-build_fmt
-build_parallel_hashmap
-build_pdqsort
-build_libdivide
-build_cctz
-build_tsan_header
-build_mysql
-build_aws_sdk
-build_js_and_css
-build_lzma
-build_xml2
-build_idn
-build_gsasl
-build_hdfs3
-build_benchmark
-build_simdjson
-build_nlohmann_json
-build_opentelemetry
-build_libbacktrace
-build_sse2neon
-build_xxhash
-build_concurrentqueue
-build_fast_float
-build_clucene
-
-if [[ "$(uname -m)" == 'x86_64' ]]; then
-    build_hadoop_libs_x86
-fi
+for package in "${packages[@]}"; do
+    if [[ "${package}" == "${start_package}" ]]; then
+        PACKAGE_FOUND=1
+    fi
+    if [[ "${CONTINUE}" -eq 0 ]] || [[ "${PACKAGE_FOUND}" -eq 1 ]]; then
+        command="build_${package}"
+        ${command}
+    fi
+done
 
 echo "Finished to build all thirdparties"
