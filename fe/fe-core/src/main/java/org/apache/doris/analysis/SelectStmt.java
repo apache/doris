@@ -462,8 +462,6 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         super.analyze(analyzer);
-        analyzer.setCurrentLimit(limitElement);
-
         if (mvSMap.size() != 0) {
             mvSMap.useNotCheckDescIdEquals();
             for (TableRef tableRef : getTableRefs()) {
@@ -675,24 +673,6 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("resultsSlots {}", resultSlots);
             LOG.debug("orderingSlots {}", orderingSlots);
             LOG.debug("conjuntSlots {}", conjuntSlots);
-        }
-
-        // if the query contains limit clause but not order by clause, order by keys by default.
-        if (isAddDefaultOrderBy(this, analyzer)) {
-            // when run here, we ensure the query is like: select {columns} from {table} {where} {limit}.
-            if (limitElement == null) {
-                analyzer.getParentAnalyzer();
-            }
-            orderByElements = Lists.newArrayList();
-            TableRef ref = getTableRefs().get(0);
-            OlapTable olapTable = ((OlapTable) ref.getTable());
-            int num = olapTable.getKeysNum();
-            for (int i = 0; i < num; ++i) {
-                String colName = olapTable.getFullSchema().get(i).getName();
-                SlotRef slotRef = new SlotRef(null, colName);
-                orderByElements.add(new OrderByElement(slotRef, true, true));
-            }
-            createSortInfo(analyzer);
         }
 
         checkAndSetPointQuery();
@@ -2649,53 +2629,5 @@ public class SelectStmt extends QueryStmt {
         } else {
             return null;
         }
-    }
-
-    /**
-     * in the checker, we check if the query satisfy:
-     * if it has not sub-query, match the pattern: select {columns} from t limit m, n
-     * and change to: select {columns} from t order by {keys of t} limit m, n
-     * if it has sub-query, match the pattern: select {columns} from (select {columns} from t) t1 limit m, n
-     * and change to: select {columns} from (select {columns} from t) t1 order by {keys of t} limit m, n
-     */
-    private boolean isAddDefaultOrderBy(SelectStmt stmt, Analyzer analyzer) {
-        if (ConnectContext.get() == null
-                || ConnectContext.get().getSessionVariable() == null
-                || !ConnectContext.get().getSessionVariable().isEnableDefaultOrder()) {
-            return false;
-        }
-
-        // if the sql contains a lateral view, like sql:
-        // select * from table lateral view explode([0, 1, 2]) lv as e limit 100, 0
-        // the analyzer.getAliases will record the name of the lateral view, additionally the lateral view cannot be
-        // the only one table in a from clause, so the analyzer.getAliases.size() != 1 filtrates the case.
-        if (stmt.fromInsert || analyzer.getAliases().size() != 1 || stmt.groupByClause != null
-                || stmt.havingClause != null || stmt.aggInfo != null || stmt.analyticInfo != null) {
-            return false;
-        }
-
-        if (getTableRefs().size() != 1) {
-            return false;
-        }
-        // case 1:
-        if (getTableRefs().get(0) instanceof BaseTableRef) {
-            BaseTableRef ref = ((BaseTableRef) getTableRefs().get(0));
-            if (ref.getTable().getType() != TableType.OLAP) {
-                return false;
-            }
-            return hasLimit() && orderByElements == null;
-        }
-
-        //case 2:
-        if (getTableRefs().get(0) instanceof InlineViewRef) {
-            InlineViewRef ref = ((InlineViewRef) getTableRefs().get(0));
-            if (!(ref.getViewStmt() instanceof SelectStmt)) {
-                return false;
-            }
-            if (!isAddDefaultOrderBy(((SelectStmt) ref.getQueryStmt()), ref.getAnalyzer())) {
-                return false;
-            }
-        }
-        return hasLimit() && orderByElements == null;
     }
 }
