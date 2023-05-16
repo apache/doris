@@ -36,9 +36,7 @@ public:
 
     // This class will take the ownership of input data's memory. It will
     // free it when deconstructs.
-    PageHandle(const Slice& data) : _is_data_owner(true), _data(data) {
-        ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(_data.size);
-    }
+    PageHandle(DataPage* data) : _is_data_owner(true), _data(data) {}
 
     // This class will take the content of cache data, and will make input
     // cache_data to a invalid cache handle.
@@ -46,32 +44,31 @@ public:
             : _is_data_owner(false), _cache_data(std::move(cache_data)) {}
 
     // Move constructor
-    PageHandle(PageHandle&& other) noexcept
-            : _is_data_owner(false),
-              _data(std::move(other._data)),
-              _cache_data(std::move(other._cache_data)) {
+    PageHandle(PageHandle&& other) noexcept : _cache_data(std::move(other._cache_data)) {
         // we can use std::exchange if we switch c++14 on
         std::swap(_is_data_owner, other._is_data_owner);
+        std::swap(_data, other._data);
     }
 
     PageHandle& operator=(PageHandle&& other) noexcept {
         std::swap(_is_data_owner, other._is_data_owner);
-        _data = std::move(other._data);
+        std::swap(_data, other._data);
         _cache_data = std::move(other._cache_data);
         return *this;
     }
 
     ~PageHandle() {
-        if (_is_data_owner && _data.size > 0) {
-            delete[] _data.data;
-            ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(-_data.size);
+        if (_is_data_owner) {
+            delete _data;
+        } else {
+            DCHECK(_data == nullptr);
         }
     }
 
     // the return slice contains uncompressed page body, page footer, and footer size
     Slice data() const {
         if (_is_data_owner) {
-            return _data;
+            return Slice(_data->data(), _data->size());
         } else {
             return _cache_data.data();
         }
@@ -81,7 +78,7 @@ private:
     // when this is true, it means this struct own data and _data is valid.
     // otherwise _cache_data is valid, and data is belong to cache.
     bool _is_data_owner = false;
-    Slice _data;
+    DataPage* _data = nullptr;
     PageCacheHandle _cache_data;
 
     // Don't allow copy and assign
