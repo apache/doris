@@ -71,8 +71,7 @@ public class MetaService extends RestBaseController {
 
         Frontend fe = Env.getCurrentEnv().checkFeExist(clientHost, clientPort);
         if (fe == null) {
-            LOG.warn("request is not from valid FE. client: {}, {}, exists fes {}", clientHost, clientPort,
-                    Env.getCurrentEnv().getFrontends(null));
+            LOG.warn("request is not from valid FE. client: {}, {}", clientHost, clientPortStr);
             return false;
         }
         return true;
@@ -158,7 +157,7 @@ public class MetaService extends RestBaseController {
 
         checkLongParam(versionStr);
 
-        String machine = request.getHeader(Env.CLIENT_NODE_HOST_KEY);
+        String machine = request.getRemoteHost();
         String url = "http://" + NetUtils.getHostPortInAccessibleFormat(machine, Integer.valueOf(portStr))
                 + "/image?version=" + versionStr;
         String filename = Storage.IMAGE + "." + versionStr;
