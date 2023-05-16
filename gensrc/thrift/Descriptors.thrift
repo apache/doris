@@ -308,6 +308,12 @@ struct TJdbcTable {
   8: optional string jdbc_driver_checksum
 }
 
+struct TMCTable {
+  1: optional string tunnel_url
+  2: optional string project
+  3: optional string table
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -330,6 +336,7 @@ struct TTableDescriptor {
   18: optional TIcebergTable icebergTable
   19: optional THudiTable hudiTable
   20: optional TJdbcTable jdbcTable
+  21: optional TMCTable mcTable
 }
 
 struct TDescriptorTable {

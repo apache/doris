@@ -658,7 +658,7 @@ include_directories(
 )
 
 if ("${DORIS_JAVA_HOME}" STREQUAL "") 
-    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}/include")
+    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
 endif()
 
 include_directories(${DORIS_JAVA_HOME}/include)
@@ -986,16 +986,14 @@ else()
 endif()
 
 if (ENABLE_PCH) 
-add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
+    add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
     target_precompile_headers(
         pch
         PUBLIC
             ${SRC_DIR}pch/pch.h
     )
     if (COMPILER_CLANG)
-        add_compile_options(-Xclang -fno-pch-timestamp)
-    else()
-        add_compile_options(-fpch-preprocess)
+        target_compile_options(pch PRIVATE -Xclang -fno-pch-timestamp)
     endif()
 endif()
 

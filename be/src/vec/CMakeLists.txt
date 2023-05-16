@@ -177,7 +177,7 @@ set(VEC_FILES
   exprs/table_function/vexplode_numbers.cpp
   exprs/table_function/vexplode_bitmap.cpp
   exprs/lambda_function/varray_map_function.cpp
-  exprs/lambda_function/varray_filter_function.cpp
+  exprs/lambda_function/varray_filter_function.cpp  
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
@@ -210,6 +210,7 @@ set(VEC_FILES
   functions/array/function_array_pushfront.cpp
   functions/array/function_array_first_index.cpp
   functions/array/function_array_cum_sum.cpp
+  functions/array/function_array_count.cpp
   functions/function_map.cpp
   functions/function_struct.cpp
   exprs/table_function/vexplode_json_array.cpp

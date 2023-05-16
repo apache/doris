@@ -95,7 +95,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -121,15 +120,51 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
     private final GroupExpression groupExpression;
 
-    private StatsCalculator(GroupExpression groupExpression) {
+    private boolean forbidUnknownColStats = false;
+
+    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
+
+    private boolean isPlayNereidsDump = false;
+
+    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
+
+    private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
+                                Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump) {
         this.groupExpression = groupExpression;
+        this.forbidUnknownColStats = forbidUnknownColStats;
+        this.totalColumnStatisticMap = columnStatisticMap;
+        this.isPlayNereidsDump = isPlayNereidsDump;
+    }
+
+    public Map<String, Histogram> getTotalHistogramMap() {
+        return totalHistogramMap;
+    }
+
+    public void setTotalHistogramMap(Map<String, Histogram> totalHistogramMap) {
+        this.totalHistogramMap = totalHistogramMap;
+    }
+
+    public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
+        return totalColumnStatisticMap;
+    }
+
+    public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
+        this.totalColumnStatisticMap = totalColumnStatisticMap;
     }
 
     /**
      * estimate stats
      */
+    public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
+                                           Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump) {
+        StatsCalculator statsCalculator = new StatsCalculator(
+                groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump);
+        statsCalculator.estimate();
+        return statsCalculator;
+    }
+
     public static void estimate(GroupExpression groupExpression) {
-        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false, new HashMap<>(), false);
         statsCalculator.estimate();
     }
 
@@ -435,6 +470,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new FilterEstimation().estimate(filter.getPredicate(), stats);
     }
 
+    private ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+        if (totalColumnStatisticMap.get(table.getName() + colName) != null) {
+            return totalColumnStatisticMap.get(table.getName() + colName);
+        } else if (isPlayNereidsDump) {
+            return ColumnStatistic.UNKNOWN;
+        } else {
+            return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
+        }
+    }
+
+    private Histogram getColumnHistogram(TableIf table, String colName) {
+        if (totalHistogramMap.get(table.getName() + colName) != null) {
+            return totalHistogramMap.get(table.getName() + colName);
+        } else if (isPlayNereidsDump) {
+            return null;
+        } else {
+            return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
+        }
+    }
+
     // TODO: 1. Subtract the pruned partition
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
@@ -449,11 +504,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
-            ColumnStatistic cache = Config.enable_stats
-                    ? Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName)
-                    : ColumnStatistic.UNKNOWN;
+            ColumnStatistic cache = Config.enable_stats ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
             if (cache == ColumnStatistic.UNKNOWN) {
-                if (ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
+                if (forbidUnknownColStats) {
                     throw new AnalysisException("column stats for " + colName
                             + " is unknown, `set forbid_unknown_col_stats = false` to execute sql with unknown stats");
                 }
@@ -461,14 +514,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 continue;
             }
             rowCount = Math.max(rowCount, cache.count);
-            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
+            Histogram histogram = getColumnHistogram(table, colName);
             if (histogram != null) {
                 ColumnStatisticBuilder columnStatisticBuilder =
                         new ColumnStatisticBuilder(cache).setHistogram(histogram);
                 columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
                 cache = columnStatisticBuilder.build();
+                totalHistogramMap.put(table.getName() + colName, histogram);
             }
             columnStatisticMap.put(slotReference, cache);
+            totalColumnStatisticMap.put(table.getName() + colName, cache);
+            totalHistogramMap.put(table.getName() + colName, histogram);
         }
         return new Statistics(rowCount, columnStatisticMap);
     }

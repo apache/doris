@@ -27,6 +27,7 @@
 #include <string>
 #include <thread>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "gutil/macros.h"
 #include "runtime/exec_env.h"
@@ -34,22 +35,6 @@
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
 #include "util/defer_op.h" // IWYU pragma: keep
-
-#define RETURN_IF_CATCH_EXCEPTION(stmt)                                                      \
-    do {                                                                                     \
-        try {                                                                                \
-            doris::enable_thread_catch_bad_alloc++;                                          \
-            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                 \
-            { stmt; }                                                                        \
-        } catch (const doris::Exception& e) {                                                \
-            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                            \
-                return Status::MemoryLimitExceeded(                                          \
-                        fmt::format("PreCatch error code:{}, {}", e.code(), e.to_string())); \
-            } else {                                                                         \
-                return Status::Error(e.code(), e.to_string());                               \
-            }                                                                                \
-        }                                                                                    \
-    } while (0)
 
 // Used to observe the memory usage of the specified code segment
 #ifdef USE_MEM_TRACKER
@@ -140,7 +125,6 @@ public:
 };
 
 inline thread_local ThreadContextPtr thread_context_ptr;
-inline thread_local int enable_thread_catch_bad_alloc = 0;
 inline thread_local int skip_memory_check = 0;
 
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS

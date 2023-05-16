@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -54,11 +55,12 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -124,6 +126,7 @@ public class AnalysisManager {
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
         createTaskForMVIdx(jobInfo, analysisTaskInfos, isSync);
+        createTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
 
         ConnectContext ctx = ConnectContext.get();
         if (!isSync || ctx.getSessionVariable().enableSaveStatisticsSyncJob) {
@@ -425,6 +428,31 @@ public class AnalysisManager {
         }
     }
 
+    private void createTaskForExternalTable(AnalysisTaskInfo jobInfo,
+                                            Map<Long, BaseAnalysisTask> analysisTasks,
+                                            boolean isSync) throws DdlException {
+        TableIf table;
+        try {
+            table = StatisticsUtil.findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
+        } catch (Throwable e) {
+            LOG.warn(e.getMessage());
+            return;
+        }
+        if (jobInfo.analysisType == AnalysisType.HISTOGRAM || table.getType() != TableType.HMS_EXTERNAL_TABLE) {
+            return;
+        }
+        AnalysisTaskInfoBuilder colTaskInfoBuilder = new AnalysisTaskInfoBuilder(jobInfo);
+        long taskId = Env.getCurrentEnv().getNextId();
+        AnalysisTaskInfo analysisTaskInfo = colTaskInfoBuilder.setIndexId(-1L)
+                .setTaskId(taskId).setExternalTableLevelTask(true).build();
+        analysisTasks.put(taskId, createTask(analysisTaskInfo));
+        try {
+            StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
+        } catch (Exception e) {
+            throw new DdlException("Failed to create analysis task", e);
+        }
+    }
+
     public void updateTaskStatus(AnalysisTaskInfo info, AnalysisState jobState, String message, long time) {
         if (analysisJobIdToTaskMap.get(info.jobId) == null) {
             return;
@@ -516,15 +544,14 @@ public class AnalysisManager {
         ImmutableList<String> titleNames = stmt.getTitleNames();
         List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(executeSql);
 
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
         for (ResultRow resultRow : resultRows) {
             List<Comparable> result = Lists.newArrayList();
             for (String column : titleNames) {
                 String value = resultRow.getColumnValue(column);
                 if (LAST_EXEC_TIME_IN_MS.equals(column)) {
                     long timeMillis = Long.parseLong(value);
-                    value = dateFormat.format(new Date(timeMillis));
+                    value = TimeUtils.DATETIME_FORMAT.format(
+                            LocalDateTime.ofInstant(Instant.ofEpochMilli(timeMillis), ZoneId.systemDefault()));
                 }
                 result.add(value);
             }

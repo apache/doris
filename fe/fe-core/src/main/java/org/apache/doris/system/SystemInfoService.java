@@ -35,6 +35,8 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend.BackendState;
+import org.apache.doris.thrift.TNodeInfo;
+import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -46,16 +48,12 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -82,34 +80,24 @@ public class SystemInfoService {
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDishInfoRef = ImmutableMap.of();
 
     public static class HostInfo implements Comparable<HostInfo> {
-        public String ip;
-        public String hostName;
+        public String host;
         public int port;
 
-        public HostInfo(String ip, String hostName, int port) {
-            this.ip = ip;
-            this.hostName = hostName;
+        public HostInfo(String host, int port) {
+            this.host = host;
             this.port = port;
         }
 
-        public String getIp() {
-            return ip;
-        }
-
-        public String getHostName() {
-            return hostName;
+        public String getHost() {
+            return host;
         }
 
         public int getPort() {
             return port;
         }
 
-        public void setIp(String ip) {
-            this.ip = ip;
-        }
-
-        public void setHostName(String hostName) {
-            this.hostName = hostName;
+        public void setHost(String host) {
+            this.host = host;
         }
 
         public void setPort(int port) {
@@ -117,12 +105,12 @@ public class SystemInfoService {
         }
 
         public String getIdent() {
-            return StringUtils.isEmpty(hostName) ? ip : hostName;
+            return host;
         }
 
         @Override
         public int compareTo(@NotNull HostInfo o) {
-            int res = ip.compareTo(o.getIp());
+            int res = host.compareTo(o.getHost());
             if (res == 0) {
                 return Integer.compare(port, o.getPort());
             }
@@ -133,13 +121,7 @@ public class SystemInfoService {
             if (other.getPort() != port) {
                 return false;
             }
-            if (hostName != null && hostName.equals(other.getHostName())) {
-                return true;
-            }
-            if (ip != null && ip.equals(other.getIp())) {
-                return true;
-            }
-            return false;
+            return host.equals(other.getHost());
         }
 
         @Override
@@ -151,16 +133,14 @@ public class SystemInfoService {
                 return false;
             }
             HostInfo that = (HostInfo) o;
-            return Objects.equals(ip, that.getIp())
-                    && Objects.equals(hostName, that.getHostName())
+            return Objects.equals(host, that.getHost())
                     && Objects.equals(port, that.getPort());
         }
 
         @Override
         public String toString() {
             return "HostInfo{"
-                    + "ip='" + ip + '\''
-                    + ", hostName='" + hostName + '\''
+                    + "host='" + host + '\''
                     + ", port=" + port
                     + '}';
         }
@@ -178,6 +158,16 @@ public class SystemInfoService {
         }
     };
 
+    public static TPaloNodesInfo createAliveNodesInfo() {
+        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        for (Long id : systemInfoService.getBackendIds(true /*need alive*/)) {
+            Backend backend = systemInfoService.getBackend(id);
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+        }
+        return nodesInfo;
+    }
+
     // for deploy manager
     public void addBackends(List<HostInfo> hostInfos, boolean isFree)
             throws UserException {
@@ -190,19 +180,16 @@ public class SystemInfoService {
      */
     public void addBackends(List<HostInfo> hostInfos, Map<String, String> tagMap) throws UserException {
         for (HostInfo hostInfo : hostInfos) {
-            if (Config.enable_fqdn_mode && StringUtils.isEmpty(hostInfo.getHostName())) {
-                throw new DdlException("backend's hostName should not be empty while enable_fqdn_mode is true");
-            }
             // check is already exist
-            if (getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort()) != null) {
-                String backendIdentifier = (Config.enable_fqdn_mode ? hostInfo.getHostName() : hostInfo.getIp()) + ":"
+            if (getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort()) != null) {
+                String backendIdentifier = hostInfo.getHost() + ":"
                         + hostInfo.getPort();
                 throw new DdlException("Same backend already exists[" + backendIdentifier + "]");
             }
         }
 
         for (HostInfo hostInfo : hostInfos) {
-            addBackend(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort(), tagMap);
+            addBackend(hostInfo.getHost(), hostInfo.getPort(), tagMap);
         }
     }
 
@@ -220,8 +207,8 @@ public class SystemInfoService {
     }
 
     // Final entry of adding backend
-    private void addBackend(String ip, String hostName, int heartbeatPort, Map<String, String> tagMap) {
-        Backend newBackend = new Backend(Env.getCurrentEnv().getNextId(), ip, hostName, heartbeatPort);
+    private void addBackend(String host, int heartbeatPort, Map<String, String> tagMap) {
+        Backend newBackend = new Backend(Env.getCurrentEnv().getNextId(), host, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.put(newBackend.getId(), newBackend);
@@ -251,14 +238,13 @@ public class SystemInfoService {
     public void dropBackends(List<HostInfo> hostInfos) throws DdlException {
         for (HostInfo hostInfo : hostInfos) {
             // check is already exist
-            if (getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort()) == null) {
-                String backendIdentifier = Config.enable_fqdn_mode && hostInfo.getHostName() != null
-                        ? hostInfo.getHostName() : hostInfo.getIp() + ":" + hostInfo.getPort();
+            if (getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort()) == null) {
+                String backendIdentifier = hostInfo.getHost() + ":" + hostInfo.getPort();
                 throw new DdlException("backend does not exists[" + backendIdentifier + "]");
             }
         }
         for (HostInfo hostInfo : hostInfos) {
-            dropBackend(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort());
+            dropBackend(hostInfo.getHost(), hostInfo.getPort());
         }
     }
 
@@ -268,18 +254,17 @@ public class SystemInfoService {
         if (backend == null) {
             throw new DdlException("Backend[" + backendId + "] does not exist");
         }
-
-        dropBackend(backend.getIp(), backend.getHostName(), backend.getHeartbeatPort());
+        dropBackend(backend.getHost(), backend.getHeartbeatPort());
         // update BeInfoCollector
         Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
         beinfoCollector.dropBeInfo(backendId);
     }
 
     // final entry of dropping backend
-    public void dropBackend(String ip, String hostName, int heartbeatPort) throws DdlException {
-        Backend droppedBackend = getBackendWithHeartbeatPort(ip, hostName, heartbeatPort);
+    public void dropBackend(String host, int heartbeatPort) throws DdlException {
+        Backend droppedBackend = getBackendWithHeartbeatPort(host, heartbeatPort);
         if (droppedBackend == null) {
-            throw new DdlException("backend does not exists[" + (ip == null ? hostName : ip)
+            throw new DdlException("backend does not exists[" + host
                     + ":" + heartbeatPort + "]");
         }
         // update idToBackend
@@ -346,16 +331,10 @@ public class SystemInfoService {
         return true;
     }
 
-    public Backend getBackendWithHeartbeatPort(String ip, String hostName, int heartPort) {
+    public Backend getBackendWithHeartbeatPort(String host, int heartPort) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (hostName != null) {
-                if (hostName.equals(backend.getHostName()) && backend.getHeartbeatPort() == heartPort) {
-                    return backend;
-                }
-            }
-
-            if (backend.getIp().equals(ip) && backend.getHeartbeatPort() == heartPort) {
+            if (backend.getHost().equals(host) && backend.getHeartbeatPort() == heartPort) {
                 return backend;
             }
         }
@@ -365,7 +344,7 @@ public class SystemInfoService {
     public Backend getBackendWithBePort(String ip, int bePort) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (backend.getIp().equals(ip) && backend.getBePort() == bePort) {
+            if (backend.getHost().equals(ip) && backend.getBePort() == bePort) {
                 return backend;
             }
         }
@@ -375,7 +354,7 @@ public class SystemInfoService {
     public Backend getBackendWithHttpPort(String ip, int httpPort) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (backend.getIp().equals(ip) && backend.getHttpPort() == httpPort) {
+            if (backend.getHost().equals(ip) && backend.getHttpPort() == httpPort) {
                 return backend;
             }
         }
@@ -519,12 +498,12 @@ public class SystemInfoService {
         // put backend in same host in list
         for (Long id : clusterBackends) {
             final Backend backend = idToBackends.get(id);
-            if (hostBackendsMapInCluster.containsKey(backend.getIp())) {
-                hostBackendsMapInCluster.get(backend.getIp()).add(backend);
+            if (hostBackendsMapInCluster.containsKey(backend.getHost())) {
+                hostBackendsMapInCluster.get(backend.getHost()).add(backend);
             } else {
                 List<Backend> list = Lists.newArrayList();
                 list.add(backend);
-                hostBackendsMapInCluster.put(backend.getIp(), list);
+                hostBackendsMapInCluster.put(backend.getHost(), list);
             }
         }
 
@@ -587,7 +566,7 @@ public class SystemInfoService {
 
         Set<String> hostsSet = Sets.newHashSet();
         for (Long beId : clusterBackends) {
-            hostsSet.add(getBackend(beId).getIp());
+            hostsSet.add(getBackend(beId).getHost());
         }
 
         // distinguish backend in or not in cluster
@@ -830,14 +809,14 @@ public class SystemInfoService {
                     || (!canBeDecommission && backend.isDecommissioned())) {
                 continue;
             }
-            if (classMap.containsKey(backend.getIp())) {
-                final List<Backend> list = classMap.get(backend.getIp());
+            if (classMap.containsKey(backend.getHost())) {
+                final List<Backend> list = classMap.get(backend.getHost());
                 list.add(backend);
-                classMap.put(backend.getIp(), list);
+                classMap.put(backend.getHost(), list);
             } else {
                 final List<Backend> list = new ArrayList<Backend>();
                 list.add(backend);
-                classMap.put(backend.getIp(), list);
+                classMap.put(backend.getHost(), list);
             }
         }
         return classMap;
@@ -882,12 +861,12 @@ public class SystemInfoService {
         if (!policy.allowOnSameHost) {
             Map<String, List<Backend>> backendMaps = Maps.newHashMap();
             for (Backend backend : candidates) {
-                if (backendMaps.containsKey(backend.getIp())) {
-                    backendMaps.get(backend.getIp()).add(backend);
+                if (backendMaps.containsKey(backend.getHost())) {
+                    backendMaps.get(backend.getHost()).add(backend);
                 } else {
                     List<Backend> list = Lists.newArrayList();
                     list.add(backend);
-                    backendMaps.put(backend.getIp(), list);
+                    backendMaps.put(backend.getHost(), list);
                 }
             }
             candidates.clear();
@@ -1052,12 +1031,12 @@ public class SystemInfoService {
         // for each host, random select one backend.
         Map<String, List<Backend>> backendMaps = Maps.newHashMap();
         for (Backend backend : candidates) {
-            if (backendMaps.containsKey(backend.getIp())) {
-                backendMaps.get(backend.getIp()).add(backend);
+            if (backendMaps.containsKey(backend.getHost())) {
+                backendMaps.get(backend.getHost()).add(backend);
             } else {
                 List<Backend> list = Lists.newArrayList();
                 list.add(backend);
-                backendMaps.put(backend.getIp(), list);
+                backendMaps.put(backend.getHost(), list);
             }
         }
         candidates.clear();
@@ -1149,7 +1128,7 @@ public class SystemInfoService {
         this.idToReportVersionRef = null;
     }
 
-    public static HostInfo getIpHostAndPort(String hostPort, boolean strictCheck)
+    public static HostInfo getHostAndPort(String hostPort)
             throws AnalysisException {
         hostPort = hostPort.replaceAll("\\s+", "");
         if (hostPort.isEmpty()) {
@@ -1163,9 +1142,8 @@ public class SystemInfoService {
 
         HostInfo hostInfo = NetUtils.resolveHostInfoFromHostPort(hostPort);
 
-        String hostName = hostInfo.getHostName();
-        String ip = hostName;
-        if (Strings.isNullOrEmpty(hostName)) {
+        String host = hostInfo.getHost();
+        if (Strings.isNullOrEmpty(host)) {
             throw new AnalysisException("Host is null");
         }
 
@@ -1177,25 +1155,7 @@ public class SystemInfoService {
                 throw new AnalysisException("Port is out of range: " + heartbeatPort);
             }
 
-            // validate host
-            if (!InetAddressValidator.getInstance().isValid(ip)) {
-                // maybe this is a hostname
-                // if no IP address for the host could be found, 'getByName'
-                // will throw UnknownHostException
-                InetAddress inetAddress = InetAddress.getByName(hostName);
-                ip = inetAddress.getHostAddress();
-            } else {
-                hostName = NetUtils.getHostnameByIp(ip);
-                if (hostName.equals(ip)) {
-                    hostName = null;
-                }
-            }
-            return new HostInfo(ip, hostName, heartbeatPort);
-        } catch (UnknownHostException e) {
-            if (!strictCheck) {
-                return new HostInfo(null, hostName, heartbeatPort);
-            }
-            throw new AnalysisException("Unknown host: " + e.getMessage());
+            return new HostInfo(host, heartbeatPort);
         } catch (Exception e) {
             throw new AnalysisException("Encounter unknown exception: " + e.getMessage());
         }
@@ -1203,8 +1163,8 @@ public class SystemInfoService {
 
 
     public static Pair<String, Integer> validateHostAndPort(String hostPort) throws AnalysisException {
-        HostInfo hostInfo = getIpHostAndPort(hostPort, true);
-        return Pair.of(hostInfo.getIp(), hostInfo.getPort());
+        HostInfo hostInfo = getHostAndPort(hostPort);
+        return Pair.of(hostInfo.getHost(), hostInfo.getPort());
     }
 
     public void replayAddBackend(Backend newBackend) {
@@ -1246,9 +1206,7 @@ public class SystemInfoService {
         // backend may already be dropped. this may happen when
         // drop and modify operations do not guarantee the order.
         if (memoryBe != null) {
-            if (be.getHostName() != null && !be.getIp().equalsIgnoreCase(memoryBe.getIp())) {
-                memoryBe.setIp(be.getIp());
-            }
+            memoryBe.setHost(be.getHost());
             memoryBe.setBePort(be.getBePort());
             memoryBe.setAlive(be.isAlive());
             memoryBe.setDecommissioned(be.isDecommissioned());
@@ -1295,7 +1253,7 @@ public class SystemInfoService {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         List<Backend> selectedBackends = Lists.newArrayList();
         for (Backend backend : idToBackend.values()) {
-            if (backend.getIp().equals(host)) {
+            if (backend.getHost().equals(host)) {
                 selectedBackends.add(backend);
             }
         }
@@ -1357,15 +1315,15 @@ public class SystemInfoService {
     }
 
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
-        Backend be = getBackendWithHeartbeatPort(clause.getIp(), clause.getHostName(), clause.getPort());
+        Backend be = getBackendWithHeartbeatPort(clause.getHost(), clause.getPort());
         if (be == null) {
-            throw new DdlException("backend does not exists[" + clause.getIp() + ":" + clause.getPort() + "]");
+            throw new DdlException("backend does not exists[" + clause.getHost() + ":" + clause.getPort() + "]");
         }
-        if (!Strings.isNullOrEmpty(be.getHostName()) && be.getHostName().equals(clause.getNewHostName())) {
+        if (be.getHost().equals(clause.getNewHost())) {
             // no need to modify
             return;
         }
-        be.setHostName(clause.getNewHostName());
+        be.setHost(clause.getNewHost());
         Env.getCurrentEnv().getEditLog().logModifyBackend(be);
     }
 
@@ -1373,10 +1331,10 @@ public class SystemInfoService {
         List<HostInfo> hostInfos = alterClause.getHostInfos();
         List<Backend> backends = Lists.newArrayList();
         for (HostInfo hostInfo : hostInfos) {
-            Backend be = getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort());
+            Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
             if (be == null) {
-                throw new DdlException("backend does not exists[" + (Config.enable_fqdn_mode ? hostInfo.getIdent()
-                        : hostInfo.getIp()) + ":" + hostInfo.getPort() + "]");
+                throw new DdlException(
+                        "backend does not exists[" + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
             }
             backends.add(be);
         }
@@ -1415,7 +1373,7 @@ public class SystemInfoService {
         memBe.setTagMap(backend.getTagMap());
         memBe.setQueryDisabled(backend.isQueryDisabled());
         memBe.setLoadDisabled(backend.isLoadDisabled());
-        memBe.setHostName(backend.getHostName());
+        memBe.setHost(backend.getHost());
         LOG.debug("replay modify backend: {}", backend);
     }
 

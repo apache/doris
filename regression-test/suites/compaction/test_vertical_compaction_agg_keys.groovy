@@ -28,7 +28,7 @@ suite("test_vertical_compaction_agg_keys") {
             setConfigCommand.append("curl -X POST http://")
             setConfigCommand.append(backend[2])
             setConfigCommand.append(":")
-            setConfigCommand.append(backend[6])
+            setConfigCommand.append(backend[5])
             setConfigCommand.append("/api/update_config?")
             String command1 = setConfigCommand.toString() + "enable_vertical_compaction=true"
             logger.info(command1)
@@ -45,7 +45,7 @@ suite("test_vertical_compaction_agg_keys") {
             setConfigCommand.append("curl -X POST http://")
             setConfigCommand.append(backend[2])
             setConfigCommand.append(":")
-            setConfigCommand.append(backend[6])
+            setConfigCommand.append(backend[5])
             setConfigCommand.append("/api/update_config?")
             String command1 = setConfigCommand.toString() + "enable_vertical_compaction=false"
             logger.info(command1)
@@ -64,7 +64,7 @@ suite("test_vertical_compaction_agg_keys") {
         def backendId_to_backendHttpPort = [:]
         for (String[] backend in backends) {
             backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[6])
+            backendId_to_backendHttpPort.put(backend[0], backend[5])
         }
 
         backend_id = backendId_to_backendIP.keySet()[0]
@@ -164,7 +164,7 @@ suite("test_vertical_compaction_agg_keys") {
 
         qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
-        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
+        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
         // trigger compactions for all tablets in ${tableName}
@@ -230,7 +230,7 @@ suite("test_vertical_compaction_agg_keys") {
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             StringBuilder sb = new StringBuilder();
-            def compactionStatusUrlIndex = 17
+            def compactionStatusUrlIndex = 18
             sb.append("curl -X GET ")
             sb.append(tablet[compactionStatusUrlIndex])
             String command = sb.toString()

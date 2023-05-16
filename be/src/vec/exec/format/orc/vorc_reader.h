@@ -149,6 +149,8 @@ public:
                     partition_columns,
             const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
 
+    Status _init_select_types(const orc::Type& type, int idx);
+
     Status _fill_partition_columns(
             Block* block, size_t rows,
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -158,6 +160,9 @@ public:
             const std::unordered_map<std::string, VExprContext*>& missing_columns);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
+                         orc::ColumnVectorBatch* batch, int idx);
 
     void close();
 
@@ -204,6 +209,10 @@ private:
 
     void _init_profile();
     Status _init_read_columns();
+    void _init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
+                        std::vector<std::string>& orc_cols_lower_case);
+    static bool _check_acid_schema(const orc::Type& type);
+    static const orc::Type& _remove_acid(const orc::Type& type);
     TypeDescriptor _convert_to_doris_type(const orc::Type* orc_type);
     bool _init_search_argument(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
@@ -271,14 +280,14 @@ private:
             DecimalScaleParams temp_scale_params;
             _init_decimal_converter<DecimalPrimitiveType>(data_type, temp_scale_params,
                                                           data->scale);
-            _decimal_scale_params.emplace_back(std::move(temp_scale_params));
+            _decimal_scale_params.emplace_back(temp_scale_params);
         }
         DecimalScaleParams& scale_params = _decimal_scale_params[_decimal_scale_params_index];
         ++_decimal_scale_params_index;
 
         auto* cvb_data = data->values.data();
         auto& column_data =
-                static_cast<ColumnVector<DecimalPrimitiveType>&>(*data_column).get_data();
+                static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
 

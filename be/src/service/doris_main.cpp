@@ -510,6 +510,7 @@ int main(int argc, char** argv) {
         sleep(10);
     }
 
+    doris::TabletSchemaCache::stop_and_join();
     http_service.stop();
     brpc_service.join();
     daemon.stop();
@@ -526,9 +527,9 @@ int main(int argc, char** argv) {
     heartbeat_thrift_server = nullptr;
 
     doris::ExecEnv::destroy(exec_env);
-
     delete engine;
     engine = nullptr;
+
     return 0;
 }
 

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionInfo;
@@ -38,6 +39,7 @@ import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
 import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
 import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
@@ -250,7 +252,7 @@ public class EsScanNode extends ScanNode {
                     TScanRangeLocation location = new TScanRangeLocation();
                     Backend be = backendPolicy.getNextBe();
                     location.setBackendId(be.getId());
-                    location.setServer(new TNetworkAddress(be.getIp(), be.getBePort()));
+                    location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
                     locations.addToLocations(location);
                 }
 
@@ -362,5 +364,12 @@ public class EsScanNode extends ScanNode {
             }
             conjuncts.removeIf(expr -> !notPushDownList.contains(expr));
         }
+    }
+
+    @Override
+    public StatsDelta genStatsDelta() throws AnalysisException {
+        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
+                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(table.getQualifiedDbName()).getId(),
+                table.getId(), -1L);
     }
 }

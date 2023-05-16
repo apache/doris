@@ -69,7 +69,8 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority, _self_profile));
+            channel = std::make_shared<TabletsChannel>(key, _load_id, _is_high_priority,
+                                                       _self_profile);
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
@@ -81,6 +82,29 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
 
     _opened = true;
     _last_updated_time.store(time(nullptr));
+    return Status::OK();
+}
+
+Status LoadChannel::open_partition(const OpenPartitionRequest& params) {
+    int64_t index_id = params.index_id();
+    std::shared_ptr<TabletsChannel> channel;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _tablets_channels.find(index_id);
+        if (it != _tablets_channels.end()) {
+            channel = it->second;
+        } else {
+            // create a new tablets channel
+            TabletsChannelKey key(params.id(), index_id);
+            channel = std::make_shared<TabletsChannel>(key, _load_id, _is_high_priority,
+                                                       _self_profile);
+            {
+                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                _tablets_channels.insert({index_id, channel});
+            }
+        }
+    }
+    RETURN_IF_ERROR(channel->open_all_writers_for_partition(params));
     return Status::OK();
 }
 

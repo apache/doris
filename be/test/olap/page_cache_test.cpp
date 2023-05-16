@@ -36,33 +36,31 @@ public:
 TEST(StoragePageCacheTest, data_page_only) {
     StoragePageCache cache(kNumShards * 2048, 0, kNumShards);
 
-    StoragePageCache::CacheKey key("abc", 0);
-    StoragePageCache::CacheKey memory_key("mem", 0);
+    StoragePageCache::CacheKey key("abc", 0, 0);
+    StoragePageCache::CacheKey memory_key("mem", 0, 0);
 
     segment_v2::PageTypePB page_type = segment_v2::DATA_PAGE;
 
     {
         // insert normal page
-        char* buf = new char[1024];
         PageCacheHandle handle;
-        Slice data(buf, 1024);
+        DataPage* data = new DataPage(1024);
         cache.insert(key, data, &handle, page_type, false);
 
-        EXPECT_EQ(handle.data().data, buf);
+        EXPECT_EQ(handle.data().data, data->data());
 
         auto found = cache.lookup(key, &handle, page_type);
         EXPECT_TRUE(found);
-        EXPECT_EQ(buf, handle.data().data);
+        EXPECT_EQ(data->data(), handle.data().data);
     }
 
     {
         // insert in_memory page
-        char* buf = new char[1024];
         PageCacheHandle handle;
-        Slice data(buf, 1024);
+        DataPage* data = new DataPage(1024);
         cache.insert(memory_key, data, &handle, page_type, true);
 
-        EXPECT_EQ(handle.data().data, buf);
+        EXPECT_EQ(handle.data().data, data->data());
 
         auto found = cache.lookup(memory_key, &handle, page_type);
         EXPECT_TRUE(found);
@@ -70,16 +68,24 @@ TEST(StoragePageCacheTest, data_page_only) {
 
     // put too many page to eliminate first page
     for (int i = 0; i < 10 * kNumShards; ++i) {
-        StoragePageCache::CacheKey key("bcd", i);
+        StoragePageCache::CacheKey key("bcd", 0, i);
         PageCacheHandle handle;
-        Slice data(new char[1024], 1024);
+        DataPage* data = new DataPage(1024);
         cache.insert(key, data, &handle, page_type, false);
     }
 
-    // cache miss
+    // cache miss, different offset
     {
         PageCacheHandle handle;
-        StoragePageCache::CacheKey miss_key("abc", 1);
+        StoragePageCache::CacheKey miss_key("abc", 0, 1);
+        auto found = cache.lookup(miss_key, &handle, page_type);
+        EXPECT_FALSE(found);
+    }
+
+    // cache miss, different file size
+    {
+        PageCacheHandle handle;
+        StoragePageCache::CacheKey miss_key("abc", 1, 0);
         auto found = cache.lookup(miss_key, &handle, page_type);
         EXPECT_FALSE(found);
     }
@@ -96,33 +102,31 @@ TEST(StoragePageCacheTest, data_page_only) {
 TEST(StoragePageCacheTest, index_page_only) {
     StoragePageCache cache(kNumShards * 2048, 100, kNumShards);
 
-    StoragePageCache::CacheKey key("abc", 0);
-    StoragePageCache::CacheKey memory_key("mem", 0);
+    StoragePageCache::CacheKey key("abc", 0, 0);
+    StoragePageCache::CacheKey memory_key("mem", 0, 0);
 
     segment_v2::PageTypePB page_type = segment_v2::INDEX_PAGE;
 
     {
         // insert normal page
-        char* buf = new char[1024];
         PageCacheHandle handle;
-        Slice data(buf, 1024);
+        DataPage* data = new DataPage(1024);
         cache.insert(key, data, &handle, page_type, false);
 
-        EXPECT_EQ(handle.data().data, buf);
+        EXPECT_EQ(handle.data().data, data->data());
 
         auto found = cache.lookup(key, &handle, page_type);
         EXPECT_TRUE(found);
-        EXPECT_EQ(buf, handle.data().data);
+        EXPECT_EQ(data->data(), handle.data().data);
     }
 
     {
         // insert in_memory page
-        char* buf = new char[1024];
         PageCacheHandle handle;
-        Slice data(buf, 1024);
+        DataPage* data = new DataPage(1024);
         cache.insert(memory_key, data, &handle, page_type, true);
 
-        EXPECT_EQ(handle.data().data, buf);
+        EXPECT_EQ(handle.data().data, data->data());
 
         auto found = cache.lookup(memory_key, &handle, page_type);
         EXPECT_TRUE(found);
@@ -130,16 +134,24 @@ TEST(StoragePageCacheTest, index_page_only) {
 
     // put too many page to eliminate first page
     for (int i = 0; i < 10 * kNumShards; ++i) {
-        StoragePageCache::CacheKey key("bcd", i);
+        StoragePageCache::CacheKey key("bcd", 0, i);
         PageCacheHandle handle;
-        Slice data(new char[1024], 1024);
+        DataPage* data = new DataPage(1024);
         cache.insert(key, data, &handle, page_type, false);
     }
 
-    // cache miss
+    // cache miss, different offset
     {
         PageCacheHandle handle;
-        StoragePageCache::CacheKey miss_key("abc", 1);
+        StoragePageCache::CacheKey miss_key("abc", 1, 1);
+        auto found = cache.lookup(miss_key, &handle, page_type);
+        EXPECT_FALSE(found);
+    }
+
+    // cache miss, different file size
+    {
+        PageCacheHandle handle;
+        StoragePageCache::CacheKey miss_key("abc", 1, 0);
         auto found = cache.lookup(miss_key, &handle, page_type);
         EXPECT_FALSE(found);
     }
@@ -156,45 +168,43 @@ TEST(StoragePageCacheTest, index_page_only) {
 TEST(StoragePageCacheTest, mixed_pages) {
     StoragePageCache cache(kNumShards * 2048, 10, kNumShards);
 
-    StoragePageCache::CacheKey data_key("data", 0);
-    StoragePageCache::CacheKey index_key("index", 0);
-    StoragePageCache::CacheKey data_key_mem("data_mem", 0);
-    StoragePageCache::CacheKey index_key_mem("index_mem", 0);
+    StoragePageCache::CacheKey data_key("data", 0, 0);
+    StoragePageCache::CacheKey index_key("index", 0, 0);
+    StoragePageCache::CacheKey data_key_mem("data_mem", 0, 0);
+    StoragePageCache::CacheKey index_key_mem("index_mem", 0, 0);
 
     segment_v2::PageTypePB page_type_data = segment_v2::DATA_PAGE;
     segment_v2::PageTypePB page_type_index = segment_v2::INDEX_PAGE;
 
     {
         // insert both normal pages
-        char* buf_data = new char[1024];
-        char* buf_index = new char[1024];
         PageCacheHandle data_handle, index_handle;
-        Slice data(buf_data, 1024), index(buf_index, 1024);
+        DataPage* data = new DataPage(1024);
+        DataPage* index = new DataPage(1024);
         cache.insert(data_key, data, &data_handle, page_type_data, false);
         cache.insert(index_key, index, &index_handle, page_type_index, false);
 
-        EXPECT_EQ(data_handle.data().data, buf_data);
-        EXPECT_EQ(index_handle.data().data, buf_index);
+        EXPECT_EQ(data_handle.data().data, data->data());
+        EXPECT_EQ(index_handle.data().data, index->data());
 
         auto found_data = cache.lookup(data_key, &data_handle, page_type_data);
         auto found_index = cache.lookup(index_key, &index_handle, page_type_index);
         EXPECT_TRUE(found_data);
         EXPECT_TRUE(found_index);
-        EXPECT_EQ(buf_data, data_handle.data().data);
-        EXPECT_EQ(buf_index, index_handle.data().data);
+        EXPECT_EQ(data->data(), data_handle.data().data);
+        EXPECT_EQ(index->data(), index_handle.data().data);
     }
 
     {
         // insert both in_memory pages
-        char* buf_data = new char[1024];
-        char* buf_index = new char[1024];
         PageCacheHandle data_handle, index_handle;
-        Slice data(buf_data, 1024), index(buf_index, 1024);
+        DataPage* data = new DataPage(1024);
+        DataPage* index = new DataPage(1024);
         cache.insert(data_key_mem, data, &data_handle, page_type_data, true);
         cache.insert(index_key_mem, index, &index_handle, page_type_index, true);
 
-        EXPECT_EQ(data_handle.data().data, buf_data);
-        EXPECT_EQ(index_handle.data().data, buf_index);
+        EXPECT_EQ(data_handle.data().data, data->data());
+        EXPECT_EQ(index_handle.data().data, index->data());
 
         auto found_data = cache.lookup(data_key_mem, &data_handle, page_type_data);
         auto found_index = cache.lookup(index_key_mem, &index_handle, page_type_index);
@@ -204,17 +214,18 @@ TEST(StoragePageCacheTest, mixed_pages) {
 
     // put too many page to eliminate first page of both cache
     for (int i = 0; i < 10 * kNumShards; ++i) {
-        StoragePageCache::CacheKey key("bcd", i);
+        StoragePageCache::CacheKey key("bcd", 0, i);
         PageCacheHandle handle;
-        Slice data(new char[1024], 1024), index(new char[1024], 1024);
-        cache.insert(key, data, &handle, page_type_data, false);
-        cache.insert(key, index, &handle, page_type_index, false);
+        std::unique_ptr<DataPage> data = std::make_unique<DataPage>(1024);
+        std::unique_ptr<DataPage> index = std::make_unique<DataPage>(1024);
+        cache.insert(key, data.release(), &handle, page_type_data, false);
+        cache.insert(key, index.release(), &handle, page_type_index, false);
     }
 
     // cache miss by key
     {
         PageCacheHandle data_handle, index_handle;
-        StoragePageCache::CacheKey miss_key("abc", 1);
+        StoragePageCache::CacheKey miss_key("abc", 0, 1);
         auto found_data = cache.lookup(miss_key, &data_handle, page_type_data);
         auto found_index = cache.lookup(miss_key, &index_handle, page_type_index);
         EXPECT_FALSE(found_data);
@@ -224,13 +235,12 @@ TEST(StoragePageCacheTest, mixed_pages) {
     // cache miss by page type
     {
         PageCacheHandle data_handle, index_handle;
-        StoragePageCache::CacheKey miss_key_data("data_miss", 1);
-        StoragePageCache::CacheKey miss_key_index("index_miss", 1);
-        char* buf_data = new char[1024];
-        char* buf_index = new char[1024];
-        Slice data(buf_data, 1024), index(buf_index, 1024);
-        cache.insert(miss_key_data, data, &data_handle, page_type_data, false);
-        cache.insert(miss_key_index, index, &index_handle, page_type_index, false);
+        StoragePageCache::CacheKey miss_key_data("data_miss", 0, 1);
+        StoragePageCache::CacheKey miss_key_index("index_miss", 0, 1);
+        std::unique_ptr<DataPage> data = std::make_unique<DataPage>(1024);
+        std::unique_ptr<DataPage> index = std::make_unique<DataPage>(1024);
+        cache.insert(miss_key_data, data.release(), &data_handle, page_type_data, false);
+        cache.insert(miss_key_index, index.release(), &index_handle, page_type_index, false);
 
         auto found_data = cache.lookup(miss_key_data, &data_handle, page_type_index);
         auto found_index = cache.lookup(miss_key_index, &index_handle, page_type_data);

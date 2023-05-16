@@ -373,7 +373,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_broker_mgr);
     SAFE_DELETE(_bfd_parser);
     SAFE_DELETE(_load_path_mgr);
-    SAFE_DELETE(_master_info);
     SAFE_DELETE(_pipeline_task_scheduler);
     SAFE_DELETE(_pipeline_task_group_scheduler);
     SAFE_DELETE(_fragment_mgr);
@@ -386,6 +385,18 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
+    // Master Info is a thrift object, it could be the last one to deconstruct.
+    // Master info should be deconstruct later than fragment manager, because fragment will
+    // access master_info.backend id to access some info. If there is a running query and master
+    // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
+    SAFE_DELETE(_master_info);
+
+    _send_batch_thread_pool.reset(nullptr);
+    _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _send_report_thread_pool.reset(nullptr);
+    _join_node_thread_pool.reset(nullptr);
+    _serial_download_cache_thread_token.reset(nullptr);
+    _download_cache_thread_pool.reset(nullptr);
 
     _is_init = false;
 }

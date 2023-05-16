@@ -2711,3 +2711,15 @@ show data （其他用法：HELP SHOW DATA）
 默认值：128
 
 用于限制parallel_fragment_exec_instance_num的设置，set parallel_fragment_exec_instance_num不能超过max_instance_num
+
+#### `enable_query_hit_stats`
+
+<version since="dev"></version>
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+控制是否启用查询命中率统计。默认为 false。

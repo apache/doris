@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.external.MetadataScanNode;
@@ -25,6 +26,20 @@ import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
 public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf {
+    public static Integer getColumnIndexFromColumnName(TMetadataType type, String columnName)
+                                    throws AnalysisException {
+        switch (type) {
+            case BACKENDS:
+                return BackendsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case ICEBERG:
+                return IcebergTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case RESOURCE_GROUPS:
+                return ResourceGroupsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            default:
+                throw new AnalysisException("Unknown Metadata TableValuedFunction type");
+        }
+    }
+
     public abstract TMetadataType getMetadataType();
 
     public abstract TMetaScanRange getMetaScanRange();

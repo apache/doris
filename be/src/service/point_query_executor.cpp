@@ -23,6 +23,8 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <stdlib.h>
 
+#include <vector>
+
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
@@ -284,11 +286,15 @@ Status PointQueryExecutor::_lookup_row_data() {
         if (!_row_read_ctxs[i]._row_location.has_value()) {
             continue;
         }
+        std::string value;
         RETURN_IF_ERROR(_tablet->lookup_row_data(
                 _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
                 *(_row_read_ctxs[i]._rowset_ptr), _reusable->tuple_desc(),
-                _profile_metrics.read_stats, _result_block.get(),
+                _profile_metrics.read_stats, value,
                 !config::disable_storage_row_cache /*whether write row cache*/));
+        // serilize value to block, currently only jsonb row formt
+        vectorized::JsonbSerializeUtil::jsonb_to_block(*_reusable->tuple_desc(), value.data(),
+                                                       value.size(), *_result_block);
     }
     return Status::OK();
 }

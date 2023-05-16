@@ -34,6 +34,7 @@ public class FileSplit implements Split {
     // -1 means unset.
     // If the file length is not set, the file length will be fetched from the file system.
     protected long fileLength;
+    protected long modificationTime;
     protected String[] hosts;
     protected TableFormatType tableFormatType;
     // The values of partitions.
@@ -42,13 +43,19 @@ public class FileSplit implements Split {
     protected List<String> partitionValues;
 
     public FileSplit(Path path, long start, long length, long fileLength,
-                     String[] hosts, List<String> partitionValues) {
+            long modificationTime, String[] hosts, List<String> partitionValues) {
         this.path = path;
         this.start = start;
         this.length = length;
         this.fileLength = fileLength;
+        this.modificationTime = modificationTime;
         this.hosts = hosts == null ? new String[0] : hosts;
         this.partitionValues = partitionValues;
+    }
+
+    public FileSplit(Path path, long start, long length, long fileLength,
+            String[] hosts, List<String> partitionValues) {
+        this(path, start, length, fileLength, 0, hosts, partitionValues);
     }
 
     public String[] getHosts() {

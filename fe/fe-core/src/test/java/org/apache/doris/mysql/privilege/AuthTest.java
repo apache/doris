@@ -1580,7 +1580,19 @@ public class AuthTest {
         }
         Assert.assertFalse(accessManager.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
-
+        // 3.1 grant 'notBelongToResourcePrivileges' on resource 'spark0' to 'testUser'@'%'
+        for (int i = 0; i < Privilege.notBelongToResourcePrivileges.length; i++) {
+            List<AccessPrivilege> notAllowedPrivileges = Lists
+                    .newArrayList(AccessPrivilege.fromName(Privilege.notBelongToResourcePrivileges[i].getName()));
+            grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges);
+            try {
+                grantStmt.analyze(analyzer);
+                Assert.fail(String.format("Can not grant/revoke %s to/from any other users or roles",
+                        Privilege.notBelongToResourcePrivileges[i]));
+            } catch (UserException e) {
+                e.printStackTrace();
+            }
+        }
         // 4. drop user
         DropUserStmt dropUserStmt = new DropUserStmt(userIdentity);
         try {

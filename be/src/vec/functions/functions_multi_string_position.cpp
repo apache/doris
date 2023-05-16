@@ -73,14 +73,34 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
 
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>()));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        ColumnPtr haystack_ptr = block.get_by_position(arguments[0]).column;
-        ColumnPtr needles_ptr = block.get_by_position(arguments[1]).column;
+        auto haystack_column = block.get_by_position(arguments[0]).column;
+        auto haystack_ptr = haystack_column;
+
+        auto needles_column = block.get_by_position(arguments[1]).column;
+        auto needles_ptr = needles_column;
+
+        bool haystack_nullable = false;
+        bool needles_nullable = false;
+
+        if (haystack_column->is_nullable()) {
+            haystack_ptr = check_and_get_column<ColumnNullable>(haystack_column.get())
+                                   ->get_nested_column_ptr();
+            haystack_nullable = true;
+        }
+
+        if (needles_column->is_nullable()) {
+            needles_ptr = check_and_get_column<ColumnNullable>(needles_column.get())
+                                  ->get_nested_column_ptr();
+            needles_nullable = true;
+        }
 
         const ColumnString* col_haystack_vector =
                 check_and_get_column<ColumnString>(&*haystack_ptr);
@@ -122,6 +142,30 @@ public:
             return status;
         }
 
+        if (haystack_nullable) {
+            auto column_nullable = check_and_get_column<ColumnNullable>(haystack_column.get());
+            auto& null_map = column_nullable->get_null_map_data();
+            for (size_t i = 0; i != input_rows_count; ++i) {
+                if (null_map[i] == 1) {
+                    for (size_t offset = offsets_res[i - 1]; offset != offsets_res[i]; ++offset) {
+                        vec_res[offset] = 0;
+                    }
+                }
+            }
+        }
+
+        if (needles_nullable) {
+            auto column_nullable = check_and_get_column<ColumnNullable>(needles_column.get());
+            auto& null_map = column_nullable->get_null_map_data();
+            for (size_t i = 0; i != input_rows_count; ++i) {
+                if (null_map[i] == 1) {
+                    for (size_t offset = offsets_res[i - 1]; offset != offsets_res[i]; ++offset) {
+                        vec_res[offset] = 0;
+                    }
+                }
+            }
+        }
+
         auto nullable_col =
                 ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_res->size(), 0));
         block.get_by_position(result).column =
@@ -151,6 +195,9 @@ public:
         std::vector<SingleSearcher> searchers;
         searchers.reserve(needles_size);
         for (const auto& needle : needles_arr) {
+            if (needle.get_type() != Field::Types::String) {
+                return Status::InvalidArgument("invalid type of needle {}", needle.get_type_name());
+            }
             searchers.emplace_back(needle.get<StringRef>().data, needle.get<StringRef>().size);
         }
 

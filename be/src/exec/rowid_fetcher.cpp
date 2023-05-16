@@ -18,22 +18,26 @@
 #include "exec/rowid_fetcher.h"
 
 #include <brpc/callback.h>
-#include <brpc/controller.h>
 #include <butil/endpoint.h>
 #include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <ostream>
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "bthread/countdown_event.h"
 #include "common/config.h"
+#include "common/consts.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
 #include "olap/olap_common.h"
 #include "olap/utils.h"
@@ -48,11 +52,15 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h" // Block
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/jsonb/serialize.h"
 
 namespace doris {
 
-Status RowIDFetcher::init(DorisNodesInfo* nodes_info) {
-    for (auto [node_id, node_info] : nodes_info->nodes_info()) {
+Status RowIDFetcher::init() {
+    DorisNodesInfo nodes_info;
+    nodes_info.setNodes(_fetch_option.t_fetch_opt.nodes_info);
+    for (auto [node_id, node_info] : nodes_info.nodes_info()) {
         auto client = ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                 node_info.host, node_info.brpc_port);
         if (!client) {
@@ -65,29 +73,33 @@ Status RowIDFetcher::init(DorisNodesInfo* nodes_info) {
     return Status::OK();
 }
 
-static std::string format_rowid(const GlobalRowLoacation& location) {
-    return fmt::format("{} {} {} {}", location.tablet_id,
-                       location.row_location.rowset_id.to_string(),
-                       location.row_location.segment_id, location.row_location.row_id);
-}
-
-PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnString& row_ids) {
+PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnString& row_locs) const {
     PMultiGetRequest mget_req;
-    _tuple_desc->to_protobuf(mget_req.mutable_desc());
-    for (auto slot : _tuple_desc->slots()) {
+    _fetch_option.desc->to_protobuf(mget_req.mutable_desc());
+    for (SlotDescriptor* slot : _fetch_option.desc->slots()) {
+        // ignore rowid
+        if (slot->col_name() == BeConsts::ROWID_COL) {
+            continue;
+        }
         slot->to_protobuf(mget_req.add_slots());
     }
-    for (size_t i = 0; i < row_ids.size(); ++i) {
-        PMultiGetRequest::RowId row_id;
-        StringRef row_id_rep = row_ids.get_data_at(i);
+    for (size_t i = 0; i < row_locs.size(); ++i) {
+        PRowLocation row_loc;
+        StringRef row_id_rep = row_locs.get_data_at(i);
+        // TODO: When transferring data between machines with different byte orders (endianness),
+        // not performing proper handling may lead to issues in parsing and exchanging the data.
         auto location = reinterpret_cast<const GlobalRowLoacation*>(row_id_rep.data);
-        row_id.set_tablet_id(location->tablet_id);
-        row_id.set_rowset_id(location->row_location.rowset_id.to_string());
-        row_id.set_segment_id(location->row_location.segment_id);
-        row_id.set_ordinal_id(location->row_location.row_id);
-        *mget_req.add_rowids() = std::move(row_id);
+        row_loc.set_tablet_id(location->tablet_id);
+        row_loc.set_rowset_id(location->row_location.rowset_id.to_string());
+        row_loc.set_segment_id(location->row_location.segment_id);
+        row_loc.set_ordinal_id(location->row_location.row_id);
+        *mget_req.add_row_locs() = std::move(row_loc);
     }
-    mget_req.set_be_exec_version(_st->be_exec_version());
+    PUniqueId& query_id = *mget_req.mutable_query_id();
+    query_id.set_hi(_fetch_option.runtime_state->query_id().hi);
+    query_id.set_lo(_fetch_option.runtime_state->query_id().lo);
+    mget_req.set_be_exec_version(_fetch_option.runtime_state->be_exec_version());
+    mget_req.set_fetch_row_store(_fetch_option.t_fetch_opt.fetch_row_store);
     return mget_req;
 }
 
@@ -95,9 +107,12 @@ static void fetch_callback(bthread::CountdownEvent* counter) {
     Defer __defer([&] { counter->signal(); });
 }
 
-static Status MergeRPCResults(const std::vector<PMultiGetResponse>& rsps,
-                              const std::vector<brpc::Controller>& cntls,
-                              vectorized::MutableBlock* output_block) {
+Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
+                                        const std::vector<PMultiGetResponse>& rsps,
+                                        const std::vector<brpc::Controller>& cntls,
+                                        vectorized::Block* output_block,
+                                        std::vector<PRowLocation>* rows_id) const {
+    output_block->clear();
     for (const auto& cntl : cntls) {
         if (cntl.Failed()) {
             LOG(WARNING) << "Failed to fetch meet rpc error:" << cntl.ErrorText()
@@ -105,25 +120,61 @@ static Status MergeRPCResults(const std::vector<PMultiGetResponse>& rsps,
             return Status::InternalError(cntl.ErrorText());
         }
     }
-    for (const auto& resp : rsps) {
+
+    auto merge_function = [&](const PMultiGetResponse& resp) {
         Status st(resp.status());
         if (!st.ok()) {
             LOG(WARNING) << "Failed to fetch " << st.to_string();
             return st;
         }
+        for (const PRowLocation& row_id : resp.row_locs()) {
+            rows_id->push_back(row_id);
+        }
+        // Merge binary rows
+        if (request.fetch_row_store()) {
+            CHECK(resp.row_locs().size() == resp.binary_row_data_size());
+            if (output_block->is_empty_column()) {
+                *output_block = vectorized::Block(_fetch_option.desc->slots(), 1);
+            }
+            for (int i = 0; i < resp.binary_row_data_size(); ++i) {
+                vectorized::JsonbSerializeUtil::jsonb_to_block(
+                        *_fetch_option.desc, resp.binary_row_data(i).data(),
+                        resp.binary_row_data(i).size(), *output_block);
+            }
+            return Status::OK();
+        }
+        // Merge partial blocks
         vectorized::Block partial_block(resp.block());
-        output_block->merge(partial_block);
+        CHECK(resp.row_locs().size() == partial_block.rows());
+        if (output_block->is_empty_column()) {
+            output_block->swap(partial_block);
+        } else if (partial_block.columns() != output_block->columns()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Merge block not match, self:[{}], input:[{}], ", output_block->dump_types(),
+                    partial_block.dump_types());
+        } else {
+            for (int i = 0; i < output_block->columns(); ++i) {
+                output_block->get_by_position(i).column->assume_mutable()->insert_range_from(
+                        *partial_block.get_by_position(i)
+                                 .column->convert_to_full_column_if_const()
+                                 .get(),
+                        0, partial_block.rows());
+            }
+        }
+        return Status::OK();
+    };
+
+    for (const auto& resp : rsps) {
+        RETURN_IF_ERROR(merge_function(resp));
     }
     return Status::OK();
 }
 
-Status RowIDFetcher::fetch(const vectorized::ColumnPtr& row_ids,
-                           vectorized::MutableBlock* res_block) {
+Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
+                           vectorized::Block* res_block) {
     CHECK(!_stubs.empty());
-    res_block->clear_column_data();
-    vectorized::MutableBlock mblock({_tuple_desc}, row_ids->size());
     PMultiGetRequest mget_req = _init_fetch_request(assert_cast<const vectorized::ColumnString&>(
-            *vectorized::remove_nullable(row_ids).get()));
+            *vectorized::remove_nullable(column_row_ids).get()));
     std::vector<PMultiGetResponse> resps(_stubs.size());
     std::vector<brpc::Controller> cntls(_stubs.size());
     bthread::CountdownEvent counter(_stubs.size());
@@ -133,20 +184,51 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& row_ids,
         _stubs[i]->multiget_data(&cntls[i], &mget_req, &resps[i], callback);
     }
     counter.wait();
-    RETURN_IF_ERROR(MergeRPCResults(resps, cntls, &mblock));
-    // final sort by row_ids sequence, since row_ids is already sorted
-    vectorized::Block tmp = mblock.to_block();
-    std::unordered_map<std::string, uint32_t> row_order;
-    vectorized::ColumnPtr row_id_column = tmp.get_columns().back();
-    for (size_t x = 0; x < row_id_column->size(); ++x) {
+
+    // Merge
+    std::vector<PRowLocation> rows_locs;
+    rows_locs.reserve(rows_locs.size());
+    RETURN_IF_ERROR(_merge_rpc_results(mget_req, resps, cntls, res_block, &rows_locs));
+
+    // Final sort by row_ids sequence, since row_ids is already sorted if need
+    std::map<GlobalRowLoacation, size_t> positions;
+    for (size_t i = 0; i < rows_locs.size(); ++i) {
+        RowsetId rowset_id;
+        rowset_id.init(rows_locs[i].rowset_id());
+        GlobalRowLoacation grl(rows_locs[i].tablet_id(), rowset_id, rows_locs[i].segment_id(),
+                               rows_locs[i].ordinal_id());
+        positions[grl] = i;
+    };
+    vectorized::IColumn::Permutation permutation;
+    permutation.reserve(column_row_ids->size());
+    for (size_t i = 0; i < column_row_ids->size(); ++i) {
         auto location =
-                reinterpret_cast<const GlobalRowLoacation*>(row_id_column->get_data_at(x).data);
-        row_order[format_rowid(*location)] = x;
+                reinterpret_cast<const GlobalRowLoacation*>(column_row_ids->get_data_at(i).data);
+        permutation.push_back(positions[*location]);
     }
-    for (size_t x = 0; x < row_ids->size(); ++x) {
-        auto location = reinterpret_cast<const GlobalRowLoacation*>(row_ids->get_data_at(x).data);
-        res_block->add_row(&tmp, row_order[format_rowid(*location)]);
+    size_t num_rows = res_block->rows();
+    for (size_t i = 0; i < res_block->columns(); ++i) {
+        res_block->get_by_position(i).column =
+                res_block->get_by_position(i).column->permute(permutation, num_rows);
     }
+    // shrink for char type
+    std::vector<size_t> char_type_idx;
+    for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
+        auto column_desc = _fetch_option.desc->slots()[i];
+        auto type_desc = column_desc->type();
+        do {
+            if (type_desc.type == TYPE_CHAR) {
+                char_type_idx.emplace_back(i);
+                break;
+            } else if (type_desc.type != TYPE_ARRAY) {
+                break;
+            }
+            // for Array<Char> or Array<Array<Char>>
+            type_desc = type_desc.children[0];
+        } while (true);
+    }
+    res_block->shrink_char_type_column_suffix_zero(char_type_idx);
+    VLOG_DEBUG << "dump block:" << res_block->dump_data(0, 10);
     return Status::OK();
 }
 

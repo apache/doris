@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
@@ -65,17 +66,22 @@ public class MapLiteral extends LiteralExpr {
             throw new AnalysisException("Invalid value type in Map.");
         }
 
-        for (int idx = 0; idx < exprs.length && idx + 1 < exprs.length; idx += 2) {
-            if (exprs[idx].getType().equals(keyType)) {
-                children.add(exprs[idx]);
-            } else {
-                children.add(exprs[idx].castTo(keyType));
+        try {
+            for (int idx = 0; idx < exprs.length && idx + 1 < exprs.length; idx += 2) {
+                if (exprs[idx].getType().equals(keyType)) {
+                    children.add(exprs[idx]);
+                } else {
+                    children.add(exprs[idx].convertTo(keyType));
+                }
+                if (exprs[idx + 1].getType().equals(valueType)) {
+                    children.add(exprs[idx + 1]);
+                } else {
+                    children.add(exprs[idx + 1].convertTo(valueType));
+                }
             }
-            if (exprs[idx + 1].getType().equals(valueType)) {
-                children.add(exprs[idx + 1]);
-            } else {
-                children.add(exprs[idx + 1].castTo(valueType));
-            }
+        } catch (AnalysisException e) {
+            String s = "{" + StringUtils.join(exprs, ',') + "}";
+            throw new AnalysisException("Invalid Map " + s + " literal: " + e.getMessage());
         }
 
         type = new MapType(keyType, valueType);
@@ -83,6 +89,19 @@ public class MapLiteral extends LiteralExpr {
 
     protected MapLiteral(MapLiteral other) {
         super(other);
+    }
+
+    @Override
+    public LiteralExpr convertTo(Type targetType) throws AnalysisException {
+        Preconditions.checkState(targetType instanceof MapType);
+        Type keyType = ((MapType) targetType).getKeyType();
+        Type valType = ((MapType) targetType).getValueType();
+        LiteralExpr[] literals = new LiteralExpr[children.size()];
+        for (int i = 0; i < children.size(); i += 2) {
+            literals[i] = (LiteralExpr) Expr.convertLiteral(children.get(i), keyType);
+            literals[i + 1] = (LiteralExpr) Expr.convertLiteral(children.get(i + 1), valType);
+        }
+        return new MapLiteral(literals);
     }
 
     @Override
@@ -95,8 +114,15 @@ public class MapLiteral extends LiteralExpr {
         Type valueType = ((MapType) targetType).getValueType();
 
         for (int i = 0; i < children.size() &&  i + 1 < children.size(); i += 2) {
-            literal.children.set(i, children.get(i).uncheckedCastTo(keyType));
-            literal.children.set(i + 1, children.get(i + 1).uncheckedCastTo(valueType));
+            Expr key = Expr.convertLiteral(children.get(i), keyType);
+            Expr value = Expr.convertLiteral(children.get(i + 1), valueType);
+            // all children should be literal or else it will make be core
+            if ((!key.isLiteral()) || (!value.isLiteral())) {
+                throw new AnalysisException("Unexpected map literal cast failed. from type: "
+                        + this.type + ", to type: " + targetType);
+            }
+            literal.children.set(i, key);
+            literal.children.set(i + 1, value);
         }
         literal.setType(targetType);
         return literal;
@@ -107,6 +133,20 @@ public class MapLiteral extends LiteralExpr {
         for (Expr e : children) {
             e.checkValueValid();
         }
+    }
+
+    @Override
+    public String getStringValue() {
+        List<String> list = new ArrayList<>(children.size());
+        for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
+            list.add(children.get(i).getStringValue() + ":" + children.get(i + 1).getStringValue());
+        }
+        return "{" + StringUtils.join(list, ", ") + "}";
+    }
+
+    @Override
+    public String getStringValueForArray() {
+        return null;
     }
 
     @Override
@@ -165,15 +205,5 @@ public class MapLiteral extends LiteralExpr {
         for (Expr e : children) {
             Expr.writeTo(e, out);
         }
-    }
-
-    @Override
-    public String getStringValue() {
-        return toSqlImpl();
-    }
-
-    @Override
-    public String getStringValueForArray() {
-        return null;
     }
 }
