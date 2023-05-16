@@ -19,6 +19,8 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 
 import java.util.Optional;
@@ -29,13 +31,15 @@ import java.util.Optional;
 public class LogicalOlapTableSinkToPhysicalOlapTableSink extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalOlapTableSink().then(sink ->
-                new PhysicalOlapTableSink<>(
-                        sink.getTargetTable(),
-                        sink.getPartitionIds(),
-                        Optional.empty(),
-                        sink.getLogicalProperties(),
-                        sink.child())
-        ).toRule(RuleType.LOGICAL_OLAP_TABLE_SINK_TO_PHYSICAL_OLAP_TABLE_SINK_RULE);
+        return logicalOlapTableSink().thenApply(ctx -> {
+            LogicalOlapTableSink<? extends Plan> sink = ctx.root;
+            return new PhysicalOlapTableSink<>(
+                    sink.getTargetTable(),
+                    sink.getPartitionIds(),
+                    ctx.connectContext.getSessionVariable().isEnableSingleReplicaInsert(),
+                    Optional.empty(),
+                    sink.getLogicalProperties(),
+                    sink.child());
+        }).toRule(RuleType.LOGICAL_OLAP_TABLE_SINK_TO_PHYSICAL_OLAP_TABLE_SINK_RULE);
     }
 }

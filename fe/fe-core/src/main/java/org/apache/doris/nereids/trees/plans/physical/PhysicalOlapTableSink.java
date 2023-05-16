@@ -40,33 +40,48 @@ import java.util.Optional;
 public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
     private final OlapTable targetTable;
     private final List<Long> partitionIds;
+    private final boolean singleReplicaLoad;
 
-    public PhysicalOlapTableSink(OlapTable targetTable, List<Long> partitionIds,
+    public PhysicalOlapTableSink(OlapTable targetTable, List<Long> partitionIds, boolean singleReplicaLoad,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(targetTable, partitionIds, Optional.empty(), logicalProperties, child);
+        this(targetTable, partitionIds, singleReplicaLoad, Optional.empty(), logicalProperties, child);
     }
 
-    public PhysicalOlapTableSink(OlapTable targetTable, List<Long> partitionIds,
+    public PhysicalOlapTableSink(OlapTable targetTable, List<Long> partitionIds, boolean singleReplicaLoad,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
         this.targetTable = Preconditions.checkNotNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
         this.partitionIds = Preconditions.checkNotNull(partitionIds, "partitionIds != null in PhysicalOlapTableSink");
+        this.singleReplicaLoad = singleReplicaLoad;
     }
 
-    public PhysicalOlapTableSink(OlapTable targetTable, List<Long> partitionIds,
+    public PhysicalOlapTableSink(OlapTable targetTable, List<Long> partitionIds, boolean singleReplicaLoad,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, physicalProperties,
                 statistics, child);
         this.targetTable = Preconditions.checkNotNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
         this.partitionIds = Preconditions.checkNotNull(partitionIds, "partitionIds != null in PhysicalOlapTableSink");
+        this.singleReplicaLoad = singleReplicaLoad;
+    }
+
+    public OlapTable getTargetTable() {
+        return targetTable;
+    }
+
+    public List<Long> getPartitionIds() {
+        return partitionIds;
+    }
+
+    public boolean isSingleReplicaLoad() {
+        return singleReplicaLoad;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalOlapTableSink only accepts one child");
-        return new PhysicalOlapTableSink<>(targetTable, partitionIds, getLogicalProperties(), children.get(0));
+        return new PhysicalOlapTableSink<>(targetTable, partitionIds, singleReplicaLoad, getLogicalProperties(), children.get(0));
     }
 
     @Override
@@ -102,19 +117,19 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOlapTableSink<>(targetTable, partitionIds, groupExpression,
+        return new PhysicalOlapTableSink<>(targetTable, partitionIds, singleReplicaLoad, groupExpression,
                 getLogicalProperties(), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalOlapTableSink<>(targetTable, partitionIds, groupExpression,
+        return new PhysicalOlapTableSink<>(targetTable, partitionIds, singleReplicaLoad, groupExpression,
                 logicalProperties.get(), child());
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalOlapTableSink<>(targetTable, partitionIds, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, child());
+        return new PhysicalOlapTableSink<>(targetTable, partitionIds, singleReplicaLoad, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child());
     }
 }

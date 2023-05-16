@@ -98,6 +98,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -132,6 +133,7 @@ import org.apache.doris.planner.JdbcScanNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RepeatNode;
@@ -281,6 +283,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Collections.reverse(context.getPlanFragments());
         context.getDescTable().computeMemLayout();
         return rootFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
+            PlanTranslatorContext context) {
+        PlanFragment fragment = olapTableSink.child().accept(this, context);
+        TupleDescriptor descriptor = fragment.getPlanRoot().getOutputTupleDesc();
+        OlapTableSink sink = new OlapTableSink(
+                olapTableSink.getTargetTable(),
+                descriptor,
+                olapTableSink.getPartitionIds(),
+                olapTableSink.isSingleReplicaLoad()
+        );
+        fragment.resetSink(sink);
+        return fragment;
     }
 
     /**
