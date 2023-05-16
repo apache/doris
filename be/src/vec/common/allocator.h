@@ -77,6 +77,11 @@ static constexpr size_t CHUNK_THRESHOLD = 4096;
 static constexpr size_t MMAP_MIN_ALIGNMENT = 4096;
 static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 
+// The memory for __int128 should be aligned to 16 bytes.
+// By the way, in 64-bit system, the address of a block returned by malloc or realloc in GNU systems
+// is always a multiple of sixteen. (https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html)
+static constexpr int ALLOCATOR_ALIGNMENT_16 = 16;
+
 /** Responsible for allocating / freeing memory. Used, for example, in PODArray, Arena.
   * Also used in hash tables.
   * The interface is different from std::allocator
