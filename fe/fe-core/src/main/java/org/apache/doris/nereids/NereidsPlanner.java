@@ -46,9 +46,8 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -348,14 +347,8 @@ public class NereidsPlanner extends Planner {
 
     private void adjustRequiredProperties(Plan plan) {
         PhysicalProperties properties = null;
-        if (statementContext.getParsedStatement() != null) {
-            Plan parsedStmt = ((LogicalPlanAdapter) statementContext.getParsedStatement()).getLogicalPlan();
-            if (parsedStmt instanceof ExplainCommand) {
-                parsedStmt = ((ExplainCommand) parsedStmt).getLogicalPlan();
-            }
-            if (parsedStmt instanceof InsertIntoTableCommand) {
-                properties = ((InsertIntoTableCommand) parsedStmt).calculatePhysicalProperties(plan.getOutput());
-            }
+        if (plan instanceof LogicalOlapTableSink) {
+            properties = ((LogicalOlapTableSink<?>) plan).calculatePhysicalProperties();
         }
         if (properties == null) {
             properties = PhysicalProperties.GATHER;

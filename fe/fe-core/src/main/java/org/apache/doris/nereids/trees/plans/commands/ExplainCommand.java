@@ -66,9 +66,6 @@ public class ExplainCommand extends Command implements NoForward {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         LogicalPlan plan = logicalPlan;
-        if (logicalPlan instanceof InsertIntoTableCommand) {
-            plan = ((InsertIntoTableCommand) plan).initTargetTableAndGetQuery(ctx);
-        }
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
         logicalPlanAdapter.setIsExplain(new ExplainOptions(level));
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());

@@ -73,6 +73,10 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
         this.singleReplicaLoad = singleReplicaLoad;
     }
 
+    public Database getDatabase() {
+        return database;
+    }
+
     public OlapTable getTargetTable() {
         return targetTable;
     }
