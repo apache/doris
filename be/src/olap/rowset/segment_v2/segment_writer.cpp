@@ -105,7 +105,7 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
     meta->set_encoding(DEFAULT_ENCODING);
-    meta->set_compression(tablet_schema->compression_type());
+    meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
@@ -143,6 +143,10 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
     _column_writers.reserve(_tablet_schema->columns().size());
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    _opts.compression_type =
+            (block == nullptr || block->bytes() > config::segment_compression_threshold_kb * 1024)
+                    ? _tablet_schema->compression_type()
+                    : NO_COMPRESSION;
     auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();

@@ -785,6 +785,10 @@ DECLARE_Int64(download_cache_buffer_size);
 // When doing compaction, each segment may take at least 1MB buffer.
 DECLARE_mInt32(max_segment_num_per_rowset);
 
+// Store segment without compression if a segment is smaller than
+// segment_compression_threshold_kb.
+DECLARE_mInt32(segment_compression_threshold_kb);
+
 // The connection timeout when connecting to external table such as odbc table.
 DECLARE_mInt32(external_table_connect_timeout_sec);
 
