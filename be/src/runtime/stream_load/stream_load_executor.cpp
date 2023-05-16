@@ -19,7 +19,6 @@
 
 #include <bvar/bvar.h>
 #include <bvar/latency_recorder.h>
-
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
