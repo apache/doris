@@ -56,6 +56,7 @@ public class TableProperty implements Writable {
 
     // the follower variables are built from "properties"
     private DynamicPartitionProperty dynamicPartitionProperty = new DynamicPartitionProperty(Maps.newHashMap());
+    private AutomaticPartitionProperty automaticPartitionProperty = new AutomaticPartitionProperty(Maps.newHashMap());
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
 
@@ -153,6 +154,22 @@ public class TableProperty implements Writable {
             }
         }
         dynamicPartitionProperty = new DynamicPartitionProperty(dynamicPartitionProperties);
+        return this;
+    }
+
+    public TableProperty buildAutomaticProperty() {
+        executeBuildAutomaticProperty();
+        return this;
+    }
+
+    private TableProperty executeBuildAutomaticProperty() {
+        HashMap<String, String> automaticPartitionProperties = new HashMap<>();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+                automaticPartitionProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
+        automaticPartitionProperty = new AutomaticPartitionProperty(automaticPartitionProperties);
         return this;
     }
 
@@ -328,6 +345,10 @@ public class TableProperty implements Writable {
 
     public DynamicPartitionProperty getDynamicPartitionProperty() {
         return dynamicPartitionProperty;
+    }
+
+    public AutomaticPartitionProperty getAutomaticPartitionProperty() {
+        return automaticPartitionProperty;
     }
 
     public Map<String, String> getOriginDynamicPartitionProperty() {

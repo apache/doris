@@ -120,6 +120,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.util.AutomaticPartitionUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -2260,10 +2261,21 @@ public class InternalCatalog implements CatalogIf<Database> {
                             new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
+                        AutomaticPartitionUtil.checkAndSetAutomaticPartitionProperty(olapTable, properties, db);
+                        if (olapTable.getTableProperty().getDynamicPartitionProperty().isExist()
+                                && olapTable.getTableProperty().getAutomaticPartitionProperty().isExist()) {
+                            throw new DdlException(
+                                "Only support dynamic partition or automatic partition, not both at once");
+                        }
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
                         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                             throw new DdlException(
                                     "Only support dynamic partition properties on range partition table");
+
+                        }
+                        if (AutomaticPartitionUtil.checkAutomaticPartitionPropertiesExist(properties)) {
+                            throw new DdlException(
+                                "Only support automatic partition properties on range partition table");
 
                         }
                     }
