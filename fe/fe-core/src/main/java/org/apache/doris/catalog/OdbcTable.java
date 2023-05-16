@@ -103,8 +103,14 @@ public class OdbcTable extends Table {
     }
 
     private static String saphanaProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
+        int index = name.indexOf(".");
+        if (index == -1) {
+            return "\"" + name + "\"";
+        } else {
+            String schemaName = name.substring(0, index);
+            String tableName = name.substring(index + 1);
+            return "\"" + schemaName + "\".\"" + tableName + "\"";
+        }
     }
 
     private static String trinoProperName(String name) {
