@@ -41,30 +41,29 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX = new ImmutableMap.Builder<String, Integer>()
             .put("backendid", 0)
             .put("cluster", 1)
-            .put("ip", 2)
-            .put("hostname", 3)
-            .put("heartbeatport", 4)
-            .put("beport", 5)
-            .put("httpport", 6)
-            .put("brpcport", 7)
-            .put("laststarttime", 8)
-            .put("lastheartbeat", 9)
-            .put("alive", 10)
-            .put("systemdecommissioned", 11)
-            .put("clusterdecommissioned", 12)
-            .put("tabletnum", 13)
-            .put("datausedcapacity", 14)
-            .put("availcapacity", 15)
-            .put("totalcapacity", 16)
-            .put("usedpct", 17)
-            .put("maxdiskusedpct", 18)
-            .put("remoteusedcapacity", 19)
-            .put("tag", 20)
-            .put("errmsg", 21)
-            .put("version", 22)
-            .put("status", 23)
-            .put("heartbeatfailurecounter", 24)
-            .put("noderole", 25)
+            .put("host", 2)
+            .put("heartbeatport", 3)
+            .put("beport", 4)
+            .put("httpport", 5)
+            .put("brpcport", 6)
+            .put("laststarttime", 7)
+            .put("lastheartbeat", 8)
+            .put("alive", 9)
+            .put("systemdecommissioned", 10)
+            .put("clusterdecommissioned", 11)
+            .put("tabletnum", 12)
+            .put("datausedcapacity", 13)
+            .put("availcapacity", 14)
+            .put("totalcapacity", 15)
+            .put("usedpct", 16)
+            .put("maxdiskusedpct", 17)
+            .put("remoteusedcapacity", 18)
+            .put("tag", 19)
+            .put("errmsg", 20)
+            .put("version", 21)
+            .put("status", 22)
+            .put("heartbeatfailurecounter", 23)
+            .put("noderole", 24)
             .build();
 
     public static Integer getColumnIndexFromColumnName(String columnName) {
@@ -102,8 +101,7 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
         List<Column> resColumns = Lists.newArrayList();
         resColumns.add(new Column("BackendId", ScalarType.createType(PrimitiveType.BIGINT)));
         resColumns.add(new Column("Cluster", ScalarType.createStringType()));
-        resColumns.add(new Column("IP", ScalarType.createStringType()));
-        resColumns.add(new Column("HostName", ScalarType.createStringType()));
+        resColumns.add(new Column("Host", ScalarType.createStringType()));
         resColumns.add(new Column("HeartbeatPort", ScalarType.createType(PrimitiveType.INT)));
         resColumns.add(new Column("BePort", ScalarType.createType(PrimitiveType.INT)));
         resColumns.add(new Column("HttpPort", ScalarType.createType(PrimitiveType.INT)));
