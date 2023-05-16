@@ -210,7 +210,6 @@ public class OlapTableSink extends DataSink {
         schemaParam.setTableId(table.getId());
         schemaParam.setVersion(table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
         schemaParam.setIsDynamicSchema(table.isDynamicSchema());
-        schemaParam.setEnable_automatic_partition(table.automaticPartitionExists());
 
         schemaParam.tuple_desc = tupleDescriptor.toThrift();
         for (SlotDescriptor slotDesc : tupleDescriptor.getSlots()) {
@@ -275,6 +274,7 @@ public class OlapTableSink extends DataSink {
         partitionParam.setDbId(dbId);
         partitionParam.setTableId(table.getId());
         partitionParam.setVersion(0);
+        partitionParam.setEnableAutomaticPartition(table.automaticPartitionEnable());
 
         PartitionType partType = table.getPartitionInfo().getType();
         switch (partType) {
