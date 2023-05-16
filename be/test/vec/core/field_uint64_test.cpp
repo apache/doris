@@ -1,6 +1,6 @@
 #include "vec/common/uint128.h"
 #include "vec/core/field.h"
-
+#include "vec/data_types/data_type_time_v2.h"
 #include "gutil/integral_types.h"
 
 #include <gen_cpp/segment_v2.pb.h>
@@ -216,7 +216,8 @@ TEST(FieldTest, Test_Field_DateTime) {
 TEST(FieldTest, Test_Field_DateTimeV2) {
     constexpr DateTimeV2 val1(114514);
     Field a(val1);
-    
+    auto x = create_datetimev2(UInt64(1123));
+    x->to_string();
     Field field_DateTimeV2(a);
     auto b = get<DateTimeV2>(field_DateTimeV2);
     
