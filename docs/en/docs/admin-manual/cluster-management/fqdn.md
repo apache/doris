@@ -26,57 +26,73 @@ under the License.
 
 # FQDN
 
-## Concept Introduction
-
 <version since="dev"></version>
 
-A fully qualified domain name (FQDN) is the full domain name of a specific computer or host on the Internet.
+This article introduces how to enable the use of Apache Doris based on FQDN (Fully Qualified Domain Name). FQDN is the complete domain name of a specific computer or host on the Internet.
 
-After Doris supports FQDN, you can directly specify the domain name when adding various types of nodes. For example, the command to add a be node is `ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port`,
+After Doris supports FQDN, communication between nodes is entirely based on FQDN. When adding various types of nodes, the FQDN should be directly specified. For example, the command to add a BE node is' ALT SYSTEM ADD BACK END "be_host: eartbeat_service_port",
 
-"Be_host" was previously the IP address of the be node. After starting the FQDN, be_ The host should specify the domain name of the be node.
+'be_host' was previously the IP address of the BE node. After starting the FQDN, be_ The host should specify the FQDN of the BE node.
 
 ## Preconditions
 
-1. fe.conf file set `enable_fqdn_mode = true`
-2. The fe node can resolve the domain names of all nodes in Doris
+1. fe.conf file set `enable_fqdn_mode = true`.
+2. All machines in the cluster must be configured with a host name.
+3. The IP address and FQDN corresponding to other machines in the cluster must be specified in the '/etc/hosts' file for each machine in the cluster.
+4. /The etc/hosts file cannot have duplicate IP addresses.
 
 ## Best Practices
 
+### Enable FQDN for new cluster
+
+1. Prepare machines, for example, if you want to deploy a cluster of 3FE 3BE, you can prepare 6 machines.
+2. Each machine returns unique results when executing 'host'. Assuming that the execution results of six machines are fe1, fe2, fe3, be1, be2, and be3, respectively.
+3. Configure the real IPs corresponding to 6 FQDNs in the '/etc/hosts' of 6 machines, for example:
+   ```
+   172.22.0.1 fe1
+   172.22.0.2 fe2
+   172.22.0.3 fe3
+   172.22.0.4 be1
+   172.22.0.5 be2
+   172.22.0.6 be3
+   ```
+4. Verification: It can 'ping fe2' on FE1, and can resolve the correct IP address and ping it, indicating that the network environment is available.
+5. fe.conf settings for each FE node ` enable_ fqdn_ mode = true`.
+6. Refer to[Standard deployment](../../install/standard-deployment.md)
+
 ### Deployment of Doris for K8S
 
-After an accidental restart of a pod, the K8S cannot ensure that the pod's IP address does not change, but it can ensure that the domain name remains unchanged. Based on this feature, when Doris starts fqdn, it can ensure that the pod can still provide services normally after an accidental restart.
-For the method of deploying Doris on the K8S, please refer to [K8s Deployment Doris](../../install/k8s-deploy.md)
+After an unexpected restart of the Pod, K8s cannot guarantee that the Pod's IP will not change, but it can ensure that the domain name remains unchanged. Based on this feature, when Doris enables FQDN, it can ensure that the Pod can still provide services normally after an unexpected restart.
 
-### Server switching network card
+Please refer to the method for deploying Doris in K8s[Kubernetes Deployment](../../install/k8s-deploy.md)
 
-For example, a server with a be node has two network cards with corresponding IPs of 192.192.192.2 and 10.10.10.3. Currently, the network card corresponding to 192.192.192.2 is used, and the following steps can be followed:
+### Server change IP
 
-1. Add a line '192.192.192.2 be1' to the 'etc/hosts' file of the machine where fe is located_ fqdn`
-2. Change be.conf File ` priority_ Networks=192.192.192.2 ` and start be
-3. Connect and execute the sql command ` ALTER SYSTEM ADD BACKEND "be1_fqdn: 9050`
+After deploying the cluster according to 'Enable FQDN for new cluster', if you want to change the IP of the machine, whether it is switching network cards or replacing the machine, you only need to change the '/etc/hosts' of each machine.
 
-When switching to the network card corresponding to 10.10.10.3 in the future, the following steps can be followed:
+### Enable FQDN for old cluster
 
-1. Configure '192.192.192.2 be1' for 'etc/hosts'_ Fqdn 'is changed to' 10.10.10.3 be1_ fqdn`
-
-### Legacy Cluster Enable FQDN
-
-Prerequisite: The current program supports the 'ALTER SYSTEM MODIFY FRONT "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>" syntax,
-If not, you need to upgrade to a version that supports this syntax
+Precondition: The current program supports the syntax 'Alter SYSTEM MODIFY FRONTEND'<fe_ip>:<edit_log_port>'HOSTNAME'<fe_hostname>',
+If not, upgrade to a version that supports the syntax
 
 Next, follow the steps below:
 
-1. Perform the following operations on the follower and observer nodes one by one (finally, operate the master node):
+1. Perform the following operations on the Follower and Observer nodes one by one (and finally on the Master node):
 
-    1. Stop the node
-    2. Check if the node is stopped. Execute 'show frontends' on the MySQL client to view the Alive status of the FE node until it becomes false
-    3. Set FQDN for node: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`
-    4. Modify the node configuration. Modify the 'conf/fe. conf' file in the FE root directory and add the configuration: 'enable'_ fqdn_ mode = true`
-    5. Start the node.
-    
-2. To enable FQDN for a BE node, you only need to execute the following commands through MYSQL, and there is no need to restart the BE.
+   1. Stop the node.
+   2. Check if the node has stopped. Execute 'show frontends' through the MySQL client to view the Alive status of the FE node until it becomes false
+   3. set FQDN for node: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`
+   4. Modify node configuration. Modify the 'conf/fe. conf' file in the FE root directory and add the configuration: 'enable'_ fqdn_ mode = true`
+   5. Start the node.
+
+2. Enabling FQDN for BE nodes only requires executing the following commands through MySQL, and there is no need to restart BE.
 
    `ALTER SYSTEM MODIFY BACKEND "<backend_ip>:<backend_port>" HOSTNAME "<be_hostname>"`
 
+
+## Common problem
+
+- Configuration item enable_ fqdn_ Can the mode be changed freely?
+
+  Cannot be changed arbitrarily. To change this configuration, follow the 'Enable FQDN for old cluster' procedure.
 
