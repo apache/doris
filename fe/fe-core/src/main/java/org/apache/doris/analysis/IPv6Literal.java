@@ -21,87 +21,77 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TIPv4Literal;
+import org.apache.doris.thrift.TIPv6Literal;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.Inet4Address;
+import java.math.BigInteger;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 
-public class IPv4Literal extends LiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(IPv4Literal.class);
+public class IPv6Literal extends LiteralExpr {
+    private static final Logger LOG = LogManager.getLogger(IPv6Literal.class);
 
-    public static final long IPV4_MIN = 0;            // 0.0.0.0
-    public static final long IPV4_MAX = 2L << 32 - 1; // 255.255.255.255
-    private static final long IPV4_PARSE_FAILED = 2L << 32;
+    public static final BigInteger IPV6_MIN = new BigInteger("0");
+    public static final BigInteger IPV6_MAX = new BigInteger("340282366920938463463374607431768211455"); // 2^128 - 1
 
-    private long value;
+    private BigInteger value;
 
     /**
      * C'tor forcing type, e.g., due to implicit cast
      */
     // for restore
-    private IPv4Literal() {
+    private IPv6Literal() {
     }
 
-    public IPv4Literal(String value) throws AnalysisException {
+    public IPv6Literal(String value) throws AnalysisException {
         super();
-        long result = parseIPv4toLong(value);
-        if (result != IPV4_PARSE_FAILED) {
+        BigInteger result = parseIPv6toBigInteger(value);
+        if (result != null) {
             this.value = result;
-            this.type = Type.IPV4;
+            this.type = Type.IPV6;
         } else {
-            throw new AnalysisException("Invalid IPv4 format: " + value + ". type: " + Type.IPV4);
+            throw new AnalysisException("Invalid IPv6 format: " + value + ". type: " + Type.IPV6);
         }
         analysisDone();
     }
 
-    public IPv4Literal(long value) {
+    public IPv6Literal(BigInteger value) {
         super();
         this.value = value;
-        this.type = Type.IPV4;
+        this.type = Type.IPV6;
         analysisDone();
     }
 
-    protected IPv4Literal(IPv4Literal other) {
+    protected IPv6Literal(IPv6Literal other) {
         super(other);
         this.value = other.value;
     }
 
-    private static long parseIPv4toLong(String ipv4) {
+    private static BigInteger parseIPv6toBigInteger(String ipv6) {
         try {
-            InetAddress inetAddress = InetAddress.getByName(ipv4);
-            if (inetAddress instanceof Inet4Address) {
+            InetAddress inetAddress = InetAddress.getByName(ipv6);
+            if (inetAddress instanceof Inet6Address) {
                 byte[] bytes = inetAddress.getAddress();
-                long result = 0;
-                for (byte b : bytes) {
-                    result = result << 8 | (b & 0xFF);
-                }
-                return result;
+                return new BigInteger(1, bytes);
             }
         } catch (UnknownHostException e) {
-            return IPV4_PARSE_FAILED;
+            return null;
         }
-        return IPV4_PARSE_FAILED;
+        return null;
     }
 
-    private static String parseLongToIPv4(long ipv4) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 3; i >= 0; i--) {
-            short octet = (short) ((ipv4 >> (i * 8)) & 0xFF);
-            sb.append(octet);
-            if (i > 0) {
-                sb.append(".");
-            }
+    private static String parseBigIntegerToIPv6(BigInteger ipv6) {
+        byte[] bytes = ipv6.toByteArray();
+        try {
+            InetAddress inetAddress = Inet6Address.getByAddress(bytes);
+            return inetAddress.getHostAddress();
+        } catch (UnknownHostException e) {
+            return null;
+            // throw new AnalysisException("Invalid IPv6 format: " + ipv6 + ". type: " + Type.IPV6);
         }
-        return sb.toString();
-    }
-
-    @Override
-    public Expr clone() {
-        return new IPv4Literal(this);
     }
 
     @Override
@@ -111,13 +101,18 @@ public class IPv4Literal extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.IPV4_LITERAL;
-        msg.ipv4_literal = new TIPv4Literal(value);
+        msg.node_type = TExprNodeType.IPV6_LITERAL;
+        msg.ipv6_literal = new TIPv6Literal(parseBigIntegerToIPv6(value));
+    }
+
+    @Override
+    public Expr clone() {
+        return new IPv6Literal(this);
     }
 
     @Override
     public boolean isMinValue() {
-        return this.value == IPV4_MIN;
+        return this.value == IPV6_MIN;
     }
 
     @Override
@@ -127,7 +122,7 @@ public class IPv4Literal extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        return parseLongToIPv4(value);
+        return parseBigIntegerToIPv6(value);
     }
 
     @Override

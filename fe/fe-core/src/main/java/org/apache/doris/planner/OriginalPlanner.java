@@ -281,7 +281,7 @@ public class OriginalPlanner extends Planner {
             // Check SelectStatement if optimization condition satisfied
             if (selectStmt.isPointQueryShortCircuit()) {
                 // Optimize for point query like: SELECT * FROM t1 WHERE pk1 = 1 and pk2 = 2
-                // such query will use direct RPC to do point query
+                // such query will use direcTExprNodet RPC to do point query
                 LOG.debug("it's a point query");
                 Map<SlotRef, Expr> eqConjuncts = ((SelectStmt) selectStmt).getPointQueryEQPredicates();
                 OlapScanNode olapScanNode = (OlapScanNode) singleNodePlan;

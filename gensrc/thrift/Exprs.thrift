@@ -32,6 +32,8 @@ enum TExprNodeType {
   DATE_LITERAL,
   FLOAT_LITERAL,
   INT_LITERAL,
+  IPV4_LITERAL,
+  IPV6_LITERAL,
   DECIMAL_LITERAL,
   IN_PRED,
   IS_NULL_PRED,
@@ -127,6 +129,14 @@ struct TLargeIntLiteral {
   1: required string value
 }
 
+struct TIPv4Literal {
+  1: required i64 value
+}
+
+struct TIPv6Literal {
+  1: required string value
+}
+
 struct TInPredicate {
   1: required bool is_not_in
 }
@@ -214,27 +224,29 @@ struct TExprNode {
   17: optional TTupleIsNullPredicate tuple_is_null_pred
   18: optional TInfoFunc info_func
   19: optional TDecimalLiteral decimal_literal
+  20: optional TIPv4Literal ipv4_literal
+  21: optional TIPv6Literal ipv6_literal
 
-  20: required i32 output_scale
-  21: optional TFunctionCallExpr fn_call_expr
-  22: optional TLargeIntLiteral large_int_literal
+  22: required i32 output_scale
+  23: optional TFunctionCallExpr fn_call_expr
+  24: optional TLargeIntLiteral large_int_literal
 
-  23: optional i32 output_column
-  24: optional Types.TColumnType output_type
-  25: optional Opcodes.TExprOpcode vector_opcode
+  25: optional i32 output_column
+  26: optional Types.TColumnType output_type
+  27: optional Opcodes.TExprOpcode vector_opcode
   // The function to execute. Not set for SlotRefs and Literals.
-  26: optional Types.TFunction fn
+  28: optional Types.TFunction fn
   // If set, child[vararg_start_idx] is the first vararg child.
-  27: optional i32 vararg_start_idx
-  28: optional Types.TPrimitiveType child_type
+  29: optional i32 vararg_start_idx
+  30: optional Types.TPrimitiveType child_type
 
   // For vectorized engine
-  29: optional bool is_nullable
+  31: optional bool is_nullable
   
-  30: optional TJsonLiteral json_literal
-  31: optional TSchemaChangeExpr schema_change_expr 
+  32: optional TJsonLiteral json_literal
+  33: optional TSchemaChangeExpr schema_change_expr
 
-  32: optional TColumnRef column_ref 
+  34: optional TColumnRef column_ref
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

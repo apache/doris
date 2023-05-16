@@ -1185,8 +1185,16 @@ public enum PrimitiveType {
                 || this == INT || this == BIGINT);
     }
 
-    public boolean isIpType() {
+    public boolean isIPType() {
         return (this == IPV4 || this == IPV6);
+    }
+
+    public boolean isIPv4Type() {
+        return (this == IPV4);
+    }
+
+    public boolean isIPv6Type() {
+        return (this == IPV6);
     }
 
     // TODO(zhaochun): Add Mysql Type to it's private field

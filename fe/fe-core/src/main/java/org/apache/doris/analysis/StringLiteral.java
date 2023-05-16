@@ -175,25 +175,12 @@ public class StringLiteral extends LiteralExpr {
     /**
      * Convert a string literal to a IPv4 literal
      *
-     * @param targetType is the desired type
      * @return new converted literal (not null)
      * @throws AnalysisException when entire given string cannot be transformed into a date
      */
-    public LiteralExpr convertToIPv4(Type targetType) throws AnalysisException {
-        LiteralExpr newLiteral = null;
-        try {
-            newLiteral = new IPv4Literal(value, targetType);
-        } catch (AnalysisException e) {
-            if (targetType.isScalarType(PrimitiveType.IPV6)) {
-                newLiteral = new IPv6Literal(value, Type.IPV6);
-                newLiteral.setType(Type.DATETIME);
-            } else if (targetType.isScalarType(PrimitiveType.DATETIMEV2)) {
-                newLiteral = new DateLiteral(value, Type.DATEV2);
-                newLiteral.setType(targetType);
-            } else {
-                throw e;
-            }
-        }
+    public LiteralExpr convertToIPv4() throws AnalysisException {
+        LiteralExpr newLiteral;
+        newLiteral = new IPv4Literal(value);
         try {
             newLiteral.checkValueValid();
         } catch (AnalysisException e) {
@@ -205,25 +192,12 @@ public class StringLiteral extends LiteralExpr {
     /**
      * Convert a string literal to a IPv6 literal
      *
-     * @param targetType is the desired type
      * @return new converted literal (not null)
      * @throws AnalysisException when entire given string cannot be transformed into a date
      */
-    public LiteralExpr convertToIPv6(Type targetType) throws AnalysisException {
-        LiteralExpr newLiteral = null;
-        try {
-            newLiteral = new IPv6Literal(value, targetType);
-        } catch (AnalysisException e) {
-            if (targetType.isScalarType(PrimitiveType.DATETIME)) {
-                newLiteral = new DateLiteral(value, Type.DATE);
-                newLiteral.setType(Type.DATETIME);
-            } else if (targetType.isScalarType(PrimitiveType.DATETIMEV2)) {
-                newLiteral = new DateLiteral(value, Type.DATEV2);
-                newLiteral.setType(targetType);
-            } else {
-                throw e;
-            }
-        }
+    public LiteralExpr convertToIPv6() throws AnalysisException {
+        LiteralExpr newLiteral;
+        newLiteral = new IPv6Literal(value);
         try {
             newLiteral.checkValueValid();
         } catch (AnalysisException e) {
@@ -334,13 +308,13 @@ public class StringLiteral extends LiteralExpr {
             }
         } else if (targetType.isIPv4()) {
             try {
-                return convertToIPv4(targetType);
+                return convertToIPv4();
             } catch (AnalysisException e) {
                 // pass;
             }
         } else if (targetType.isIPv6()) {
             try {
-                return convertToIPv6(targetType);
+                return convertToIPv6();
             } catch (AnalysisException e) {
                 // pass;
             }
