@@ -2657,6 +2657,10 @@ public class SelectStmt extends QueryStmt {
                 || !ConnectContext.get().getSessionVariable().isEnableDefaultOrder()) {
             return false;
         }
+        // if the sql contains a lateral view, like sql:
+        // select * from table lateral view explode([0, 1, 2]) lv as e limit 100, 0
+        // the analyzer.getAliases will record the name of the lateral view, additionally the lateral view cannot be
+        // the only one table in a from clause, so the analyzer.getAliases.size() != 1 filtrates the case.
         if (fromInsert || analyzer.getAliases().size() != 1 || groupByClause != null
                 || havingClause != null || aggInfo != null || analyticInfo != null) {
             return false;

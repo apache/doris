@@ -966,7 +966,7 @@ public class SelectStmtTest {
 
         sql = "select * from (select * from db1.baseall lateral view explode([0, 1, 2]) lv as e where k1 = 1) t limit 0, 100";
         explainString = dorisAssert.query(sql).explainQuery();
-        Assert.assertTrue(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
+        Assert.assertFalse(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
 
         sql = "select * from (select * from db1.baseall where k1 = 1) t lateral view explode([0, 1, 2]) lv as e limit 0, 100";
         explainString = dorisAssert.query(sql).explainQuery();
