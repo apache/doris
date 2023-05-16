@@ -52,7 +52,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class AutomaticPartitionUtil {
-    private static final Logger LOG = LogManager.getLogger(DynamicPartitionUtil.class);
+    private static final Logger LOG = LogManager.getLogger(AutomaticPartitionUtil.class);
 
     public static final String TIMESTAMP_FORMAT = "yyyyMMdd";
     public static final String DATE_FORMAT = "yyyy-MM-dd";
@@ -63,8 +63,9 @@ public class AutomaticPartitionUtil {
                 || !(timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())
                 || timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())
                 || timeUnit.equalsIgnoreCase(TimeUnit.WEEK.toString())
-                || timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString()))) {
-            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_TIME_UNIT, timeUnit);
+                || timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString())
+                || timeUnit.equalsIgnoreCase(TimeUnit.YEAR.toString()))) {
+            ErrorReport.reportDdlException("Unsupported time unit %s. Expect HOUR/DAY/WEEK/MONTH/YEAR.", timeUnit);
         }
         Preconditions.checkState(partitionInfo instanceof RangePartitionInfo);
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
@@ -97,7 +98,7 @@ public class AutomaticPartitionUtil {
         if (Strings.isNullOrEmpty(enable)
                 || (!Boolean.TRUE.toString().equalsIgnoreCase(enable)
                 && !Boolean.FALSE.toString().equalsIgnoreCase(enable))) {
-            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_ENABLE, enable);
+            ErrorReport.reportDdlException("Invalid automatic partition enable: %s. Expected true or false", enable);
         }
     }
 
@@ -154,7 +155,7 @@ public class AutomaticPartitionUtil {
 
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() != PartitionType.RANGE || partitionInfo.isMultiColumnPartition()) {
-            throw new DdlException("Dynamic partition only support single-column range partition");
+            throw new DdlException("automatic partition only support single-column range partition");
         }
         String timeUnit = properties.get(AutomaticPartitionProperty.TIME_UNIT);
         String prefix = properties.get(AutomaticPartitionProperty.PREFIX);

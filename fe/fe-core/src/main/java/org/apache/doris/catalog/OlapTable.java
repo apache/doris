@@ -222,6 +222,18 @@ public class OlapTable extends Table {
                 && tableProperty.getDynamicPartitionProperty().isExist();
     }
 
+    public boolean automaticPartitionExists() {
+        return tableProperty != null
+            && tableProperty.getAutomaticPartitionProperty() != null
+            && tableProperty.getAutomaticPartitionProperty().isExist();
+    }
+
+    public boolean automaticPartitionEnable() {
+        return tableProperty != null
+            && tableProperty.getAutomaticPartitionProperty() != null
+            && tableProperty.getAutomaticPartitionProperty().getEnable();
+    }
+
     public boolean isZOrderSort() {
         return tableProperty != null
                 && tableProperty.getDataSortInfo() != null

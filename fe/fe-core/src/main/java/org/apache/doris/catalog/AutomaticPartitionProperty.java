@@ -60,7 +60,7 @@ public class AutomaticPartitionProperty {
         return enable;
     }
 
-    public String getProperties(ReplicaAllocation tableReplicaAlloc) {
+    public String getProperties() {
         String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\""
                 + ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\""
                 + ",\n\"" + PREFIX + "\" = \"" + prefix + "\"";

@@ -165,7 +165,7 @@ public class TableProperty implements Writable {
     private TableProperty executeBuildAutomaticProperty() {
         HashMap<String, String> automaticPartitionProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+            if (entry.getKey().startsWith(AutomaticPartitionProperty.AUTOMATIC_PARTITION_PROPERTY_PREFIX)) {
                 automaticPartitionProperties.put(entry.getKey(), entry.getValue());
             }
         }

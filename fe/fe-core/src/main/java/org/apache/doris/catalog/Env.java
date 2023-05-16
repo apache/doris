@@ -3026,6 +3026,11 @@ public class Env {
                 sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
             }
 
+            // auto partition
+            if (olapTable.automaticPartitionExists()) {
+                sb.append(olapTable.getTableProperty().getAutomaticPartitionProperty().getProperties());
+            }
+
             // only display z-order sort info
             if (olapTable.isZOrderSort()) {
                 sb.append(olapTable.getDataSortInfo().toSql());
