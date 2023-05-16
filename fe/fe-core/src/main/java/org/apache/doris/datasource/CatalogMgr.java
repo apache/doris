@@ -892,12 +892,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
+        Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(),
+                (ExternalTable) table, partitionNames);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
-        replayAddExternalPartitions(log);
         Env.getCurrentEnv().getEditLog().logAddExternalPartitions(log);
     }
 
