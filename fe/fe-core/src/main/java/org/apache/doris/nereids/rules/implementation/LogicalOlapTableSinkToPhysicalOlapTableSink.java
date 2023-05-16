@@ -34,6 +34,7 @@ public class LogicalOlapTableSinkToPhysicalOlapTableSink extends OneImplementati
         return logicalOlapTableSink().thenApply(ctx -> {
             LogicalOlapTableSink<? extends Plan> sink = ctx.root;
             return new PhysicalOlapTableSink<>(
+                    sink.getDatabase(),
                     sink.getTargetTable(),
                     sink.getPartitionIds(),
                     ctx.connectContext.getSessionVariable().isEnableSingleReplicaInsert(),

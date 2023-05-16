@@ -95,6 +95,7 @@ public class NereidsPlanner extends Planner {
     private Plan analyzedPlan;
     private Plan rewrittenPlan;
     private Plan optimizedPlan;
+    private PhysicalPlan physicalPlan;
     // The cost of optimized plan
     private double cost = 0;
 
@@ -123,7 +124,7 @@ public class NereidsPlanner extends Planner {
         if (explainLevel.isPlanLevel) {
             return;
         }
-        PhysicalPlan physicalPlan = (PhysicalPlan) resultPlan;
+        physicalPlan = (PhysicalPlan) resultPlan;
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
@@ -564,5 +565,9 @@ public class NereidsPlanner extends Planner {
     @VisibleForTesting
     public Plan getOptimizedPlan() {
         return optimizedPlan;
+    }
+
+    public PhysicalPlan getPhysicalPlan() {
+        return physicalPlan;
     }
 }
