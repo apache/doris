@@ -34,6 +34,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/io_common.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
@@ -149,7 +150,7 @@ public:
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
     Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      std::vector<const ColumnPredicate*>* delete_predicates,
+                                      const std::vector<const ColumnPredicate*>* delete_predicates,
                                       RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
@@ -215,7 +216,7 @@ private:
                          WrapperField* max_value_container) const;
 
     Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
-                               std::vector<const ColumnPredicate*>* delete_predicates,
+                               const std::vector<const ColumnPredicate*>* delete_predicates,
                                std::vector<uint32_t>* page_indexes);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
@@ -297,7 +298,7 @@ public:
 
     virtual Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
-            std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
+            const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
         return Status::OK();
     }
 
@@ -307,6 +308,8 @@ public:
     }
 
     virtual bool is_all_dict_encoding() const { return false; }
+
+    virtual void clear() {};
 
 protected:
     ColumnIteratorOptions _opts;
@@ -340,7 +343,7 @@ public:
     // - cond_column is user's query predicate
     // - delete_condition is delete predicate of one version
     Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      std::vector<const ColumnPredicate*>* delete_predicates,
+                                      const std::vector<const ColumnPredicate*>* delete_predicates,
                                       RowRanges* row_ranges) override;
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
@@ -583,6 +586,8 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
+    void clear() override { _current_rowid = 0; }
+
 private:
     rowid_t _current_rowid = 0;
     int32_t _tablet_id = 0;
@@ -634,6 +639,8 @@ public:
 
     static void insert_default_data(const TypeInfo* type_info, size_t type_size, void* mem_value,
                                     vectorized::MutableColumnPtr& dst, size_t n);
+
+    void clear() override { _current_rowid = 0; }
 
 private:
     void _insert_many_default(vectorized::MutableColumnPtr& dst, size_t n);

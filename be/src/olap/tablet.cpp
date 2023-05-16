@@ -2451,10 +2451,9 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     });
     CHECK(tablet_schema->store_row_column());
     // create _source column
-    segment_v2::ColumnIterator* column_iterator = nullptr;
+    std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(BeConsts::ROW_STORE_COL),
                                                  &column_iterator));
-    std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
     segment_v2::ColumnIteratorOptions opt;
     OlapReaderStatistics stats;
     opt.file_reader = segment->file_reader().get();
@@ -2508,10 +2507,9 @@ Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segi
                                << ", row_batch_size:" << rowids.size();
     });
     // create _source column
-    segment_v2::ColumnIterator* column_iterator = nullptr;
+    std::unique_ptr<segment_v2::ColumnIterator> column_iterator = nullptr;
     RETURN_IF_ERROR(
             segment->new_column_iterator(tablet_schema->column(column_name), &column_iterator));
-    std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
     segment_v2::ColumnIteratorOptions opt;
     OlapReaderStatistics stats;
     opt.file_reader = segment->file_reader().get();
@@ -2557,10 +2555,9 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     });
     CHECK(tablet_schema->store_row_column());
     // create _source column
-    segment_v2::ColumnIterator* column_iterator = nullptr;
+    std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(BeConsts::ROW_STORE_COL),
                                                  &column_iterator));
-    std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
     segment_v2::ColumnIteratorOptions opt;
     opt.file_reader = segment->file_reader().get();
     opt.stats = &stats;

@@ -1000,6 +1000,8 @@ DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
 
 //disable shrink memory by default
 DEFINE_Bool(enable_shrink_memory, "false");
+DEFINE_mInt32(schema_cache_cacity, "1024");
+DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
