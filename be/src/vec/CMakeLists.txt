@@ -210,6 +210,7 @@ set(VEC_FILES
   functions/array/function_array_pushfront.cpp
   functions/array/function_array_first_index.cpp
   functions/array/function_array_cum_sum.cpp
+  functions/array/function_array_count.cpp
   functions/function_map.cpp
   functions/function_struct.cpp
   exprs/table_function/vexplode_json_array.cpp
