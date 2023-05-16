@@ -76,6 +76,10 @@ under the License.
             <artifactId>clickhouse-jdbc</artifactId>
             <classifier>all</classifier>
         </dependency>
+        <dependency>
+            <groupId>com.aliyun.odps</groupId>
+            <artifactId>odps-sdk-core</artifactId>
+        </dependency>
     </dependencies>
     <build>
         <finalName>java-udf</finalName>

@@ -73,6 +73,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     protected List<String> listDatabaseNames() {
         List<String> result = new ArrayList<>();
         try {
+            // TODO: How to get all privileged project from max compute as databases?
+            // Now only have permission to show default project.
             result.add(odps.projects().get(odps.getDefaultProject()).getName());
         } catch (OdpsException e) {
             throw new RuntimeException(e);

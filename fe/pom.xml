@@ -269,6 +269,7 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.1.0</iceberg.version>
+        <maxcompute.version>0.43.3-public</maxcompute.version>
         <avro.version>1.11.1</avro.version>
         <!-- hudi -->
         <hudi.version>0.13.0</hudi.version>
@@ -1098,7 +1099,11 @@ under the License.
                 <artifactId>iceberg-aws</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
-
+            <dependency>
+                <groupId>com.aliyun.odps</groupId>
+                <artifactId>odps-sdk-core</artifactId>
+                <version>${maxcompute.version}</version>
+            </dependency>
             <!-- For Iceberg, must be consistent with Iceberg version -->
             <dependency>
                 <groupId>org.apache.avro</groupId>
