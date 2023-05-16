@@ -54,12 +54,6 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 # of all thirdparties
 #####################################################
 
-#clucene
-CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.12.tar.gz"
-CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.12.tar.gz"
-CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.12"
-CLUCENE_MD5SUM="171035c1d4c9fe3d7307f04dd76ab3e3"
-
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
 LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
@@ -466,7 +460,6 @@ HADOOP_LIBS_X86_MD5SUM="96117450170487f007ffeca5ddf62f7e"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
-    'CLUCENE'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'
