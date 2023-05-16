@@ -235,7 +235,7 @@ void DataDir::health_check() {
         if (!res) {
             LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
                          << ", err: " << res;
-            if (res.is_io_error()) {
+            if (res.is_eio_error()) {
                 _is_used = false;
             }
         }

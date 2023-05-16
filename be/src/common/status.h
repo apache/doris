@@ -428,6 +428,8 @@ public:
                ErrorCode::FILE_OR_DIR_NOT_EXIST == _code;
     }
 
+    bool is_eio_error() const { return ErrorCode::EIO_ERROR == _code; }
+
     bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
 
     bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
