@@ -78,9 +78,7 @@ DEFINE_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-// `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G).
-// 6.4G is the maximum memory reserved for the system by default.
-DEFINE_String(mem_limit, "auto");
+DEFINE_String(mem_limit, "80%");
 
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
@@ -542,7 +540,7 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
-DEFINE_mInt32(memory_gc_sleep_time_s, "1");
+DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 DEFINE_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
