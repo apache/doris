@@ -1013,7 +1013,8 @@
                                 "sql-manual/sql-reference/Data-Types/BITMAP",
                                 "sql-manual/sql-reference/Data-Types/QUANTILE_STATE",
                                 "sql-manual/sql-reference/Data-Types/ARRAY",
-                                "sql-manual/sql-reference/Data-Types/JSONB"
+                                "sql-manual/sql-reference/Data-Types/JSONB",
+                                "sql-manual/sql-reference/Data-Types/STRUCT"
                             ]
                         },
                         {
