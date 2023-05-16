@@ -30,6 +30,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -38,14 +40,17 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class ResourceGroup implements Writable {
+    private static final Logger LOG = LogManager.getLogger(ResourceGroup.class);
 
     public static final String CPU_SHARE = "cpu_share";
 
+    public static final String MEMORY_LIMIT = "memory_limit";
+
     private static final ImmutableSet<String> REQUIRED_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
-            CPU_SHARE).build();
+            CPU_SHARE).add(MEMORY_LIMIT).build();
 
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
-            CPU_SHARE).build();
+            CPU_SHARE).add(MEMORY_LIMIT).build();
 
     @SerializedName(value = "id")
     private long id;
@@ -60,11 +65,10 @@ public class ResourceGroup implements Writable {
     @SerializedName(value = "version")
     private long version;
 
+    private double memoryLimitPercent;
+
     private ResourceGroup(long id, String name, Map<String, String> properties) {
-        this.id = id;
-        this.name = name;
-        this.properties = properties;
-        this.version = 0;
+        this(id, name, properties, 0);
     }
 
     private ResourceGroup(long id, String name, Map<String, String> properties, long version) {
@@ -72,6 +76,8 @@ public class ResourceGroup implements Writable {
         this.name = name;
         this.properties = properties;
         this.version = version;
+        String memoryLimitString = properties.get(MEMORY_LIMIT);
+        this.memoryLimitPercent = Double.parseDouble(memoryLimitString.substring(0, memoryLimitString.length() - 1));
     }
 
     public static ResourceGroup create(String name, Map<String, String> properties) throws DdlException {
@@ -79,10 +85,9 @@ public class ResourceGroup implements Writable {
         return new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
     }
 
-    public static ResourceGroup create(ResourceGroup resourceGroup, Map<String, String> updateProperties)
+    public static ResourceGroup copyAndUpdate(ResourceGroup resourceGroup, Map<String, String> updateProperties)
             throws DdlException {
-        Map<String, String> newProperties = new HashMap<>();
-        newProperties.putAll(resourceGroup.getProperties());
+        Map<String, String> newProperties = new HashMap<>(resourceGroup.getProperties());
         for (Map.Entry<String, String> kv : updateProperties.entrySet()) {
             if (!Strings.isNullOrEmpty(kv.getValue())) {
                 newProperties.put(kv.getKey(), kv.getValue());
@@ -108,7 +113,21 @@ public class ResourceGroup implements Writable {
 
         String cpuSchedulingWeight = properties.get(CPU_SHARE);
         if (!StringUtils.isNumeric(cpuSchedulingWeight) || Long.parseLong(cpuSchedulingWeight) <= 0) {
-            throw new DdlException(CPU_SHARE + " requires a positive integer.");
+            throw new DdlException(CPU_SHARE + " " + cpuSchedulingWeight + " requires a positive integer.");
+        }
+
+        String memoryLimit = properties.get(MEMORY_LIMIT);
+        if (!memoryLimit.endsWith("%")) {
+            throw new DdlException(MEMORY_LIMIT + " " + memoryLimit + " requires a percentage and ends with a '%'");
+        }
+        String memLimitErr = MEMORY_LIMIT + " " + memoryLimit + " requires a positive floating point number.";
+        try {
+            if (Double.parseDouble(memoryLimit.substring(0, memoryLimit.length() - 1)) <= 0) {
+                throw new DdlException(memLimitErr);
+            }
+        } catch (NumberFormatException  e) {
+            LOG.debug(memLimitErr, e);
+            throw new DdlException(memLimitErr);
         }
     }
 
@@ -126,6 +145,10 @@ public class ResourceGroup implements Writable {
 
     private long getVersion() {
         return version;
+    }
+
+    public double getMemoryLimitPercent() {
+        return memoryLimitPercent;
     }
 
     public void getProcNodeData(BaseProcResult result) {
