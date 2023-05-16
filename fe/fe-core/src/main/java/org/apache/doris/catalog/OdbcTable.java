@@ -37,7 +37,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -106,6 +105,22 @@ public class OdbcTable extends Table {
         }
     }
 
+    /**
+     * Formats a database name according to the database type.
+     *
+     * Rules:
+     * - MYSQL, OCEANBASE: Wrap with backticks (`), case unchanged. Example: mySchema.myTable -> `mySchema.myTable`
+     * - SQLSERVER: Wrap with square brackets ([]), case unchanged. Example: mySchema.myTable -> [mySchema].[myTable]
+     * - POSTGRESQL, CLICKHOUSE, TRINO, OCEANBASE_ORACLE, SAP_HANA: Wrap with double quotes ("), case unchanged.
+     *   Example: mySchema.myTable -> "mySchema"."myTable"
+     * - ORACLE: Wrap with double quotes ("), convert to upper case. Example: mySchema.myTable -> "MYSCHEMA"."MYTABLE"
+     * For other types, the name is returned as is.
+     *
+     * @param tableType The database type.
+     * @param name The name to be formatted, expected in 'schemaName.tableName' format. If no '.', treats entire string
+     *   as one name component. If '.', treats string before first '.' as schema name and after as table name.
+     * @return The formatted name.
+     */
     public static String databaseProperName(TOdbcTableType tableType, String name) {
         switch (tableType) {
             case MYSQL:
