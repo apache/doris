@@ -13,7 +13,7 @@ suite("test_similar_query_with_different_results") {
     sql """ INSERT INTO ${tableName} (c0) VALUES 
             (DEFAULT),('false'),('true'),(DEFAULT),('true'),(DEFAULT),(DEFAULT),('false')
         """
-    qt_select1 """ SELECT c0 FROM ${tableName} """
+    qt_select1 """ SELECT c0 FROM ${tableName} ORDER BY c0 """
     qt_select2 """ SELECT c0 FROM ${tableName} WHERE c0 """
     qt_select3 """ SELECT c0 FROM ${tableName} WHERE (NOT c0) """
     qt_select4 """ SELECT c0 FROM ${tableName} WHERE ((c0) IS NULL) """
