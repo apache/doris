@@ -145,14 +145,13 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 }
 
 MemTable::~MemTable() {
-    if (!_row_in_blocks.empty() && _keys_type != KeysType::DUP_KEYS) {
+    if (_keys_type != KeysType::DUP_KEYS) {
         for (auto it = _row_in_blocks.begin(); it != _row_in_blocks.end(); it++) {
             // We should release agg_places here, because they are not released when a
             // load is canceled.
             for (size_t i = _schema->num_key_columns(); i < _num_columns; ++i) {
                 auto function = _agg_functions[i];
                 DCHECK(function != nullptr);
-                DCHECK((*it)->agg_places(i) != nullptr);
                 function->destroy((*it)->agg_places(i));
             }
         }
@@ -232,6 +231,11 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
     }
 }
 void MemTable::prepare_block_for_flush(vectorized::Block& in_block) {
+    if(_keys_type == KeysType::DUP_KEYS && _schema->num_key_columns() == 0){
+        // skip sort if the table is dup table without keys
+        _output_mutable_block.swap(_input_mutable_block);
+        return;
+    }
     std::vector<int> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_pos_vec.reserve(in_block.rows());
@@ -275,9 +279,8 @@ int MemTable::_sort() {
 }
 
 template <bool is_final>
-void MemTable::_aggregate_one_row(RowInBlock* row,
-                                  const vectorized::ColumnsWithTypeAndName& block_data,
-                                  int row_pos) {
+void MemTable::finalize_one_row(RowInBlock* row,
+                                const vectorized::ColumnsWithTypeAndName& block_data, int row_pos) {
     // move key columns
     for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
         _output_mutable_block.get_column_by_position(i)->insert_from(*block_data[i].column.get(),
@@ -316,7 +319,7 @@ void MemTable::_aggregate() {
     vectorized::MutableBlock mutable_block =
             vectorized::MutableBlock::build_mutable_block(&in_block);
     _vec_row_comparator->set_block(&mutable_block);
-    auto &block_data = in_block.get_columns_with_type_and_name();
+    auto& block_data = in_block.get_columns_with_type_and_name();
     std::vector<RowInBlock*> temp_row_in_blocks;
     temp_row_in_blocks.reserve(_last_sorted_pos);
     RowInBlock* prev_row;
@@ -342,14 +345,14 @@ void MemTable::_aggregate() {
             _aggregate_two_row_in_block(_row_in_blocks[i], prev_row);
         } else {
             prev_row = _row_in_blocks[i];
-            if(!temp_row_in_blocks.empty()){
-                _aggregate_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos - 1);
+            if (!temp_row_in_blocks.empty()) {
+                finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos - 1);
             }
             temp_row_in_blocks.push_back(prev_row);
             row_pos++;
         }
     }
-    _aggregate_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos - 1);
+    finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos - 1);
     if constexpr (!is_final) {
         // if is not final, we collect the agg results to input_block and then continue to insert
         size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
@@ -458,8 +461,9 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     if (_keys_type == KeysType::DUP_KEYS) {
         vectorized::Block in_block = _input_mutable_block.to_block();
         prepare_block_for_flush(in_block);
+    } else {
+        _aggregate<true>();
     }
-    { _aggregate<true>(); }
     vectorized::Block block = _output_mutable_block.to_block();
     if (_tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
