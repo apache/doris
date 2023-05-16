@@ -91,8 +91,8 @@ public:
 
     void shutdown();
 
-    void try_update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                               taskgroup::TaskGroupPtr& task_group);
+    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                             taskgroup::TaskGroupPtr task_group);
 
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;

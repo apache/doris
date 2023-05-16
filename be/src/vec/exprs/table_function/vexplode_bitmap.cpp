@@ -76,14 +76,14 @@ void VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column) {
         column->insert_default();
     } else {
         if (_is_nullable) {
-            static_cast<ColumnInt64*>(
-                    static_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
+            assert_cast<ColumnInt64*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
                     ->insert_value(**_cur_iter);
-            static_cast<ColumnUInt8*>(
-                    static_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+            assert_cast<ColumnUInt8*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                     ->insert_default();
         } else {
-            static_cast<ColumnInt64*>(column.get())->insert_value(**_cur_iter);
+            assert_cast<ColumnInt64*>(column.get())->insert_value(**_cur_iter);
         }
     }
 }

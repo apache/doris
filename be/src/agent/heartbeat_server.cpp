@@ -120,7 +120,6 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
             //step4: check if the IP of FQDN belongs to the current machine and update BackendOptions._s_localhost
             bool set_new_localhost = false;
-            BackendOptions::set_localhost(master_info.backend_ip);
             for (auto& addr : hosts) {
                 if (addr.get_host_address() == ip) {
                     BackendOptions::set_localhost(master_info.backend_ip);

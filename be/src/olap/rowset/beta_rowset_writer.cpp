@@ -147,7 +147,8 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
         auto seg_path =
                 BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
+        auto type = config::enable_file_cache ? config::file_cache_type : "";
+        io::FileReaderOptions reader_options(io::cache_type_from_string(type),
                                              io::SegmentCachePathPolicy());
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(),
                                            _context.tablet_schema, reader_options, &segment);
@@ -420,7 +421,6 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
             max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }
-
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
         auto s = (*segment_writer)->append_block(block, row_offset, input_row_num);
         if (UNLIKELY(!s.ok())) {

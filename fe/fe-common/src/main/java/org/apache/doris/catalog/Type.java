@@ -431,7 +431,8 @@ public abstract class Type {
     }
 
     public boolean isFixedPointType() {
-        return isScalarType(PrimitiveType.TINYINT) || isScalarType(PrimitiveType.SMALLINT)
+        return isScalarType(PrimitiveType.TINYINT)
+                || isScalarType(PrimitiveType.SMALLINT)
                 || isScalarType(PrimitiveType.INT) || isScalarType(PrimitiveType.BIGINT)
                 || isScalarType(PrimitiveType.LARGEINT);
     }

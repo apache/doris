@@ -73,6 +73,7 @@ import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
+import org.apache.doris.analysis.ShowQueryStatsStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.analysis.ShowResourceGroupsStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
@@ -139,6 +140,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -188,6 +190,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.TableStatistic;
+import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -310,6 +313,8 @@ public class ShowExecutor {
             handleShowUserProperty();
         } else if (stmt instanceof ShowDataStmt) {
             handleShowData();
+        } else if (stmt instanceof ShowQueryStatsStmt) {
+            handleShowQueryStats();
         } else if (stmt instanceof ShowCollationStmt) {
             handleShowCollation();
         } else if (stmt instanceof ShowPartitionsStmt) {
@@ -1524,6 +1529,11 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), showStmt.getResultRows());
     }
 
+    private void handleShowQueryStats() throws AnalysisException {
+        ShowQueryStatsStmt showStmt = (ShowQueryStatsStmt) stmt;
+        resultSet = new ShowResultSet(showStmt.getMetaData(), showStmt.getResultRows());
+    }
+
     private void handleShowPartitions() throws AnalysisException {
         ShowPartitionsStmt showStmt = (ShowPartitionsStmt) stmt;
         if (showStmt.getCatalog().isInternalCatalog()) {
@@ -1575,6 +1585,7 @@ public class ShowExecutor {
             Long indexId = tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE;
             String indexName = FeConstants.null_string;
             Boolean isSync = true;
+            long queryHits = 0L;
 
             int tabletIdx = -1;
             // check real meta
@@ -1589,6 +1600,15 @@ public class ShowExecutor {
                 if (!(table instanceof OlapTable)) {
                     isSync = false;
                     break;
+                }
+                if (Config.enable_query_hit_stats) {
+                    MaterializedIndex mi = ((OlapTable) table).getPartition(partitionId).getIndex(indexId);
+                    if (mi != null) {
+                        Tablet t = mi.getTablet(tabletId);
+                        for (Replica r : t.getReplicas()) {
+                            queryHits += QueryStatsUtil.getMergedReplicaStats(r.getId());
+                        }
+                    }
                 }
 
                 table.readLock();
@@ -1641,7 +1661,7 @@ public class ShowExecutor {
             rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
                     dbId.toString(), tableId.toString(),
                     partitionId.toString(), indexId.toString(),
-                    isSync.toString(), String.valueOf(tabletIdx), detailCmd));
+                    isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits), detailCmd));
         } else {
             Database db = env.getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
             OlapTable olapTable = db.getOlapTableOrAnalysisException(showStmt.getTableName());

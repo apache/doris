@@ -387,6 +387,13 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
 
+    _send_batch_thread_pool.reset(nullptr);
+    _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _send_report_thread_pool.reset(nullptr);
+    _join_node_thread_pool.reset(nullptr);
+    _serial_download_cache_thread_token.reset(nullptr);
+    _download_cache_thread_pool.reset(nullptr);
+
     _is_init = false;
 }
 

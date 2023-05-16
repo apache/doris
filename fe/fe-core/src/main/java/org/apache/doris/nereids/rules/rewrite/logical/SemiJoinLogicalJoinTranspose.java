@@ -27,8 +27,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
-
 import java.util.Set;
 
 /**
@@ -69,8 +67,9 @@ public class SemiJoinLogicalJoinTranspose extends OneRewriteRuleFactory {
                          * A      B                A      C
                          */
                         // RIGHT_OUTER_JOIN should be eliminated in rewrite phase
-                        Preconditions.checkState(bottomJoin.getJoinType() != JoinType.RIGHT_OUTER_JOIN);
-
+                        if (bottomJoin.getJoinType() == JoinType.RIGHT_OUTER_JOIN) {
+                            return null;
+                        }
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(a, c);
                         return bottomJoin.withChildren(newBottomSemiJoin, b);
                     } else {
@@ -82,8 +81,9 @@ public class SemiJoinLogicalJoinTranspose extends OneRewriteRuleFactory {
                          * A      B                       B        C
                          */
                         // LEFT_OUTER_JOIN should be eliminated in rewrite phase
-                        Preconditions.checkState(bottomJoin.getJoinType() != JoinType.LEFT_OUTER_JOIN);
-
+                        if (bottomJoin.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
+                            return null;
+                        }
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(b, c);
                         return bottomJoin.withChildren(a, newBottomSemiJoin);
                     }

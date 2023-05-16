@@ -678,7 +678,9 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
         if (!column_type->equals(*data_types[i])) {
             if (!is_array(remove_nullable(column_type))) {
                 DCHECK(column_type->is_nullable());
-                DCHECK(!data_types[i]->is_nullable());
+                DCHECK(!data_types[i]->is_nullable())
+                        << " column type: " << column_type->get_name()
+                        << ", data type: " << data_types[i]->get_name();
                 DCHECK(remove_nullable(column_type)->equals(*data_types[i]))
                         << " column type: " << remove_nullable(column_type)->get_name()
                         << ", data type: " << data_types[i]->get_name();

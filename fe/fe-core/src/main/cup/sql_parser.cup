@@ -484,6 +484,7 @@ terminal String
     KW_OUTER,
     KW_OUTFILE,
     KW_OVER,
+    KW_OVERWRITE,
     KW_PARAMETER,
     KW_PARTITION,
     KW_PARTITIONS,
@@ -656,7 +657,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt, insert_overwrite_stmt;
 
 nonterminal FromClause opt_using_clause;
 
@@ -1124,6 +1125,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | insert_stmt : stmt
     {: RESULT = stmt; :}
+    | insert_overwrite_stmt : stmt
+    {: RESULT = stmt; :}
     | update_stmt : stmt
     {: RESULT = stmt; :}
     | backup_stmt : stmt
@@ -1205,6 +1208,18 @@ clean_stmt ::=
     | KW_CLEAN KW_ALL KW_PROFILE
     {:
         RESULT = new CleanProfileStmt();
+    :}
+    | KW_CLEAN KW_QUERY KW_STATS KW_FOR ident:db
+    {:
+        RESULT = new CleanQueryStatsStmt(db, CleanQueryStatsStmt.Scope.DB);
+    :}
+    | KW_CLEAN KW_ALL KW_QUERY KW_STATS
+    {:
+        RESULT = new CleanQueryStatsStmt();
+    :}
+    | KW_CLEAN KW_QUERY KW_STATS from_or_in table_name:tbl
+    {:
+        RESULT = new CleanQueryStatsStmt(tbl, CleanQueryStatsStmt.Scope.TABLE);
     :}
     ;
 
@@ -3975,6 +3990,26 @@ show_param ::=
     {:
         RESULT = new ShowCatalogRecycleBinStmt(parser.where);
     :}
+     | KW_QUERY KW_STATS
+    {:
+        RESULT = new ShowQueryStatsStmt();
+    :}
+    | KW_QUERY KW_STATS KW_FOR ident:dbName
+    {:
+        RESULT = new ShowQueryStatsStmt(dbName);
+    :}
+    | KW_QUERY KW_STATS KW_FROM table_name:dbTblName
+    {:
+        RESULT = new ShowQueryStatsStmt(dbTblName, false, false);
+    :}
+    | KW_QUERY KW_STATS KW_FROM table_name:dbTblName KW_ALL
+    {:
+        RESULT = new ShowQueryStatsStmt(dbTblName, true, false);
+    :}
+    | KW_QUERY KW_STATS KW_FROM table_name:dbTblName KW_ALL KW_VERBOSE
+    {:
+        RESULT = new ShowQueryStatsStmt(dbTblName, true, true);
+    :}
     ;
 
 opt_tmp ::=
@@ -4478,6 +4513,13 @@ use_stmt ::=
     | KW_USE ident:ctl DOT ident:db
     {:
         RESULT = new UseStmt(ctl, db);
+    :}
+    ;
+// Insert overwrite statement
+insert_overwrite_stmt ::=
+    KW_INSERT KW_OVERWRITE KW_TABLE insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    {:
+       RESULT = new InsertOverwriteTableStmt(target, label, cols, source, hints);
     :}
     ;
 

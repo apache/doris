@@ -447,6 +447,9 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
+// The configuration is used to enable lazy open feature, and the default value is true.
+// When there is mixed deployment in the upgraded version, it needs to be set to false.
+DEFINE_mBool(enable_lazy_open_partition, "true");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "false");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
@@ -749,6 +752,7 @@ DEFINE_Int64(download_cache_buffer_size, "10485760");
 // will run out of memory.
 // When doing compaction, each segment may take at least 1MB buffer.
 DEFINE_mInt32(max_segment_num_per_rowset, "200");
+DEFINE_mInt32(segment_compression_threshold_kb, "256");
 
 // The connection timeout when connecting to external table such as odbc table.
 DEFINE_mInt32(external_table_connect_timeout_sec, "30");
@@ -869,7 +873,7 @@ DEFINE_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.
-DEFINE_mString(file_cache_type, "");
+DEFINE_mString(file_cache_type, "file_block_cache");
 DEFINE_Validator(file_cache_type, [](const std::string config) -> bool {
     return config == "sub_file_cache" || config == "whole_file_cache" || config == "" ||
            config == "file_block_cache";

@@ -91,7 +91,6 @@
                             "type": "category",
                             "label": "Import Way",
                             "items": [
-                                "data-operate/import/import-way/binlog-load-manual",
                                 "data-operate/import/import-way/broker-load-manual",
                                 "data-operate/import/import-way/routine-load-manual",
                                 "data-operate/import/import-way/spark-load-manual",
@@ -985,7 +984,8 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-ID",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SMALL-FILES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-POLICY",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN"
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-QUERY-STATS"
                             ]
                         },
                         {
@@ -1032,7 +1032,8 @@
                                 "sql-manual/sql-reference/Utility-Statements/DESCRIBE",
                                 "sql-manual/sql-reference/Utility-Statements/SWITCH",
                                 "sql-manual/sql-reference/Utility-Statements/REFRESH",
-                                "sql-manual/sql-reference/Utility-Statements/SYNC"
+                                "sql-manual/sql-reference/Utility-Statements/SYNC",
+                                "sql-manual/sql-reference/Utility-Statements/CLEAN-QUERY-STATS"
                             ]
                         }
                     ]
@@ -1168,6 +1169,7 @@
                                 "admin-manual/http-actions/fe/profile-action",
                                 "admin-manual/http-actions/fe/query-detail-action",
                                 "admin-manual/http-actions/fe/query-schema-action",
+                                "admin-manual/http-actions/fe/query-stats-action",
                                 "admin-manual/http-actions/fe/row-count-action",
                                 "admin-manual/http-actions/fe/set-config-action",
                                 "admin-manual/http-actions/fe/show-data-action",

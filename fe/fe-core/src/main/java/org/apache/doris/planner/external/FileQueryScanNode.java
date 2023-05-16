@@ -217,7 +217,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params.setFormatType(fileFormatType);
         TFileCompressType fileCompressType = getFileCompressType(inputSplit);
         params.setCompressType(fileCompressType);
-        if (Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON) {
+        boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
+        if (isCsvOrJson) {
             params.setFileAttributes(getFileAttributes());
         }
 
@@ -242,8 +243,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
-            TScanRangeLocations curLocations = newLocations(params, backendPolicy);
             FileSplit fileSplit = (FileSplit) split;
+
+            TFileScanRangeParams scanRangeParams;
+            if (!isCsvOrJson) {
+                scanRangeParams = params;
+            } else {
+                // If fileFormatType is csv/json format, uncompressed files may be coexists with compressed files
+                // So we need set compressType separately
+                scanRangeParams = new TFileScanRangeParams(params);
+                scanRangeParams.setCompressType(getFileCompressType(fileSplit));
+            }
+            TScanRangeLocations curLocations = newLocations(scanRangeParams, backendPolicy);
 
             // If fileSplit has partition values, use the values collected from hive partitions.
             // Otherwise, use the values in file path.
@@ -314,33 +325,23 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return rangeDesc;
     }
 
-    protected TFileType getLocationType() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract TFileType getLocationType() throws UserException;
 
-    protected TFileFormatType getFileFormatType() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract TFileFormatType getFileFormatType() throws UserException;
 
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
-        return Util.getFileCompressType(fileSplit.getPath().toString());
+        return Util.inferFileCompressTypeByPath(fileSplit.getPath().toString());
     }
 
     protected TFileAttributes getFileAttributes() throws UserException {
         throw new NotImplementedException("");
     }
 
-    protected List<String> getPathPartitionKeys() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract List<String> getPathPartitionKeys() throws UserException;
 
-    protected TableIf getTargetTable() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract TableIf getTargetTable() throws UserException;
 
-    protected Map<String, String> getLocationProperties() throws UserException  {
-        throw new NotImplementedException("");
-    }
+    protected abstract Map<String, String> getLocationProperties() throws UserException;
 
     // eg: hdfs://namenode  s3://buckets
     protected String getFsName(FileSplit split) {

@@ -33,6 +33,8 @@ public:
 
     TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
 
+    int64_t memory_limit_gc();
+
 private:
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;

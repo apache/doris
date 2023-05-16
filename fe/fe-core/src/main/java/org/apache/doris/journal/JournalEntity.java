@@ -71,6 +71,7 @@ import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
+import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateTableInfo;
@@ -774,6 +775,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
                 data = AlterLightSchemaChangeInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CLEAN_QUERY_STATS: {
+                data = CleanQueryStatsInfo.read(in);
                 isRead = true;
                 break;
             }

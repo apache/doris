@@ -17,31 +17,42 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AddPartitionLikeClause;
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
+import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExecuteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.InsertOverwriteTableStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.LoadType;
 import org.apache.doris.analysis.LockTablesStmt;
+import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.ReplacePartitionClause;
+import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SetOperationStmt;
@@ -166,6 +177,7 @@ import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -657,6 +669,8 @@ public class StmtExecutor {
                 handleTransactionStmt();
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 handleCtasStmt();
+            } else if (parsedStmt instanceof InsertOverwriteTableStmt) {
+                handleIotStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InsertStmt is its subclass
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 if (insertStmt.needLoadManager()) {
@@ -855,16 +869,17 @@ public class StmtExecutor {
 
         if (parsedStmt instanceof QueryStmt
                 || (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager())
-                || parsedStmt instanceof CreateTableAsSelectStmt) {
-            if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
-                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
-                        .getResourceGroup(context.sessionVariable.resourceGroup));
-            }
+                || parsedStmt instanceof CreateTableAsSelectStmt
+                || parsedStmt instanceof InsertOverwriteTableStmt) {
             Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
             Set<String> parentViewNameSet = Sets.newHashSet();
             if (parsedStmt instanceof QueryStmt) {
                 queryStmt = (QueryStmt) parsedStmt;
+                queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
+            } else if (parsedStmt instanceof InsertOverwriteTableStmt) {
+                InsertOverwriteTableStmt parsedStmt = (InsertOverwriteTableStmt) this.parsedStmt;
+                queryStmt = parsedStmt.getQueryStmt();
                 queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 CreateTableAsSelectStmt parsedStmt = (CreateTableAsSelectStmt) this.parsedStmt;
@@ -1040,6 +1055,11 @@ public class StmtExecutor {
                 if (explainOptions != null) {
                     parsedStmt.setIsExplain(explainOptions);
                 }
+            }
+            if (parsedStmt instanceof QueryStmt && Config.enable_resource_group
+                    && context.sessionVariable.enablePipelineEngine()) {
+                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
+                        .getResourceGroup(context.sessionVariable.resourceGroup));
             }
         }
         profile.getSummaryProfile().setQueryAnalysisFinishTime();
@@ -2096,21 +2116,21 @@ public class StmtExecutor {
             // Maybe our bug
             LOG.warn("CTAS create table error, stmt={}", originStmt.originStmt, e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            return;
         }
         // after success create table insert data
-        if (MysqlStateType.OK.equals(context.getState().getStateType())) {
-            try {
-                parsedStmt = ctasStmt.getInsertStmt();
-                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-                execute();
-                if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
-                    LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql());
-                    handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
-                }
-            } catch (Exception e) {
-                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
+        try {
+            parsedStmt = ctasStmt.getInsertStmt();
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql());
                 handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
             }
+        } catch (Exception e) {
+            LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
         }
     }
 
@@ -2124,6 +2144,184 @@ public class StmtExecutor {
                 LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
             }
+        }
+    }
+
+    private void handleIotStmt() {
+        InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
+        if (iotStmt.getPartitionNames().size() == 0) {
+            // insert overwrite table
+            handleOverwriteTable(iotStmt);
+        } else {
+            // insert overwrite table with partition
+            handleOverwritePartition(iotStmt);
+        }
+    }
+
+    private void handleOverwriteTable(InsertOverwriteTableStmt iotStmt) {
+        UUID uuid = UUID.randomUUID();
+        // to comply with naming rules
+        TableName tmpTableName = new TableName(null, iotStmt.getDb(), "tmp_table_" + uuid.toString().replace('-', '_'));
+        TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
+        try {
+            // create a tmp table with uuid
+            parsedStmt = new CreateTableLikeStmt(false, tmpTableName, targetTableName, null, false);
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            // if create tmp table err, return
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                // There is already an error message in the execute() function, so there is no need to set it here
+                LOG.warn("IOT create table error, stmt={}", originStmt.originStmt);
+                return;
+            }
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("IOT create a tmp table error, stmt={}", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            return;
+        }
+        // after success create table insert data
+        try {
+            parsedStmt = new NativeInsertStmt(tmpTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
+                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols());
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql());
+                handleIotRollback(tmpTableName);
+                return;
+            }
+        } catch (Exception e) {
+            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotRollback(tmpTableName);
+            return;
+        }
+
+        // overwrite old table with tmp table
+        try {
+            List<AlterClause> ops = new ArrayList<>();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("swap", "false");
+            ops.add(new ReplaceTableClause(tmpTableName.getTbl(), properties));
+            parsedStmt = new AlterTableStmt(targetTableName, ops);
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("IOT overwrite table error, stmt={}", parsedStmt.toSql());
+                handleIotRollback(tmpTableName);
+                return;
+            }
+            context.getState().setOk();
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("IOT overwrite table error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotRollback(tmpTableName);
+        }
+
+    }
+
+    private void handleOverwritePartition(InsertOverwriteTableStmt iotStmt) {
+        TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
+        List<String> partitionNames = iotStmt.getPartitionNames();
+        List<String> tempPartitionName = new ArrayList<>();
+        try {
+            // create tmp partitions with uuid
+            for (String partitionName : partitionNames) {
+                UUID uuid = UUID.randomUUID();
+                // to comply with naming rules
+                String tempPartName = "tmp_partition_" + uuid.toString().replace('-', '_');
+                List<AlterClause> ops = new ArrayList<>();
+                ops.add(new AddPartitionLikeClause(tempPartName, partitionName, true));
+                parsedStmt = new AlterTableStmt(targetTableName, ops);
+                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+                execute();
+                if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                    LOG.warn("IOT create tmp partitions error, stmt={}", originStmt.originStmt);
+                    handleIotPartitionRollback(targetTableName, tempPartitionName);
+                    return;
+                }
+                // only when execution succeeded, put the temp partition name into list
+                tempPartitionName.add(tempPartName);
+            }
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("IOT create tmp table partitions error, stmt={}", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotPartitionRollback(targetTableName, tempPartitionName);
+            return;
+        }
+        // after success add tmp partitions
+        try {
+            parsedStmt = new NativeInsertStmt(targetTableName, new PartitionNames(true, tempPartitionName),
+                    new LabelName(iotStmt.getDb(), iotStmt.getLabel()), iotStmt.getQueryStmt(),
+                    iotStmt.getHints(), iotStmt.getCols());
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql());
+                handleIotPartitionRollback(targetTableName, tempPartitionName);
+                return;
+            }
+        } catch (Exception e) {
+            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotPartitionRollback(targetTableName, tempPartitionName);
+            return;
+        }
+
+        // overwrite old partition with tmp partition
+        try {
+            List<AlterClause> ops = new ArrayList<>();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("use_temp_partition_name", "false");
+            ops.add(new ReplacePartitionClause(new PartitionNames(false, partitionNames),
+                    new PartitionNames(true, tempPartitionName), properties));
+            parsedStmt = new AlterTableStmt(targetTableName, ops);
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("IOT overwrite table partitions error, stmt={}", parsedStmt.toSql());
+                handleIotPartitionRollback(targetTableName, tempPartitionName);
+                return;
+            }
+            context.getState().setOk();
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("IOT overwrite table partitions error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotPartitionRollback(targetTableName, tempPartitionName);
+        }
+    }
+
+    private void handleIotRollback(TableName table) {
+        // insert error drop the tmp table
+        DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
+        try {
+            Analyzer tempAnalyzer = new Analyzer(Env.getCurrentEnv(), context);
+            dropTableStmt.analyze(tempAnalyzer);
+            DdlExecutor.execute(context.getEnv(), dropTableStmt);
+        } catch (Exception ex) {
+            LOG.warn("IOT drop table error, stmt={}", parsedStmt.toSql(), ex);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
+        }
+    }
+
+    private void handleIotPartitionRollback(TableName targetTableName, List<String> tempPartitionNames) {
+        // insert error drop the tmp partitions
+        try {
+            for (String partitionName : tempPartitionNames) {
+                List<AlterClause> ops = new ArrayList<>();
+                ops.add(new DropPartitionClause(true, partitionName, true, true));
+                AlterTableStmt dropTablePartitionStmt = new AlterTableStmt(targetTableName, ops);
+                Analyzer tempAnalyzer = new Analyzer(Env.getCurrentEnv(), context);
+                dropTablePartitionStmt.analyze(tempAnalyzer);
+                DdlExecutor.execute(context.getEnv(), dropTablePartitionStmt);
+            }
+        } catch (Exception ex) {
+            LOG.warn("IOT drop partitions error, stmt={}", parsedStmt.toSql(), ex);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
         }
     }
 

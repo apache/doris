@@ -18,8 +18,6 @@
 package org.apache.doris.datasource.test;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -27,7 +25,6 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,18 +42,14 @@ public class TestExternalCatalog extends ExternalCatalog {
     private TestCatalogProvider catalogProvider;
 
     public TestExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name);
+        super(catalogId, name, InitCatalogLog.Type.TEST);
         this.type = "test";
         this.catalogProperty = new CatalogProperty(resource, props);
         Class<?> providerClazz = null;
         try {
             providerClazz = Class.forName(props.get("catalog_provider.class"));
             this.catalogProvider = (TestCatalogProvider) providerClazz.newInstance();
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(e);
-        } catch (InstantiationException e) {
-            throw new RuntimeException(e);
-        } catch (IllegalAccessException e) {
+        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
             throw new RuntimeException(e);
         }
     }
@@ -65,38 +58,7 @@ public class TestExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
     }
 
-    @Override
-    protected void init() {
-        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-        Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
-        InitCatalogLog initCatalogLog = new InitCatalogLog();
-        initCatalogLog.setCatalogId(id);
-        initCatalogLog.setType(InitCatalogLog.Type.TEST);
-        List<String> allDatabaseNames = mockedDatabaseNames();
-        for (String dbName : allDatabaseNames) {
-            long dbId;
-            if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
-                dbId = dbNameToId.get(dbName);
-                tmpDbNameToId.put(dbName, dbId);
-                ExternalDatabase db = idToDb.get(dbId);
-                db.setUnInitialized(invalidCacheInInit);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId);
-            } else {
-                dbId = Env.getCurrentEnv().getNextId();
-                tmpDbNameToId.put(dbName, dbId);
-                TestExternalDatabase db = new TestExternalDatabase(this, dbId, dbName);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addCreateDb(dbId, dbName);
-            }
-        }
-        dbNameToId = tmpDbNameToId;
-        idToDb = tmpIdToDb;
-        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
-    }
-
-    private List<String> mockedDatabaseNames() {
-
+    protected List<String> listDatabaseNames() {
         return Lists.newArrayList(catalogProvider.getMetadata().keySet());
     }
 
@@ -115,12 +77,6 @@ public class TestExternalCatalog extends ExternalCatalog {
             throw new RuntimeException("unknown tbl: " + tblName);
         }
         return catalogProvider.getMetadata().get(dbName).get(tblName);
-    }
-
-    @Override
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return Lists.newArrayList(dbNameToId.keySet());
     }
 
     @Override
