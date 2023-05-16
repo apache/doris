@@ -120,7 +120,7 @@ suite("test_join", "nereids_p0") {
 		    group by k1 order by 1, 2"""
     // Ocurrs time out with specified time 299969 MILLISECONDS
 
-    List selected =  ["a.k1, b.k1, a.k2, b.k2, a.k3, b.k3", "count(a.k1), count(b.k1), count(a.k2), count(b.k2), count(*)"]
+    List selected = ["a.k1, b.k1, a.k2, b.k2, a.k3, b.k3", "count(a.k1), count(b.k1), count(a.k2), count(b.k2), count(*)"]
 
     for( i in selected) {
         qt_join28"""select ${i} from ${tbName1} a join ${tbName2} b 
