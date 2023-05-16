@@ -1,7 +1,7 @@
 ---
 {
 "title": "MAP",
-"language": "zh-CN"
+"language": "en"
 }
 ---
 
@@ -38,9 +38,9 @@ MAP
 
 `MAP<K, V>`
 
-由K, V类型元素组成的map，不能作为key列使用。目前支持在Duplicate，Unique 模型的表中使用。
+A Map of K, V items, it cannot be used as a key column. Now MAP can only used in Duplicate and Unique Model Tables.
 
-K,V 支持的类型有：
+K,V could be any of:
 
 ```
 BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DATE,
@@ -49,7 +49,7 @@ DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 
 ### example
 
-建表示例如下：
+Create table example:
 
 ```
  CREATE TABLE IF NOT EXISTS test.simple_map (
@@ -64,14 +64,14 @@ DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
             );
 ```
 
-插入数据示例：
+Insert data example:
 
 ```
 mysql> INSERT INTO simple_map VALUES(1, {'a': 100, 'b': 200});
 ```
 
-stream_load示例：
-更多详细 stream_load 用法见 [STREAM TABLE](https://doris.apache.org/zh-CN/docs/dev/data-operate/import/import-way/stream-load-manual) 
+stream_load examples：
+See [STREAM TABLE](https://doris.apache.org/zh-CN/docs/dev/data-operate/import/import-way/stream-load-manual) for syntax details.
 
 ```
 # load the map data from json file
@@ -98,8 +98,7 @@ curl --location-trusted -uroot: -T events.json -H "format: json" -H "read_json_b
 }
 ```
 
-
-查询数据示例：
+Select all data example:
 
 ```
 mysql> SELECT * FROM simple_map;
@@ -112,7 +111,7 @@ mysql> SELECT * FROM simple_map;
 +------+-----------------------------+
 ```
 
-查询 map 列示例：
+Select map column example:
 
 ```
 mysql> SELECT m FROM simple_map;
@@ -125,7 +124,7 @@ mysql> SELECT m FROM simple_map;
 +-----------------------------+
 ```
 
-map 取值示例：
+Select map value according given key example: 
 
 ```
 mysql> SELECT m['a'] FROM simple_map;
@@ -138,7 +137,7 @@ mysql> SELECT m['a'] FROM simple_map;
 +-----------------------------+
 ```
 
-map 支持的functions示例：
+map functions examples: 
 
 ```
 # map construct
