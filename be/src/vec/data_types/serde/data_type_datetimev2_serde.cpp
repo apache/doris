@@ -48,8 +48,8 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
 }
 template <bool is_binary_format>
 Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(
-        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
-        int end, int scale, bool col_const) const {
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
+        int start, int end, int scale, bool col_const) const {
     auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
     int buf_ret = 0;
     for (ssize_t i = start; i < end; ++i) {
@@ -62,7 +62,8 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(
         DateV2Value<DateTimeV2ValueType> date_val =
                 binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(time_num);
         char* pos = date_val.to_string(buf, scale);
-        buf_ret = result[i].push_string(buf, pos - buf - 1);
+        buf_ret = result[row_idx].push_string(buf, pos - buf - 1);
+        ++row_idx;
     }
     return Status::OK();
 }

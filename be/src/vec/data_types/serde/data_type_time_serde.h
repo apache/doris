@@ -32,19 +32,24 @@ class Arena;
 
 class DataTypeTimeSerDe : public DataTypeNumberSerDe<Float64> {
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
-                                 int start, int end, int scale, bool col_const) const override {
-        return _write_date_time_column_to_mysql(column, result, start, end, scale, col_const);
+                                 int row_idx, int start, int end, int scale,
+                                 bool col_const) const override {
+        return _write_date_time_column_to_mysql(column, result, row_idx, start, end, scale,
+                                                col_const);
     }
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
-                                 int start, int end, int scale, bool col_const) const override {
-        return _write_date_time_column_to_mysql(column, result, start, end, scale, col_const);
+                                 int row_idx, int start, int end, int scale,
+                                 bool col_const) const override {
+        return _write_date_time_column_to_mysql(column, result, row_idx, start, end, scale,
+                                                col_const);
     }
 
 private:
     template <bool is_binary_format>
     Status _write_date_time_column_to_mysql(const IColumn& column,
                                             std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                            int start, int end, int scale, bool col_const) const {
+                                            int row_idx, int start, int end, int scale,
+                                            bool col_const) const {
         int buf_ret = 0;
         auto& data = static_cast<const ColumnVector<Float64>&>(column).get_data();
         for (int i = start; i < end; ++i) {
@@ -52,7 +57,8 @@ private:
                 return Status::InternalError("pack mysql buffer failed.");
             }
             const auto col_index = index_check_const(i, col_const);
-            buf_ret = result[i].push_time(data[col_index]);
+            buf_ret = result[row_idx].push_time(data[col_index]);
+            ++row_idx;
         }
         return Status::OK();
     }

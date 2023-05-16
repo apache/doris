@@ -86,27 +86,32 @@ void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
 
 template <bool is_binary_format>
 Status DataTypeArraySerDe::_write_column_to_mysql(
-        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
-        int end, int scale, bool col_const) const {
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
+        int start, int end, int scale, bool col_const) const {
     int buf_ret = 0;
     auto& column_array = assert_cast<const ColumnArray&>(column);
     auto& offsets = column_array.get_offsets();
+    auto& data = column_array.get_data();
     for (ssize_t i = start; i < end; ++i) {
         if (0 != buf_ret) {
             return Status::InternalError("pack mysql buffer failed.");
         }
         const auto col_index = index_check_const(i, col_const);
-        result[i].open_dynamic_mode();
-        buf_ret = result[i].push_string("[", 1);
-        for (auto j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
+        LOG(WARNING) << "amory: " << col_index;
+        result[row_idx].open_dynamic_mode();
+        buf_ret = result[row_idx].push_string("[", 1);
+        LOG(WARNING) << "amory row: " << col_index << " with offsets: " << offsets[col_index - 1]
+                     << ":" << offsets[col_index];
+        for (int j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
             if (j != offsets[col_index - 1]) {
-                buf_ret = result[i].push_string(", ", 2);
+                buf_ret = result[row_idx].push_string(", ", 2);
             }
-            RETURN_IF_ERROR(nested_serde->write_column_to_mysql(column_array.get_data(), result, j,
-                                                                j + 1, scale, col_const));
+            RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, row_idx, j, j + 1,
+                                                                scale, col_const));
         }
-        buf_ret = result[i].push_string("]", 1);
-        result[i].close_dynamic_mode();
+        buf_ret = result[row_idx].push_string("]", 1);
+        result[row_idx].close_dynamic_mode();
+        ++row_idx;
     }
     return Status::OK();
 }

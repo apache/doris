@@ -125,8 +125,8 @@ void DataTypeStringSerDe::read_column_from_arrow(IColumn& column, const arrow::A
 }
 template <bool is_binary_format>
 Status DataTypeStringSerDe::_write_column_to_mysql(
-        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
-        int end, int scale, bool col_const) const {
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
+        int start, int end, int scale, bool col_const) const {
     int buf_ret = 0;
     auto& col = assert_cast<const ColumnString&>(column);
     for (ssize_t i = start; i < end; ++i) {
@@ -135,19 +135,21 @@ Status DataTypeStringSerDe::_write_column_to_mysql(
         }
         const auto col_index = index_check_const(i, col_const);
         const auto string_val = col.get_data_at(col_index);
+        LOG(WARNING) << "amory: " << col_index << " : " << string_val;
         if (string_val.data == nullptr) {
             if (string_val.size == 0) {
                 // 0x01 is a magic num, not useful actually, just for present ""
                 char* tmp_val = reinterpret_cast<char*>(0x01);
-                buf_ret = result[i].push_string(tmp_val, string_val.size);
+                buf_ret = result[row_idx].push_string(tmp_val, string_val.size);
             } else {
-                buf_ret = result[i].push_null();
+                buf_ret = result[row_idx].push_null();
             }
         } else {
-            buf_ret = result[i].push_string("\"", 1);
-            buf_ret = result[i].push_string(string_val.data, string_val.size);
-            buf_ret = result[i].push_string("\"", 1);
+            buf_ret = result[row_idx].push_string("\"", 1);
+            buf_ret = result[row_idx].push_string(string_val.data, string_val.size);
+            buf_ret = result[row_idx].push_string("\"", 1);
         }
+        ++row_idx;
     }
     return Status::OK();
 }

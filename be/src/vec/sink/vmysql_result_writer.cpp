@@ -624,7 +624,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
                                block.get_by_position(i).column->size());
 
         int scale = _output_vexpr_ctxs[i]->root()->type().scale;
-        RETURN_IF_ERROR(type_ptr->get_serde()->write_column_to_mysql(*column_ptr, rows_buffer, 0,
+        RETURN_IF_ERROR(type_ptr->get_serde()->write_column_to_mysql(*column_ptr, rows_buffer, 0, 0,
                                                                      num_rows, scale, col_const));
 
         if (!status) {

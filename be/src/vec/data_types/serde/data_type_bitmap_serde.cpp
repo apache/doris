@@ -84,8 +84,8 @@ void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
 
 template <bool is_binary_format>
 Status DataTypeBitMapSerDe::_write_column_to_mysql(
-        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
-        int end, int scale, bool col_const) const {
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
+        int start, int end, int scale, bool col_const) const {
     auto& data_column = assert_cast<const ColumnBitmap&>(column);
     int buf_ret = 0;
     for (ssize_t i = start; i < end; ++i) {
@@ -97,7 +97,8 @@ Status DataTypeBitMapSerDe::_write_column_to_mysql(
         size_t size = bitmapValue.getSizeInBytes();
         std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
         bitmapValue.write_to(buf.get());
-        buf_ret = result[i].push_string(buf.get(), size);
+        buf_ret = result[row_idx].push_string(buf.get(), size);
+        ++row_idx;
     }
     return Status::OK();
 }

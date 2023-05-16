@@ -62,27 +62,29 @@ public:
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
-                                 int start, int end, int scale, bool col_const) const override {
-        return _write_column_to_mysql(column, result, start, end, scale, col_const);
+                                 int row_idx, int start, int end, int scale,
+                                 bool col_const) const override {
+        return _write_column_to_mysql(column, result, row_idx, start, end, scale, col_const);
     }
 
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
-                                 int start, int end, int scale, bool col_const) const override {
-        return _write_column_to_mysql(column, result, start, end, scale, col_const);
+                                 int row_idx, int start, int end, int scale,
+                                 bool col_const) const override {
+        return _write_column_to_mysql(column, result, row_idx, start, end, scale, col_const);
     }
 
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column,
-                                  std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
-                                  int end, int scale, bool col_const) const;
+                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
+                                  int row_idx, int start, int end, int scale, bool col_const) const;
 };
 
 template <typename T>
 template <bool is_binary_format>
 Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(
-        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
-        int end, int scale, bool col_const) const {
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
+        int start, int end, int scale, bool col_const) const {
     int buf_ret = 0;
     auto& data = static_cast<const ColumnDecimal<T>&>(column).get_data();
     for (int i = start; i < end; ++i) {
@@ -93,11 +95,12 @@ Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(
         if constexpr (IsDecimalV2<T>) {
             DecimalV2Value decimal_val(data[col_index]);
             auto decimal_str = decimal_val.to_string(scale);
-            buf_ret = result[i].push_string(decimal_str.c_str(), decimal_str.size());
+            buf_ret = result[row_idx].push_string(decimal_str.c_str(), decimal_str.size());
         } else {
-            std::string decimal_str = data[i].to_string(scale);
-            buf_ret = result[i].push_string(decimal_str.c_str(), decimal_str.size());
+            std::string decimal_str = data[col_index].to_string(scale);
+            buf_ret = result[row_idx].push_string(decimal_str.c_str(), decimal_str.size());
         }
+        ++row_idx;
     }
     return Status::OK();
 }

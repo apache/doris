@@ -67,8 +67,8 @@ void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::A
 }
 template <bool is_binary_format>
 Status DataTypeDateV2SerDe::_write_column_to_mysql(
-        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int start,
-        int end, int scale, bool col_const) const {
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
+        int start, int end, int scale, bool col_const) const {
     auto& data = assert_cast<const ColumnVector<UInt32>&>(column).get_data();
     int buf_ret = 0;
     for (ssize_t i = start; i < end; ++i) {
@@ -79,7 +79,8 @@ Status DataTypeDateV2SerDe::_write_column_to_mysql(
         auto time_num = data[col_index];
         DateV2Value<DateV2ValueType> date_val =
                 binary_cast<UInt32, DateV2Value<DateV2ValueType>>(time_num);
-        buf_ret = result[i].push_vec_datetime(date_val);
+        buf_ret = result[row_idx].push_vec_datetime(date_val);
+        ++row_idx;
     }
     return Status::OK();
 }
