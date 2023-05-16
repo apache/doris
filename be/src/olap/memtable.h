@@ -49,15 +49,19 @@ struct RowInBlock {
     size_t _row_pos;
     char* _agg_mem;
     size_t* _agg_state_offset;
+    bool _has_init_agg;
 
-    RowInBlock(size_t row) : _row_pos(row) {}
+    RowInBlock(size_t row) : _row_pos(row), _has_init_agg(false) {}
 
     void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
+        _has_init_agg = true;
         _agg_mem = agg_mem;
         _agg_state_offset = agg_state_offset;
     }
 
     char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
+
+    inline bool has_init_agg() const { return _has_init_agg; }
 };
 
 class RowInBlockComparator {
@@ -179,10 +183,12 @@ private:
     size_t _last_sorted_pos = 0;
 
     //return number of same keys
-    int _sort_row_in_blocks();
+    int _sort();
     template <bool is_final>
-    void _merge_row_in_blocks();
-    void _add_rows_from_block(vectorized::Block& in_block);
+    void _aggregate_one_row(RowInBlock *row, const vectorized::ColumnsWithTypeAndName& block_data, int row_pos);
+    template <bool is_final>
+    void _aggregate();
+    void prepare_block_for_flush(vectorized::Block& in_block);
     bool _is_first_insertion;
 
     void _init_agg_functions(const vectorized::Block* block);
