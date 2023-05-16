@@ -53,7 +53,7 @@ AvroReader::AvroReader(RuntimeState *state, RuntimeProfile *profile,
                                                {"file_type",       std::to_string(type)}};;
     switch (type) {
         case TFileType::FILE_HDFS:
-            required_param.insert(pair<String, String>("uri", params.hdfs_params.hdfs_conf.data()->value));
+            required_param.insert(std::make_pair("uri", params.hdfs_params.hdfs_conf.data()->value));
             break;
         case TFileType::FILE_S3:
             required_param.insert(params.properties.begin(), params.properties.end());
