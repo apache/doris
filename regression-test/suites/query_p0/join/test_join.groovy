@@ -1241,8 +1241,6 @@ suite("test_join", "query,p0") {
     qt_sql """select k1 from test right anti join baseall on false order by k1;"""
 
     // test bucket shuffle join, github issue #6171
-    sql"""create database if not exists test_issue_6171"""
-    sql"""use test_issue_6171"""
     List table_list = ["T_DORIS_A", "T_DORIS_B", "T_DORIS_C", "T_DORIS_D", "T_DORIS_E"]
     List column_list = [",APPLY_CRCL bigint(19)",
                    ",FACTOR_FIN_VALUE decimal(19,2),PRJT_ID bigint(19)",
@@ -1261,7 +1259,6 @@ suite("test_join", "query,p0") {
             B.FACTOR_FIN_VALUE, D.limit_id desc;"""
     logger.info(ret.toString())
     assertTrue(ret.toString().contains("  |  join op: INNER JOIN(BROADCAST)"))
-    sql"""drop database test_issue_6171"""
 
     sql """
     CREATE TABLE t0(c0 BOOLEAN NOT NULL) DISTRIBUTED BY HASH (c0) BUCKETS 8 PROPERTIES ("replication_num" = "1");
