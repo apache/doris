@@ -21,8 +21,10 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.qe.ConnectContext;
 
@@ -92,7 +94,8 @@ public class RelationUtil {
                 return ImmutableList.of(catalogName, dbName, tableName);
             }
             default:
-                throw new IllegalStateException("Table name [" + String.join(".", nameParts) + "] is invalid.");
+                throw new IllegalStateException("Table name [" + java.lang.String
+                        .join(".", nameParts) + "] is invalid.");
         }
     }
 
@@ -100,21 +103,28 @@ public class RelationUtil {
      * get table
      */
     public static TableIf getTable(List<String> qualifierName, Env env) {
+        return getDbAndTable(qualifierName, env).second;
+    }
+
+    /**
+     * get database and table
+     */
+    public static Pair<DatabaseIf, TableIf> getDbAndTable(List<String> qualifierName, Env env) {
         String catalogName = qualifierName.get(0);
         String dbName = qualifierName.get(1);
         String tableName = qualifierName.get(2);
-        CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogName);
+        CatalogIf<?> catalog = env.getCatalogMgr().getCatalog(catalogName);
         if (catalog == null) {
-            throw new RuntimeException(String.format("Catalog %s does not exist.", catalogName));
+            throw new AnalysisException(java.lang.String.format("Catalog %s does not exist.", catalogName));
         }
-        DatabaseIf<TableIf> db = null;
         try {
-            db = (DatabaseIf<TableIf>) catalog.getDb(dbName)
-                    .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
+            DatabaseIf<TableIf> db = catalog.getDb(dbName).orElseThrow(() -> new AnalysisException(
+                    "Database [" + dbName + "] does not exist."));
+            TableIf table = db.getTable(tableName).orElseThrow(() -> new AnalysisException(
+                    "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+            return Pair.of(db, table);
         } catch (Throwable e) {
-            throw new RuntimeException(e);
+            throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        return db.getTable(tableName).orElseThrow(() -> new RuntimeException(
-                "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
     }
 }

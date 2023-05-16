@@ -105,22 +105,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    private TableIf getTable(String catalogName, String dbName, String tableName, Env env) {
-        CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogName);
-        if (catalog == null) {
-            throw new RuntimeException(String.format("Catalog %s does not exist.", catalogName));
-        }
-        DatabaseIf<TableIf> db = null;
-        try {
-            db = (DatabaseIf<TableIf>) catalog.getDb(dbName)
-                    .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-        return db.getTable(tableName).orElseThrow(() -> new RuntimeException(
-            "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
-    }
-
     private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
         String tableName = unboundRelation.getNameParts().get(0);
         // check if it is a CTE's name

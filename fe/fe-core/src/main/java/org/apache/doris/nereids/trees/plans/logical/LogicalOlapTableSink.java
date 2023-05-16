@@ -104,6 +104,14 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         return isBound;
     }
 
+    public List<String> getNameParts() {
+        return nameParts;
+    }
+
+    public List<String> getPartitions() {
+        return partitions;
+    }
+
     public Database getDatabase() {
         return database;
     }
