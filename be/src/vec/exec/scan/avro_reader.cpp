@@ -22,8 +22,6 @@
 
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
-#include "vec/core/types.h"
-#include "orc/Reader.hh"
 
 namespace doris::vectorized {
 

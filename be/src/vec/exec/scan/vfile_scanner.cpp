@@ -642,11 +642,11 @@ Status VFileScanner::_get_next_reader() {
             init_status = ((NewJsonReader*)(_cur_reader.get()))->init_reader();
             break;
         }
-            case TFileFormatType::FORMAT_AVRO: {
-                _cur_reader.reset(new AvroReader(_state, _profile, _params, _file_slot_descs));
-                init_status = ((AvroReader *) (_cur_reader.get()))->init_reader(_colname_to_value_range);
-                break;
-            }
+        case TFileFormatType::FORMAT_AVRO: {
+            _cur_reader.reset(new AvroReader(_state, _profile, _params, _file_slot_descs));
+            init_status = ((AvroReader *) (_cur_reader.get()))->init_reader(_colname_to_value_range);
+            break;
+        }
         default:
             return Status::InternalError("Not supported file format: {}", _params.format_type);
         }

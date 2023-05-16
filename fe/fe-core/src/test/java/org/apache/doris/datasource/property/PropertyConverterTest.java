@@ -208,7 +208,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(analyzedStmt.getTableRefs().size(), 1);
         TableValuedFunctionRef oldFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
         S3TableValuedFunction s3Tvf = (S3TableValuedFunction) oldFuncTable.getTableFunction();
-        Assertions.assertEquals(s3Tvf.getBrokerDesc().getProperties().size(), 9);
+        Assertions.assertEquals(s3Tvf.getBrokerDesc().getProperties().size(), 11);
 
         String queryNew = "select * from s3(\n"
                     + "  'uri' = 'http://s3.us-east-1.amazonaws.com/test.parquet',\n"
@@ -221,7 +221,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(analyzedStmtNew.getTableRefs().size(), 1);
         TableValuedFunctionRef newFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
         S3TableValuedFunction newS3Tvf = (S3TableValuedFunction) newFuncTable.getTableFunction();
-        Assertions.assertEquals(newS3Tvf.getBrokerDesc().getProperties().size(), 9);
+        Assertions.assertEquals(newS3Tvf.getBrokerDesc().getProperties().size(), 11);
     }
 
     @Test
