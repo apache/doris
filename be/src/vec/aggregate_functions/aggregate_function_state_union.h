@@ -36,6 +36,9 @@ public:
                                        const DataTypes& argument_types,
                                        const DataTypePtr& return_type) {
         CHECK(argument_types.size() == 1);
+        if (function == nullptr) {
+            return nullptr;
+        }
         return std::make_shared<AggregateStateUnion>(function, argument_types, return_type);
     }
 

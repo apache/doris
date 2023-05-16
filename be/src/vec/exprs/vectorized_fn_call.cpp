@@ -89,15 +89,11 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             if (_data_type->is_nullable()) {
                 return Status::InternalError("State function's return type must be not nullable");
             }
-            auto agg_function = AggregateFunctionSimpleFactory::instance().get(
-                    remove_suffix(_fn.name.function_name, AGG_STATE_SUFFIX), argument_types,
-                    _data_type->is_nullable());
-            if (agg_function == nullptr) {
-                return Status::InternalError("Aggregate Function {} is not implemented",
-                                             _fn.signature);
-            }
-
-            _function = FunctionAggState::create(argument_types, _data_type, agg_function);
+            _function = FunctionAggState::create(
+                    argument_types, _data_type,
+                    AggregateFunctionSimpleFactory::instance().get(
+                            remove_suffix(_fn.name.function_name, AGG_STATE_SUFFIX), argument_types,
+                            _data_type->is_nullable()));
         } else {
             return Status::InternalError("Function {} is not endwith '_state'", _fn.signature);
         }

@@ -39,6 +39,9 @@ public:
 
     static FunctionBasePtr create(const DataTypes& argument_types, const DataTypePtr& return_type,
                                   AggregateFunctionPtr agg_function) {
+        if (agg_function == nullptr) {
+            return nullptr;
+        }
         return std::make_shared<DefaultFunction>(
                 std::make_shared<FunctionAggState>(argument_types, return_type, agg_function),
                 argument_types, return_type);

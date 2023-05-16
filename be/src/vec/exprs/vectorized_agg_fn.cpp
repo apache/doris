@@ -59,13 +59,11 @@ template <class FunctionType>
 AggregateFunctionPtr get_agg_state_function(const std::string& name,
                                             const DataTypes& argument_types,
                                             DataTypePtr return_type) {
-    auto agg_function = AggregateFunctionSimpleFactory::instance().get(
-            name, ((DataTypeAggState*)argument_types[0].get())->get_sub_types(),
-            return_type->is_nullable());
-    if (agg_function == nullptr) {
-        return nullptr;
-    }
-    return FunctionType::create(agg_function, argument_types, return_type);
+    return FunctionType::create(
+            AggregateFunctionSimpleFactory::instance().get(
+                    name, ((DataTypeAggState*)argument_types[0].get())->get_sub_types(),
+                    return_type->is_nullable()),
+            argument_types, return_type);
 }
 
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
