@@ -204,8 +204,12 @@ public class Analyzer {
         return isWithClause;
     }
 
+    // set current limit if is not null and push down the parent's limit otherwise.
     public void setCurrentLimit(LimitElement currentLimit) {
         this.currentLimit = currentLimit;
+        if (!this.currentLimit.hasLimit() && hasAncestors()) {
+            this.currentLimit = getParentAnalyzer().getCurrentLimit();
+        }
     }
 
     public LimitElement getCurrentLimit() {

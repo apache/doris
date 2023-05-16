@@ -972,6 +972,10 @@ public class SelectStmtTest {
         explainString = dorisAssert.query(sql).explainQuery();
         Assert.assertTrue(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
 
+        sql = "select * from (select * from (select * from db1.baseall where k1 < 5) t1 where k1 = 1) t limit 0, 100";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
+
         sql = "select * from db1.baseall join db1.table1 on k1=siteid limit 10 offset 5";
         explainString = dorisAssert.query(sql).explainQuery();
         Assert.assertFalse(explainString.contains("order by"));

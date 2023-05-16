@@ -2671,11 +2671,8 @@ public class SelectStmt extends QueryStmt {
         }
         // to handle the specific case: select {columns} from (select {columns} from {table} {where}) t {limit}
         // no we are at the inner scope.
-        if (analyzer.hasAncestors() && analyzer.getParentAnalyzer().hasAncestors()) {
-            return false;
-        }
         if (!hasLimit()) {
-            limitElement = analyzer.getParentAnalyzer().getCurrentLimit();
+            limitElement = analyzer.getCurrentLimit();
         }
         return hasLimit() && orderByElements == null;
     }
