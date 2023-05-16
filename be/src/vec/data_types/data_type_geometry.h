@@ -51,6 +51,13 @@ public:
         return GeometryField(binary_val.value(), binary_val.size());
     }
 
+    Field get_field(const TExprNode& node) const override {
+        DCHECK_EQ(node.node_type, TExprNodeType::GEOMETRY_LITERAL);
+        DCHECK(node.__isset.geometry_literal);
+        GeometryBinaryValue value(node.geometry_literal.value);
+        return String(value.value(), value.size());
+    }
+
     bool equals(const IDataType& rhs) const override;
 
     bool get_is_parametric() const override { return false; }
