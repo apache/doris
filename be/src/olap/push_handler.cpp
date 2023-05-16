@@ -54,7 +54,10 @@
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/functions/simple_function_factory.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -329,6 +332,7 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
     _file_params.expr_of_dest_slot = _params.expr_of_dest_slot;
     _file_params.dest_sid_to_src_sid_without_trans = _params.dest_sid_to_src_sid_without_trans;
     _file_params.strict_mode = _params.strict_mode;
+    _file_params.__isset.broker_addresses = true;
     _file_params.broker_addresses = t_scan_range.broker_addresses;
 
     for (int i = 0; i < _ranges.size(); ++i) {
@@ -336,7 +340,9 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
         file_range.load_id = _ranges[i].load_id;
         file_range.path = _ranges[i].path;
         file_range.start_offset = _ranges[i].start_offset;
+        file_range.__isset.size = true;
         file_range.size = _ranges[i].size;
+        file_range.__isset.file_size = true;
         file_range.file_size = _ranges[i].file_size;
         file_range.columns_from_path = _ranges[i].columns_from_path;
         _file_ranges.push_back(file_range);
@@ -383,6 +389,8 @@ Status PushBrokerReader::init() {
         _all_col_names.push_back(slot_descs[i]->col_name());
     }
 
+    RETURN_IF_ERROR(_init_expr_ctxes());
+
     _ready = true;
     return Status::OK();
 }
@@ -393,9 +401,149 @@ Status PushBrokerReader::next(vectorized::Block* block) {
     }
     if (_cur_reader == nullptr || _cur_reader_eof) {
         RETURN_IF_ERROR(_get_next_reader());
+        if (_eof) {
+            return Status::OK();
+        }
     }
+    RETURN_IF_ERROR(_init_src_block());
     size_t read_rows = 0;
-    RETURN_IF_ERROR(_cur_reader->get_next_block(block, &read_rows, &_cur_reader_eof));
+    RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
+    if (read_rows > 0) {
+        RETURN_IF_ERROR(_cast_to_input_block());
+        RETURN_IF_ERROR(_convert_to_output_block(block));
+    }
+    return Status::OK();
+}
+
+Status PushBrokerReader::close() {
+    _ready = false;
+    for (auto ctx : _dest_vexpr_ctx) {
+        if (ctx != nullptr) {
+            ctx->close(_runtime_state.get());
+        }
+    }
+
+    if (_push_down_expr) {
+        _push_down_expr->close(_runtime_state.get());
+    }
+
+    for (auto& [k, v] : _slot_id_to_filter_conjuncts) {
+        for (auto& ctx : v) {
+            if (ctx != nullptr) {
+                ctx->close(_runtime_state.get());
+            }
+        }
+    }
+
+    for (auto* ctx : _not_single_slot_filter_conjuncts) {
+        if (ctx != nullptr) {
+            ctx->close(_runtime_state.get());
+        }
+    }
+    return Status::OK();
+}
+
+Status PushBrokerReader::_init_src_block() {
+    _src_block.clear();
+    int idx = 0;
+    for (auto& slot : _src_slot_descs) {
+        vectorized::DataTypePtr data_type;
+        auto it = _name_to_col_type.find(slot->col_name());
+        if (it == _name_to_col_type.end() || _is_dynamic_schema) {
+            // not exist in file, using type from _input_tuple_desc
+            data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    slot->type(), slot->is_nullable());
+        } else {
+            data_type = vectorized::DataTypeFactory::instance().create_data_type(it->second, true);
+        }
+        if (data_type == nullptr) {
+            return Status::NotSupported("Not support data type {} for column {}",
+                                        it == _name_to_col_type.end() ? slot->type().debug_string()
+                                                                      : it->second.debug_string(),
+                                        slot->col_name());
+        }
+        vectorized::MutableColumnPtr data_column = data_type->create_column();
+        _src_block.insert(vectorized::ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                            slot->col_name()));
+        _src_block_name_to_idx.emplace(slot->col_name(), idx++);
+    }
+    _src_block_ptr = &_src_block;
+    return Status::OK();
+}
+
+Status PushBrokerReader::_cast_to_input_block() {
+    if (_is_dynamic_schema) {
+        return Status::OK();
+    }
+    size_t idx = 0;
+    for (auto& slot_desc : _src_slot_descs) {
+        if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
+            continue;
+        }
+        if (slot_desc->type().is_variant_type()) {
+            continue;
+        }
+        auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
+        // remove nullable here, let the get_function decide whether nullable
+        auto return_type = slot_desc->get_data_type_ptr();
+        vectorized::ColumnsWithTypeAndName arguments {
+                arg,
+                {vectorized::DataTypeString().create_column_const(
+                         arg.column->size(), remove_nullable(return_type)->get_family_name()),
+                 std::make_shared<vectorized::DataTypeString>(), ""}};
+        auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
+                "CAST", arguments, return_type);
+        idx = _src_block_name_to_idx[slot_desc->col_name()];
+        RETURN_IF_ERROR(
+                func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
+        _src_block_ptr->get_by_position(idx).type = std::move(return_type);
+    }
+    return Status::OK();
+}
+
+Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
+    block->clear();
+
+    int ctx_idx = 0;
+    size_t rows = _src_block.rows();
+    auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
+
+    for (auto slot_desc : _dest_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        int dest_index = ctx_idx++;
+        vectorized::ColumnPtr column_ptr;
+
+        auto* ctx = _dest_vexpr_ctx[dest_index];
+        int result_column_id = -1;
+        // PT1 => dest primitive type
+        RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
+        column_ptr = _src_block.get_by_position(result_column_id).column;
+        // column_ptr maybe a ColumnConst, convert it to a normal column
+        column_ptr = column_ptr->convert_to_full_column_if_const();
+        DCHECK(column_ptr != nullptr);
+
+        // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
+        // is likely to be nullable
+        if (LIKELY(column_ptr->is_nullable())) {
+            if (!slot_desc->is_nullable()) {
+                column_ptr = remove_nullable(column_ptr);
+            }
+        } else if (slot_desc->is_nullable()) {
+            column_ptr = make_nullable(column_ptr);
+        }
+        block->insert(dest_index,
+                      vectorized::ColumnWithTypeAndName(column_ptr, slot_desc->get_data_type_ptr(),
+                                                        slot_desc->col_name()));
+    }
+    _src_block.clear();
+
+    size_t dest_size = block->columns();
+    block->insert(vectorized::ColumnWithTypeAndName(std::move(filter_column),
+                                                    std::make_shared<vectorized::DataTypeUInt8>(),
+                                                    "filter column"));
+    RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
     return Status::OK();
 }
 
@@ -405,6 +553,87 @@ void PushBrokerReader::print_profile() {
     LOG(INFO) << ss.str();
 }
 
+Status PushBrokerReader::_init_expr_ctxes() {
+    // Construct _src_slot_descs
+    const TupleDescriptor* src_tuple_desc =
+            _runtime_state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
+    if (src_tuple_desc == nullptr) {
+        return Status::InternalError("Unknown source tuple descriptor, tuple_id={}",
+                                     _params.src_tuple_id);
+    }
+
+    std::map<SlotId, SlotDescriptor*> src_slot_desc_map;
+    std::unordered_map<SlotDescriptor*, int> src_slot_desc_to_index {};
+    for (int i = 0, len = src_tuple_desc->slots().size(); i < len; ++i) {
+        auto* slot_desc = src_tuple_desc->slots()[i];
+        src_slot_desc_to_index.emplace(slot_desc, i);
+        src_slot_desc_map.emplace(slot_desc->id(), slot_desc);
+    }
+    for (auto slot_id : _params.src_slot_ids) {
+        auto it = src_slot_desc_map.find(slot_id);
+        if (it == std::end(src_slot_desc_map)) {
+            return Status::InternalError("Unknown source slot descriptor, slot_id={}", slot_id);
+        }
+        _src_slot_descs.emplace_back(it->second);
+
+        if (it->second->type().is_variant_type() &&
+            it->second->col_name() == BeConsts::DYNAMIC_COLUMN_NAME) {
+            _is_dynamic_schema = true;
+        }
+    }
+    _row_desc.reset(new RowDescriptor(_runtime_state->desc_tbl(),
+                                      std::vector<TupleId>({_params.src_tuple_id}),
+                                      std::vector<bool>({false})));
+
+    if (!_pre_filter_texprs.empty()) {
+        DCHECK(_pre_filter_texprs.size() == 1);
+        _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
+                _runtime_state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
+        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_runtime_state.get(), *_row_desc));
+        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_runtime_state.get()));
+    }
+
+    _dest_tuple_desc = _runtime_state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
+    if (_dest_tuple_desc == nullptr) {
+        return Status::InternalError("Unknown dest tuple descriptor, tuple_id={}",
+                                     _params.dest_tuple_id);
+    }
+    bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
+    for (auto slot_desc : _dest_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        auto it = _params.expr_of_dest_slot.find(slot_desc->id());
+        if (it == std::end(_params.expr_of_dest_slot)) {
+            return Status::InternalError("No expr for dest slot, id={}, name={}", slot_desc->id(),
+                                         slot_desc->col_name());
+        }
+
+        vectorized::VExprContext* ctx = nullptr;
+        RETURN_IF_ERROR(
+                vectorized::VExpr::create_expr_tree(_runtime_state->obj_pool(), it->second, &ctx));
+        RETURN_IF_ERROR(ctx->prepare(_runtime_state.get(), *_row_desc.get()));
+        RETURN_IF_ERROR(ctx->open(_runtime_state.get()));
+        _dest_vexpr_ctx.emplace_back(ctx);
+        if (has_slot_id_map) {
+            auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+            if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
+                _src_slot_descs_order_by_dest.emplace_back(nullptr);
+            } else {
+                auto _src_slot_it = src_slot_desc_map.find(it1->second);
+                if (_src_slot_it == std::end(src_slot_desc_map)) {
+                    return Status::InternalError("No src slot {} in src slot descs", it1->second);
+                }
+                _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
+                                                     src_slot_desc_to_index[_src_slot_it->second]);
+                _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
+            }
+        }
+    }
+    return Status::OK();
+}
+
 Status PushBrokerReader::_get_next_reader() {
     _cur_reader.reset(nullptr);
     if (_next_range >= _file_ranges.size()) {
@@ -412,11 +641,7 @@ Status PushBrokerReader::_get_next_reader() {
         return Status::OK();
     }
     const TFileRangeDesc& range = _file_ranges[_next_range++];
-
-    // create reader for specific format
-    // TODO: add json, avro
     Status init_status;
-    // TODO: use data lake type
     switch (_file_params.format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
         std::unique_ptr<vectorized::ParquetReader> parquet_reader =
@@ -431,12 +656,18 @@ Status PushBrokerReader::_get_next_reader() {
         init_status = parquet_reader->init_reader(
                 _all_col_names, place_holder, _colname_to_value_range, _push_down_expr,
                 _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts, false);
         _cur_reader = std::move(parquet_reader);
         if (!init_status.ok()) {
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }
+        std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+                partition_columns;
+        std::unordered_map<std::string, vectorized::VExprContext*> missing_columns;
+        _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
+        _cur_reader->set_fill_columns(partition_columns, missing_columns);
+        break;
     }
     default:
         LOG(WARNING) << "Unsupported file format type: " << _file_params.format_type;

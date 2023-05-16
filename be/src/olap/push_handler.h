@@ -97,21 +97,35 @@ public:
     Status next(vectorized::Block* block);
     void print_profile();
 
-    Status close() {
-        _ready = false;
-        return Status::OK();
-    }
+    Status close();
     bool eof() const { return _eof; }
 
 protected:
     Status _get_next_reader();
+    Status _init_src_block();
+    Status _cast_to_input_block();
+    Status _convert_to_output_block(vectorized::Block* block);
+    Status _init_expr_ctxes();
 
 private:
     bool _ready;
     bool _eof;
     int _next_range;
-
+    vectorized::Block* _src_block_ptr;
+    vectorized::Block _src_block;
     const TDescriptorTable& _t_desc_tbl;
+    std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
+    std::unordered_set<std::string> _missing_cols;
+    std::unordered_map<std::string, size_t> _src_block_name_to_idx;
+    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
+    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
+    bool _is_dynamic_schema = false;
+    std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
+    std::unordered_map<int, int> _dest_slot_to_src_slot_index;
+
+    std::vector<SlotDescriptor*> _src_slot_descs;
+    std::unique_ptr<RowDescriptor> _row_desc;
+    const TupleDescriptor* _dest_tuple_desc;
 
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile* _runtime_profile;
