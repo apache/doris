@@ -161,6 +161,7 @@ public:
     static std::string log_usage(MemTracker::Snapshot snapshot);
     std::string log_usage() { return log_usage(make_snapshot()); }
     static std::string type_log_usage(MemTracker::Snapshot snapshot);
+    static std::string type_detail_usage(const std::string& msg, Type type);
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
     static void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }

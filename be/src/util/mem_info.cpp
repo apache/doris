@@ -138,6 +138,11 @@ bool MemInfo::process_minor_gc() {
     // TODO add freed_mem
     SegmentLoader::instance()->prune();
 
+    if (doris::config::memory_debug) {
+        LOG(INFO) << MemTrackerLimiter::type_detail_usage(
+                "Before free top memory overcommit query in Minor GC",
+                MemTrackerLimiter::Type::QUERY);
+    }
     if (config::enable_query_memroy_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
@@ -179,10 +184,18 @@ bool MemInfo::process_full_gc() {
         }
     }
 
+    if (doris::config::memory_debug) {
+        LOG(INFO) << MemTrackerLimiter::type_detail_usage("Before free top memory query in Full GC",
+                                                          MemTrackerLimiter::Type::QUERY);
+    }
     freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
                                                           vm_rss_str, mem_available_str);
     if (freed_mem > _s_process_full_gc_size) {
         return true;
+    }
+    if (doris::config::memory_debug) {
+        LOG(INFO) << MemTrackerLimiter::type_detail_usage(
+                "Before free top memory overcommit load in Full GC", MemTrackerLimiter::Type::LOAD);
     }
     if (config::enable_query_memroy_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
@@ -190,6 +203,10 @@ bool MemInfo::process_full_gc() {
         if (freed_mem > _s_process_full_gc_size) {
             return true;
         }
+    }
+    if (doris::config::memory_debug) {
+        LOG(INFO) << MemTrackerLimiter::type_detail_usage("Before free top memory load in Full GC",
+                                                          MemTrackerLimiter::Type::LOAD);
     }
     freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem,
                                                          vm_rss_str, mem_available_str);
