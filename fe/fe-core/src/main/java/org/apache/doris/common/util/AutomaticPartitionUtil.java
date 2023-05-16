@@ -181,8 +181,8 @@ public class AutomaticPartitionUtil {
     public static Map<String, String> analyzeAutomaticPartition(Map<String, String> properties,
             OlapTable olapTable, Database db) throws UserException {
         // properties should not be empty, check properties before call this function
+        Map<String, String> analyzedProperties = new HashMap<>();
         if (Config.enable_automatic_partition) {
-            Map<String, String> analyzedProperties = new HashMap<>();
             if (properties.containsKey(AutomaticPartitionProperty.TIME_UNIT)) {
                 String timeUnitValue = properties.get(AutomaticPartitionProperty.TIME_UNIT);
                 checkTimeUnit(timeUnitValue, olapTable.getPartitionInfo());
