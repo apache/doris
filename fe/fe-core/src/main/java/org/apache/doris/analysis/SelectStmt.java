@@ -2657,6 +2657,10 @@ public class SelectStmt extends QueryStmt {
                 || !ConnectContext.get().getSessionVariable().isEnableDefaultOrder()) {
             return false;
         }
+        // we only add order by at the most outer scope.
+        if (analyzer.hasAncestors()) {
+            return false;
+        }
         // if the sql contains a lateral view, like sql:
         // select * from table lateral view explode([0, 1, 2]) lv as e limit 100, 0
         // the analyzer.getAliases will record the name of the lateral view, additionally the lateral view cannot be
@@ -2668,11 +2672,6 @@ public class SelectStmt extends QueryStmt {
         if (getTableRefs().size() != 1 || !(getTableRefs().get(0) instanceof BaseTableRef)
                 || getTableRefs().get(0).getTable().getType() != TableType.OLAP) {
             return false;
-        }
-        // to handle the specific case: select {columns} from (select {columns} from {table} {where}) t {limit}
-        // no we are at the inner scope.
-        if (!hasLimit()) {
-            limitElement = analyzer.getCurrentLimit();
         }
         return hasLimit() && orderByElements == null;
     }

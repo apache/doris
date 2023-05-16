@@ -180,7 +180,6 @@ public class Analyzer {
 
     // The runtime filter that is expected to be used
     private final List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
-    private LimitElement currentLimit;
 
     public void setIsSubquery() {
         isSubquery = true;
@@ -202,18 +201,6 @@ public class Analyzer {
 
     public boolean isWithClause() {
         return isWithClause;
-    }
-
-    // set current limit if is not null and push down the parent's limit otherwise.
-    public void setCurrentLimit(LimitElement currentLimit) {
-        this.currentLimit = currentLimit;
-        if (!this.currentLimit.hasLimit() && hasAncestors()) {
-            this.currentLimit = getParentAnalyzer().getCurrentLimit();
-        }
-    }
-
-    public LimitElement getCurrentLimit() {
-        return currentLimit;
     }
 
     public void setUDFAllowed(boolean val) {
