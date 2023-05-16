@@ -48,7 +48,7 @@ suite("test_scalar_types_load", "p0") {
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-        PROPERTIES("replication_num" = "1");
+        PROPERTIES("replication_num" = "1", "store_row_column" = "true");
         """
 
     // load data
@@ -100,7 +100,7 @@ suite("test_scalar_types_load", "p0") {
         DUPLICATE KEY(`c_datetimev2`, `c_bigint`, `c_decimalv3`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`c_bigint`) BUCKETS 10
-        PROPERTIES("replication_num" = "1");
+        PROPERTIES("replication_num" = "1", "store_row_column" = "true");
         """
 
     // insert data into unique key table1 2 times
@@ -136,7 +136,7 @@ suite("test_scalar_types_load", "p0") {
         UNIQUE KEY(`c_datetimev2`, `c_bigint`, `c_decimalv3`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`c_bigint`) BUCKETS 10
-        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
+        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "store_row_column" = "true");
         """
 
     // insert data into unique key table1 2 times
@@ -232,7 +232,7 @@ suite("test_scalar_types_load", "p0") {
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-        PROPERTIES("replication_num" = "1");
+        PROPERTIES("replication_num" = "1", "store_row_column" = "true");
         """
 
     // insert data into dup table with index

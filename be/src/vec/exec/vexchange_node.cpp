@@ -57,11 +57,6 @@ Status VExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
     _is_asc_order = tnode.exchange_node.sort_info.is_asc_order;
     _nulls_first = tnode.exchange_node.sort_info.nulls_first;
 
-    if (tnode.exchange_node.__isset.nodes_info) {
-        _nodes_info = _pool->add(new DorisNodesInfo(tnode.exchange_node.nodes_info));
-    }
-    _use_two_phase_read = tnode.exchange_node.sort_info.__isset.use_two_phase_read &&
-                          tnode.exchange_node.sort_info.use_two_phase_read;
     return Status::OK();
 }
 
@@ -100,19 +95,6 @@ Status VExchangeNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VExchangeNode::_second_phase_fetch_data(RuntimeState* state, Block* final_block) {
-    auto row_id_col = final_block->get_by_position(final_block->columns() - 1);
-    auto tuple_desc = _row_descriptor.tuple_descriptors()[0];
-    RowIDFetcher id_fetcher(tuple_desc, state);
-    RETURN_IF_ERROR(id_fetcher.init(_nodes_info));
-    MutableBlock materialized_block(_row_descriptor.tuple_descriptors(), final_block->rows());
-    // fetch will sort block by sequence of ROWID_COL
-    RETURN_IF_ERROR(id_fetcher.fetch(row_id_col.column, &materialized_block));
-    // Notice swap may change the structure of final_block
-    final_block->swap(materialized_block.to_block());
-    return Status::OK();
-}
-
 Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExchangeNode::get_next");
     SCOPED_TIMER(runtime_profile()->total_time_counter());
@@ -122,12 +104,6 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                                                      state->batch_size(), _limit, _offset));
         _is_ready = true;
         return Status::OK();
-    }
-    if (_use_two_phase_read) {
-        // Block structure may be changed by calling _second_phase_fetch_data() before.
-        // So we should clear block before _stream_recvr->get_next, since
-        // blocks in VSortedRunMerger may not compatible with this block.
-        block->clear();
     }
     auto status = _stream_recvr->get_next(block, eos);
     // In vsortrunmerger, it will set eos=true, and block not empty
@@ -152,9 +128,6 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             _num_rows_returned = _limit;
         }
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-    }
-    if (_use_two_phase_read && block->rows() > 0) {
-        RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }
     return status;
 }

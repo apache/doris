@@ -263,7 +263,14 @@ struct NodeInfo {
 
 class DorisNodesInfo {
 public:
+    DorisNodesInfo() = default;
     DorisNodesInfo(const TPaloNodesInfo& t_nodes) {
+        for (auto& node : t_nodes.nodes) {
+            _nodes.emplace(node.id, node);
+        }
+    }
+    void setNodes(const TPaloNodesInfo& t_nodes) {
+        _nodes.clear();
         for (auto& node : t_nodes.nodes) {
             _nodes.emplace(node.id, node);
         }
