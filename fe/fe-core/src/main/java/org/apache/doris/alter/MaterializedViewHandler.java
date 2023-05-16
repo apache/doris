@@ -348,8 +348,8 @@ public class MaterializedViewHandler extends AlterHandler {
         boolean isKeysRequired = !(mvKeysType == KeysType.DUP_KEYS);
         short mvShortKeyColumnCount = Env.calcShortKeyColumnCount(mvColumns, properties, isKeysRequired);
         if (mvShortKeyColumnCount <= 0 && olapTable.isDuplicateWithoutKey()) {
-            throw new DdlException("Not support create duplicate materialized view without order " +
-                            "by based on a duplicate table without keys");
+            throw new DdlException("Not support create duplicate materialized view without order "
+                            + "by based on a duplicate table without keys");
         }
         // get timeout
         long timeoutMs = PropertyAnalyzer.analyzeTimeout(properties, Config.alter_table_timeout_second) * 1000;
