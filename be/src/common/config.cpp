@@ -302,6 +302,9 @@ DEFINE_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_Bool(disable_storage_row_cache, "true");
 
+// Cache for mow primary key storage page size
+DEFINE_String(pk_storage_page_cache_limit, "10%");
+
 DEFINE_Bool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 

@@ -34,7 +34,7 @@ public:
 
 // All cache space is allocated to data pages
 TEST(StoragePageCacheTest, data_page_only) {
-    StoragePageCache cache(kNumShards * 2048, 0, kNumShards);
+    StoragePageCache cache(kNumShards * 2048, 0, 0, kNumShards);
 
     StoragePageCache::CacheKey key("abc", 0, 0);
     StoragePageCache::CacheKey memory_key("mem", 0, 0);
@@ -100,7 +100,7 @@ TEST(StoragePageCacheTest, data_page_only) {
 
 // All cache space is allocated to index pages
 TEST(StoragePageCacheTest, index_page_only) {
-    StoragePageCache cache(kNumShards * 2048, 100, kNumShards);
+    StoragePageCache cache(kNumShards * 2048, 100, 0, kNumShards);
 
     StoragePageCache::CacheKey key("abc", 0, 0);
     StoragePageCache::CacheKey memory_key("mem", 0, 0);
@@ -166,7 +166,7 @@ TEST(StoragePageCacheTest, index_page_only) {
 
 // Cache space is allocated by index_page_cache_ratio
 TEST(StoragePageCacheTest, mixed_pages) {
-    StoragePageCache cache(kNumShards * 2048, 10, kNumShards);
+    StoragePageCache cache(kNumShards * 2048, 10, 0, kNumShards);
 
     StoragePageCache::CacheKey data_key("data", 0, 0);
     StoragePageCache::CacheKey index_key("index", 0, 0);
