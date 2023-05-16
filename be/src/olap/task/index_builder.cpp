@@ -392,6 +392,7 @@ Status IndexBuilder::do_build_inverted_index() {
 
     _input_rowsets = _tablet->pick_candidate_rowsets_to_build_inverted_index(_alter_column_uids, _is_drop_op);
     if (_input_rowsets.empty()) {
+        LOG(INFO) << "_input_rowsets is empty";
         return Status::OK();
     }
 

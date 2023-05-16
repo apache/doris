@@ -1942,7 +1942,12 @@ public class SchemaChangeHandler extends AlterHandler {
                         throw new DdlException("index " + indexDef.getIndexName()
                                 + " not exist, cannot build it with defferred.");
                     }
+
+                    if (indexDef.isInvertedIndex()) {
+                        alterIndexes.add(index);
+                    }
                     buildIndexChange = true;
+                    lightSchemaChange = false;
                 } else if (alterClause instanceof DropIndexClause) {
                     if (processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes)) {
                         return;
@@ -1969,9 +1974,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             } // end for alter clauses
 
-            LOG.debug("table: {}({}), lightSchemaChange: {}, lightIndexChange: {}, indexSchemaMap:{}",
-                    olapTable.getName(), olapTable.getId(), lightSchemaChange, lightIndexChange,
-                    indexSchemaMap);
+            LOG.debug("table: {}({}), lightSchemaChange: {}, lightIndexChange: {},"
+                    + " buildIndexChange: {}, indexSchemaMap:{}",
+                    olapTable.getName(), olapTable.getId(), lightSchemaChange,
+                    lightIndexChange, buildIndexChange, indexSchemaMap);
 
             if (lightSchemaChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
@@ -2713,8 +2719,7 @@ public class SchemaChangeHandler extends AlterHandler {
     public void buildOrDeleteTableInvertedIndices(Database db, OlapTable olapTable,
             Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> alterIndexes,
             Map<Long, Set<String>> invertedIndexOnPartitions, boolean isDropOp) throws UserException {
-        LOG.info("begin to build table's inverted index. table: {}, job: {}, is replay: {}",
-                 olapTable.getName());
+        LOG.info("begin to build table's inverted index. table: {}", olapTable.getName());
 
         // for now table's state can only be NORMAL
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
