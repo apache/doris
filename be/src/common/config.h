@@ -1004,6 +1004,9 @@ DECLARE_mInt32(s3_write_buffer_size);
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DECLARE_mInt32(s3_write_buffer_whole_size);
 
+//enable shrink memory
+DECLARE_Bool(enable_shrink_memory);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
