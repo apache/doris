@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
@@ -86,45 +85,21 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                 return filter;
             }
 
-            // Check the window function. There are some restrictions for window function:
-            // * The number of window function should be 1.
-            // * The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
-            // * The window type should be 'ROW'.
-            // * The window frame should be 'UNBOUNDED' to 'CURRENT'.
-            // * The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
             List<NamedExpression> windowExprs = window.getWindowExpressions();
-            if (windowExprs.size() != 1) {
+            if (LogicalWindow.checkConds4PartitionTopN(windowExprs)) {
                 return filter;
             }
+
+            Preconditions.checkArgument(windowExprs.size() == 1);
             NamedExpression windowExpr = windowExprs.get(0);
-            if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
-                return filter;
-            }
 
+            Preconditions.checkArgument(windowExpr.children().size() == 1
+                    && (windowExpr.child(0) instanceof WindowExpression));
             WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
-            // Check the window function name.
-            if (!LogicalWindow.checkWindowFuncName4PartitionTopN(windowFunc)) {
-                return filter;
-            }
-
-            // Check the partition key and order key.
-            if (!LogicalWindow.checkWindowPartitionAndOrderKey4PartitionTopN(windowFunc)) {
-                return filter;
-            }
-
-            // Check the window type and window frame.
-            if (!LogicalWindow.checkWindowFrame4PartitionTopN(windowFunc)) {
-                return filter;
-            }
 
             // Check the filter conditions. Now, we currently only support simple conditions of the form
             // 'column </ <=/ = constant'. We will extract some related conjuncts and do some check.
             Set<Expression> conjuncts = filter.getConjuncts();
-            boolean existsORConditionsInConjuncts = conjuncts.stream().anyMatch(this::existOR);
-            if (existsORConditionsInConjuncts) {
-                return filter;
-            }
-
             Set<Expression> relatedConjuncts = extractRelatedConjuncts(conjuncts, windowExpr.getExprId());
 
             boolean hasPartitionLimit = false;
@@ -164,19 +139,6 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_WINDOW);
     }
 
-    private boolean existOR(Expression conjunct) {
-        if (conjunct instanceof Or) {
-            return true;
-        }
-
-        for (Expression child : conjunct.children()) {
-            if (existOR(child)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private Set<Expression> extractRelatedConjuncts(Set<Expression> conjuncts, ExprId slotRefID) {
         Predicate<Expression> condition = conjunct -> {
             if (!(conjunct instanceof BinaryOperator)) {
@@ -190,7 +152,7 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                 return false;
             }
 
-            // Now, we only support the column on the left side.
+            // TODO: Now, we only support the column on the left side.
             if (!(leftChild instanceof SlotReference) || !(rightChild instanceof IntegerLikeLiteral)) {
                 return false;
             }

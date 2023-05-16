@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.WindowFuncType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -40,35 +41,63 @@ import java.util.Optional;
  * Logical partition-top-N plan.
  */
 public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements PartitionTopN {
-    private final Expression function;
+    private final WindowFuncType function;
     private final List<Expression> partitionKeys;
     private final List<OrderExpression> orderKeys;
-    private final Boolean hasGlobalLimit;
+    private final boolean hasGlobalLimit;
     private final long partitionLimit;
 
-    public LogicalPartitionTopN(WindowExpression windowExpr, Boolean hasGlobalLimit, long partitionLimit,
+    public LogicalPartitionTopN(WindowExpression windowExpr, boolean hasGlobalLimit, long partitionLimit,
                                 CHILD_TYPE child) {
         this(windowExpr.getFunction(), windowExpr.getPartitionKeys(), windowExpr.getOrderKeys(),
                 hasGlobalLimit, partitionLimit, Optional.empty(),
                 Optional.empty(), child);
     }
 
-    public LogicalPartitionTopN(Expression function, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
-                                Boolean hasGlobalLimit, long partitionLimit, CHILD_TYPE child) {
-        this(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+    public LogicalPartitionTopN(WindowFuncType windowFuncType, List<Expression> partitionKeys,
+                                List<OrderExpression> orderKeys, boolean hasGlobalLimit, long partitionLimit,
+                                CHILD_TYPE child) {
+        this(windowFuncType, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
                 Optional.empty(), Optional.empty(), child);
     }
 
     /**
      * Constructor for LogicalPartitionTopN.
      */
-    public LogicalPartitionTopN(Expression function, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
-                                Boolean hasGlobalLimit, long partitionLimit, Optional<GroupExpression> groupExpression,
+    public LogicalPartitionTopN(WindowFuncType windowFuncType, List<Expression> partitionKeys,
+                                List<OrderExpression> orderKeys, boolean hasGlobalLimit,
+                                long partitionLimit, Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child);
-        this.function = function;
-        this.partitionKeys = ImmutableList.copyOf(partitionKeys);
-        this.orderKeys = ImmutableList.copyOf(orderKeys);
+        this.function = windowFuncType;
+        this.partitionKeys = ImmutableList.copyOf(Objects.requireNonNull(partitionKeys,
+            "partitionKeys can not be null"));
+        this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys,
+            "orderKeys can not be null"));
+        this.hasGlobalLimit = hasGlobalLimit;
+        this.partitionLimit = partitionLimit;
+    }
+
+    /**
+     * Constructor for LogicalPartitionTopN.
+     */
+    public LogicalPartitionTopN(Expression expr, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
+                                boolean hasGlobalLimit, long partitionLimit, Optional<GroupExpression> groupExpression,
+                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child);
+        String funcName = expr.toString();
+        if (funcName.equals("row_number")) {
+            this.function = WindowFuncType.ROW_NUMBER;
+        } else if (funcName.equals("rank")) {
+            this.function = WindowFuncType.RANK;
+        } else {
+            Preconditions.checkArgument(funcName.equals("dense_rank"));
+            this.function = WindowFuncType.DENSE_RANK;
+        }
+        this.partitionKeys = ImmutableList.copyOf(
+            Objects.requireNonNull(partitionKeys, "partitionKeys can not be null"));
+        this.orderKeys = ImmutableList.copyOf(
+            Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
         this.hasGlobalLimit = hasGlobalLimit;
         this.partitionLimit = partitionLimit;
     }
@@ -78,7 +107,7 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         return child().getOutput();
     }
 
-    public Expression getFunction() {
+    public WindowFuncType getFunction() {
         return function;
     }
 
@@ -139,7 +168,6 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public List<? extends Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()
-            .add(function)
             .addAll(partitionKeys)
             .addAll(orderKeys)
             .build();

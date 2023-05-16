@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.WindowFuncType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
@@ -41,13 +42,13 @@ import java.util.stream.Collectors;
  * Physical partition-top-N plan.
  */
 public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements PartitionTopN {
-    private final Expression function;
+    private final WindowFuncType function;
     private final List<Expression> partitionKeys;
     private final List<OrderKey> orderKeys;
     private final Boolean hasGlobalLimit;
     private final long partitionLimit;
 
-    public PhysicalPartitionTopN(Expression function, List<Expression> partitionKeys, List<OrderKey> orderKeys,
+    public PhysicalPartitionTopN(WindowFuncType function, List<Expression> partitionKeys, List<OrderKey> orderKeys,
                                  Boolean hasGlobalLimit, long partitionLimit,
                                  LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
@@ -57,7 +58,7 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
     /**
      * Constructor of PhysicalPartitionTopN.
      */
-    public PhysicalPartitionTopN(Expression function, List<Expression> partitionKeys, List<OrderKey> orderKeys,
+    public PhysicalPartitionTopN(WindowFuncType function, List<Expression> partitionKeys, List<OrderKey> orderKeys,
                                  Boolean hasGlobalLimit, long partitionLimit,
                                  Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                                  CHILD_TYPE child) {
@@ -72,7 +73,7 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
     /**
      * Constructor of PhysicalPartitionTopN.
      */
-    public PhysicalPartitionTopN(Expression function, List<Expression> partitionKeys, List<OrderKey> orderKeys,
+    public PhysicalPartitionTopN(WindowFuncType function, List<Expression> partitionKeys, List<OrderKey> orderKeys,
                                  Boolean hasGlobalLimit, long partitionLimit,
                                  Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                                  PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
@@ -85,7 +86,7 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
         this.partitionLimit = partitionLimit;
     }
 
-    public Expression getFunction() {
+    public WindowFuncType getFunction() {
         return function;
     }
 
@@ -139,7 +140,6 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public List<? extends Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()
-            .add(function)
             .addAll(partitionKeys)
             .addAll(orderKeys.stream()
                 .map(OrderKey::getExpr)

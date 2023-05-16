@@ -19,16 +19,13 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.types.WindowFuncType;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionSortNode;
 import org.apache.doris.thrift.TPlanNode;
@@ -37,7 +34,6 @@ import org.apache.doris.thrift.TSortInfo;
 import org.apache.doris.thrift.TopNAlgorithm;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -52,11 +48,12 @@ import java.util.Set;
 
 /**
  * PartitionSortNode.
+ * PartitionSortNode is only used in the Nereids.
  */
 public class PartitionSortNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(PartitionSortNode.class);
-    List<Expr> resolvedTupleExprs;
-    private final String function;
+    private List<Expr> resolvedTupleExprs;
+    private final WindowFuncType function;
     private final List<Expr> partitionExprs;
     private final SortInfo info;
     private final boolean hasGlobalLimit;
@@ -68,7 +65,7 @@ public class PartitionSortNode extends PlanNode {
     /**
      * Constructor.
      */
-    public PartitionSortNode(PlanNodeId id, PlanNode input, String function, List<Expr> partitionExprs,
+    public PartitionSortNode(PlanNodeId id, PlanNode input, WindowFuncType function, List<Expr> partitionExprs,
                              SortInfo info, boolean hasGlobalLimit, long partitionLimit) {
         super(id, "PartitionTopN", StatisticalType.PARTITION_TOPN_MODE);
         this.function = function;
@@ -87,13 +84,10 @@ public class PartitionSortNode extends PlanNode {
         return info;
     }
 
-    public List<Expr> getResolvedTupleExprs() {
-        return resolvedTupleExprs;
-    }
-
     @Override
-    public void setCompactData(boolean on) {
-        this.compactData = on;
+    public void getMaterializedIds(Analyzer analyzer, List<SlotId> ids) {
+        super.getMaterializedIds(analyzer, ids);
+        Expr.getIds(info.getOrderingExprs(), null, ids);
     }
 
     @Override
@@ -105,7 +99,15 @@ public class PartitionSortNode extends PlanNode {
         StringBuilder output = new StringBuilder();
 
         // Add the function name.
-        output.append(prefix).append("functions: ").append(function).append("\n");
+        String funcName;
+        if (function == WindowFuncType.ROW_NUMBER) {
+            funcName = "row_number";
+        } else if (function == WindowFuncType.RANK) {
+            funcName = "rank";
+        } else {
+            funcName = "dense_rank";
+        }
+        output.append(prefix).append("functions: ").append(funcName).append("\n");
 
         // Add the partition expr.
         List<String> strings = Lists.newArrayList();
@@ -141,70 +143,6 @@ public class PartitionSortNode extends PlanNode {
         output.append(prefix).append("partition limit: ").append(partitionLimit).append("\n");
 
         return output.toString();
-    }
-
-    @Override
-    protected void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            return;
-        }
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Partition Sort: cardinality=" + cardinality);
-        }
-    }
-
-    public void init(Analyzer analyzer) throws UserException {
-        // Compute the memory layout for the generated tuple.
-        computeStats(analyzer);
-        // createDefaultSmap(analyzer);
-        // // populate resolvedTupleExprs and outputSmap_
-        // List<SlotDescriptor> sortTupleSlots = info.getSortTupleDescriptor().getSlots();
-        // List<Expr> slotExprs = info.getSortTupleSlotExprs_();
-        // Preconditions.checkState(sortTupleSlots.size() == slotExprs.size());
-
-        // populate resolvedTupleExprs_ and outputSmap_
-        List<SlotDescriptor> sortTupleSlots = info.getSortTupleDescriptor().getSlots();
-        List<Expr> slotExprs = info.getSortTupleSlotExprs();
-        Preconditions.checkState(sortTupleSlots.size() == slotExprs.size());
-
-        resolvedTupleExprs = Lists.newArrayList();
-        outputSmap = new ExprSubstitutionMap();
-
-        for (int i = 0; i < slotExprs.size(); ++i) {
-            resolvedTupleExprs.add(slotExprs.get(i));
-            outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
-            nullabilityChangedFlags.add(slotExprs.get(i).isNullable());
-        }
-
-        ExprSubstitutionMap childSmap = getCombinedChildSmap();
-        resolvedTupleExprs = Expr.substituteList(resolvedTupleExprs, childSmap, analyzer, false);
-
-        for (int i = 0; i < resolvedTupleExprs.size(); ++i) {
-            nullabilityChangedFlags.set(i, nullabilityChangedFlags.get(i) ^ resolvedTupleExprs.get(i).isNullable());
-        }
-
-        // Remap the ordering exprs to the tuple materialized by this sort node. The mapping
-        // is a composition of the childSmap and the outputSmap_ because the child node may
-        // have also remapped its input (e.g., as in a series of (sort->analytic)* nodes).
-        // Parent nodes have to do the same so set the composition as the outputSmap_.
-        outputSmap = ExprSubstitutionMap.compose(childSmap, outputSmap, analyzer);
-        info.substituteOrderingExprs(outputSmap, analyzer);
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("partition sort id " + tupleIds.get(0).toString() + " smap: " + outputSmap.debugString());
-            LOG.debug("partition sort input exprs: " + Expr.debugString(resolvedTupleExprs));
-        }
-    }
-
-    @Override
-    public void getMaterializedIds(Analyzer analyzer, List<SlotId> ids) {
-        super.getMaterializedIds(analyzer, ids);
-        Expr.getIds(info.getOrderingExprs(), null, ids);
     }
 
     private void removeUnusedExprs() {
@@ -252,22 +190,6 @@ public class PartitionSortNode extends PlanNode {
         partitionSortNode.setHasGlobalLimit(hasGlobalLimit);
         partitionSortNode.setPartitionInnerLimit(partitionLimit);
         msg.partition_sort_node = partitionSortNode;
-    }
-
-    @Override
-    protected String debugString() {
-        List<String> strings = Lists.newArrayList();
-        for (Boolean isAsc : info.getIsAscOrder()) {
-            strings.add(isAsc ? "a" : "d");
-        }
-        return MoreObjects.toStringHelper(this).add("ordering_exprs",
-            Expr.debugString(info.getOrderingExprs())).add("is_asc",
-            "[" + Joiner.on(" ").join(strings) + "]").addValue(super.debugString()).toString();
-    }
-
-    @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
     }
 
     @Override

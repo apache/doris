@@ -914,19 +914,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         outputList.forEach(k -> {
             sortTupleOutputList.add(ExpressionTranslator.translate(k, context));
         });
+        List<Expr> partitionExprs = partitionTopN.getPartitionKeys().stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
         // 2. Generate new Tuple and get current slotRef for newOrderingExprList
         List<Expr> newOrderingExprList = Lists.newArrayList();
         TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, newOrderingExprList, context, null);
         // 3. fill in SortInfo members
         SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
 
-        String function = partitionTopN.getFunction().toString();
-        List<Expr> partitionExprs = partitionTopN.getPartitionKeys().stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toList());
-
-        PartitionSortNode partitionSortNode = new PartitionSortNode(context.nextPlanNodeId(), childNode, function,
-                partitionExprs, sortInfo, partitionTopN.hasGlobalLimit(), partitionTopN.getPartitionLimit());
+        PartitionSortNode partitionSortNode = new PartitionSortNode(context.nextPlanNodeId(), childNode,
+                partitionTopN.getFunction(), partitionExprs, sortInfo, partitionTopN.hasGlobalLimit(),
+                partitionTopN.getPartitionLimit());
 
         partitionSortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
         if (partitionTopN.getStats() != null) {

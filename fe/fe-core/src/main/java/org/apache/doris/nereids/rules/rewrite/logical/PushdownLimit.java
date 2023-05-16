@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -73,29 +74,16 @@ public class PushdownLimit implements RewriteRuleFactory {
                     }
 
                     List<NamedExpression> windowExprs = window.getWindowExpressions();
-                    if (windowExprs.size() != 1) {
+                    if (LogicalWindow.checkConds4PartitionTopN(windowExprs)) {
                         return limit;
                     }
+
+                    Preconditions.checkArgument(windowExprs.size() == 1);
                     NamedExpression windowExpr = windowExprs.get(0);
-                    if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
-                        return limit;
-                    }
 
+                    Preconditions.checkArgument(windowExpr.children().size() == 1
+                            && (windowExpr.child(0) instanceof WindowExpression));
                     WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
-                    // Check the window function name.
-                    if (!LogicalWindow.checkWindowFuncName4PartitionTopN(windowFunc)) {
-                        return limit;
-                    }
-
-                    // Check the partition key and order key.
-                    if (!LogicalWindow.checkWindowPartitionAndOrderKey4PartitionTopN(windowFunc)) {
-                        return limit;
-                    }
-
-                    // Check the window type and window frame.
-                    if (!LogicalWindow.checkWindowFrame4PartitionTopN(windowFunc)) {
-                        return limit;
-                    }
 
                     return limit.withChildren(window.withChildren(
                         new LogicalPartitionTopN<>(windowFunc, true, limit.getLimit(), window.child(0))));

@@ -159,22 +159,37 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return Objects.hash(windowExpressions, isChecked);
     }
 
-    public static boolean checkWindowFuncName4PartitionTopN(WindowExpression windowFunc) {
-        return windowFunc.getFunction() instanceof RowNumber
-            || windowFunc.getFunction() instanceof Rank
-            || windowFunc.getFunction() instanceof DenseRank;
-    }
-
-    public static boolean checkWindowPartitionAndOrderKey4PartitionTopN(WindowExpression windowFunc) {
-        return !(windowFunc.getPartitionKeys().isEmpty() && windowFunc.getOrderKeys().isEmpty());
-    }
-
     /**
-     * Check if the window frame for the partition limit is valid.
-     * @param windowFunc the window expression to be checked
-     * @return true if the window frame is valid, false otherwise
-     */
-    public static boolean checkWindowFrame4PartitionTopN(WindowExpression windowFunc) {
+     * Check the window function. There are some restrictions for window function:
+     * 1. The number of window function should be 1.
+     * 2. The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
+     * 3. The window type should be 'ROW'.
+     * 4. The window frame should be 'UNBOUNDED' to 'CURRENT'.
+     * 5. The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
+    */
+    public static boolean checkConds4PartitionTopN(List<NamedExpression> windowExprs) {
+        if (windowExprs.size() != 1) {
+            return false;
+        }
+        NamedExpression windowExpr = windowExprs.get(0);
+        if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
+            return false;
+        }
+
+        WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
+        // Check the window function name.
+        if (!(windowFunc.getFunction() instanceof RowNumber
+                || windowFunc.getFunction() instanceof Rank
+                || windowFunc.getFunction() instanceof DenseRank)) {
+            return false;
+        }
+
+        // Check the partition key and order key.
+        if (windowFunc.getPartitionKeys().isEmpty() && windowFunc.getOrderKeys().isEmpty()) {
+            return false;
+        }
+
+        // Check the window type and window frame.
         Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
         if (windowFrame.isPresent()) {
             WindowFrame frame = windowFrame.get();

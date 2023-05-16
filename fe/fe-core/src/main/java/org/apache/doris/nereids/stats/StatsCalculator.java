@@ -118,7 +118,7 @@ import java.util.stream.Collectors;
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 0.5;
-    public static double DEFAULT_COLUMN_NDV_RATION = 0.5;
+    public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
     private final GroupExpression groupExpression;
 
     private StatsCalculator(GroupExpression groupExpression) {
@@ -487,13 +487,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // NDV(partition key) * partitionLimit
             Map<Expression, ColumnStatistic> childSlotToColumnStats = stats.columnStatistics();
             List<ColumnStatistic> partitionByKeyStats = partitionKeys.stream()
-                .filter(childSlotToColumnStats::containsKey)
-                .map(childSlotToColumnStats::get)
-                .filter(s -> !s.isUnKnown)
-                .collect(Collectors.toList());
+                    .filter(childSlotToColumnStats::containsKey)
+                    .map(childSlotToColumnStats::get)
+                    .filter(s -> !s.isUnKnown)
+                    .collect(Collectors.toList());
             if (partitionByKeyStats.isEmpty()) {
                 // all column stats are unknown, use default ratio
-                rowCount = rowCount * DEFAULT_COLUMN_NDV_RATION;
+                rowCount = rowCount * DEFAULT_COLUMN_NDV_RATIO;
             } else {
                 rowCount = Math.min(rowCount, partitionByKeyStats.stream().map(s -> s.ndv)
                     .max(Double::compare).get());

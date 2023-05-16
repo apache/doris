@@ -15,41 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.nereids.types;
 
-public enum StatisticalType {
-    DEFAULT,
-    AGG_NODE,
-    ANALYTIC_EVAL_NODE,
-    ASSERT_NUM_ROWS_NODE,
-    BROKER_SCAN_NODE,
-    NESTED_LOOP_JOIN_NODE,
-    EMPTY_SET_NODE,
-    ES_SCAN_NODE,
-    EXCEPT_NODE,
-    EXCHANGE_NODE,
-    HASH_JOIN_NODE,
-    HIVE_SCAN_NODE,
-    ICEBERG_SCAN_NODE,
-    HUDI_SCAN_NODE,
-    TVF_SCAN_NODE,
-    INTERSECT_NODE,
-    LOAD_SCAN_NODE,
-    MYSQL_SCAN_NODE,
-    ODBC_SCAN_NODE,
-    OLAP_SCAN_NODE,
-    PARTITION_TOPN_MODE,
-    REPEAT_NODE,
-    SELECT_NODE,
-    SET_OPERATION_NODE,
-    SCHEMA_SCAN_NODE,
-    SORT_NODE,
-    STREAM_LOAD_SCAN_NODE,
-    TABLE_FUNCTION_NODE,
-    UNION_NODE,
-    TABLE_VALUED_FUNCTION_NODE,
-    FILE_SCAN_NODE,
-    METADATA_SCAN_NODE,
-    JDBC_SCAN_NODE,
-    TEST_EXTERNAL_TABLE,
+/**
+ * WindowFuncType represent the window function which is used in the PartitionTopN.
+ */
+public enum WindowFuncType {
+    ROW_NUMBER,
+    RANK,
+    DENSE_RANK,
 }
