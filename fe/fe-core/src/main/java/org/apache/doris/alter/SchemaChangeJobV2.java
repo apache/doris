@@ -121,12 +121,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     // alter index info
     @SerializedName(value = "indexChange")
     private boolean indexChange = false;
-    @SerializedName(value = "isDropOp")
-    private boolean isDropOp = false;
     @SerializedName(value = "indexes")
     private List<Index> indexes = null;
-    @SerializedName(value = "alterInvertedIndexes")
-    private List<Index> alterInvertedIndexes = null;
 
     // The schema change job will wait all transactions before this txn id finished, then send the schema change tasks.
     @SerializedName(value = "watershedTxnId")
@@ -183,11 +179,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public void setAlterIndexInfo(boolean indexChange, List<Index> indexes) {
         this.indexChange = indexChange;
         this.indexes = indexes;
-    }
-
-    public void setAlterInvertedIndexInfo(boolean isDropOp, List<Index> alterInvertedIndexes) {
-        this.isDropOp = isDropOp;
-        this.alterInvertedIndexes = alterInvertedIndexes;
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
@@ -896,7 +887,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             info.add(errMsg);
             info.add(progress);
             info.add(timeoutMs / 1000);
-            info.add(getOtherInfo());
             infos.add(info);
         }
     }
@@ -934,19 +924,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         } catch (MetaNotFoundException e) {
             LOG.warn("[INCONSISTENT META] changing table status failed after schema change job done", e);
         }
-    }
-
-    public String getOtherInfo() {
-        String info = null;
-        // can add info as needed
-        List<String> infoList = Lists.newArrayList();
-        String invertedIndexChangeInfo = "";
-        for (Index invertedIndex : alterInvertedIndexes) {
-            invertedIndexChangeInfo += "[" + (isDropOp ? "DROP " : "ADD ") + invertedIndex.toString() + "], ";
-        }
-        infoList.add(invertedIndexChangeInfo);
-        info = Joiner.on(", ").join(infoList.subList(0, infoList.size()));
-        return info;
     }
 
     @Override

@@ -2508,10 +2508,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     currentIndexMeta.getSchemaHash(), currentIndexMeta.getShortKeyColumnCount(), entry.getValue());
         }
 
-        if (alterIndexes != null) {
-            schemaChangeJob.setAlterInvertedIndexInfo(isDropIndex, alterIndexes);
-        }
-
         //update base index schema
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
