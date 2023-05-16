@@ -835,6 +835,20 @@ struct TAddColumnsResult {
     4: optional i32 schema_version
 }
 
+struct TCreatePartitionRequest {
+    1: optional i64 txn_id
+    2: optional i64 db_id
+    3: optional i64 table_id
+    4: optional list<list<string>> partition_values
+}
+
+struct TCreatePartitionResult {
+    1: optional Status.TStatus status
+    2: optional list<Descriptors.TOlapTablePartition> partitions
+    3: optional list<Descriptors.TTabletLocation> tablets
+    4: optional list<Descriptors.TNodeInfo> nodes
+}
+
 struct TMySqlLoadAcquireTokenResult {
     1: optional Status.TStatus status
     2: optional string token
@@ -1075,6 +1089,8 @@ service FrontendService {
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 
     TAddColumnsResult addColumns(1: TAddColumnsRequest request)
+
+    TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
 
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 

@@ -93,6 +93,8 @@ import org.apache.doris.thrift.TCommitTxnRequest;
 import org.apache.doris.thrift.TCommitTxnResult;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesResult;
+import org.apache.doris.thrift.TCreatePartitionRequest;
+import org.apache.doris.thrift.TCreatePartitionResult;
 import org.apache.doris.thrift.TDescribeTableParams;
 import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TDescribeTablesParams;
@@ -515,6 +517,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setAllColumns(allColumns);
         result.setSchemaVersion(schemaVersion);
         LOG.debug("result: {}", result);
+        return result;
+    }
+
+    @Override
+    public TCreatePartitionResult createPartition(TCreatePartitionRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("create partition clientAddr: {}, request: {}", clientAddr, request);
+
+        TStatus status = new TStatus(TStatusCode.OK);
+        TCreatePartitionResult result = new TCreatePartitionResult();
+        try {
+            // create partition by automatic partition property and add partition
+        } catch (Exception e) {
+            LOG.warn("got exception create partition: ", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        }
+        result.setStatus(status);
         return result;
     }
 
