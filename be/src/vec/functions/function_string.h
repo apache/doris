@@ -243,8 +243,8 @@ private:
 
             for (size_t i = 0; i < size; ++i) {
                 auto [raw_str, str_size] = strs[i];
-                const auto& start_value = start[index_check_const(i, Const)];
-                const auto& len_value = len[index_check_const(i, Const)];
+                const auto& start_value = start[i];
+                const auto& len_value = len[i];
 
                 // return empty string if start > src.length
                 if (start_value > str_size || str_size == 0 || start_value == 0 || len_value <= 0) {
