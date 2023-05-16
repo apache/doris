@@ -72,7 +72,8 @@ public class OdbcTable extends Table {
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
-    public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase, boolean toLowerCase) {
+    public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase,
+            boolean toLowerCase) {
         int index = name.indexOf(".");
         if (index == -1) { // No dot in the name
             String newName = toUpperCase ? name.toUpperCase() : name;
