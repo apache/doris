@@ -154,14 +154,22 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         if (!super.equals(o)) {
             return false;
         }
-        LogicalOlapTableSink<?> that = (LogicalOlapTableSink<?>) o;
-        return Objects.equals(targetTable, that.targetTable) && Objects.equals(partitionIds,
-                that.partitionIds);
+        LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) o;
+        return isBound == sink.isBound
+                && Objects.equals(nameParts, sink.nameParts)
+                && Objects.equals(colNames, sink.colNames)
+                && Objects.equals(hints, sink.hints)
+                && Objects.equals(partitions, sink.partitions)
+                && Objects.equals(database, sink.database)
+                && Objects.equals(targetTable, sink.targetTable)
+                && Objects.equals(partitionIds, sink.partitionIds)
+                && Objects.equals(cols, sink.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(targetTable, partitionIds);
+        return Objects.hash(nameParts, colNames, hints, partitions,
+                database, targetTable, partitionIds, cols, isBound);
     }
 
     @Override

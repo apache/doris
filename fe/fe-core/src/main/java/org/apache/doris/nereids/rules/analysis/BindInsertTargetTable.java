@@ -41,19 +41,21 @@ import java.util.stream.Collectors;
 public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
-        return logicalOlapTableSink().thenApply(ctx -> {
-            LogicalOlapTableSink<? extends Plan> sink = ctx.root;
-            Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
-            Database database = pair.first;
-            OlapTable table = pair.second;
-            return new LogicalOlapTableSink<>(
-                    database,
-                    table,
-                    bindTargetColumns(table, sink.getColNames()),
-                    bindPartitionIds(table, sink.getPartitions()),
-                    sink.child()
-            );
-        }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
+        return logicalOlapTableSink()
+                .when(sink -> !sink.isBound())
+                .thenApply(ctx -> {
+                    LogicalOlapTableSink<? extends Plan> sink = ctx.root;
+                    Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
+                    Database database = pair.first;
+                    OlapTable table = pair.second;
+                    return new LogicalOlapTableSink<>(
+                            database,
+                            table,
+                            bindTargetColumns(table, sink.getColNames()),
+                            bindPartitionIds(table, sink.getPartitions()),
+                            sink.child()
+                    );
+                }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
     }
 
     private Pair<Database, OlapTable> bind(CascadesContext cascadesContext, LogicalOlapTableSink<? extends Plan> sink) {

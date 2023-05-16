@@ -23,6 +23,7 @@ import org.apache.doris.nereids.jobs.batch.BatchRewriteJob;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
+import org.apache.doris.nereids.rules.analysis.BindInsertTargetTable;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckBound;
@@ -55,6 +56,9 @@ public class NereidsAnalyzer extends BatchRewriteJob {
                 new CheckPolicy(),
                 new UserAuthentication(),
                 new BindExpression()
+            ),
+            topDown(
+                new BindInsertTargetTable()
             ),
             bottomUp(
                 new CheckBound()

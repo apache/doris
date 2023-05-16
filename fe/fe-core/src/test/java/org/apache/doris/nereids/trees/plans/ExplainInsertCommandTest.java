@@ -23,6 +23,7 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -37,8 +38,8 @@ public class ExplainInsertCommandTest extends TestWithFeService {
 
     @Override
     public void runBeforeAll() throws Exception {
-        createDatabase("analysis_job_test");
-        connectContext.setDatabase("test");
+        createDatabase("test");
+        connectContext.setDatabase("default_cluster:test");
         createTable("create table t1 (\n"
                 + "    k1 int,\n"
                 + "    k2 int,\n"
@@ -76,21 +77,21 @@ public class ExplainInsertCommandTest extends TestWithFeService {
 
     @Test
     public void testInsertIntoDuplicateKeyTable() throws Exception {
-        String sql = "insert into t1 select * from src";
+        String sql = "explain insert into t1 select * from src";
         Assertions.assertNotNull(getOutputFragment(sql));
 
     }
 
     @Test
     public void testInsertIntoUniqueKeyTable() throws Exception {
-        String sql = "insert into t2 select * from src";
+        String sql = "explain insert into t2 select * from src";
         Assertions.assertNotNull(getOutputFragment(sql));
 
     }
 
     @Test
     public void testInsertIntoDuplicateKeyTableWithCast() throws Exception {
-        String sql = "insert into t1 select * from (select cast(k1 as varchar), 1, 1, 1 from src) t";
+        String sql = "explain insert into t1 select * from (select cast(k1 as varchar), 1, 1, 1 from src) t";
         Assertions.assertNotNull(getOutputFragment(sql));
     }
 
@@ -98,7 +99,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         StatementScopeIdGenerator.clear();
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        PhysicalPlan plan = planner.plan(parser.parseSingle(sql));
+        PhysicalPlan plan = planner.plan(((ExplainCommand) parser.parseSingle(sql)).getLogicalPlan());
         return new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
     }
 }
