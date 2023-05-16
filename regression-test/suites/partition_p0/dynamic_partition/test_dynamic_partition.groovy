@@ -56,7 +56,7 @@ suite("test_dynamic_partition") {
             "dynamic_partition.create_history_partition"="true",
             "dynamic_partition.replication_allocation" = "tag.location.default: 1")
         """
-    List<List<Object>> result  = sql "show tables like 'dy_par'"
+    result  = sql "show tables like 'dy_par'"
     logger.info("${result}")
     assertEquals(result.size(), 1)
     result = sql "show partitions from dy_par"
