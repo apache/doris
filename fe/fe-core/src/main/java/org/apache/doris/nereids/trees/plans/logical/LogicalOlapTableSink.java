@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -42,9 +43,12 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     private List<String> colNames;
     private List<String> hints;
     private List<String> partitions;
+
+    // bound data sink
     private Database database;
     private OlapTable targetTable;
     private List<Long> partitionIds;
+    private List<Column> cols;
     private final boolean isBound;
 
     public LogicalOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
@@ -66,11 +70,12 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         this.isBound = false;
     }
 
-    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds, CHILD_TYPE child) {
-        this(database, targetTable, partitionIds, Optional.empty(), Optional.empty(), child);
+    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
+            CHILD_TYPE child) {
+        this(database, targetTable, cols, partitionIds, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
+    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
@@ -86,7 +91,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     public static LogicalOlapTableSink<? extends Plan> createLogicalOlapTableSink(
             LogicalOlapTableSink<? extends Plan> other) {
         if (other.isBound()) {
-            return new LogicalOlapTableSink<>(other.database, other.targetTable, other.partitionIds,
+            return new LogicalOlapTableSink<>(other.database, other.targetTable, other.cols, other.partitionIds,
                     other.groupExpression, Optional.of(other.getLogicalProperties()), other.child());
         } else {
             return new LogicalOlapTableSink<>(other.nameParts, other.colNames, other.hints, other.partitions,
@@ -108,6 +113,10 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         return nameParts;
     }
 
+    public List<String> getColNames() {
+        return colNames;
+    }
+
     public List<String> getPartitions() {
         return partitions;
     }
@@ -118,6 +127,10 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     public OlapTable getTargetTable() {
         return targetTable;
+    }
+
+    public List<Column> getCols() {
+        return cols;
     }
 
     public List<Long> getPartitionIds() {

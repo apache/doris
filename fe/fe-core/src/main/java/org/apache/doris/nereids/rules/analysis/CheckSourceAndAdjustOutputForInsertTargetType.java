@@ -18,14 +18,13 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -38,30 +37,25 @@ import java.util.stream.Collectors;
 /**
  * adjust output for insert target type
  */
-public class CheckSourceAndAdjustOutputForInsertTargetType implements CustomRewriter {
+public class CheckSourceAndAdjustOutputForInsertTargetType extends OneAnalysisRuleFactory {
     @Override
-    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        List<Column> insertTargetSchema = jobContext.getCascadesContext().getStatementContext()
-                .getInsertIntoContext().getTargetSchema();
-        if (insertTargetSchema == null) {
-            // not insert into command, skip.
-            return plan;
-        }
-        List<DataType> insertTargetTypes = insertTargetSchema.stream()
-                .filter(Column::isVisible)
-                .map(col -> DataType.fromCatalogType(col.getType()))
-                .collect(Collectors.toList());
-        List<Slot> outputs = plan.getOutput();
-        List<Expression> newSlots = Lists.newArrayListWithCapacity(outputs.size());
-        check(insertTargetTypes, outputs);
-        for (int i = 0; i < insertTargetTypes.size(); ++i) {
-            newSlots.add(TypeCoercionUtils.castIfNotMatchType(outputs.get(i), insertTargetTypes.get(i)));
-        }
-        return new LogicalProject<>(newSlots.stream().map(expr ->
-                expr instanceof NamedExpression
-                        ? ((NamedExpression) expr)
-                        : new Alias(expr, expr.toSql())).collect(Collectors.toList()),
-                plan);
+    public Rule build() {
+        return logicalOlapTableSink().then(sink -> {
+            List<DataType> insertTargetTypes = sink.getCols().stream()
+                    .filter(Column::isVisible)
+                    .map(col -> DataType.fromCatalogType(col.getType()))
+                    .collect(Collectors.toList());
+            List<Slot> outputs = sink.child().getOutput();
+            List<Expression> newSlots = Lists.newArrayListWithCapacity(outputs.size());
+            check(insertTargetTypes, outputs);
+            for (int i = 0; i < insertTargetTypes.size(); ++i) {
+                newSlots.add(TypeCoercionUtils.castIfNotMatchType(outputs.get(i), insertTargetTypes.get(i)));
+            }
+            return sink.withChildren(
+                    new LogicalProject<>(newSlots.stream().map(expr -> expr instanceof NamedExpression
+                            ? ((NamedExpression) expr)
+                            : new Alias(expr, expr.toSql())).collect(Collectors.toList()), sink.child()));
+        }).toRule(RuleType.ADJUST_OUTPUT_FOR_INSERT_TARGET_TYPE);
     }
 
     private void check(List<DataType> targetType, List<Slot> slots) {

@@ -80,7 +80,7 @@ public class NereidsAnalyzer extends BatchRewriteJob {
             ),
             bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
-            custom(RuleType.ADJUST_OUTPUT_FOR_INSERT_TARGET_TYPE, CheckSourceAndAdjustOutputForInsertTargetType::new),
+            bottomUp(new CheckSourceAndAdjustOutputForInsertTargetType()),
             bottomUp(new CheckAnalysis())
     );
 

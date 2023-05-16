@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -39,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -67,28 +67,19 @@ import java.util.stream.Collectors;
 public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
-    private final List<String> nameParts;
-    private final List<String> colNames;
     private final LogicalPlan logicalQuery;
     private final String labelName;
-    private Table table;
-    private Database database;
+    private PhysicalPlan plannedQuery;
     private NereidsPlanner planner;
-    private final List<String> partitions;
 
     /**
      * constructor
      */
-    public InsertIntoTableCommand(List<String> nameParts, String labelName, List<String> colNames,
-            List<String> partitions, LogicalPlan logicalQuery) {
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, String labelName) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
-        Preconditions.checkArgument(nameParts != null, "tableName cannot be null in InsertIntoTableCommand");
         Preconditions.checkArgument(logicalQuery != null, "logicalQuery cannot be null in InsertIntoTableCommand");
-        this.nameParts = nameParts;
-        this.labelName = labelName;
-        this.colNames = colNames;
-        this.partitions = partitions;
         this.logicalQuery = logicalQuery;
+        this.labelName = labelName;
     }
 
     public NereidsPlanner getPlanner() {
@@ -104,37 +95,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         }
 
         getTable(ctx);
-
-        // collect column
-        List<Column> targetColumns;
-        if (colNames == null) {
-            targetColumns = table.getFullSchema();
-        } else {
-            targetColumns = Lists.newArrayList();
-            for (String colName : colNames) {
-                Column col = table.getColumn(colName);
-                if (col == null) {
-                    throw new AnalysisException(String.format("Column: %s is not in table: %s",
-                            colName, table.getName()));
-                }
-                targetColumns.add(col);
-            }
-        }
-
-        // collect partitions
-        List<Long> partitionIds = null;
-        if (partitions != null) {
-            partitionIds = partitions.stream().map(pn -> {
-                Partition p = table.getPartition(pn);
-                if (p == null) {
-                    throw new AnalysisException(String.format("Unknown partition: %s in table: %s", pn,
-                            table.getName()));
-                }
-                return p.getId();
-            }).collect(Collectors.toList());
-        }
-
-        ctx.getStatementContext().getInsertIntoContext().setTargetSchema(targetColumns);
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         planner = new NereidsPlanner(ctx.getStatementContext());

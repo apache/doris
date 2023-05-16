@@ -22,7 +22,6 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.ObjectId;
-import org.apache.doris.nereids.txn.InsertIntoContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -62,7 +61,6 @@ public class StatementContext {
     private Set<String> columnNames;
 
     private ColumnAliasGenerator columnAliasGenerator;
-    private final InsertIntoContext insertIntoContext = new InsertIntoContext();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -145,10 +143,6 @@ public class StatementContext {
 
     public String generateColumnName() {
         return getColumnAliasGenerator().getNextAlias();
-    }
-
-    public InsertIntoContext getInsertIntoContext() {
-        return insertIntoContext;
     }
 
     public StatementBase getParsedStatement() {

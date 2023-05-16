@@ -219,6 +219,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -306,8 +307,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
         List<String> colNames = ctx.cols == null ? null : visitIdentifierList(ctx.cols);
         List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
-        return withExplain(new InsertIntoTableCommand(tableName, labelName, colNames,
-                partitions, visitQuery(ctx.query())), ctx.explain());
+        LogicalOlapTableSink<Plan> sink = new LogicalOlapTableSink<>(tableName, colNames, ImmutableList.of(), partitions,
+                visitQuery(ctx.query()));
+        if (ctx.explain() != null) {
+            return withExplain(sink, ctx.explain());
+        }
+        return new InsertIntoTableCommand(sink, labelName);
     }
 
     /**
