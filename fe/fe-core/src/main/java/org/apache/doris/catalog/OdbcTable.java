@@ -123,25 +123,36 @@ public class OdbcTable extends Table {
         return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
     }
 
+    public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase, boolean toLowerCase) {
+        int index = name.indexOf(".");
+        if (index == -1) { // No dot in the name
+            String newName = toUpperCase ? name.toUpperCase() : name;
+            newName = toLowerCase ? newName.toLowerCase() : newName;
+            return wrapStart + newName + wrapEnd;
+        } else {
+            String schemaName = toUpperCase ? name.substring(0, index).toUpperCase() : name.substring(0, index);
+            schemaName = toLowerCase ? schemaName.toLowerCase() : schemaName;
+            String tableName = toUpperCase ? name.substring(index + 1).toUpperCase() : name.substring(index + 1);
+            tableName = toLowerCase ? tableName.toLowerCase() : tableName;
+            return wrapStart + schemaName + wrapEnd + "." + wrapStart + tableName + wrapEnd;
+        }
+    }
+
     public static String databaseProperName(TOdbcTableType tableType, String name) {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
-                return mysqlProperName(name);
+                return formatName(name, "`", "`", false, false);
             case SQLSERVER:
-                return mssqlProperName(name);
+                return formatName(name, "[", "]", false, false);
             case POSTGRESQL:
-                return psqlProperName(name);
-            case ORACLE:
-                return oracleProperName(name);
             case CLICKHOUSE:
-                return clickhouseProperName(name);
-            case SAP_HANA:
-                return saphanaProperName(name);
             case TRINO:
-                return trinoProperName(name);
             case OCEANBASE_ORACLE:
-                return oceanbaseOracleProperName(name);
+            case SAP_HANA:
+                return formatName(name, "\"", "\"", false, false);
+            case ORACLE:
+                return formatName(name, "\"", "\"", true, false);
             default:
                 return name;
         }
