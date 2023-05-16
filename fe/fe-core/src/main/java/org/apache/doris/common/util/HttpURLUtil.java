@@ -31,7 +31,8 @@ public class HttpURLUtil {
     public static HttpURLConnection getConnectionWithNodeIdent(String request) throws IOException {
         URL url = new URL(request);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
+        // Must use Env. getServingEnv() instead of getCurrentEnv(),because here we need to obtain selfNode through the official service catalog.
+        HostInfo selfNode = Env.getServingEnv().getSelfNode();
         conn.setRequestProperty(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
         conn.setRequestProperty(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
         return conn;
