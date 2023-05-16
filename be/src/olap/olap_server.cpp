@@ -715,8 +715,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     }
 }
 
-Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
-                                             CompactionType compaction_type, bool force) {
+Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
+                                             bool force) {
     _update_cumulative_compaction_policy();
     if (tablet->get_cumulative_compaction_policy() == nullptr) {
         tablet->set_cumulative_compaction_policy(_cumulative_compaction_policy);

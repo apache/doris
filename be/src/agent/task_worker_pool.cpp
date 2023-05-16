@@ -1760,8 +1760,8 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
                 continue;
             }
 
-            Status status =
-                    StorageEngine::instance()->submit_compaction_task(tablet_ptr, compaction_type, false);
+            Status status = StorageEngine::instance()->submit_compaction_task(
+                    tablet_ptr, compaction_type, false);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to submit table compaction task. error=" << status;
             }
