@@ -29,6 +29,7 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -180,25 +181,27 @@ public class AutomaticPartitionUtil {
     public static Map<String, String> analyzeAutomaticPartition(Map<String, String> properties,
             OlapTable olapTable, Database db) throws UserException {
         // properties should not be empty, check properties before call this function
-        Map<String, String> analyzedProperties = new HashMap<>();
-        if (properties.containsKey(AutomaticPartitionProperty.TIME_UNIT)) {
-            String timeUnitValue = properties.get(AutomaticPartitionProperty.TIME_UNIT);
-            checkTimeUnit(timeUnitValue, olapTable.getPartitionInfo());
-            properties.remove(AutomaticPartitionProperty.TIME_UNIT);
-            analyzedProperties.put(AutomaticPartitionProperty.TIME_UNIT, timeUnitValue);
-        }
-        if (properties.containsKey(AutomaticPartitionProperty.PREFIX)) {
-            String prefixValue = properties.get(AutomaticPartitionProperty.PREFIX);
-            checkPrefix(prefixValue);
-            properties.remove(AutomaticPartitionProperty.PREFIX);
-            analyzedProperties.put(AutomaticPartitionProperty.PREFIX, prefixValue);
-        }
+        if(Config.enable_automatic_partition) {
+            Map<String, String> analyzedProperties = new HashMap<>();
+            if (properties.containsKey(AutomaticPartitionProperty.TIME_UNIT)) {
+                String timeUnitValue = properties.get(AutomaticPartitionProperty.TIME_UNIT);
+                checkTimeUnit(timeUnitValue, olapTable.getPartitionInfo());
+                properties.remove(AutomaticPartitionProperty.TIME_UNIT);
+                analyzedProperties.put(AutomaticPartitionProperty.TIME_UNIT, timeUnitValue);
+            }
+            if (properties.containsKey(AutomaticPartitionProperty.PREFIX)) {
+                String prefixValue = properties.get(AutomaticPartitionProperty.PREFIX);
+                checkPrefix(prefixValue);
+                properties.remove(AutomaticPartitionProperty.PREFIX);
+                analyzedProperties.put(AutomaticPartitionProperty.PREFIX, prefixValue);
+            }
 
-        if (properties.containsKey(AutomaticPartitionProperty.ENABLE)) {
-            String enableValue = properties.get(AutomaticPartitionProperty.ENABLE);
-            checkEnable(enableValue);
-            properties.remove(AutomaticPartitionProperty.ENABLE);
-            analyzedProperties.put(AutomaticPartitionProperty.ENABLE, enableValue);
+            if (properties.containsKey(AutomaticPartitionProperty.ENABLE)) {
+                String enableValue = properties.get(AutomaticPartitionProperty.ENABLE);
+                checkEnable(enableValue);
+                properties.remove(AutomaticPartitionProperty.ENABLE);
+                analyzedProperties.put(AutomaticPartitionProperty.ENABLE, enableValue);
+            }
         }
 
         return analyzedProperties;

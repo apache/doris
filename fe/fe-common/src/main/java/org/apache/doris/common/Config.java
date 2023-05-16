@@ -1939,6 +1939,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean disable_nested_complex_type  = true;
+
+    @ConfField(mutable = true)
+    public static boolean enable_automatic_partition  = false;
+
     /*
      * "max_instance_num" is used to set the maximum concurrency. When the value set
      * by "parallel_fragment_exec_instance_num" is greater than "max_instance_num",
