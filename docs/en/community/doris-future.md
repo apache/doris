@@ -24,14 +24,18 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# doris future project
+# Doris future project
 
-## introduction
+## Introduction
 
 The doris future project is a growth plan for novice developers, aiming to allow more developers to quickly get started with doris. The community warmly welcomes all interested developers to join.
 
-## way of participation
+## Way of participation
 
 Novice developers can filter tasks with `doris-future` tag on the [Github Issue](https://github.com/apache/doris/issues) interface of the doris community. Each task has required skills. For example, c++ or java, as well as difficulty distinctions, new developers can comment below the tasks they are interested in and communicate with the instructor about the task details, and the developer community with difficult machine resources will also provide development machines.
 
 If you have any difficulty or encounter a problem, you can send an email to `dev@doris.apache.org` to describe the difficulty or problem, and we will try our best to help you solve it.
+
+## Mentorship
+
+Each task will have a tutor to follow up and guide the details of the task. The tutor can provide the following help: 1. Explain the goal that the task needs to achieve, the basic principle of the task and the implementation details; 2. The specific implementation ideas and related knowledge required for the task; 3. Review Code, optimize the actual code structure, and improve the level of engineering code.
