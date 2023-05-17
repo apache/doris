@@ -252,11 +252,11 @@ public:
     bool should_build_hash_table() const { return _should_build_hash_table; }
 
 private:
-    using VExprContexts = std::vector<VExprContext*>;
+    using VExprContextSPtrs = std::vector<VExprContext*>;
     // probe expr
-    VExprContexts _probe_expr_ctxs;
+    VExprContextSPtrs _probe_expr_ctxs;
     // build expr
-    VExprContexts _build_expr_ctxs;
+    VExprContextSPtrs _build_expr_ctxs;
     // other expr
     std::unique_ptr<VExprContext*> _vother_join_conjunct_ptr;
 

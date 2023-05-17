@@ -47,7 +47,7 @@ struct RowsetReaderContext {
     // limit of rows for read_orderby_key
     size_t read_orderby_key_limit = 0;
     // filter_block arguments
-    vectorized::VExprContexts* filter_block_conjuncts;
+    vectorized::VExprContextSPtrs* filter_block_conjuncts;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
@@ -65,7 +65,7 @@ struct RowsetReaderContext {
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
     std::vector<vectorized::VExpr*> remaining_conjunct_roots;
-    vectorized::VExprContexts common_expr_ctxs_push_down;
+    vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;

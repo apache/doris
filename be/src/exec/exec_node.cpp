@@ -105,7 +105,7 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
 
     if (tnode.__isset.vconjunct) {
-        std::shared_ptr<vectorized::VExprContext> context;
+        vectorized::VExprContextSPtr context;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct, context));
         _conjuncts.emplace_back(context);
     }

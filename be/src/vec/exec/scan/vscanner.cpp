@@ -40,7 +40,7 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, Runtim
     _is_load = (_input_tuple_desc != nullptr);
 }
 
-Status VScanner::prepare(RuntimeState* state, const VExprContexts& conjuncts) {
+Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     if (!conjuncts.empty()) {
         _conjuncts.resize(conjuncts.size());
         for (size_t i = 0; i != conjuncts.size(); ++i) {

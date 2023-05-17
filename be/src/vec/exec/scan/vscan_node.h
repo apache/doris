@@ -145,7 +145,7 @@ public:
     Status try_append_late_arrival_runtime_filter(int* arrived_rf_num);
 
     // Clone current _conjuncts to conjuncts, if exists.
-    Status clone_conjunct_ctxs(VExprContexts& conjuncts);
+    Status clone_conjunct_ctxs(VExprContextSPtrs& conjuncts);
 
     int runtime_filter_num() const { return (int)_runtime_filter_ctxs.size(); }
 
@@ -321,8 +321,8 @@ protected:
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
-    VExprContexts _stale_expr_ctxs;
-    VExprContexts _common_expr_ctxs_push_down;
+    VExprContextSPtrs _stale_expr_ctxs;
+    VExprContextSPtrs _common_expr_ctxs_push_down;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;

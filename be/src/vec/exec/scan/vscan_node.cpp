@@ -386,7 +386,7 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
     }
 
     for (auto& expr : vexprs) {
-        std::shared_ptr<VExprContext> conjunct(VExprContext::create_unique(expr).release());
+        VExprContextSPtr conjunct(VExprContext::create_unique(expr).release());
         RETURN_IF_ERROR(conjunct->prepare(_state, _row_descriptor));
         RETURN_IF_ERROR(conjunct->open(_state));
         _rf_vexpr_set.insert(expr);
@@ -1319,7 +1319,7 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
     return Status::OK();
 }
 
-Status VScanNode::clone_conjunct_ctxs(VExprContexts& conjuncts) {
+Status VScanNode::clone_conjunct_ctxs(VExprContextSPtrs& conjuncts) {
     if (!_conjuncts.empty()) {
         std::unique_lock l(_rf_locks);
         conjuncts.resize(_conjuncts.size());

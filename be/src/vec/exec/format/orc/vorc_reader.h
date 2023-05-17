@@ -90,7 +90,7 @@ struct OrcPredicate {
 };
 
 struct LazyReadContext {
-    VExprContexts* conjuncts = nullptr;
+    VExprContextSPtrs* conjuncts = nullptr;
     bool can_lazy_read = false;
     // block->rows() returns the number of rows of the first column,
     // so we should check and resize the first column
@@ -142,7 +142,7 @@ public:
 
     Status init_reader(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            VExprContexts& conjuncts);
+            VExprContextSPtrs& conjuncts);
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&

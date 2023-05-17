@@ -272,7 +272,7 @@ Status VExpr::create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprN
 
 Status VExpr::create_tree_from_thrift(doris::ObjectPool* pool,
                                       const std::vector<doris::TExprNode>& nodes, int* node_idx,
-                                      VExpr** root_expr, std::shared_ptr<VExprContext>& ctx) {
+                                      VExpr** root_expr, VExprContextSPtr& ctx) {
     // propagate error case
     if (*node_idx >= nodes.size()) {
         return Status::InternalError("Failed to reconstruct expression tree from thrift.");
@@ -287,7 +287,7 @@ Status VExpr::create_tree_from_thrift(doris::ObjectPool* pool,
     DCHECK(root_expr != nullptr);
     DCHECK(ctx == nullptr);
     *root_expr = root;
-    ctx.reset(VExprContext::create_unique(root).release());
+    ctx = std::make_shared<VExprContext>(root);
     // short path for leaf node
     if (root_children <= 0) {
         return Status::OK();
@@ -342,7 +342,7 @@ Status VExpr::create_expr_tree(doris::ObjectPool* pool, const doris::TExpr& texp
 }
 
 Status VExpr::create_expr_tree(doris::ObjectPool* pool, const doris::TExpr& texpr,
-                               std::shared_ptr<VExprContext>& ctx) {
+                               VExprContextSPtr& ctx) {
     if (texpr.nodes.size() == 0) {
         *ctx = nullptr;
         return Status::OK();

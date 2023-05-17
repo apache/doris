@@ -102,7 +102,7 @@ public:
     io::IOContext io_ctx;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
     std::vector<vectorized::VExpr*> remaining_conjunct_roots;
-    vectorized::VExprContexts common_expr_ctxs_push_down;
+    vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
     const std::set<int32_t>* output_columns = nullptr;
     // runtime state
     RuntimeState* runtime_state = nullptr;

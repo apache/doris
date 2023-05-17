@@ -97,7 +97,7 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 }
 
 Status VFileScanner::prepare(
-        const VExprContexts& conjuncts,
+        const VExprContextSPtrs& conjuncts,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const std::unordered_map<std::string, int>* colname_to_slot_id) {
     RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
@@ -147,7 +147,7 @@ Status VFileScanner::_split_conjuncts() {
     }
     return Status::OK();
 }
-Status VFileScanner::_split_conjuncts_expr(const std::shared_ptr<VExprContext>& context,
+Status VFileScanner::_split_conjuncts_expr(const VExprContextSPtr& context,
                                            const VExpr* conjunct_expr_root) {
     static constexpr auto is_leaf = [](const VExpr* expr) { return !expr->is_and_expr(); };
     if (conjunct_expr_root) {
@@ -155,7 +155,7 @@ Status VFileScanner::_split_conjuncts_expr(const std::shared_ptr<VExprContext>& 
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto* cur_expr = const_cast<VExpr*>(impl ? impl : conjunct_expr_root);
-            std::shared_ptr<VExprContext> new_ctx(VExprContext::create_unique(cur_expr).release());
+            VExprContextSPtr new_ctx(VExprContext::create_unique(cur_expr).release());
             context->clone_fn_contexts(new_ctx.get());
             RETURN_IF_ERROR(new_ctx->prepare(_state, *_default_val_row_desc));
             RETURN_IF_ERROR(new_ctx->open(_state));

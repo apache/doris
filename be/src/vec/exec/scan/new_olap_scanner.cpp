@@ -106,7 +106,7 @@ Status NewOlapScanner::init() {
     RETURN_IF_ERROR(VScanner::prepare(_state, parent->_conjuncts));
 
     for (auto& ctx : parent->_common_expr_ctxs_push_down) {
-        std::shared_ptr<VExprContext> context;
+        VExprContextSPtr context;
         RETURN_IF_ERROR(ctx->clone(_state, context));
         _common_expr_ctxs_push_down.emplace_back(context);
     }

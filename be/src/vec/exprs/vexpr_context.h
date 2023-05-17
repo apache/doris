@@ -37,7 +37,8 @@ namespace doris::vectorized {
 class VExpr;
 
 class VExprContext;
-using VExprContexts = std::vector<std::shared_ptr<VExprContext>>;
+using VExprContextSPtr = std::shared_ptr<VExprContext>;
+using VExprContextSPtrs = std::vector<VExprContextSPtr>;
 
 class VExprContext {
     ENABLE_FACTORY_CREATOR(VExprContext);
@@ -49,7 +50,7 @@ public:
     [[nodiscard]] Status open(RuntimeState* state);
     void close(RuntimeState* state);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContext** new_ctx);
-    [[nodiscard]] Status clone(RuntimeState* state, std::shared_ptr<VExprContext>& new_ctx);
+    [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
 
     VExpr* root() { return _root; }
@@ -73,7 +74,7 @@ public:
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
                                              int column_to_keep);
 
-    [[nodiscard]] static Status filter_block(const VExprContexts& expr_contexts, Block* block,
+    [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
                                              int column_to_keep);
 
     [[nodiscard]] static Status execute_conjuncts(const std::vector<VExprContext*>& ctxs,
@@ -84,7 +85,7 @@ public:
             const std::vector<VExprContext*>& ctxs, const std::vector<IColumn::Filter*>* filters,
             Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep);
 
-    static Status execute_conjuncts_and_filter_block(const VExprContexts& ctxs, Block* block,
+    static Status execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
                                                      std::vector<uint32_t>& columns_to_filter,
                                                      int column_to_keep, IColumn::Filter& filter);
 
