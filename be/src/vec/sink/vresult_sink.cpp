@@ -107,7 +107,6 @@ Status VResultSink::prepare(RuntimeState* state) {
 }
 
 Status VResultSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VResultSink::open");
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
@@ -126,7 +125,6 @@ Status VResultSink::second_phase_fetch_data(RuntimeState* state, Block* final_bl
 }
 
 Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultSink::send");
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(second_phase_fetch_data(state, block));
     }
@@ -144,7 +142,6 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
 
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VResultSink::close");
     Status final_status = exec_status;
 
     if (_writer) {
