@@ -91,6 +91,10 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
         return targetTable;
     }
 
+    public List<Column> getCols() {
+        return cols;
+    }
+
     public List<Long> getPartitionIds() {
         return partitionIds;
     }

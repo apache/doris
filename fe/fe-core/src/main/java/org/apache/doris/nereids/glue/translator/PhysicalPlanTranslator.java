@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -276,7 +277,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         physicalPlan.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         if (physicalPlan instanceof PhysicalOlapTableSink) {
-            PhysicalOlapTableSink sink = ((PhysicalOlapTableSink<?>) physicalPlan);
+            PhysicalOlapTableSink<?> sink = ((PhysicalOlapTableSink<?>) physicalPlan);
+            List<Column> cols = sink.getCols();
+            for (int i = 0; i < cols.size(); ++i) {
+                if (!outputExprs.get(i).getType().equals(cols.get(i).getType())) {
+                    outputExprs.set(i, new CastExpr(cols.get(i).getType(), outputExprs.get(i)));
+                }
+            }
             OlapTable table = sink.getTargetTable();
             if (outputExprs.size() != table.getColumns().size()) {
                 for (Column column : table.getColumns()) {
