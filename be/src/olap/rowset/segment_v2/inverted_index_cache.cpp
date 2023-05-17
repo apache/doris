@@ -181,7 +181,6 @@ Status InvertedIndexSearcherCache::erase(const std::string& index_file_path) {
 
 void InvertedIndexSearcherCache::prune() {
     if (_cache) {
-        _cache->prune();
         const int64_t curtime = UnixMillis();
         auto pred = [curtime](const void* value) -> bool {
             InvertedIndexSearcherCache::CacheValue* cache_value =
