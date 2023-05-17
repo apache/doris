@@ -35,10 +35,12 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -133,7 +135,17 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public List<Slot> computeOutput() {
-        return child().computeOutput();
+        return child().getOutput();
+    }
+
+    @Override
+    public List<Slot> getOutput() {
+        return computeOutput();
+    }
+
+    @Override
+    public Set<Slot> getOutputSet() {
+        return ImmutableSet.copyOf(getOutput());
     }
 
     /**

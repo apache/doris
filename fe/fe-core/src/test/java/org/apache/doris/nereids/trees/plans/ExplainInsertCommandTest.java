@@ -77,21 +77,21 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     @Test
     public void testInsertIntoDuplicateKeyTable() throws Exception {
         String sql = "explain insert into t1 select * from src";
-        Assertions.assertNotNull(getOutputFragment(sql));
+        Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
 
     }
 
     @Test
     public void testInsertIntoUniqueKeyTable() throws Exception {
         String sql = "explain insert into t2 select * from src";
-        Assertions.assertNotNull(getOutputFragment(sql));
+        Assertions.assertEquals(6, getOutputFragment(sql).getOutputExprs().size());
 
     }
 
     @Test
     public void testInsertIntoDuplicateKeyTableWithCast() throws Exception {
         String sql = "explain insert into t1 select * from (select cast(k1 as varchar), 1, 1, 1 from src) t";
-        Assertions.assertNotNull(getOutputFragment(sql));
+        Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {

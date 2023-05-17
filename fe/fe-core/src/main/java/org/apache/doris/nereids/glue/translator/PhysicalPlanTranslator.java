@@ -27,6 +27,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -274,6 +275,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> outputExprs = Lists.newArrayList();
         physicalPlan.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        if (physicalPlan instanceof PhysicalOlapTableSink) {
+            PhysicalOlapTableSink sink = ((PhysicalOlapTableSink<?>) physicalPlan);
+            OlapTable table = sink.getTargetTable();
+            if (outputExprs.size() != table.getColumns().size()) {
+                for (Column column : table.getColumns()) {
+                    if (!column.isVisible()) {
+                        outputExprs.add(new IntLiteral(0));
+                    }
+                }
+            }
+        }
         rootFragment.setOutputExprs(outputExprs);
         rootFragment.getPlanRoot().convertToVectorized();
         for (PlanFragment fragment : context.getPlanFragments()) {
