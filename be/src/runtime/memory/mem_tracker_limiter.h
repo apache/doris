@@ -214,7 +214,7 @@ public:
     }
 
     static std::string process_mem_log_str();
-    static std::string process_limit_exceeded_errmsg_str(int64_t bytes);
+    static std::string process_limit_exceeded_errmsg_str();
     // Log the memory usage when memory limit is exceeded.
     std::string query_tracker_limit_exceeded_str(const std::string& tracker_limit_exceeded,
                                                  const std::string& last_consumer_tracker,
