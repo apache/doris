@@ -454,7 +454,7 @@ DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // When there is mixed deployment in the upgraded version, it needs to be set to false.
 DEFINE_mBool(enable_lazy_open_partition, "true");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
-DEFINE_mBool(tablet_writer_ignore_eovercrowded, "false");
+DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
