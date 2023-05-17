@@ -16,6 +16,10 @@
 // under the License.
 
 suite ("testAggQueryOnAggMV2") {
+
+    // because nereids cannot support rollup correctly forbid it temporary
+    sql """set enable_nereids_planner=false"""
+
     sql """ DROP TABLE IF EXISTS emps; """
     sql """
             create table emps (
