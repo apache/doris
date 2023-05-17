@@ -31,7 +31,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class SemiJoinLogicalJoinTransposeTest implements MemoPatternMatchSupported {
+public class TransposeSemiJoinLogicalJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private static final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
@@ -51,7 +51,7 @@ public class SemiJoinLogicalJoinTransposeTest implements MemoPatternMatchSupport
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .applyTopDown(new SemiJoinLogicalJoinTranspose())
+                .applyTopDown(new TransposeSemiJoinLogicalJoin())
                 .matchesFromRoot(
                         innerLogicalJoin(
                                 leftSemiLogicalJoin(
@@ -78,7 +78,7 @@ public class SemiJoinLogicalJoinTransposeTest implements MemoPatternMatchSupport
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .applyTopDown(new SemiJoinLogicalJoinTranspose())
+                .applyTopDown(new TransposeSemiJoinLogicalJoin())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(1, root.getLogicalExpressions().size());
