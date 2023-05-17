@@ -48,8 +48,8 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     // bound data sink
     private Database database;
     private OlapTable targetTable;
-    private List<Long> partitionIds;
     private List<Column> cols;
+    private List<Long> partitionIds;
 
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             CHILD_TYPE child) {
@@ -62,6 +62,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
         this.database = Preconditions.checkNotNull(database, "database != null in LogicalOlapTableSink");
         this.targetTable = Preconditions.checkNotNull(targetTable, "targetTable != null in LogicalOlapTableSink");
+        this.cols = cols;
         this.partitionIds = partitionIds;
     }
 
