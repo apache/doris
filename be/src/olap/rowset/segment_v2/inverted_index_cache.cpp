@@ -182,6 +182,20 @@ Status InvertedIndexSearcherCache::erase(const std::string& index_file_path) {
 void InvertedIndexSearcherCache::prune() {
     if (_cache) {
         _cache->prune();
+        const int64_t curtime = UnixMillis();
+        auto pred = [curtime](const void* value) -> bool {
+            InvertedIndexSearcherCache::CacheValue* cache_value =
+                    (InvertedIndexSearcherCache::CacheValue*)value;
+            return (cache_value->last_visit_time +
+                    config::index_cache_entry_no_visit_gc_time_s * 1000) < curtime;
+        };
+
+        MonotonicStopWatch watch;
+        watch.start();
+        // Prune cache in lazy mode to save cpu and minimize the time holding write lock
+        int64_t prune_num = _cache->prune_if(pred, true);
+        LOG(INFO) << "prune " << prune_num << " entries in inverted index cache. cost(ms): "
+                  << watch.elapsed_time() / 1000 / 1000;
     }
 }
 
@@ -226,18 +240,39 @@ bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCach
     return true;
 }
 
-void InvertedIndexQueryCache::insert(const CacheKey& key, roaring::Roaring* bitmap,
+void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> bitmap,
                                      InvertedIndexQueryCacheHandle* handle) {
-    auto deleter = [](const doris::CacheKey& key, void* value) { delete (roaring::Roaring*)value; };
+    auto deleter = [](const doris::CacheKey& key, void* value) {
+        delete (InvertedIndexQueryCache::CacheValue*)value;
+    };
 
-    auto lru_handle = _cache->insert(key.encode(), (void*)bitmap, bitmap->getSizeInBytes(), deleter,
-                                     CachePriority::NORMAL);
+    std::unique_ptr<InvertedIndexQueryCache::CacheValue> cache_value_ptr =
+            std::make_unique<InvertedIndexQueryCache::CacheValue>();
+    cache_value_ptr->last_visit_time = UnixMillis();
+    cache_value_ptr->bitmap = bitmap;
+    cache_value_ptr->size = bitmap->getSizeInBytes();
+
+    auto lru_handle = _cache->insert(key.encode(), (void*)cache_value_ptr.release(),
+                                     bitmap->getSizeInBytes(), deleter, CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(_cache.get(), lru_handle);
 }
 
 void InvertedIndexQueryCache::prune() {
     if (_cache) {
-        _cache->prune();
+        const int64_t curtime = UnixMillis();
+        auto pred = [curtime](const void* value) -> bool {
+            InvertedIndexQueryCache::CacheValue* cache_value =
+                    (InvertedIndexQueryCache::CacheValue*)value;
+            return (cache_value->last_visit_time +
+                    config::index_cache_entry_no_visit_gc_time_s * 1000) < curtime;
+        };
+
+        MonotonicStopWatch watch;
+        watch.start();
+        // Prune cache in lazy mode to save cpu and minimize the time holding write lock
+        int64_t prune_num = _cache->prune_if(pred, true);
+        LOG(INFO) << "prune " << prune_num << " entries in inverted index cache. cost(ms): "
+                  << watch.elapsed_time() / 1000 / 1000;
     }
 }
 

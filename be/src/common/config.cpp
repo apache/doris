@@ -955,6 +955,8 @@ DEFINE_Bool(enable_file_cache_query_limit, "false");
 // inverted index searcher cache
 // cache entry stay time after lookup, default 1h
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "3600");
+// cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
+DEFINE_mInt32(index_cache_entry_no_visit_gc_time_s, "3600");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data

@@ -208,7 +208,13 @@ public:
         }
     };
 
-    using CacheValue = roaring::Roaring;
+    struct CacheValue {
+        // Save the last visit time of this cache entry.
+        // Use atomic because it may be modified by multi threads.
+        std::atomic<int64_t> last_visit_time = 0;
+        std::shared_ptr<roaring::Roaring> bitmap;
+        size_t size = 0;
+    };
 
     // Create global instance of this class
     static void create_global_cache(size_t capacity, int32_t index_cache_percentage,
@@ -231,7 +237,7 @@ public:
 
     bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
 
-    void insert(const CacheKey& key, roaring::Roaring* bitmap,
+    void insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> bitmap,
                 InvertedIndexQueryCacheHandle* handle);
 
     void prune();
@@ -271,11 +277,11 @@ public:
     Cache* cache() const { return _cache; }
     Slice data() const { return _cache->value_slice(_handle); }
 
-    InvertedIndexQueryCache::CacheValue* get_bitmap() const {
+    std::shared_ptr<roaring::Roaring> get_bitmap() const {
         if (!_cache) {
             return nullptr;
         }
-        return ((InvertedIndexQueryCache::CacheValue*)_cache->value(_handle));
+        return ((InvertedIndexQueryCache::CacheValue*)_cache->value(_handle))->bitmap;
     }
 
 private:

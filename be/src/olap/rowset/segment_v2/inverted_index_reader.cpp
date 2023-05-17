@@ -110,7 +110,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         }
 
         // ownership of null_bitmap and its deletion will be transfered to cache
-        roaring::Roaring* null_bitmap = new roaring::Roaring();
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         if (dir->fileExists(null_bitmap_file_name.c_str())) {
             null_bitmap_in = dir->openInput(null_bitmap_file_name.c_str());
@@ -226,7 +226,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
         bool first = true;
         bool null_bitmap_already_read = false;
         for (auto token_ws : analyse_result) {
-            roaring::Roaring* term_match_bitmap = nullptr;
+            std::shared_ptr<roaring::Roaring> term_match_bitmap = nullptr;
 
             // try to get term bitmap match result from cache to avoid query index on cache hit
             auto cache = InvertedIndexQueryCache::instance();
@@ -247,7 +247,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
                 }
 
-                term_match_bitmap = new roaring::Roaring();
+                term_match_bitmap = std::make_shared<roaring::Roaring>();
                 // unique_ptr with custom deleter
                 std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
                         _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str()),
@@ -437,7 +437,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     }
 
     // add to cache
-    roaring::Roaring* term_match_bitmap = new roaring::Roaring(result);
+    std::shared_ptr<roaring::Roaring> term_match_bitmap = std::make_shared<roaring::Roaring>(result);
     term_match_bitmap->runOptimize();
     cache->insert(cache_key, term_match_bitmap, &cache_handle);
 
