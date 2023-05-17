@@ -82,8 +82,8 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 #define CREATE_AND_START_THREAD(type, pool_name)
 #endif // BE_TEST
 
-    _create_tablet_workers.reset(new CreateTableTaskPool(
-            exec_env, master_info, TaskWorkerPool::ThreadModel::MULTI_THREADS));
+    _create_tablet_workers.reset(
+            new CreateTableTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
     _create_tablet_workers->start();
     CREATE_AND_START_POOL(DROP_TABLE, _drop_tablet_workers);
 

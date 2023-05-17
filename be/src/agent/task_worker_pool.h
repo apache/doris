@@ -179,9 +179,6 @@ public:
     void notify_thread();
 
 protected:
-    virtual void _set_callback_and_worker_count();
-
-protected:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
@@ -270,8 +267,7 @@ protected:
 
 class CreateTableTaskPool : public TaskWorkerPool {
 public:
-    CreateTableTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);
-    void _set_callback_and_worker_count() override;
+    CreateTableTaskPool(ExecEnv* env, ThreadModel thread_model);
     void _create_tablet_worker_thread_callback();
 
     DISALLOW_COPY_AND_ASSIGN(CreateTableTaskPool);

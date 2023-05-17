@@ -137,7 +137,6 @@ void TaskWorkerPool::start() {
     }
     switch (_task_worker_type) {
     case TaskWorkerType::CREATE_TABLE:
-        _set_callback_and_worker_count(); // will be fixed later
         break;
     case TaskWorkerType::DROP_TABLE:
         _worker_count = config::drop_tablet_worker_count;
@@ -287,11 +286,6 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 void TaskWorkerPool::notify_thread() {
     _worker_thread_condition_variable.notify_one();
     VLOG_CRITICAL << "notify task worker pool: " << _name;
-}
-
-void TaskWorkerPool::_set_callback_and_worker_count() {
-    // CHECK(false);
-    // will be uncommented after all the Pool classes are added
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
@@ -1811,11 +1805,8 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
     }
 }
 
-CreateTableTaskPool::CreateTableTaskPool(ExecEnv* env, const TMasterInfo& master_info,
-                                         ThreadModel thread_model)
-        : TaskWorkerPool(TaskWorkerType::CREATE_TABLE, env, master_info, thread_model) {}
-
-void CreateTableTaskPool::_set_callback_and_worker_count() {
+CreateTableTaskPool::CreateTableTaskPool(ExecEnv* env, ThreadModel thread_model)
+        : TaskWorkerPool(TaskWorkerType::CREATE_TABLE, env, *env->master_info(), thread_model) {
     _worker_count = config::create_tablet_worker_count;
     _cb = [this]() { _create_tablet_worker_thread_callback(); };
 }
