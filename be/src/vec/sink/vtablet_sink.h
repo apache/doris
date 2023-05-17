@@ -461,7 +461,7 @@ public:
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
-    void _send_batch_process(RuntimeState* state);
+    void _send_batch_process();
 
 private:
     friend class VNodeChannel;
@@ -542,8 +542,7 @@ private:
     // index_channel
     std::vector<std::shared_ptr<IndexChannel>> _channels;
 
-    CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _sender_thread;
+    bthread_t _sender_thread = 0;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
     std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
