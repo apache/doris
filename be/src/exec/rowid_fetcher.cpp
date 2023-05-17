@@ -145,6 +145,9 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
         }
         // Merge partial blocks
         vectorized::Block partial_block(resp.block());
+        if (partial_block.is_empty_column()) {
+            return Status::OK();
+        }
         CHECK(resp.row_locs().size() == partial_block.rows());
         if (output_block->is_empty_column()) {
             output_block->swap(partial_block);

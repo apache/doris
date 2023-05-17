@@ -39,7 +39,7 @@ import java.util.Set;
  * <li>SemiJoin(LogicalJoin(X, Y), Z) -> LogicalJoin(X, SemiJoin(Y, Z))
  * </ul>
  */
-public class SemiJoinLogicalJoinTransposeProject extends OneRewriteRuleFactory {
+public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), any())
@@ -99,7 +99,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneRewriteRuleFactory {
                         Plan newTopJoin = bottomJoin.withChildren(a, newBottomSemiJoin);
                         return project.withChildren(newTopJoin);
                     }
-                }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE_PROJECT);
+                }).toRule(RuleType.TRANSPOSE_LOGICAL_SEMI_JOIN_LOGICAL_JOIN_PROJECT);
     }
 
     enum ContainsType {

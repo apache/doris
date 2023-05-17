@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject.ContainsType;
+import org.apache.doris.nereids.rules.rewrite.logical.TransposeSemiJoinLogicalJoinProject.ContainsType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -35,7 +35,7 @@ import java.util.Set;
  * <li>SemiJoin(LogicalJoin(X, Y), Z) -> LogicalJoin(X, SemiJoin(Y, Z))
  * </ul>
  */
-public class SemiJoinLogicalJoinTranspose extends OneRewriteRuleFactory {
+public class TransposeSemiJoinLogicalJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalJoin(), any())
@@ -53,7 +53,7 @@ public class SemiJoinLogicalJoinTranspose extends OneRewriteRuleFactory {
                     Plan c = topSemiJoin.right();
 
                     Set<ExprId> conjunctsIds = topSemiJoin.getConditionExprId();
-                    ContainsType containsType = SemiJoinLogicalJoinTransposeProject.containsChildren(conjunctsIds,
+                    ContainsType containsType = TransposeSemiJoinLogicalJoinProject.containsChildren(conjunctsIds,
                             a.getOutputExprIdSet(), b.getOutputExprIdSet());
                     if (containsType == ContainsType.ALL) {
                         return null;
@@ -87,6 +87,6 @@ public class SemiJoinLogicalJoinTranspose extends OneRewriteRuleFactory {
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(b, c);
                         return bottomJoin.withChildren(a, newBottomSemiJoin);
                     }
-                }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE);
+                }).toRule(RuleType.TRANSPOSE_LOGICAL_SEMI_JOIN_LOGICAL_JOIN);
     }
 }

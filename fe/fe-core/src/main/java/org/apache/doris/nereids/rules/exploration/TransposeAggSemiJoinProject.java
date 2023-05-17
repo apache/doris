@@ -19,7 +19,7 @@ package org.apache.doris.nereids.rules.exploration;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
+import org.apache.doris.nereids.rules.rewrite.logical.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 /**
  * Pull up SemiJoin through Agg.
  */
-public class AggSemiJoinTransposeProject extends OneExplorationRuleFactory {
-    public static final AggSemiJoinTransposeProject INSTANCE = new AggSemiJoinTransposeProject();
+public class TransposeAggSemiJoinProject extends OneExplorationRuleFactory {
+    public static final TransposeAggSemiJoinProject INSTANCE = new TransposeAggSemiJoinProject();
 
     @Override
     public Rule build() {
@@ -37,11 +37,11 @@ public class AggSemiJoinTransposeProject extends OneExplorationRuleFactory {
                 .then(agg -> {
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = agg.child();
                     LogicalJoin<GroupPlan, GroupPlan> join = project.child();
-                    if (!SemiJoinAggTranspose.canTranspose(agg, join)) {
+                    if (!TransposeSemiJoinAgg.canTranspose(agg, join)) {
                         return null;
                     }
                     return join.withChildren(agg.withChildren(project.withChildren(join.left())), join.right());
                 })
-                .toRule(RuleType.LOGICAL_AGG_SEMI_JOIN_TRANSPOSE_PROJECT);
+                .toRule(RuleType.TRANSPOSE_LOGICAL_AGG_SEMI_JOIN_PROJECT);
     }
 }
