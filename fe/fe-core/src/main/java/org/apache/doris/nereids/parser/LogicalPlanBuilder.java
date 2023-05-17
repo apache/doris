@@ -307,8 +307,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
         List<String> colNames = ctx.cols == null ? null : visitIdentifierList(ctx.cols);
         List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
-        LogicalOlapTableSink<Plan> sink = new LogicalOlapTableSink<>(tableName, colNames, ImmutableList.of(), partitions,
-                visitQuery(ctx.query()));
+        LogicalOlapTableSink<Plan> sink = new LogicalOlapTableSink<>(tableName, colNames, ImmutableList.of(),
+                partitions, visitQuery(ctx.query()));
         if (ctx.explain() != null) {
             return withExplain(sink, ctx.explain());
         }

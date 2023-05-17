@@ -151,9 +151,6 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) o;
         return isBound == sink.isBound
                 && Objects.equals(nameParts, sink.nameParts)
