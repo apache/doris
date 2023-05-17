@@ -139,7 +139,7 @@ private:
 
     int _backend_num;
 
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     bool _prepared = false;
     bool _submitted = false;
