@@ -103,6 +103,9 @@ DEFINE_mInt64(mmap_threshold, "134217728"); // bytes
 // Increase can reduce the number of hash table resize, but may waste more memory.
 DEFINE_mInt32(hash_table_double_grow_degree, "31");
 
+DEFINE_mInt32(max_fill_rate, "2");
+
+DEFINE_mInt32(double_resize_threshold, "20");
 // Expand the hash table before inserting data, the maximum expansion size.
 // There are fewer duplicate keys, reducing the number of resize hash tables
 // There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
@@ -936,8 +939,16 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
-DEFINE_Validator(file_cache_max_file_segment_size,
-                 [](const int64_t config) -> bool { return config >= 4096; }); // 4KB
+// 4KB <= file_cache_max_file_segment_size <= 256MB
+DEFINE_Validator(file_cache_max_file_segment_size, [](const int64_t config) -> bool {
+    return config >= 4096 && config <= 268435456;
+});
+DEFINE_Int64(file_cache_min_file_segment_size, "1048576"); // 1MB
+// 4KB <= file_cache_min_file_segment_size <= 256MB
+DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> bool {
+    return config >= 4096 && config <= 268435456 &&
+           config <= config::file_cache_max_file_segment_size;
+});
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 

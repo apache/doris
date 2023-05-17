@@ -280,6 +280,7 @@ public class JdbcClient {
         ResultSet rs = null;
         List<String> tablesName = Lists.newArrayList();
         String[] types = {"TABLE", "VIEW"};
+        String[] hanaTypes = {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
@@ -292,9 +293,11 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
-                case JdbcResource.SAP_HANA:
                 case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.SAP_HANA:
+                    rs = databaseMetaData.getTables(null, dbName, null, hanaTypes);
                     break;
                 case JdbcResource.TRINO:
                 case JdbcResource.PRESTO:
@@ -323,6 +326,7 @@ public class JdbcClient {
         Connection conn = getConnection();
         ResultSet rs = null;
         String[] types = {"TABLE", "VIEW"};
+        String[] hanaTypes = {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
@@ -335,9 +339,11 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
-                case JdbcResource.SAP_HANA:
                 case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.SAP_HANA:
+                    rs = databaseMetaData.getTables(null, dbName, null, hanaTypes);
                     break;
                 case JdbcResource.TRINO:
                 case JdbcResource.PRESTO:
