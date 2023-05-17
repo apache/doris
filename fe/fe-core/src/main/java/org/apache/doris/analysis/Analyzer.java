@@ -1354,10 +1354,10 @@ public class Analyzer {
             }
             if (e.isBoundByTupleIds(tupleIds)
                     && !e.isAuxExpr()
-                    && !globalState.assignedConjuncts.contains(e.getId())
+                    && (!globalState.assignedConjuncts.contains(e.getId()) || e.isConstant())
                     && ((inclOjConjuncts && !e.isConstant())
-                    || (!globalState.ojClauseByConjunct.containsKey(e.getId())
-                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
+                            || (!globalState.ojClauseByConjunct.containsKey(e.getId())
+                                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
                 result.add(e);
             }
         }
@@ -2391,7 +2391,14 @@ public class Analyzer {
      * Wrapper around getUnassignedConjuncts(List<TupleId> tupleIds).
      */
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
-        return getUnassignedConjuncts(node.getTblRefIds());
+        // constant conjuncts should be push down to all leaf node.
+        // so we need remove constant conjuncts when expr is not a leaf node.
+        List<Expr> unassigned = getUnassignedConjuncts(node.getTblRefIds());
+        if (!node.getChildren().isEmpty()) {
+            unassigned = unassigned.stream()
+                    .filter(e -> !e.isConstant()).collect(Collectors.toList());
+        }
+        return unassigned;
     }
 
     /**
