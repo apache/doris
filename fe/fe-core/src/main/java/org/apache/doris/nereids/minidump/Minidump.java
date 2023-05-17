@@ -138,7 +138,7 @@ public class Minidump {
         ConnectContext connectContext = new ConnectContext();
         connectContext.setSessionVariable(minidump.getSessionVariable());
         connectContext.setTables(minidump.getTables());
-        connectContext.getSessionVariable().setDumpNereids(false);
+        connectContext.getSessionVariable().setEnableMinidump(false);
         connectContext.setDatabase(minidump.getDbName());
         connectContext.getSessionVariable().setPlanNereidsDump(true);
         connectContext.getSessionVariable().enableNereidsTimeout = false;
