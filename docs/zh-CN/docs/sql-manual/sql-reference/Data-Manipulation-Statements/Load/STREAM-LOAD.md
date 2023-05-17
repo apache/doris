@@ -327,7 +327,24 @@ ERRORS:
     ```
     curl --location-trusted -u root -T test.csv  -H "label:1" -H "format:csv_with_names" -H "column_separator:," http://host:port/api/testDb/testTbl/_stream_load
     ```
+17. 导入数据到表字段含有DEFAULT CURRENT_TIMESTAMP的表中
 
+    表结构：
+    ```sql
+    `id` bigint(30) NOT NULL,
+    `order_code` varchar(30) DEFAULT NULL COMMENT '',
+    `create_time` datetimev2(3) DEFAULT CURRENT_TIMESTAMP
+    ```
+    
+    json数据格式：
+    ```
+    {"id":1,"order_Code":"avc"}
+    ```
+
+    导入命令：
+    ```
+    curl --location-trusted -u root -T test.json -H "label:1" -H "format:json" -H 'columns: id, name, create_time=CURRENT_TIMESTAMP()' http://host:port/api/testDb/testTbl/_stream_load
+    ```
 ### Keywords
 
     STREAM, LOAD
