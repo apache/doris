@@ -375,7 +375,9 @@ set enable_odbc_transcation = true;
 | int | INT | |
 | bigint | BIGINT | |
 | real | FLOAT | |
-| float/money/smallmoney | DOUBLE | |
+| float | DOUBLE | |
+| money | DECIMAL(19,4) | |
+| smallmoney | DECIMAL(10,4) | |
 | decimal/numeric | DECIMAL | |
 | date | DATE | |
 | datetime/datetime2/smalldatetime | DATETIMEV2 | |

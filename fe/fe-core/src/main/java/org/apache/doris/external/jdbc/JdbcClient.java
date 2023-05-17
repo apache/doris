@@ -750,9 +750,11 @@ public class JdbcClient {
             case "real":
                 return Type.FLOAT;
             case "float":
-            case "money":
-            case "smallmoney":
                 return Type.DOUBLE;
+            case "money":
+                return ScalarType.createDecimalV3Type(19, 4);
+            case "smallmoney":
+                return ScalarType.createDecimalV3Type(10, 4);
             case "decimal":
             case "numeric":
                 int precision = fieldSchema.getColumnSize();
