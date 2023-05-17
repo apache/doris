@@ -357,7 +357,7 @@ ERRORS:
     Import command:
 
     ```
-    curl --location-trusted -u root -T test.json -H "label:1" -H "format:json" -H 'columns: id, name, create_time=CURRENT_TIMESTAMP()' http://host:port/api/testDb/testTbl/_stream_load
+    curl --location-trusted -u root -T test.json -H "label:1" -H "format:json" -H 'columns: id, order_code, create_time=CURRENT_TIMESTAMP()' http://host:port/api/testDb/testTbl/_stream_load
     ```
     
 ### Keywords
