@@ -137,12 +137,6 @@ Status FileFactory::create_file_reader(RuntimeProfile* profile,
                                              file_system, file_reader, reader_options));
         break;
     }
-    case TFileType::FILE_NET: {
-        RETURN_IF_ERROR(create_broker_reader(system_properties.broker_addresses[0],
-                                             system_properties.properties, file_description,
-                                             file_system, file_reader, reader_options));
-        break;
-    }
     default:
         return Status::NotSupported("unsupported file reader type: {}", std::to_string(type));
     }

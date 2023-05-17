@@ -180,7 +180,12 @@ std::string IcebergTableDescriptor::debug_string() const {
 }
 
 MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tdesc)
-        : TableDescriptor(tdesc) {}
+        : TableDescriptor(tdesc),
+          _region(tdesc.mcTable.region),
+          _project(tdesc.mcTable.project),
+          _table(tdesc.mcTable.table),
+          _access_key(tdesc.mcTable.access_key),
+          _secret_key(tdesc.mcTable.secret_key) {}
 
 MaxComputeTableDescriptor::~MaxComputeTableDescriptor() {}
 
@@ -189,7 +194,7 @@ std::string MaxComputeTableDescriptor::debug_string() const {
     out << "MaxComputeTable(" << TableDescriptor::debug_string() << ")";
     return out.str();
 }
-    
+
 EsTableDescriptor::EsTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
 EsTableDescriptor::~EsTableDescriptor() {}

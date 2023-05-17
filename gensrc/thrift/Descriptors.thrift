@@ -306,12 +306,15 @@ struct TJdbcTable {
   6: optional string jdbc_resource_name
   7: optional string jdbc_driver_class
   8: optional string jdbc_driver_checksum
+  
 }
 
 struct TMCTable {
-  1: optional string tunnel_url
+  1: optional string region
   2: optional string project
   3: optional string table
+  4: optional string access_key
+  5: optional string secret_key
 }
 
 // "Union" of all table types.

@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog.external;
 
+import com.aliyun.odps.type.CharTypeInfo;
+import com.aliyun.odps.type.VarcharTypeInfo;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -95,13 +97,13 @@ public class MaxComputeExternalTable extends ExternalTable {
                 return Type.BIGINT;
             }
             case CHAR: {
-                return Type.CHAR;
+                CharTypeInfo charType = (CharTypeInfo) typeInfo;
+                return ScalarType.createChar(charType.getLength());
             }
-            case VARCHAR: {
-                return Type.VARCHAR;
-            }
+            case VARCHAR:
             case STRING: {
-                return Type.STRING;
+                VarcharTypeInfo varcharType = (VarcharTypeInfo) typeInfo;
+                return ScalarType.createVarchar(varcharType.getLength());
             }
             case JSON: {
                 return Type.UNSUPPORTED;
@@ -158,7 +160,10 @@ public class MaxComputeExternalTable extends ExternalTable {
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
         TMCTable tMcTable = new TMCTable();
-        tMcTable.setTunnelUrl(((MaxComputeExternalCatalog) catalog).getTunnelUrl());
+        MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) catalog;
+        tMcTable.setRegion(mcCatalog.getRegion());
+        tMcTable.setAccessKey(mcCatalog.getAccessKey());
+        tMcTable.setSecretKey(mcCatalog.getSecretKey());
         // use mc project as dbName
         tMcTable.setProject(dbName);
         tMcTable.setTable(name);

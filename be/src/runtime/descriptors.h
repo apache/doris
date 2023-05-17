@@ -223,8 +223,18 @@ public:
     MaxComputeTableDescriptor(const TTableDescriptor& tdesc);
     ~MaxComputeTableDescriptor() override;
     std::string debug_string() const override;
+    const std::string region() const { return _region; }
+    const std::string project() const { return _project; }
+    const std::string table() const { return _table; }
+    const std::string access_key() const { return _access_key; }
+    const std::string secret_key() const { return _secret_key; }
 
 private:
+    std::string _region;
+    std::string _project;
+    std::string _table;
+    std::string _access_key;
+    std::string _secret_key;
 };
     
 class EsTableDescriptor : public TableDescriptor {

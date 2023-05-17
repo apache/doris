@@ -18,19 +18,27 @@
 package org.apache.doris.jni;
 
 import org.apache.doris.jni.vec.ColumnType;
-import org.apache.doris.jni.vec.ColumnValue;
+import org.apache.doris.jni.vec.MaxComputeColumnValue;
 import org.apache.doris.jni.vec.ScanPredicate;
 
+import com.aliyun.odps.Column;
 import com.aliyun.odps.Odps;
+import com.aliyun.odps.account.AliyunAccount;
+import com.aliyun.odps.data.ArrowRecordReader;
+import com.aliyun.odps.tunnel.TableTunnel;
+import com.aliyun.odps.type.TypeInfo;
+import com.aliyun.odps.type.TypeInfoFactory;
+import org.apache.arrow.memory.ArrowBuf;
+import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * MaxComputeJ JniScanner. BE will read data from the scanner object.
@@ -38,104 +46,43 @@ import java.util.Map;
 public class MaxComputeJniScanner extends JniScanner {
     private Odps odps;
 
-    public static class MaxComputeColumnValue implements ColumnValue {
-        private int i;
-        private int j;
-
-        public MaxComputeColumnValue() {
-        }
-
-        public void set(int i, int j) {
-            this.i = i;
-            this.j = j;
-        }
-
-        @Override
-        public boolean getBoolean() {
-            return (i + j) % 2 == 0;
-        }
-
-        @Override
-        public byte getByte() {
-            return (byte) (i + j);
-        }
-
-        @Override
-        public short getShort() {
-            return (short) (i - j);
-        }
-
-        @Override
-        public int getInt() {
-            return i + j;
-        }
-
-        @Override
-        public float getFloat() {
-            return (float) (j + i - 11) / (i + 1);
-        }
-
-        @Override
-        public long getLong() {
-            return (long) (i - 13) * (j + 1);
-        }
-
-        @Override
-        public double getDouble() {
-            return (double) (j + i - 15) / (i + 1);
-        }
-
-        @Override
-        public BigDecimal getDecimal() {
-            return BigDecimal.valueOf(getDouble());
-        }
-
-        @Override
-        public String getString() {
-            return "row-" + i + "-column-" + j;
-        }
-
-        @Override
-        public LocalDate getDate() {
-            return LocalDate.now();
-        }
-
-        @Override
-        public LocalDateTime getDateTime() {
-            return LocalDateTime.now();
-        }
-
-        @Override
-        public byte[] getBytes() {
-            return ("row-" + i + "-column-" + j).getBytes(StandardCharsets.UTF_8);
-        }
-
-        @Override
-        public void unpackArray(List<ColumnValue> values) {
-
-        }
-
-        @Override
-        public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
-
-        }
-
-        @Override
-        public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-
-        }
-    }
-
     private static final Logger LOG = Logger.getLogger(MaxComputeJniScanner.class);
-
-    private final int mockRows;
-    private int readRows = 0;
+    private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun.com/api";
+    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun.com";
+    private static final String REGION = "region";
+    private static final String PROJECT = "project";
+    private static final String TABLE = "table";
+    private static final String ACCESS_KEY = "access_key";
+    private static final String SECRET_KEY = "secret_key";
+    private final String region;
+    private final String project;
+    private final String table;
+    private final AliyunAccount account;
     private final MaxComputeColumnValue columnValue = new MaxComputeColumnValue();
+    private int readRows = 0;
+    private long totalRows = 0;
+    private TableTunnel.DownloadSession session;
+    private ArrowRecordReader curReader;
+    private List<Column> columns;
 
     public MaxComputeJniScanner(int batchSize, Map<String, String> params) {
-        mockRows = Integer.parseInt(params.get("mc.access_key"));
+        LOG.warn("MCJNI REGION: " + params.get(REGION));
+        LOG.warn("MCJNI PROJECT: " + params.get(PROJECT));
+        LOG.warn("MCJNI TABLE: " + params.get(TABLE));
+        LOG.warn("MCJNI ACCESS_KEY: " + params.get(ACCESS_KEY));
+        LOG.warn("MCJNI SECRET_KEY: " + params.get(SECRET_KEY));
+
+        region = Objects.requireNonNull(params.get(REGION), "required property '" + REGION + "'.");
+        project = Objects.requireNonNull(params.get(PROJECT), "required property '" + PROJECT + "'.");
+        table = Objects.requireNonNull(params.get(TABLE), "required property '" + TABLE + "'.");
+        String accessKey = Objects.requireNonNull(params.get(ACCESS_KEY), "required property '" + ACCESS_KEY + "'.");
+        String secretKey = Objects.requireNonNull(params.get(SECRET_KEY), "required property '" + SECRET_KEY + "'.");
+        account = new AliyunAccount(accessKey, secretKey);
+
         String[] requiredFields = params.get("required_fields").split(",");
         String[] types = params.get("columns_types").split("#");
+        LOG.warn("MCJNI required_fields: " + Arrays.toString(requiredFields));
+        LOG.warn("MCJNI columns_types: " + Arrays.toString(types));
         ColumnType[] columnTypes = new ColumnType[types.length];
         for (int i = 0; i < types.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
@@ -145,37 +92,132 @@ public class MaxComputeJniScanner extends JniScanner {
             long predicatesAddress = Long.parseLong(params.get("push_down_predicates"));
             if (predicatesAddress != 0) {
                 predicates = ScanPredicate.parseScanPredicates(predicatesAddress, columnTypes);
-                LOG.info("MockJniScanner gets pushed-down predicates:  " + ScanPredicate.dump(predicates));
+                LOG.info("MaxComputeJniScanner gets pushed-down predicates:  " + ScanPredicate.dump(predicates));
             }
         }
         initTableInfo(columnTypes, requiredFields, predicates, batchSize);
+        LOG.warn("MCJNI initTableInfo OK");
+    }
+
+    @Override
+    protected void initTableInfo(ColumnType[] requiredTypes, String[] requiredFields, ScanPredicate[] predicates,
+                                 int batchSize) {
+        super.initTableInfo(requiredTypes, requiredFields, predicates, batchSize);
+        columns = new ArrayList<>();
+        for (int i = 0; i < fields.length; i++) {
+            columns.add(createOdpsColumn(i, types[i]));
+        }
     }
 
     @Override
     public void open() throws IOException {
+        odps = new Odps(account);
+        odps.setEndpoint(odpsUrlTemplate.replace("{}", region));
+        odps.setDefaultProject(project);
+        LOG.warn("MCJNI odpsUrlTemplate: " + odpsUrlTemplate);
+        TableTunnel tunnel = new TableTunnel(odps);
+        tunnel.setEndpoint(tunnelUrlTemplate.replace("{}", region));
+        LOG.warn("MCJNI tunnelUrlTemplate: " + tunnelUrlTemplate);
+        try {
+            session = tunnel.createDownloadSession(project, table);
+            totalRows = session.getRecordCount();
+            LOG.warn("MCJNI totalRows: " + totalRows);
+        } catch (Exception e) {
+            throw new IOException(e);
+        }
+    }
 
+    private Column createOdpsColumn(int colIdx, ColumnType dorisType) {
+        TypeInfo odpsType;
+        LOG.warn("MCJNI dorisType: " + dorisType.getName());
+        LOG.warn("MCJNI dorisType: " + dorisType.getType());
+        switch (dorisType.getType()) {
+            case BOOLEAN:
+                odpsType = TypeInfoFactory.BOOLEAN;
+                break;
+            case TINYINT:
+                odpsType = TypeInfoFactory.TINYINT;
+                break;
+            case SMALLINT:
+                odpsType = TypeInfoFactory.SMALLINT;
+                break;
+            case INT:
+                odpsType = TypeInfoFactory.INT;
+                break;
+            case BIGINT:
+                odpsType = TypeInfoFactory.BIGINT;
+                break;
+            case DECIMALV2:
+                odpsType = TypeInfoFactory.getDecimalTypeInfo(dorisType.getPrecision(), dorisType.getScale());
+                break;
+            case FLOAT:
+                odpsType = TypeInfoFactory.FLOAT;
+                break;
+            case DOUBLE:
+                odpsType = TypeInfoFactory.DOUBLE;
+                break;
+            case DATETIMEV2:
+                odpsType = TypeInfoFactory.DATETIME;
+                break;
+            case DATEV2:
+                odpsType = TypeInfoFactory.DATE;
+                break;
+            case VARCHAR:
+            case STRING:
+                odpsType = TypeInfoFactory.getVarcharTypeInfo(dorisType.getLength());
+                break;
+            default:
+                throw new RuntimeException("test error");
+        }
+        return new Column(fields[colIdx], odpsType);
     }
 
     @Override
     public void close() throws IOException {
+        LOG.warn("MCJNI close()");
+    }
 
+    private boolean nextReader(long start, long size) throws IOException {
+        LOG.warn("MCJNI nextReader()");
+        try {
+            if (curReader != null) {
+                curReader.close();
+            }
+            if (readRows == totalRows) {
+                return false;
+            }
+            curReader = session.openArrowRecordReader(start, size, columns);
+            LOG.warn("MCJNI arrow()");
+            return true;
+        } catch (Exception e) {
+            throw new IOException(e);
+        }
     }
 
     @Override
     protected int getNext() throws IOException {
-        if (readRows == mockRows) {
+        int start = readRows;
+        long remainRows = totalRows - readRows;
+        int rows = (int) Math.min(batchSize, remainRows);
+        if (!nextReader(start, rows)) {
             return 0;
         }
-        int rows = Math.min(batchSize, mockRows - readRows);
-        for (int i = 0; i < rows; ++i) {
-            for (int j = 0; j < types.length; ++j) {
-                if ((i + j) % 16 == 0) {
-                    appendData(j, null);
-                } else {
-                    columnValue.set(i, j);
-                    appendData(j, columnValue);
+        LOG.warn("MCJNI next readr]");
+        VectorSchemaRoot batch;
+        while ((batch = curReader.read()) != null) {
+            List<FieldVector> fieldVectors = batch.getFieldVectors();
+            for (int colIdx = 0; colIdx < fieldVectors.size(); colIdx++) {
+                FieldVector column = fieldVectors.get(colIdx);
+                ArrowBuf buffers = column.getDataBuffer();
+                LOG.warn("MCJNI buffer size: " + buffers.capacity());
+                columnValue.setBuffers(buffers);
+                for (int j = 0; j < rows; j++) {
+                    // TODO: process null value
+                    appendData(colIdx, columnValue);
+                    LOG.warn("MCJNI row: " + j);
                 }
             }
+            LOG.warn("MCJNI read batch");
         }
         readRows += rows;
         return rows;

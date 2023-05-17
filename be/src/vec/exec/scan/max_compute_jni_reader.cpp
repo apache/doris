@@ -19,6 +19,7 @@
 
 #include <map>
 #include <ostream>
+#include <glog/logging.h>
 
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
@@ -35,9 +36,11 @@ class Block;
 
 namespace doris::vectorized {
 
-MaxComputeJniReader::MaxComputeJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
-                             RuntimeState* state, RuntimeProfile* profile)
+MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_desc, 
+                                         const std::vector<SlotDescriptor*>& file_slot_descs,
+                                         RuntimeState* state, RuntimeProfile* profile)
         : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {
+    _table_desc = mc_desc;
     std::ostringstream required_fields;
     std::ostringstream columns_types;
     std::vector<std::string> column_names;
@@ -55,10 +58,15 @@ MaxComputeJniReader::MaxComputeJniReader(const std::vector<SlotDescriptor*>& fil
         }
         index++;
     }
-    std::map<String, String> params = {{"tunnel_url", "http://dt.cn-beijing.maxcompute.aliyun.com"},
+    std::map<String, String> params = {{"region", _table_desc->region()},
+                                       {"access_key", _table_desc->access_key()},
+                                       {"secret_key", _table_desc->secret_key()},
+                                       {"project", _table_desc->project()},
+                                       {"table", _table_desc->table()},
                                        {"required_fields", required_fields.str()},
                                        {"columns_types", columns_types.str()}};
-    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/jni/MockJniScanner", params,
+    LOG(WARNING) << "columns_types.str(): " << columns_types.str();
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/jni/MaxComputeJniScanner", params,
                                                     column_names);
 }
 
@@ -78,8 +86,7 @@ Status MaxComputeJniReader::get_columns(std::unordered_map<std::string, TypeDesc
     return Status::OK();
 }
 
-Status MaxComputeJniReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+Status MaxComputeJniReader::init_reader(std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);

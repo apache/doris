@@ -50,7 +50,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     @Override
     protected TFileType getLocationType() throws UserException {
-        return TFileType.FILE_STREAM;
+        return TFileType.FILE_NET;
     }
 
     @Override
@@ -80,9 +80,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         // TODO: use single max compute scan node rather than file scan node
         com.aliyun.odps.Table odpsTable = table.getOdpsTable();
         long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
-        String splitPath = odpsTable.getLocation();
-        result.add(new FileSplit(new Path(splitPath), 0, 100, 100,
-                modificationTime, null, Collections.emptyList()));
+        result.add(new FileSplit(new Path("/"), 0, 100, 100,
+                modificationTime, new String[] {"172.21.0.101"}, Collections.emptyList()));
         return result;
     }
 }
