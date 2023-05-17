@@ -391,7 +391,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate
         //  so complex aggregate plan than legacy planner, and should add forbid parallel scan hint when
         //  generate physical aggregate plan.
-        if (leftMostNode instanceof OlapScanNode && aggregate.getAggMode() == AggMode.INPUT_TO_RESULT) {
+        if (leftMostNode instanceof OlapScanNode && aggregate.getAggregateParam().needColocateScan) {
             currentFragment.getPlanRoot().setShouldColoScan();
             currentFragment.setHasColocatePlanNode(!ConnectContext.get().getSessionVariable().enablePipelineEngine());
         }
