@@ -126,9 +126,17 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
         if (read_params.tablet->tablet_schema()->has_sequence_col()) {
             seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
         }
-        _vcollect_iter = new_vertical_heap_merge_iterator(
-                std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids, ori_return_col_size,
-                read_params.tablet->keys_type(), seq_col_idx, _row_sources_buffer);
+        if (read_params.tablet->tablet_schema()->num_key_columns() == 0) {
+            _vcollect_iter = new_vertical_fifo_merge_iterator(
+                    std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
+                    ori_return_col_size, read_params.tablet->keys_type(), seq_col_idx,
+                    _row_sources_buffer);
+        } else {
+            _vcollect_iter = new_vertical_heap_merge_iterator(
+                    std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
+                    ori_return_col_size, read_params.tablet->keys_type(), seq_col_idx,
+                    _row_sources_buffer);
+        }
     } else {
         _vcollect_iter = new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr),
                                                           ori_return_col_size, _row_sources_buffer);
