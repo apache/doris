@@ -168,6 +168,8 @@ private:
     std::unique_ptr<RuntimeState> _runtime_state;
 
     ExecNode* _root_plan = nullptr; // lives in _runtime_state->obj_pool()
+    // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
+    // of it in pipeline task not the fragment_context
     std::unique_ptr<DataSink> _sink;
     std::vector<std::unique_ptr<DataSink>> _multi_cast_stream_sink_senders;
 

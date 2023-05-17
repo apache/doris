@@ -286,7 +286,7 @@ set(VEC_FILES
   olap/olap_data_convertor.cpp
   olap/vertical_merge_iterator.cpp
   olap/vertical_block_reader.cpp
-        sink/vmysql_result_writer.cpp
+  sink/vmysql_result_writer.cpp
   sink/vresult_sink.cpp
   sink/vdata_stream_sender.cpp
   sink/vtablet_sink.cpp
