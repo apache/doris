@@ -33,7 +33,7 @@ public class UnifiedLoadStmt extends DdlStmt {
     private final StatementBase proxyStmt;
 
     public UnifiedLoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-            BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment, LoadType loadType) {
+            BrokerDesc brokerDesc, Map<String, String> properties, String comment, LoadType loadType) {
         final ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
             switch (loadType) {
@@ -45,7 +45,7 @@ public class UnifiedLoadStmt extends DdlStmt {
                     throw new IllegalStateException("does not support load type: " + loadType);
             }
         } else {
-            proxyStmt = new LoadStmt(label, dataDescriptions, brokerDesc, cluster, properties, comment);
+            proxyStmt = new LoadStmt(label, dataDescriptions, brokerDesc, properties, comment);
         }
     }
 
