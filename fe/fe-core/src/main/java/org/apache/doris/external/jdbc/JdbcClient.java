@@ -625,7 +625,7 @@ public class JdbcClient {
             case "inet":
             case "macaddr":
             case "varbit":
-            case "jsonb":
+            case "json":
             case "uuid":
             case "bytea":
                 return ScalarType.createStringType();
