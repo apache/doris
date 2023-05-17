@@ -74,7 +74,7 @@ public class PushdownLimit implements RewriteRuleFactory {
                     }
 
                     List<NamedExpression> windowExprs = window.getWindowExpressions();
-                    if (LogicalWindow.checkConds4PartitionTopN(windowExprs)) {
+                    if (!LogicalWindow.checkConds4PartitionTopN(windowExprs)) {
                         return limit;
                     }
 

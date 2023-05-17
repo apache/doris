@@ -86,12 +86,12 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child);
         String funcName = expr.toString();
-        if (funcName.equals("row_number")) {
+        if (funcName.equals("row_number()")) {
             this.function = WindowFuncType.ROW_NUMBER;
-        } else if (funcName.equals("rank")) {
+        } else if (funcName.equals("rank()")) {
             this.function = WindowFuncType.RANK;
         } else {
-            Preconditions.checkArgument(funcName.equals("dense_rank"));
+            Preconditions.checkArgument(funcName.equals("dense_rank()"));
             this.function = WindowFuncType.DENSE_RANK;
         }
         this.partitionKeys = ImmutableList.copyOf(

@@ -86,7 +86,7 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
             }
 
             List<NamedExpression> windowExprs = window.getWindowExpressions();
-            if (LogicalWindow.checkConds4PartitionTopN(windowExprs)) {
+            if (!LogicalWindow.checkConds4PartitionTopN(windowExprs)) {
                 return filter;
             }
 
