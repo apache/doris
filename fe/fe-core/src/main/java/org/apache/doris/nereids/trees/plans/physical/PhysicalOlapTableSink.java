@@ -32,10 +32,12 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * physical olap table sink for insert command
@@ -123,6 +125,21 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public int hashCode() {
         return Objects.hash(targetTable, partitionIds);
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public List<Slot> getOutput() {
+        return computeOutput();
+    }
+
+    @Override
+    public Set<Slot> getOutputSet() {
+        return ImmutableSet.copyOf(getOutput());
     }
 
     @Override
