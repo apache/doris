@@ -105,8 +105,9 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
 
     if (tnode.__isset.vconjunct) {
-        RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
-                                                                   &_vconjunct_ctx_ptr));
+        std::shared_ptr<vectorized::VExprContext> context;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct, context));
+        _conjuncts.emplace_back(context);
     }
 
     // create the projections expr
@@ -133,8 +134,8 @@ Status ExecNode::prepare(RuntimeState* state) {
     _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
                                                 _runtime_profile.get(), nullptr, "PeakMemoryUsage");
 
-    if (_vconjunct_ctx_ptr != nullptr) {
-        RETURN_IF_ERROR(_vconjunct_ctx_ptr->prepare(state, intermediate_row_desc()));
+    for (auto& conjunct : _conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
@@ -147,8 +148,8 @@ Status ExecNode::prepare(RuntimeState* state) {
 }
 
 Status ExecNode::alloc_resource(doris::RuntimeState* state) {
-    if (_vconjunct_ctx_ptr != nullptr) {
-        RETURN_IF_ERROR(_vconjunct_ctx_ptr->open(state));
+    for (auto& conjunct : _conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
     return Status::OK();
@@ -180,9 +181,10 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
-        if (_vconjunct_ctx_ptr != nullptr) {
-            _vconjunct_ctx_ptr->close(state);
+        for (auto& conjunct : _conjuncts) {
+            conjunct->close(state);
         }
+
         vectorized::VExpr::close(_projections, state);
 
         runtime_profile()->add_to_span(_span);

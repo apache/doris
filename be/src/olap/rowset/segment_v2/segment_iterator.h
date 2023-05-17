@@ -265,7 +265,7 @@ private:
 
     // return true means one column's predicates all pushed down
     bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false);
-    void _calculate_pred_in_remaining_vconjunct_root(const vectorized::VExpr* expr);
+    void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExpr* expr);
 
     // todo(wb) remove this method after RowCursor is removed
     void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
@@ -386,9 +386,9 @@ private:
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
-    doris::vectorized::VExprContext* _common_vexpr_ctxs_pushdown;
+    vectorized::VExprContexts _common_expr_ctxs_push_down;
     bool _enable_common_expr_pushdown = false;
-    doris::vectorized::VExpr* _remaining_vconjunct_root;
+    std::vector<vectorized::VExpr*> _remaining_conjunct_roots;
     std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
     std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
     std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>

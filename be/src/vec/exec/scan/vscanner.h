@@ -77,7 +77,7 @@ protected:
     Status _filter_output_block(Block* block);
 
     // Not virtual, all child will call this method explictly
-    Status prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr);
+    Status prepare(RuntimeState* state, const VExprContexts& conjuncts);
 
 public:
     VScanNode* get_parent() { return _parent; }
@@ -126,8 +126,6 @@ public:
 
     void set_status_on_failure(const Status& st) { _status = st; }
 
-    VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
-
     // return false if _is_counted_down is already true,
     // otherwise, set _is_counted_down to true and return true.
     bool set_counted_down() {
@@ -140,10 +138,10 @@ public:
 
 protected:
     void _discard_conjuncts() {
-        if (_vconjunct_ctx) {
-            _stale_vexpr_ctxs.push_back(_vconjunct_ctx);
-            _vconjunct_ctx = nullptr;
+        for (auto& conjunct : _conjuncts) {
+            _stale_expr_ctxs.emplace_back(conjunct);
         }
+        _conjuncts.clear();
     }
 
 protected:
@@ -171,14 +169,15 @@ protected:
     // means all runtime filters are arrived and applied.
     int _applied_rf_num = 0;
     int _total_rf_num = 0;
-    // Cloned from _vconjunct_ctx of scan node.
+    // Cloned from _conjuncts of scan node.
     // It includes predicate in SQL and runtime filters.
-    VExprContext* _vconjunct_ctx = nullptr;
-    VExprContext* _common_vexpr_ctxs_pushdown = nullptr;
-    // Late arriving runtime filters will update _vconjunct_ctx.
-    // The old _vconjunct_ctx will be temporarily placed in _stale_vexpr_ctxs
+    VExprContexts _conjuncts;
+
+    VExprContexts _common_expr_ctxs_push_down;
+    // Late arriving runtime filters will update _conjuncts.
+    // The old _conjuncts will be temporarily placed in _stale_expr_ctxs
     // and will be destroyed at the end.
-    std::vector<VExprContext*> _stale_vexpr_ctxs;
+    VExprContexts _stale_expr_ctxs;
 
     // num of rows read from scanner
     int64_t _num_rows_read = 0;

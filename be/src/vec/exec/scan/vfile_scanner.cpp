@@ -97,10 +97,10 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 }
 
 Status VFileScanner::prepare(
-        VExprContext* vconjunct_ctx_ptr,
+        const VExprContexts& conjuncts,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const std::unordered_map<std::string, int>* colname_to_slot_id) {
-    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
+    RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _colname_to_value_range = colname_to_value_range;
     _col_name_to_slot_id = colname_to_slot_id;
 
@@ -141,16 +141,22 @@ Status VFileScanner::prepare(
     return Status::OK();
 }
 
-Status VFileScanner::_split_conjuncts(VExpr* conjunct_expr_root) {
-    static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
-    if (conjunct_expr_root != nullptr) {
+Status VFileScanner::_split_conjuncts() {
+    for (auto& conjunct : _conjuncts) {
+        RETURN_IF_ERROR(_split_conjuncts_expr(conjunct, conjunct->root()));
+    }
+    return Status::OK();
+}
+Status VFileScanner::_split_conjuncts_expr(const std::shared_ptr<VExprContext>& context,
+                                           const VExpr* conjunct_expr_root) {
+    static constexpr auto is_leaf = [](const VExpr* expr) { return !expr->is_and_expr(); };
+    if (conjunct_expr_root) {
         if (is_leaf(conjunct_expr_root)) {
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
-            VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
-            VExprContext* new_ctx =
-                    _state->obj_pool()->add(VExprContext::create_unique(cur_expr).release());
-            _vconjunct_ctx->clone_fn_contexts(new_ctx);
+            auto* cur_expr = const_cast<VExpr*>(impl ? impl : conjunct_expr_root);
+            std::shared_ptr<VExprContext> new_ctx(VExprContext::create_unique(cur_expr).release());
+            context->clone_fn_contexts(new_ctx.get());
             RETURN_IF_ERROR(new_ctx->prepare(_state, *_default_val_row_desc));
             RETURN_IF_ERROR(new_ctx->open(_state));
 
@@ -169,17 +175,13 @@ Status VFileScanner::_split_conjuncts(VExpr* conjunct_expr_root) {
             }
             if (single_slot) {
                 SlotId slot_id = slot_ids[0];
-                if (_slot_id_to_filter_conjuncts.find(slot_id) ==
-                    _slot_id_to_filter_conjuncts.end()) {
-                    _slot_id_to_filter_conjuncts.insert({slot_id, std::vector<VExprContext*>()});
-                }
                 _slot_id_to_filter_conjuncts[slot_id].emplace_back(new_ctx);
             } else {
                 _not_single_slot_filter_conjuncts.emplace_back(new_ctx);
             }
         } else {
-            RETURN_IF_ERROR(_split_conjuncts(conjunct_expr_root->children()[0]));
-            RETURN_IF_ERROR(_split_conjuncts(conjunct_expr_root->children()[1]));
+            RETURN_IF_ERROR(_split_conjuncts_expr(context, conjunct_expr_root->children()[0]));
+            RETURN_IF_ERROR(_split_conjuncts_expr(context, conjunct_expr_root->children()[1]));
         }
     }
     return Status::OK();
@@ -583,8 +585,11 @@ Status VFileScanner::_get_next_reader() {
                     const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
                     _kv_cache, _state->query_options().enable_parquet_lazy_mat);
             RETURN_IF_ERROR(parquet_reader->open());
-            if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
-                RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
+            if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
+                _push_down_conjuncts.resize(_conjuncts.size());
+                for (size_t i = 0; i != _conjuncts.size(); ++i) {
+                    RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
+                }
                 _discard_conjuncts();
             }
             if (range.__isset.table_format_params &&
@@ -594,24 +599,29 @@ Status VFileScanner::_get_next_reader() {
                                                           _state, _params, range, _kv_cache,
                                                           _io_ctx.get());
                 init_status = iceberg_reader->init_reader(
-                        _file_col_names, _col_id_name_map, _colname_to_value_range, _push_down_expr,
-                        _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
-                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                        &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader = std::move(iceberg_reader);
             } else {
                 std::vector<std::string> place_holder;
                 init_status = parquet_reader->init_reader(
-                        _file_col_names, place_holder, _colname_to_value_range, _push_down_expr,
-                        _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
-                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                        _file_col_names, place_holder, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                        &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(parquet_reader);
             }
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
-                RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
+            if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
+                _push_down_conjuncts.resize(_conjuncts.size());
+                for (size_t i = 0; i != _conjuncts.size(); ++i) {
+                    RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
+                }
                 _discard_conjuncts();
             }
             _cur_reader = OrcReader::create_unique(
@@ -619,7 +629,7 @@ Status VFileScanner::_get_next_reader() {
                     _state->query_options().batch_size, _state->timezone(), _io_ctx.get(),
                     _state->query_options().enable_orc_lazy_mat);
             init_status = ((OrcReader*)(_cur_reader.get()))
-                                  ->init_reader(_colname_to_value_range, _push_down_expr);
+                                  ->init_reader(_colname_to_value_range, _push_down_conjuncts);
             break;
         }
         case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -837,8 +847,8 @@ Status VFileScanner::_init_expr_ctxes() {
             _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
 
     // TODO: It should can move to scan node to process.
-    if (_vconjunct_ctx && _vconjunct_ctx->root()) {
-        _split_conjuncts(_vconjunct_ctx->root());
+    if (!_conjuncts.empty()) {
+        _split_conjuncts();
     }
     return Status::OK();
 }
@@ -864,8 +874,8 @@ Status VFileScanner::close(RuntimeState* state) {
         _pre_conjunct_ctx_ptr->close(state);
     }
 
-    if (_push_down_expr) {
-        _push_down_expr->close(state);
+    for (auto& conjunct : _push_down_conjuncts) {
+        conjunct->close(state);
     }
 
     for (auto& [k, v] : _slot_id_to_filter_conjuncts) {
@@ -876,7 +886,7 @@ Status VFileScanner::close(RuntimeState* state) {
         }
     }
 
-    for (auto* ctx : _not_single_slot_filter_conjuncts) {
+    for (auto ctx : _not_single_slot_filter_conjuncts) {
         if (ctx != nullptr) {
             ctx->close(state);
         }

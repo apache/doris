@@ -236,8 +236,7 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
     }
 
     // 3. eval conjuncts
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
 
     *eos = _child_eos && _cur_child_offset == -1;
     return Status::OK();

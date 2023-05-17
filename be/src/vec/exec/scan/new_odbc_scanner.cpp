@@ -60,12 +60,9 @@ NewOdbcScanner::NewOdbcScanner(RuntimeState* state, NewOdbcScanNode* parent, int
           _tuple_id(odbc_scan_node.tuple_id),
           _tuple_desc(nullptr) {}
 
-Status NewOdbcScanner::prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr) {
+Status NewOdbcScanner::prepare(RuntimeState* state, const VExprContexts& conjuncts) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR(vconjunct_ctx_ptr->clone(state, &_vconjunct_ctx));
-    }
+    RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
 
     if (_is_init) {
         return Status::OK();

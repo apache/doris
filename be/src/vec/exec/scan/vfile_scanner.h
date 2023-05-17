@@ -71,7 +71,7 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    Status prepare(VExprContext* vconjunct_ctx_ptr,
+    Status prepare(const VExprContexts& conjuncts,
                    std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                    const std::unordered_map<std::string, int>* colname_to_slot_id);
 
@@ -146,7 +146,7 @@ protected:
     Block* _src_block_ptr;
     Block _src_block;
 
-    VExprContext* _push_down_expr = nullptr;
+    VExprContexts _push_down_conjuncts;
     bool _is_dynamic_schema = false;
     // for tracing dynamic schema
     std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
@@ -165,9 +165,9 @@ private:
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
     // single slot filter conjuncts
-    std::unordered_map<int, std::vector<VExprContext*>> _slot_id_to_filter_conjuncts;
+    std::unordered_map<int, VExprContexts> _slot_id_to_filter_conjuncts;
     // not single(zero or multi) slot filter conjuncts
-    std::vector<VExprContext*> _not_single_slot_filter_conjuncts;
+    VExprContexts _not_single_slot_filter_conjuncts;
 
 private:
     Status _init_expr_ctxes();
@@ -179,7 +179,8 @@ private:
     Status _convert_to_output_block(Block* block);
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
-    Status _split_conjuncts(VExpr* conjunct_expr_root);
+    Status _split_conjuncts();
+    Status _split_conjuncts_expr(const std::shared_ptr<VExprContext>& context, const VExpr* root);
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
 
     void _reset_counter() {

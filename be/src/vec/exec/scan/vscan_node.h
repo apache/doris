@@ -144,8 +144,8 @@ public:
     // Return num of filters which are applied already.
     Status try_append_late_arrival_runtime_filter(int* arrived_rf_num);
 
-    // Clone current vconjunct_ctx to _vconjunct_ctx, if exists.
-    Status clone_vconjunct_ctx(VExprContext** _vconjunct_ctx);
+    // Clone current _conjuncts to conjuncts, if exists.
+    Status clone_conjunct_ctxs(VExprContexts& conjuncts);
 
     int runtime_filter_num() const { return (int)_runtime_filter_ctxs.size(); }
 
@@ -321,8 +321,8 @@ protected:
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
-    std::vector<VExprContext*> _stale_vexpr_ctxs;
-    VExprContext* _common_vexpr_ctxs_pushdown = nullptr;
+    VExprContexts _stale_expr_ctxs;
+    VExprContexts _common_expr_ctxs_push_down;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
@@ -376,7 +376,8 @@ private:
     Status _append_rf_into_conjuncts(std::vector<VExpr*>& vexprs);
 
     Status _normalize_conjuncts();
-    Status _normalize_predicate(VExpr* conjunct_expr_root, VExpr** output_expr);
+    Status _normalize_predicate(VExpr* conjunct_expr_root, VExprContext* context,
+                                VExpr** output_expr);
     Status _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
 
     Status _normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,

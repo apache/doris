@@ -51,6 +51,7 @@ class RuntimeState;
 
 namespace vectorized {
 class VExprContext;
+using VExprContexts = std::vector<std::shared_ptr<VExprContext>>;
 
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \
@@ -130,6 +131,9 @@ public:
 
     static Status create_expr_tree(ObjectPool* pool, const TExpr& texpr, VExprContext** ctx);
 
+    static Status create_expr_tree(ObjectPool* pool, const TExpr& texpr,
+                                   std::shared_ptr<VExprContext>& ctx);
+
     static Status create_expr_trees(ObjectPool* pool, const std::vector<TExpr>& texprs,
                                     std::vector<VExprContext*>* ctxs);
 
@@ -149,8 +153,12 @@ public:
 
     static Status create_expr(ObjectPool* pool, const TExprNode& texpr_node, VExpr** expr);
 
-    static Status create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNode>& nodes,
-                                          int* node_idx, VExpr** root_expr, VExprContext** ctx);
+    static Status create_tree_from_thrift(doris::ObjectPool* pool,
+                                          const std::vector<doris::TExprNode>& nodes, int* node_idx,
+                                          VExpr** root_expr, VExprContext** ctx);
+    static Status create_tree_from_thrift(doris::ObjectPool* pool,
+                                          const std::vector<doris::TExprNode>& nodes, int* node_idx,
+                                          VExpr** root_expr, std::shared_ptr<VExprContext>& ctx);
     virtual const std::vector<VExpr*>& children() const { return _children; }
     void set_children(std::vector<VExpr*> children) { _children = children; }
     virtual std::string debug_string() const;

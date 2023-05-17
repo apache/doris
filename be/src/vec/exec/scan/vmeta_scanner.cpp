@@ -70,9 +70,9 @@ Status VMetaScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VMetaScanner::prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr) {
+Status VMetaScanner::prepare(RuntimeState* state, const VExprContexts& conjuncts) {
     VLOG_CRITICAL << "VMetaScanner::prepare";
-    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
+    RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();

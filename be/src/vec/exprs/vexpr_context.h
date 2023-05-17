@@ -36,6 +36,9 @@ class RuntimeState;
 namespace doris::vectorized {
 class VExpr;
 
+class VExprContext;
+using VExprContexts = std::vector<std::shared_ptr<VExprContext>>;
+
 class VExprContext {
     ENABLE_FACTORY_CREATOR(VExprContext);
 
@@ -46,6 +49,7 @@ public:
     [[nodiscard]] Status open(RuntimeState* state);
     void close(RuntimeState* state);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContext** new_ctx);
+    [[nodiscard]] Status clone(RuntimeState* state, std::shared_ptr<VExprContext>& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
 
     VExpr* root() { return _root; }
@@ -68,6 +72,10 @@ public:
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
                                              int column_to_keep);
+
+    [[nodiscard]] static Status filter_block(const VExprContexts& expr_contexts, Block* block,
+                                             int column_to_keep);
+
     [[nodiscard]] static Status execute_conjuncts(const std::vector<VExprContext*>& ctxs,
                                                   const std::vector<IColumn::Filter*>* filters,
                                                   Block* block, IColumn::Filter* result_filter,
@@ -75,6 +83,10 @@ public:
     [[nodiscard]] static Status execute_conjuncts_and_filter_block(
             const std::vector<VExprContext*>& ctxs, const std::vector<IColumn::Filter*>* filters,
             Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep);
+
+    static Status execute_conjuncts_and_filter_block(const VExprContexts& ctxs, Block* block,
+                                                     std::vector<uint32_t>& columns_to_filter,
+                                                     int column_to_keep, IColumn::Filter& filter);
 
     [[nodiscard]] static Status get_output_block_after_execute_exprs(
             const std::vector<vectorized::VExprContext*>&, const Block&, Block*);
@@ -93,6 +105,39 @@ public:
     bool force_materialize_slot() const { return _force_materialize_slot; }
 
     void set_force_materialize_slot() { _force_materialize_slot = true; }
+
+    VExprContext& operator=(const VExprContext& other) {
+        if (this == &other) {
+            return *this;
+        }
+
+        _root = other._root;
+        _is_clone = other._is_clone;
+        _prepared = other._prepared;
+        _opened = other._opened;
+        _closed = other._closed;
+
+        for (auto& fn : other._fn_contexts) {
+            _fn_contexts.emplace_back(fn->clone());
+        }
+
+        _last_result_column_id = other._last_result_column_id;
+        _depth_num = other._depth_num;
+        return *this;
+    }
+
+    VExprContext& operator=(VExprContext&& other) {
+        _root = other._root;
+        other._root = nullptr;
+        _is_clone = other._is_clone;
+        _prepared = other._prepared;
+        _opened = other._opened;
+        _closed = other._closed;
+        _fn_contexts = std::move(other._fn_contexts);
+        _last_result_column_id = other._last_result_column_id;
+        _depth_num = other._depth_num;
+        return *this;
+    }
 
 private:
     friend class VExpr;

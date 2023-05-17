@@ -286,8 +286,7 @@ Status VAnalyticEvalNode::pull(doris::RuntimeState* /*state*/, vectorized::Block
         }
     }
     RETURN_IF_ERROR(_output_current_block(output_block));
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     reached_limit(output_block, eos);
     return Status::OK();
 }
@@ -345,7 +344,7 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block
         }
     }
     RETURN_IF_ERROR(_output_current_block(block));
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     reached_limit(block, eos);
     return Status::OK();
 }
