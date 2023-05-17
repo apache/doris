@@ -36,19 +36,14 @@ public class JsonArray extends ScalarFunction
         implements ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT)
     );
 
-    public JsonArray() {
-        super("json_array");
-    }
-
     /**
-     * constructor with 1 or more arguments.
+     * constructor with 0 or more arguments.
      */
-    public JsonArray(Expression arg, Expression... varArgs) {
-        super("json_array", ExpressionUtils.mergeArguments(arg, varArgs));
+    public JsonArray(Expression... varArgs) {
+        super("json_array", ExpressionUtils.mergeArguments(varArgs));
     }
 
     /**
@@ -56,12 +51,7 @@ public class JsonArray extends ScalarFunction
      */
     @Override
     public JsonArray withChildren(List<Expression> children) {
-        if (children.isEmpty()) {
-            return new JsonArray();
-        } else {
-            return new JsonArray(children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
-        }
+        return new JsonArray(children.toArray(new Expression[0]));
     }
 
     @Override

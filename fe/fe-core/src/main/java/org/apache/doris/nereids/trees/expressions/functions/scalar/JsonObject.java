@@ -40,15 +40,11 @@ public class JsonObject extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT)
     );
 
-    public JsonObject() {
-        super("json_object");
-    }
-
     /**
-     * constructor with 1 or more arguments.
+     * constructor with 0 or more arguments.
      */
-    public JsonObject(Expression arg, Expression... varArgs) {
-        super("json_object", ExpressionUtils.mergeArguments(arg, varArgs));
+    public JsonObject(Expression... varArgs) {
+        super("json_object", ExpressionUtils.mergeArguments(varArgs));
     }
 
     @Override
@@ -65,12 +61,7 @@ public class JsonObject extends ScalarFunction
      */
     @Override
     public JsonObject withChildren(List<Expression> children) {
-        if (children.isEmpty()) {
-            return new JsonObject();
-        } else {
-            return new JsonObject(children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
-        }
+        return new JsonObject(children.toArray(new Expression[0]));
     }
 
     @Override

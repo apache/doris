@@ -75,7 +75,10 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         boolean isSelectUnpartition = olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
                 || olapScan.getSelectedPartitionIds().size() == 1;
         if (isBelongStableCG || isSelectUnpartition) {
-            if (!(distributionInfo instanceof HashDistributionInfo)) {
+            if (!(distributionInfo instanceof HashDistributionInfo)
+                    || olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+                // TODO if a mv is selected, we ignore base table's distributionInfo for now
+                // need improve this to handle the case if mv's distributionInfo is the same as base table
                 return DistributionSpecAny.INSTANCE;
             }
             HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
