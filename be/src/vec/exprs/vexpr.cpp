@@ -132,6 +132,8 @@ Status VExpr::create_expr(ObjectPool* pool, const doris::TExprNode& texpr_node, 
         case TExprNodeType::BOOL_LITERAL:
         case TExprNodeType::INT_LITERAL:
         case TExprNodeType::LARGE_INT_LITERAL:
+        case TExprNodeType::IPV4_LITERAL:
+        case TExprNodeType::IPV6_LITERAL:
         case TExprNodeType::FLOAT_LITERAL:
         case TExprNodeType::DECIMAL_LITERAL:
         case TExprNodeType::DATE_LITERAL:

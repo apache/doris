@@ -25,11 +25,8 @@
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <ostream>
 
@@ -37,8 +34,6 @@
 #include "data_type_time.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
-#include "runtime/define_primitive_type.h"
-#include "vec/common/uint128.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
@@ -49,6 +44,7 @@
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -153,6 +149,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         break;
     case TYPE_IPV4:
         nested = std::make_shared<vectorized::DataTypeIPv4>();
+        break;
+    case TYPE_IPV6:
+        nested = std::make_shared<vectorized::DataTypeIPv6>();
         break;
     case TYPE_DATE:
         nested = std::make_shared<vectorized::DataTypeDate>();
@@ -475,6 +474,12 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::DOUBLE:
         nested = std::make_shared<DataTypeFloat64>();
         break;
+    case PGenericType::IPV4:
+        nested = std::make_shared<DataTypeIPv4>();
+        break;
+    case PGenericType::IPV6:
+        nested = std::make_shared<DataTypeIPv6>();
+        break;
     case PGenericType::STRING:
         nested = std::make_shared<DataTypeString>();
         break;
@@ -602,6 +607,12 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool 
         break;
     case ::arrow::Type::UINT64:
         nested = std::make_shared<vectorized::DataTypeUInt64>();
+        break;
+    case ::arrow::Type::IPV4:
+        nested = std::make_shared<vectorized::DataTypeIPv4>();
+        break;
+    case ::arrow::Type::IPV6:
+        nested = std::make_shared<vectorized::DataTypeIPv6>();
         break;
     case ::arrow::Type::HALF_FLOAT:
     case ::arrow::Type::FLOAT:

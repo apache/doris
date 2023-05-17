@@ -38,7 +38,6 @@ std::string DataTypeIPv4::to_string(const IColumn& column, size_t row_num) const
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
-
     UInt32 value = assert_cast<const ColumnUInt32&>(*ptr).get_element(row_num);
     return convert_ipv4_to_string(value);
 }
@@ -50,11 +49,8 @@ void DataTypeIPv4::to_string(const IColumn& column, size_t row_num, BufferWritab
 
 Status DataTypeIPv4::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* column_data = static_cast<ColumnUInt32*>(column);
-    UInt32 val = 0;
-    if (!convert_string_to_ipv4(val, rb.to_string())) {
-        return Status::InvalidArgument("parse ipv4 fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
-    }
+    StringParser::ParseResult result;
+    UInt32 val = StringParser::string_to_unsigned_int<UInt32>(rb.position(), rb.count(), &result);
     column_data->insert_value(val);
     return Status::OK();
 }

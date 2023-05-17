@@ -124,6 +124,7 @@ set(VEC_FILES
   data_types/data_type_time.cpp
   data_types/data_type_object.cpp
   data_types/data_type_ipv4.cpp
+  data_types/data_type_ipv6.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/vsort_node.cpp
