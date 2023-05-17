@@ -17,4 +17,5 @@
 
 suite("test_if") {
     sql "select if(id=1,count,hll_empty()) from (select 1 as id, hll_hash(1) as count) t"
+    qt_sql "select IF(0, 'error', 'this'), IF(1, 'is', 'error');"
 }
