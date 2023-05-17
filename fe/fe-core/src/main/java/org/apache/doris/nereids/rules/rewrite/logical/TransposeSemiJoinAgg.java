@@ -31,7 +31,7 @@ import java.util.Set;
 /**
  * Pushdown semi-join through agg
  */
-public class SemiJoinAggTranspose extends OneRewriteRuleFactory {
+public class TransposeSemiJoinAgg extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalAggregate(), any())
@@ -43,7 +43,7 @@ public class SemiJoinAggTranspose extends OneRewriteRuleFactory {
                         return null;
                     }
                     return aggregate.withChildren(join.withChildren(aggregate.child(), join.right()));
-                }).toRule(RuleType.LOGICAL_SEMI_JOIN_AGG_TRANSPOSE);
+                }).toRule(RuleType.TRANSPOSE_LOGICAL_SEMI_JOIN_AGG);
     }
 
     /**

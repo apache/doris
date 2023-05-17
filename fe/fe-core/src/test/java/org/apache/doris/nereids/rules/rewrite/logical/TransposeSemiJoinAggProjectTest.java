@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -32,29 +30,27 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-class AggSemiJoinTransposeTest implements MemoPatternMatchSupported {
+class TransposeSemiJoinAggProjectTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
     @Test
     void simple() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggAllUsingIndex(ImmutableList.of(0, 1), ImmutableList.of(0, 1))
+                .project(ImmutableList.of(0))
                 .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
-                .aggGroupUsingIndex(ImmutableList.of(0),
-                        ImmutableList.of(
-                                scan1.getOutput().get(0),
-                                new Alias(new Sum(scan1.getOutput().get(1)), "sum")
-                        )
-                )
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(AggSemiJoinTranspose.INSTANCE.build())
-                .printlnExploration()
-                .matchesExploration(
-                        leftSemiLogicalJoin(
-                                logicalAggregate(),
-                                logicalOlapScan()
+                .applyTopDown(new TransposeSemiJoinAggProject())
+                .printlnTree()
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalAggregate(
+                                        leftSemiLogicalJoin()
+                                )
                         )
                 );
     }
+
 }
