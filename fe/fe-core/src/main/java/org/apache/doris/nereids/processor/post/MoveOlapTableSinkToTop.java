@@ -17,9 +17,26 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+
+import com.google.common.collect.ImmutableList;
+
 /**
  * in insert into command, the
  */
 public class MoveOlapTableSinkToTop extends PlanPostProcessor {
-
+    // in general, there's only one case need to be handled.
+    @Override
+    public Plan visitPhysicalDistribute(PhysicalDistribute distribute, CascadesContext ctx) {
+        if (distribute.child() instanceof PhysicalOlapTableSink) {
+            PhysicalOlapTableSink sink = ((PhysicalOlapTableSink<?>) distribute.child());
+            distribute = distribute.withChildren(sink.children());
+            return sink.withChildren(ImmutableList.of(distribute));
+        }
+        return distribute;
+    }
 }
