@@ -222,7 +222,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.use_topn_opt = read_params.use_topn_opt;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
-    _reader_context.filter_block_vconjunct_ctx_ptr = read_params.filter_block_vconjunct_ctx_ptr;
+    _reader_context.filter_block_conjuncts = read_params.filter_block_conjuncts;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
@@ -243,8 +243,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
-    _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
-    _reader_context.common_vexpr_ctxs_pushdown = read_params.common_vexpr_ctxs_pushdown;
+    _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
+    _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
 
     return Status::OK();

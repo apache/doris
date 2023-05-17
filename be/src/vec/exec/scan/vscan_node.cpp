@@ -387,54 +387,14 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
         return Status::OK();
     }
 
-    VExpr* last_expr = nullptr;
-    if (_vconjunct_ctx_ptr != nullptr) {
-        last_expr = _vconjunct_ctx_ptr->root();
-    } else {
-        DCHECK(_rf_vexpr_set.find(vexprs[0]) == _rf_vexpr_set.end());
-        last_expr = vexprs[0];
-        _rf_vexpr_set.insert(vexprs[0]);
+    for (auto& expr : vexprs) {
+        std::shared_ptr<VExprContext> conjunct(VExprContext::create_unique(expr).release());
+        RETURN_IF_ERROR(conjunct->prepare(_state, _row_descriptor));
+        RETURN_IF_ERROR(conjunct->open(_state));
+        _rf_vexpr_set.insert(expr);
+        _conjuncts.emplace_back(conjunct);
     }
-    for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
-        if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
-            continue;
-        }
-        TFunction fn;
-        TFunctionName fn_name;
-        fn_name.__set_db_name("");
-        fn_name.__set_function_name("and");
-        fn.__set_name(fn_name);
-        fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
-        std::vector<TTypeDesc> arg_types;
-        arg_types.push_back(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-        arg_types.push_back(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-        fn.__set_arg_types(arg_types);
-        fn.__set_ret_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-        fn.__set_has_var_args(false);
 
-        TExprNode texpr_node;
-        texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-        texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
-        texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
-        texpr_node.__set_fn(fn);
-        texpr_node.__set_is_nullable(last_expr->is_nullable() || vexprs[j]->is_nullable());
-        VExpr* new_node = _pool->add(VcompoundPred::create_unique(texpr_node).release());
-        new_node->add_child(last_expr);
-        DCHECK((vexprs[j])->get_impl() != nullptr);
-        new_node->add_child(vexprs[j]);
-        last_expr = new_node;
-        _rf_vexpr_set.insert(vexprs[j]);
-    }
-    auto new_vconjunct_ctx_ptr = _pool->add(VExprContext::create_unique(last_expr).release());
-    if (_vconjunct_ctx_ptr) {
-        _vconjunct_ctx_ptr->clone_fn_contexts(new_vconjunct_ctx_ptr);
-    }
-    RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(_state, _row_descriptor));
-    RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(_state));
-    if (_vconjunct_ctx_ptr) {
-        _stale_vexpr_ctxs.push_back(_vconjunct_ctx_ptr);
-    }
-    _vconjunct_ctx_ptr = new_vconjunct_ctx_ptr;
     return Status::OK();
 }
 
@@ -461,11 +421,12 @@ void VScanNode::release_resource(RuntimeState* state) {
         runtime_filter->consumer_close();
     }
 
-    for (auto& ctx : _stale_vexpr_ctxs) {
+    for (auto& ctx : _stale_expr_ctxs) {
         ctx->close(state);
     }
-    if (_common_vexpr_ctxs_pushdown) {
-        _common_vexpr_ctxs_pushdown->close(state);
+
+    for (auto& ctx : _common_expr_ctxs_push_down) {
+        ctx->close(state);
     }
 
     ExecNode::release_resource(state);
@@ -531,21 +492,26 @@ Status VScanNode::_normalize_conjuncts() {
         }
         }
     }
-    if (_vconjunct_ctx_ptr) {
-        if (_vconjunct_ctx_ptr->root()) {
+
+    for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
+        auto& conjunct = *it;
+        if (conjunct->root()) {
             VExpr* new_root;
-            RETURN_IF_ERROR(_normalize_predicate(_vconjunct_ctx_ptr->root(), &new_root));
+            RETURN_IF_ERROR(_normalize_predicate(conjunct->root(), conjunct.get(), &new_root));
             if (new_root) {
-                _vconjunct_ctx_ptr->set_root(new_root);
+                conjunct->set_root(new_root);
                 if (_should_push_down_common_expr()) {
-                    _common_vexpr_ctxs_pushdown = _vconjunct_ctx_ptr;
-                    _vconjunct_ctx_ptr = nullptr;
+                    _common_expr_ctxs_push_down.emplace_back(conjunct);
+                    it = _conjuncts.erase(it);
+                    continue;
                 }
-            } else { // All conjucts are pushed down as predicate column
-                _stale_vexpr_ctxs.push_back(_vconjunct_ctx_ptr);
-                _vconjunct_ctx_ptr = nullptr;
+            } else { // All conjuncts are pushed down as predicate column
+                _stale_expr_ctxs.emplace_back(conjunct);
+                it = _conjuncts.erase(it);
+                continue;
             }
         }
+        ++it;
     }
     for (auto& it : _slot_id_to_value_range) {
         std::visit(
@@ -561,7 +527,8 @@ Status VScanNode::_normalize_conjuncts() {
     return Status::OK();
 }
 
-Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output_expr) {
+Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExprContext* context,
+                                       VExpr** output_expr) {
     static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
     auto in_predicate_checker = [](const std::vector<VExpr*>& children, const VSlotRef** slot,
                                    VExpr** child_contains_slot) {
@@ -598,7 +565,7 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
-            RETURN_IF_ERROR(_eval_const_conjuncts(cur_expr, _vconjunct_ctx_ptr, &pdt));
+            RETURN_IF_ERROR(_eval_const_conjuncts(cur_expr, context, &pdt));
             if (pdt == PushDownType::ACCEPTABLE) {
                 *output_expr = nullptr;
                 return Status::OK();
@@ -612,23 +579,23 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                                         is_runtimer_filter_predicate);
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
-                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
+                                    cur_expr, context, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
-                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
+                                    cur_expr, context, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
-                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
+                                    cur_expr, context, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
-                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
-                            RETURN_IF_PUSH_DOWN(_normalize_match_predicate(
-                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
+                                    cur_expr, context, slot, value_range, &pdt));
+                            RETURN_IF_PUSH_DOWN(_normalize_match_predicate(cur_expr, context, slot,
+                                                                           value_range, &pdt));
                             if (_is_key_column(slot->col_name())) {
-                                RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
-                                        cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
-                                RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
-                                        cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
+                                RETURN_IF_PUSH_DOWN(
+                                        _normalize_bitmap_filter(cur_expr, context, slot, &pdt));
+                                RETURN_IF_PUSH_DOWN(
+                                        _normalize_bloom_filter(cur_expr, context, slot, &pdt));
                                 if (_state->enable_function_pushdown()) {
                                     RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                            cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
+                                            cur_expr, context, slot, &pdt));
                                 }
                             }
                         },
@@ -637,9 +604,8 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
 
             if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, _vconjunct_ctx_ptr, &pdt,
-                                              is_runtimer_filter_predicate, in_predicate_checker,
-                                              eq_predicate_checker);
+                _normalize_compound_predicate(cur_expr, context, &pdt, is_runtimer_filter_predicate,
+                                              in_predicate_checker, eq_predicate_checker);
                 *output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -654,9 +620,11 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             }
         } else {
             VExpr* left_child;
-            RETURN_IF_ERROR(_normalize_predicate(conjunct_expr_root->children()[0], &left_child));
+            RETURN_IF_ERROR(
+                    _normalize_predicate(conjunct_expr_root->children()[0], context, &left_child));
             VExpr* right_child;
-            RETURN_IF_ERROR(_normalize_predicate(conjunct_expr_root->children()[1], &right_child));
+            RETURN_IF_ERROR(
+                    _normalize_predicate(conjunct_expr_root->children()[1], context, &right_child));
 
             if (left_child != nullptr && right_child != nullptr) {
                 conjunct_expr_root->set_children({left_child, right_child});
@@ -664,19 +632,16 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                 return Status::OK();
             } else {
                 if (left_child == nullptr) {
-                    conjunct_expr_root->children()[0]->close(
-                            _state, _vconjunct_ctx_ptr,
-                            _vconjunct_ctx_ptr->get_function_state_scope());
+                    conjunct_expr_root->children()[0]->close(_state, context,
+                                                             context->get_function_state_scope());
                 }
                 if (right_child == nullptr) {
-                    conjunct_expr_root->children()[1]->close(
-                            _state, _vconjunct_ctx_ptr,
-                            _vconjunct_ctx_ptr->get_function_state_scope());
+                    conjunct_expr_root->children()[1]->close(_state, context,
+                                                             context->get_function_state_scope());
                 }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
-                conjunct_expr_root->close(_state, _vconjunct_ctx_ptr,
-                                          _vconjunct_ctx_ptr->get_function_state_scope());
+                conjunct_expr_root->close(_state, context, context->get_function_state_scope());
             }
 
             // here do not close VExpr* now
@@ -1331,22 +1296,22 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
     }
 
     // 1. Check if are runtime filter ready but not applied.
-    std::vector<VExpr*> vexprs;
+    std::vector<VExpr*> exprs;
     int current_arrived_rf_num = 0;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         if (_runtime_filter_ctxs[i].apply_mark) {
             ++current_arrived_rf_num;
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
-            _runtime_filter_ctxs[i].runtime_filter->get_prepared_vexprs(&vexprs, _row_descriptor,
+            _runtime_filter_ctxs[i].runtime_filter->get_prepared_vexprs(&exprs, _row_descriptor,
                                                                         _state);
             ++current_arrived_rf_num;
             _runtime_filter_ctxs[i].apply_mark = true;
         }
     }
     // 2. Append unapplied runtime filters to vconjunct_ctx_ptr
-    if (!vexprs.empty()) {
-        RETURN_IF_ERROR(_append_rf_into_conjuncts(vexprs));
+    if (!exprs.empty()) {
+        RETURN_IF_ERROR(_append_rf_into_conjuncts(exprs));
     }
     if (current_arrived_rf_num == _runtime_filter_descs.size()) {
         _is_all_rf_applied = true;
@@ -1356,10 +1321,13 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
     return Status::OK();
 }
 
-Status VScanNode::clone_vconjunct_ctx(VExprContext** _vconjunct_ctx) {
-    if (_vconjunct_ctx_ptr) {
+Status VScanNode::clone_conjunct_ctxs(VExprContexts& conjuncts) {
+    if (!_conjuncts.empty()) {
         std::unique_lock l(_rf_locks);
-        return _vconjunct_ctx_ptr->clone(_state, _vconjunct_ctx);
+        conjuncts.resize(_conjuncts.size());
+        for (size_t i = 0; i != _conjuncts.size(); ++i) {
+            RETURN_IF_ERROR(_conjuncts[i]->clone(_state, conjuncts[i]));
+        }
     }
     return Status::OK();
 }

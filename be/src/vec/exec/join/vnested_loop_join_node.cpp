@@ -697,8 +697,8 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
             _add_tuple_is_null_column(&tmp_block);
             {
                 SCOPED_TIMER(_join_filter_timer);
-                RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, &tmp_block,
-                                                           tmp_block.columns()));
+                RETURN_IF_ERROR(
+                        VExprContext::filter_block(_conjuncts, &tmp_block, tmp_block.columns()));
             }
             RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
             _reset_tuple_is_null_column();

@@ -424,8 +424,7 @@ Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_
             },
             *_hash_table_variants);
     RETURN_IF_ERROR(st);
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     reached_limit(output_block, eos);
     return Status::OK();
 }

@@ -106,6 +106,23 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
     return _root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
 }
 
+doris::Status VExprContext::clone(RuntimeState* state, std::shared_ptr<VExprContext>& new_ctx) {
+    DCHECK(_prepared) << "expr context not prepared";
+    DCHECK(_opened);
+    DCHECK(new_ctx.get() == nullptr);
+
+    new_ctx.reset(VExprContext::create_unique(_root).release());
+    for (auto& _fn_context : _fn_contexts) {
+        new_ctx->_fn_contexts.push_back(_fn_context->clone());
+    }
+
+    new_ctx->_is_clone = true;
+    new_ctx->_prepared = true;
+    new_ctx->_opened = true;
+
+    return _root->open(state, new_ctx.get(), FunctionContext::THREAD_LOCAL);
+}
+
 void VExprContext::clone_fn_contexts(VExprContext* other) {
     for (auto& _fn_context : _fn_contexts) {
         other->_fn_contexts.push_back(_fn_context->clone());
@@ -127,6 +144,24 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
     int result_column_id = -1;
     RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
     return Block::filter_block(block, result_column_id, column_to_keep);
+}
+
+Status VExprContext::filter_block(const VExprContexts& expr_contexts, Block* block,
+                                  int column_to_keep) {
+    if (expr_contexts.empty() || block->rows() == 0) {
+        return Status::OK();
+    }
+
+    std::vector<VExprContext*> contexts;
+    for (auto& expr : expr_contexts) {
+        contexts.emplace_back(expr.get());
+    }
+
+    std::vector<uint32_t> columns_to_filter(column_to_keep);
+    std::iota(columns_to_filter.begin(), columns_to_filter.end(), 0);
+
+    return execute_conjuncts_and_filter_block(contexts, nullptr, block, columns_to_filter,
+                                              column_to_keep);
 }
 
 // TODO Performance Optimization
@@ -211,6 +246,30 @@ Status VExprContext::execute_conjuncts_and_filter_block(
         RETURN_IF_CATCH_EXCEPTION(
                 Block::filter_block_internal(block, columns_to_filter, result_filter));
     }
+    Block::erase_useless_column(block, column_to_keep);
+    return Status::OK();
+}
+
+Status VExprContext::execute_conjuncts_and_filter_block(const VExprContexts& ctxs, Block* block,
+                                                        std::vector<uint32_t>& columns_to_filter,
+                                                        int column_to_keep,
+                                                        IColumn::Filter& filter) {
+    filter.resize_fill(block->rows(), 1);
+    bool can_filter_all;
+    std::vector<VExprContext*> contexts;
+    for (auto& expr : ctxs) {
+        contexts.emplace_back(expr.get());
+    }
+
+    RETURN_IF_ERROR(execute_conjuncts(contexts, nullptr, block, &filter, &can_filter_all));
+    if (can_filter_all) {
+        for (auto& col : columns_to_filter) {
+            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+        }
+    } else {
+        RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, filter));
+    }
+
     Block::erase_useless_column(block, column_to_keep);
     return Status::OK();
 }

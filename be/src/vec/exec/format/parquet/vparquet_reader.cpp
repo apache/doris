@@ -283,11 +283,11 @@ Status ParquetReader::init_reader(
         const std::vector<std::string>& all_column_names,
         const std::vector<std::string>& missing_column_names,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        VExprContext* vconjunct_ctx, const TupleDescriptor* tuple_descriptor,
+        const VExprContexts& conjuncts, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
-        const std::vector<VExprContext*>* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, std::vector<VExprContext*>>* slot_id_to_filter_conjuncts,
+        const VExprContexts* not_single_slot_filter_conjuncts,
+        const std::unordered_map<int, VExprContexts>* slot_id_to_filter_conjuncts,
         bool filter_groups) {
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
@@ -325,7 +325,7 @@ Status ParquetReader::init_reader(
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_init_read_columns());
     // build column predicates for column lazy read
-    _lazy_read_ctx.vconjunct_ctx = vconjunct_ctx;
+    _lazy_read_ctx.conjuncts = conjuncts;
     RETURN_IF_ERROR(_init_row_groups(filter_groups));
     return Status::OK();
 }
@@ -372,8 +372,10 @@ Status ParquetReader::set_fill_columns(
             }
         }
     };
-    if (_lazy_read_ctx.vconjunct_ctx != nullptr) {
-        visit_slot(_lazy_read_ctx.vconjunct_ctx->root());
+    if (!_lazy_read_ctx.conjuncts.empty()) {
+        for (auto& conjunct : _lazy_read_ctx.conjuncts) {
+            visit_slot(conjunct->root());
+        }
     }
 
     const FieldDescriptor& schema = _file_metadata->schema();
@@ -700,7 +702,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
-    if (_has_complex_type || _lazy_read_ctx.vconjunct_ctx == nullptr ||
+    if (_has_complex_type || _lazy_read_ctx.conjuncts.empty() ||
         _colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
         read_whole_row_group();
         return Status::OK();

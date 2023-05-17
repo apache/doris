@@ -241,9 +241,9 @@ Status OrcReader::_create_file_reader() {
 
 Status OrcReader::init_reader(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        VExprContext* vconjunct_ctx) {
+        VExprContexts& conjuncts) {
     _colname_to_value_range = colname_to_value_range;
-    _lazy_read_ctx.vconjunct_ctx = vconjunct_ctx;
+    _lazy_read_ctx.conjuncts = &conjuncts;
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     RETURN_IF_ERROR(_create_file_reader());
     RETURN_IF_ERROR(_init_read_columns());
@@ -661,8 +661,10 @@ Status OrcReader::set_fill_columns(
             }
         }
     };
-    if (_lazy_read_ctx.vconjunct_ctx != nullptr) {
-        visit_slot(_lazy_read_ctx.vconjunct_ctx->root());
+    if (_lazy_read_ctx.conjuncts != nullptr) {
+        for (auto& conjunct : *_lazy_read_ctx.conjuncts) {
+            visit_slot(conjunct->root());
+        }
     }
 
     for (auto& read_col : _read_cols_lower_case) {
@@ -1236,7 +1238,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
 
-        if (_lazy_read_ctx.vconjunct_ctx != nullptr) {
+        if (_lazy_read_ctx.conjuncts != nullptr) {
             std::vector<uint32_t> columns_to_filter;
             int column_to_keep = block->columns();
             columns_to_filter.resize(column_to_keep);
@@ -1244,7 +1246,9 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 columns_to_filter[i] = i;
             }
             std::vector<VExprContext*> filter_conjuncts;
-            filter_conjuncts.push_back(_lazy_read_ctx.vconjunct_ctx);
+            for (auto& conjunct : *_lazy_read_ctx.conjuncts) {
+                filter_conjuncts.push_back(conjunct.get());
+            }
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
                             filter_conjuncts, nullptr, block, columns_to_filter, column_to_keep)));
@@ -1291,7 +1295,9 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     auto* __restrict result_filter_data = _filter->data();
     bool can_filter_all = false;
     std::vector<VExprContext*> filter_conjuncts;
-    filter_conjuncts.push_back(_lazy_read_ctx.vconjunct_ctx);
+    for (auto& conjunct : *_lazy_read_ctx.conjuncts) {
+        filter_conjuncts.push_back(conjunct.get());
+    }
     RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts(
             filter_conjuncts, nullptr, block, _filter.get(), &can_filter_all)));
 

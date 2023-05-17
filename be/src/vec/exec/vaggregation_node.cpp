@@ -473,9 +473,9 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                 std::bind<void>(&AggregationNode::_update_memusage_with_serialized_key, this);
         _executor.close = std::bind<void>(&AggregationNode::_close_with_serialized_key, this);
 
-        _should_limit_output = _limit != -1 &&                  // has limit
-                               _vconjunct_ctx_ptr == nullptr && // no having conjunct
-                               _needs_finalize;                 // agg's finalize step
+        _should_limit_output = _limit != -1 &&       // has limit
+                               _conjuncts.empty() && // no having conjunct
+                               _needs_finalize;      // agg's finalize step
     }
 
     return Status::OK();
@@ -578,7 +578,7 @@ Status AggregationNode::pull(doris::RuntimeState* state, vectorized::Block* bloc
     RETURN_IF_ERROR(_executor.get_result(state, block, eos));
     _make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     reached_limit(block, eos);
 
     return Status::OK();
