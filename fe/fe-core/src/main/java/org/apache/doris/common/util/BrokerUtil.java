@@ -114,17 +114,19 @@ public class BrokerUtil {
 
     public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
             throws UserException {
-        return parseColumnsFromPath(filePath, columnsFromPath, true);
+        return parseColumnsFromPath(filePath, columnsFromPath, true, false);
     }
 
     public static List<String> parseColumnsFromPath(
             String filePath,
             List<String> columnsFromPath,
-            boolean caseSensitive)
+            boolean caseSensitive,
+            boolean isACID)
             throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
+        int pathCount = isACID ? 3 : 2;
         if (!caseSensitive) {
             for (int i = 0; i < columnsFromPath.size(); i++) {
                 String path = columnsFromPath.remove(i);
@@ -138,7 +140,7 @@ public class BrokerUtil {
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
-        for (int i = strings.length - 2; i >= 0; i--) {
+        for (int i = strings.length - pathCount; i >= 0; i--) {
             String str = strings[i];
             if (str != null && str.isEmpty()) {
                 continue;

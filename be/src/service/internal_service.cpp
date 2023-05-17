@@ -577,8 +577,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            std::vector<std::string> column_names;
-            reader = vectorized::OrcReader::create_unique(params, range, column_names, "", &io_ctx);
+            reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
