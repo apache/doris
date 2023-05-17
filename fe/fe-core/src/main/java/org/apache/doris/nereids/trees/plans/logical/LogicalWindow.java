@@ -163,9 +163,8 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
      * Check the window function. There are some restrictions for window function:
      * 1. The number of window function should be 1.
      * 2. The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
-     * 3. The window type should be 'ROW'.
-     * 4. The window frame should be 'UNBOUNDED' to 'CURRENT'.
-     * 5. The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
+     * 3. The window frame should be 'UNBOUNDED' to 'CURRENT'.
+     * 4. The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
     */
     public static boolean checkConds4PartitionTopN(List<NamedExpression> windowExprs) {
         if (windowExprs.size() != 1) {
@@ -193,8 +192,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
         if (windowFrame.isPresent()) {
             WindowFrame frame = windowFrame.get();
-            return frame.getFrameUnits() == WindowFrame.FrameUnitsType.ROWS
-                && frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
+            return frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
                 && frame.getRightBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.CURRENT_ROW;
         } else {
             return false;

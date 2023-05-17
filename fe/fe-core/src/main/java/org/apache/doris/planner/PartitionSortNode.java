@@ -43,7 +43,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -175,9 +174,9 @@ public class PartitionSortNode extends PlanNode {
         }
 
         TopNAlgorithm topNAlgorithm;
-        if (Objects.equals(function, "row_number")) {
+        if (function == WindowFuncType.ROW_NUMBER) {
             topNAlgorithm = TopNAlgorithm.ROW_NUMBER;
-        } else if (Objects.equals(function, "rank")) {
+        } else if (function == WindowFuncType.RANK) {
             topNAlgorithm = TopNAlgorithm.RANK;
         } else {
             topNAlgorithm = TopNAlgorithm.DENSE_RANK;
