@@ -113,7 +113,7 @@ private:
     void _get_client_from_cache(const TNetworkAddress& hostport, void** client_key);
 
     // Map from client key back to its associated ThriftClientImpl transport
-    using ClientMap = std::unordered_map<void*, ThriftClientImpl*>;
+    using ClientMap = std::unordered_map<void*, std::shared_ptr<ThriftClientImpl>>;
     ClientMap _client_map;
 
     bool _metrics_enabled;
