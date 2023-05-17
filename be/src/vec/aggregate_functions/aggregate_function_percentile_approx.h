@@ -442,7 +442,7 @@ public:
 
         AggregateFunctionPercentileArray::data(place).add(
                 sources.get_int(row_num), nested_column_data.get_data(),
-                offset_column_data.data()[row_num] - offset_column_data.data()[row_num - 1]);
+                offset_column_data.data()[row_num] - offset_column_data[(ssize_t)row_num - 1]);
     }
 
     void reset(AggregateDataPtr __restrict place) const override {
