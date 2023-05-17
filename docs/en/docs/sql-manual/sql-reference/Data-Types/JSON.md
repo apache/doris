@@ -1,7 +1,7 @@
 ---
 {
-    "title": "JSONB",
-    "language": "zh-CN"
+    "title": "JSON",
+    "language": "en"
 }
 ---
 
@@ -24,48 +24,49 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## JSONB
+## JSON
 
 <version since="1.2.0">
 
-JSONB
-
 </version>
 
+NOTICE: In version 1.2.x the data type name is JSONB. It's renamed to JSON to be more compatible to version 2.0.0. And the old tables can still be used.
+
 ### description
-    JSONB(JSON Binary)类型
-        二进制JSON类型，采用二进制JSONB格式存储，通过jsonb函数访问JSON内部字段。
+    JSON (Binary) datatype.
+        Use binary JSON format for storage and json function to extract field.
 
 ### note
-    与普通STRING类型存储的JSON字符串相比，JSONB类型有两点优势
-    1. 数据写入时进行JSON格式校验
-    2. 二进制存储格式更加高效，通过jsonb_extract等函数可以高效访问JSON内部字段，比get_json_xx函数快几倍
+    There are some advantanges for JSON over plain JSON STRING.
+    1. JSON syntax will be validated on write to ensure data quality
+    2. JSON binary format is more efficient. Using json_extract functions on JSON datatype is 2-4 times faster than get_json_xx on JSON STRING format.
 
 ### example
-    用一个从建表、导数据、查询全周期的例子说明JSONB数据类型的功能和用法。
+A tutorial for JSON datatype including create table, load data and query.
 
-#### 创建库表
+#### create database and table
 
 ```
 CREATE DATABASE testdb;
 
 USE testdb;
 
-CREATE TABLE test_jsonb (
+CREATE TABLE test_json (
   id INT,
-  j JSONB
+  j JSON
 )
 DUPLICATE KEY(id)
 DISTRIBUTED BY HASH(id) BUCKETS 10
 PROPERTIES("replication_num" = "1");
 ```
 
-#### 导入数据
+#### Load data
 
-##### stream load 导入test_jsonb.csv测试数据
+##### stream load test_json.csv test data
 
-- 测试数据有2列，第一列id，第二列是json
-- 测试数据有25行，其中前18行的json是合法的，后7行的json是非法的
+- there are 2 columns, the 1st column is id and the 2nd column is json string
+- there are 25 rows, the first 18 rows are valid json and the last 7 rows are invalid
+
 
 ```
 1	\N
@@ -95,9 +96,10 @@ PROPERTIES("replication_num" = "1");
 25	[123, abc]
 ```
 
-- 由于有28%的非法数据，默认会失败报错 "too many filtered rows"
+- due to the 28% of rows is invalid，stream load with default configuration will fail with error message "too many filtered rows"
+
 ```
-curl --location-trusted -u root: -T test_jsonb.csv http://127.0.0.1:8840/api/testdb/test_jsonb/_stream_load
+curl --location-trusted -u root: -T test_json.csv http://127.0.0.1:8840/api/testdb/test_json/_stream_load
 {
     "TxnId": 12019,
     "Label": "744d9821-9c9f-43dc-bf3b-7ab048f14e32",
@@ -119,9 +121,9 @@ curl --location-trusted -u root: -T test_jsonb.csv http://127.0.0.1:8840/api/tes
 }
 ```
 
-- 设置容错率参数 'max_filter_ratio: 0.3'
+- stream load will success after set header configuration 'max_filter_ratio: 0.3'
 ```
-curl --location-trusted -u root: -H 'max_filter_ratio: 0.3' -T test_jsonb.csv http://127.0.0.1:8840/api/testdb/test_jsonb/_stream_load
+curl --location-trusted -u root: -H 'max_filter_ratio: 0.3' -T test_json.csv http://127.0.0.1:8840/api/testdb/test_json/_stream_load
 {
     "TxnId": 12017,
     "Label": "f37a50c1-43e9-4f4e-a159-a3db6abe2579",
@@ -143,10 +145,10 @@ curl --location-trusted -u root: -H 'max_filter_ratio: 0.3' -T test_jsonb.csv ht
 }
 ```
 
-- 查看stream load导入的数据，JSONB类型的列j会自动转成JSON string展示
+- use SELECT to view the data loaded by stream load. The column with JSON type will be displayed as plain JSON string.
 
 ```
-mysql> SELECT * FROM test_jsonb ORDER BY id;
+mysql> SELECT * FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+
 | id   | j                                                             |
 +------+---------------------------------------------------------------+
@@ -173,15 +175,15 @@ mysql> SELECT * FROM test_jsonb ORDER BY id;
 
 ```
 
-##### insert into 插入数据
+##### write data using insert into
 
-- insert 1条数据，总数据从18条增加到19条
+- total rows increae from 18 to 19 after insert 1 row
 ```
-mysql> INSERT INTO test_jsonb VALUES(26, '{"k1":"v1", "k2": 200}');
+mysql> INSERT INTO test_json VALUES(26, '{"k1":"v1", "k2": 200}');
 Query OK, 1 row affected (0.09 sec)
 {'label':'insert_4ece6769d1b42fd_ac9f25b3b8f3dc02', 'status':'VISIBLE', 'txnId':'12016'}
 
-mysql> SELECT * FROM test_jsonb ORDER BY id;
+mysql> SELECT * FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+
 | id   | j                                                             |
 +------+---------------------------------------------------------------+
@@ -209,14 +211,14 @@ mysql> SELECT * FROM test_jsonb ORDER BY id;
 
 ```
 
-#### 查询
+#### Query
 
-##### 用jsonb_extract取json内的某个字段
+##### extract some filed from json by json_extract functions
 
-1. 获取整个json，$ 在json path中代表root，即整个json
+1. extract the whole json, '$' stands for root in json path
 ```
 +------+---------------------------------------------------------------+---------------------------------------------------------------+
-| id   | j                                                             | jsonb_extract(`j`, '$')                                       |
+| id   | j                                                             | json_extract(`j`, '$')                                       |
 +------+---------------------------------------------------------------+---------------------------------------------------------------+
 |    1 |                                                          NULL |                                                          NULL |
 |    2 |                                                          null |                                                          null |
@@ -241,11 +243,11 @@ mysql> SELECT * FROM test_jsonb ORDER BY id;
 19 rows in set (0.03 sec)
 ```
 
-1. 获取k1字段，没有k1字段的行返回NULL
+1. extract k1 field, return NULL if it does not exist
 ```
-mysql> SELECT id, j, jsonb_extract(j, '$.k1') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract(j, '$.k1') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+----------------------------+
-| id   | j                                                             | jsonb_extract(`j`, '$.k1') |
+| id   | j                                                             | json_extract(`j`, '$.k1') |
 +------+---------------------------------------------------------------+----------------------------+
 |    1 |                                                          NULL |                       NULL |
 |    2 |                                                          null |                       NULL |
@@ -270,11 +272,11 @@ mysql> SELECT id, j, jsonb_extract(j, '$.k1') FROM test_jsonb ORDER BY id;
 19 rows in set (0.03 sec)
 ```
 
-1. 获取顶层数组的第0个元素
+1. extract element 0 of the top level array
 ```
-mysql> SELECT id, j, jsonb_extract(j, '$[0]') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract(j, '$[0]') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+----------------------------+
-| id   | j                                                             | jsonb_extract(`j`, '$[0]') |
+| id   | j                                                             | json_extract(`j`, '$[0]') |
 +------+---------------------------------------------------------------+----------------------------+
 |    1 |                                                          NULL |                       NULL |
 |    2 |                                                          null |                       NULL |
@@ -299,11 +301,11 @@ mysql> SELECT id, j, jsonb_extract(j, '$[0]') FROM test_jsonb ORDER BY id;
 19 rows in set (0.03 sec)
 ```
 
-1. 获取整个json array
+1. extract a whole json array of name a1
 ```
-mysql> SELECT id, j, jsonb_extract(j, '$.a1') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract(j, '$.a1') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+------------------------------------+
-| id   | j                                                             | jsonb_extract(`j`, '$.a1')         |
+| id   | j                                                             | json_extract(`j`, '$.a1')         |
 +------+---------------------------------------------------------------+------------------------------------+
 |    1 |                                                          NULL |                               NULL |
 |    2 |                                                          null |                               NULL |
@@ -328,11 +330,11 @@ mysql> SELECT id, j, jsonb_extract(j, '$.a1') FROM test_jsonb ORDER BY id;
 19 rows in set (0.02 sec)
 ```
 
-1. 获取json array中嵌套object的字段
+1. extract nested field from an object in an array
 ```
-mysql> SELECT id, j, jsonb_extract(j, '$.a1[0]'), jsonb_extract(j, '$.a1[0].k1') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract(j, '$.a1[0]'), json_extract(j, '$.a1[0].k1') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+-------------------------------+----------------------------------+
-| id   | j                                                             | jsonb_extract(`j`, '$.a1[0]') | jsonb_extract(`j`, '$.a1[0].k1') |
+| id   | j                                                             | json_extract(`j`, '$.a1[0]') | json_extract(`j`, '$.a1[0].k1') |
 +------+---------------------------------------------------------------+-------------------------------+----------------------------------+
 |    1 |                                                          NULL |                          NULL |                             NULL |
 |    2 |                                                          null |                          NULL |                             NULL |
@@ -358,12 +360,12 @@ mysql> SELECT id, j, jsonb_extract(j, '$.a1[0]'), jsonb_extract(j, '$.a1[0].k1')
 
 ```
 
-1. 获取具体类型的
-- jsonb_extract_string 获取string类型字段，非string类型转成string
+1. extract field with specific datatype
+- json_extract_string will extract field with string type，convert to string if the field is not string
 ```
-mysql> SELECT id, j, jsonb_extract_string(j, '$') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_string(j, '$') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+---------------------------------------------------------------+
-| id   | j                                                             | jsonb_extract_string(`j`, '$')                                |
+| id   | j                                                             | json_extract_string(`j`, '$')                                |
 +------+---------------------------------------------------------------+---------------------------------------------------------------+
 |    1 | NULL                                                          | NULL                                                          |
 |    2 | null                                                          | null                                                          |
@@ -387,9 +389,9 @@ mysql> SELECT id, j, jsonb_extract_string(j, '$') FROM test_jsonb ORDER BY id;
 +------+---------------------------------------------------------------+---------------------------------------------------------------+
 19 rows in set (0.02 sec)
 
-mysql> SELECT id, j, jsonb_extract_string(j, '$.k1') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_string(j, '$.k1') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+-----------------------------------+
-| id   | j                                                             | jsonb_extract_string(`j`, '$.k1') |
+| id   | j                                                             | json_extract_string(`j`, '$.k1') |
 +------+---------------------------------------------------------------+-----------------------------------+
 |    1 |                                                          NULL | NULL                              |
 |    2 |                                                          null | NULL                              |
@@ -415,11 +417,11 @@ mysql> SELECT id, j, jsonb_extract_string(j, '$.k1') FROM test_jsonb ORDER BY id
 
 ```
 
-- jsonb_extract_int 获取int类型字段，非int类型返回NULL
+- json_extract_int will extract field with int type，return NULL if the field is not int
 ```
-mysql> SELECT id, j, jsonb_extract_int(j, '$') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_int(j, '$') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+-----------------------------+
-| id   | j                                                             | jsonb_extract_int(`j`, '$') |
+| id   | j                                                             | json_extract_int(`j`, '$') |
 +------+---------------------------------------------------------------+-----------------------------+
 |    1 |                                                          NULL |                        NULL |
 |    2 |                                                          null |                        NULL |
@@ -443,9 +445,9 @@ mysql> SELECT id, j, jsonb_extract_int(j, '$') FROM test_jsonb ORDER BY id;
 +------+---------------------------------------------------------------+-----------------------------+
 19 rows in set (0.02 sec)
 
-mysql> SELECT id, j, jsonb_extract_int(j, '$.k2') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_int(j, '$.k2') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+--------------------------------+
-| id   | j                                                             | jsonb_extract_int(`j`, '$.k2') |
+| id   | j                                                             | json_extract_int(`j`, '$.k2') |
 +------+---------------------------------------------------------------+--------------------------------+
 |    1 |                                                          NULL |                           NULL |
 |    2 |                                                          null |                           NULL |
@@ -470,11 +472,11 @@ mysql> SELECT id, j, jsonb_extract_int(j, '$.k2') FROM test_jsonb ORDER BY id;
 19 rows in set (0.03 sec)
 ```
 
-- jsonb_extract_bigint 获取bigint类型字段，非bigint类型返回NULL
+- json_extract_bigint will extract field with bigint type，return NULL if the field is not bigint
 ```
-mysql> SELECT id, j, jsonb_extract_bigint(j, '$') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_bigint(j, '$') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+--------------------------------+
-| id   | j                                                             | jsonb_extract_bigint(`j`, '$') |
+| id   | j                                                             | json_extract_bigint(`j`, '$') |
 +------+---------------------------------------------------------------+--------------------------------+
 |    1 |                                                          NULL |                           NULL |
 |    2 |                                                          null |                           NULL |
@@ -498,9 +500,9 @@ mysql> SELECT id, j, jsonb_extract_bigint(j, '$') FROM test_jsonb ORDER BY id;
 +------+---------------------------------------------------------------+--------------------------------+
 19 rows in set (0.03 sec)
 
-mysql> SELECT id, j, jsonb_extract_bigint(j, '$.k2') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_bigint(j, '$.k2') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+-----------------------------------+
-| id   | j                                                             | jsonb_extract_bigint(`j`, '$.k2') |
+| id   | j                                                             | json_extract_bigint(`j`, '$.k2') |
 +------+---------------------------------------------------------------+-----------------------------------+
 |    1 |                                                          NULL |                              NULL |
 |    2 |                                                          null |                              NULL |
@@ -526,11 +528,11 @@ mysql> SELECT id, j, jsonb_extract_bigint(j, '$.k2') FROM test_jsonb ORDER BY id
 
 ```
 
-- jsonb_extract_double 获取double类型字段，非double类型返回NULL
+- json_extract_double will extract field with double type，return NULL if the field is not double
 ```
-mysql> SELECT id, j, jsonb_extract_double(j, '$') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_double(j, '$') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+--------------------------------+
-| id   | j                                                             | jsonb_extract_double(`j`, '$') |
+| id   | j                                                             | json_extract_double(`j`, '$') |
 +------+---------------------------------------------------------------+--------------------------------+
 |    1 |                                                          NULL |                           NULL |
 |    2 |                                                          null |                           NULL |
@@ -554,9 +556,9 @@ mysql> SELECT id, j, jsonb_extract_double(j, '$') FROM test_jsonb ORDER BY id;
 +------+---------------------------------------------------------------+--------------------------------+
 19 rows in set (0.02 sec)
 
-mysql> SELECT id, j, jsonb_extract_double(j, '$.k2') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_double(j, '$.k2') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+-----------------------------------+
-| id   | j                                                             | jsonb_extract_double(`j`, '$.k2') |
+| id   | j                                                             | json_extract_double(`j`, '$.k2') |
 +------+---------------------------------------------------------------+-----------------------------------+
 |    1 |                                                          NULL |                              NULL |
 |    2 |                                                          null |                              NULL |
@@ -581,11 +583,11 @@ mysql> SELECT id, j, jsonb_extract_double(j, '$.k2') FROM test_jsonb ORDER BY id
 19 rows in set (0.03 sec)
 ```
 
-- jsonb_extract_bool 获取bool类型字段，非bool类型返回NULL
+- json_extract_bool will extract field with boolean type，return NULL if the field is not boolean
 ```
-mysql> SELECT id, j, jsonb_extract_bool(j, '$') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_bool(j, '$') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+------------------------------+
-| id   | j                                                             | jsonb_extract_bool(`j`, '$') |
+| id   | j                                                             | json_extract_bool(`j`, '$') |
 +------+---------------------------------------------------------------+------------------------------+
 |    1 |                                                          NULL |                         NULL |
 |    2 |                                                          null |                         NULL |
@@ -609,9 +611,9 @@ mysql> SELECT id, j, jsonb_extract_bool(j, '$') FROM test_jsonb ORDER BY id;
 +------+---------------------------------------------------------------+------------------------------+
 19 rows in set (0.01 sec)
 
-mysql> SELECT id, j, jsonb_extract_bool(j, '$[1]') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_bool(j, '$[1]') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+---------------------------------+
-| id   | j                                                             | jsonb_extract_bool(`j`, '$[1]') |
+| id   | j                                                             | json_extract_bool(`j`, '$[1]') |
 +------+---------------------------------------------------------------+---------------------------------+
 |    1 |                                                          NULL |                            NULL |
 |    2 |                                                          null |                            NULL |
@@ -636,12 +638,12 @@ mysql> SELECT id, j, jsonb_extract_bool(j, '$[1]') FROM test_jsonb ORDER BY id;
 19 rows in set (0.01 sec)
 ```
 
-- jsonb_extract_isnull 获取json null类型字段，null返回1，非null返回0
-- 需要注意的是json null和SQL NULL不一样，SQL NULL表示某个字段的值不存在，而json null表示值存在但是是一个特殊值null
+- json_extract_isnull will extract field with json null type，return 1 if the field is json null , else 0
+- json null is different from SQL NULL. SQL NULL stands for no value for a field, but json null stands for an field with special value null.
 ```
-mysql> SELECT id, j, jsonb_extract_isnull(j, '$') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_extract_isnull(j, '$') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+--------------------------------+
-| id   | j                                                             | jsonb_extract_isnull(`j`, '$') |
+| id   | j                                                             | json_extract_isnull(`j`, '$') |
 +------+---------------------------------------------------------------+--------------------------------+
 |    1 |                                                          NULL |                           NULL |
 |    2 |                                                          null |                              1 |
@@ -667,12 +669,12 @@ mysql> SELECT id, j, jsonb_extract_isnull(j, '$') FROM test_jsonb ORDER BY id;
 
 ```
 
-##### 用jsonb_exists_path检查json内的某个字段是否存在
+##### check if a field is existed in json by json_exists_path
 
 ```
-mysql> SELECT id, j, jsonb_exists_path(j, '$') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_exists_path(j, '$') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+-----------------------------+
-| id   | j                                                             | jsonb_exists_path(`j`, '$') |
+| id   | j                                                             | json_exists_path(`j`, '$') |
 +------+---------------------------------------------------------------+-----------------------------+
 |    1 |                                                          NULL |                        NULL |
 |    2 |                                                          null |                           1 |
@@ -696,9 +698,9 @@ mysql> SELECT id, j, jsonb_exists_path(j, '$') FROM test_jsonb ORDER BY id;
 +------+---------------------------------------------------------------+-----------------------------+
 19 rows in set (0.02 sec)
 
-mysql> SELECT id, j, jsonb_exists_path(j, '$.k1') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_exists_path(j, '$.k1') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+--------------------------------+
-| id   | j                                                             | jsonb_exists_path(`j`, '$.k1') |
+| id   | j                                                             | json_exists_path(`j`, '$.k1') |
 +------+---------------------------------------------------------------+--------------------------------+
 |    1 |                                                          NULL |                           NULL |
 |    2 |                                                          null |                              0 |
@@ -722,9 +724,9 @@ mysql> SELECT id, j, jsonb_exists_path(j, '$.k1') FROM test_jsonb ORDER BY id;
 +------+---------------------------------------------------------------+--------------------------------+
 19 rows in set (0.03 sec)
 
-mysql> SELECT id, j, jsonb_exists_path(j, '$[2]') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_exists_path(j, '$[2]') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+--------------------------------+
-| id   | j                                                             | jsonb_exists_path(`j`, '$[2]') |
+| id   | j                                                             | json_exists_path(`j`, '$[2]') |
 +------+---------------------------------------------------------------+--------------------------------+
 |    1 |                                                          NULL |                           NULL |
 |    2 |                                                          null |                              0 |
@@ -751,13 +753,13 @@ mysql> SELECT id, j, jsonb_exists_path(j, '$[2]') FROM test_jsonb ORDER BY id;
 
 ```
 
-##### 用jsonb_type获取json内的某个字段的类型
+##### get the datatype of a field in json by json_type
 
-- 返回json path对应的json字段类型，如果不存在返回NULL
+- return the data type of the field specified by json path, NULL if not existed.
 ```
-mysql> SELECT id, j, jsonb_type(j, '$') FROM test_jsonb ORDER BY id;
+mysql> SELECT id, j, json_type(j, '$') FROM test_json ORDER BY id;
 +------+---------------------------------------------------------------+----------------------+
-| id   | j                                                             | jsonb_type(`j`, '$') |
+| id   | j                                                             | json_type(`j`, '$') |
 +------+---------------------------------------------------------------+----------------------+
 |    1 |                                                          NULL | NULL                 |
 |    2 |                                                          null | null                 |
@@ -781,9 +783,9 @@ mysql> SELECT id, j, jsonb_type(j, '$') FROM test_jsonb ORDER BY id;
 +------+---------------------------------------------------------------+----------------------+
 19 rows in set (0.02 sec)
 
-mysql> select id, j, jsonb_type(j, '$.k1') from test_jsonb order by id;
+mysql> select id, j, json_type(j, '$.k1') from test_json order by id;
 +------+---------------------------------------------------------------+-------------------------+
-| id   | j                                                             | jsonb_type(`j`, '$.k1') |
+| id   | j                                                             | json_type(`j`, '$.k1') |
 +------+---------------------------------------------------------------+-------------------------+
 |    1 |                                                          NULL | NULL                    |
 |    2 |                                                          null | NULL                    |
@@ -810,4 +812,5 @@ mysql> select id, j, jsonb_type(j, '$.k1') from test_jsonb order by id;
 ```
 
 ### keywords
-JSONB, JSON, jsonb_parse, jsonb_parse_error_to_null, jsonb_parse_error_to_value, jsonb_extract, jsonb_extract_isnull, jsonb_extract_bool, jsonb_extract_int, jsonb_extract_bigint, jsonb_extract_double, jsonb_extract_string, jsonb_exists_path, jsonb_type
+JSONB, JSON, json_parse, json_parse_error_to_null, json_parse_error_to_value, json_extract, json_extract_isnull, json_extract_bool, json_extract_int, json_extract_bigint, json_extract_double, json_extract_string, json_exists_path, json_type
+
