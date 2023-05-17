@@ -141,6 +141,11 @@ DECLARE_mInt64(mmap_threshold); // bytes
 // Increase can reduce the number of hash table resize, but may waste more memory.
 DECLARE_mInt32(hash_table_double_grow_degree);
 
+// The max fill rate for hash table
+DECLARE_mInt32(max_fill_rate);
+
+DECLARE_mInt32(double_resize_threshold);
+
 // Expand the hash table before inserting data, the maximum expansion size.
 // There are fewer duplicate keys, reducing the number of resize hash tables
 // There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
@@ -481,6 +486,9 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
+// The configuration is used to enable lazy open feature, and the default value is true.
+// When there is mixed deployment in the upgraded version, it needs to be set to false.
+DECLARE_mBool(enable_lazy_open_partition);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
 DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
@@ -782,6 +790,10 @@ DECLARE_Int64(download_cache_buffer_size);
 // When doing compaction, each segment may take at least 1MB buffer.
 DECLARE_mInt32(max_segment_num_per_rowset);
 
+// Store segment without compression if a segment is smaller than
+// segment_compression_threshold_kb.
+DECLARE_mInt32(segment_compression_threshold_kb);
+
 // The connection timeout when connecting to external table such as odbc table.
 DECLARE_mInt32(external_table_connect_timeout_sec);
 
@@ -950,6 +962,7 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DECLARE_String(file_cache_path);
+DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);

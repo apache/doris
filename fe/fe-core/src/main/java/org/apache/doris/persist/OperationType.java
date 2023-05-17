@@ -286,6 +286,9 @@ public class OperationType {
     public static final short OP_DROP_RESOURCE_GROUP = 411;
     public static final short OP_ALTER_RESOURCE_GROUP = 412;
 
+    // query stats 440 ~ 424
+    public static final short OP_CLEAN_QUERY_STATS = 420;
+
     /**
      * Get opcode name by op code.
      **/

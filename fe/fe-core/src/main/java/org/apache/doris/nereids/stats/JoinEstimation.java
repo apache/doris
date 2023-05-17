@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -51,7 +52,32 @@ public class JoinEstimation {
         }
     }
 
+    private static boolean hashJoinConditionContainsUnknownColumnStats(Statistics leftStats,
+            Statistics rightStats, Join join) {
+        for (Expression expr : join.getHashJoinConjuncts()) {
+            for (Slot slot : expr.getInputSlots()) {
+                ColumnStatistic colStats = leftStats.findColumnStatistics(slot);
+                if (colStats == null) {
+                    colStats = rightStats.findColumnStatistics(slot);
+                }
+                if (colStats == null || colStats.isUnKnown) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join) {
+        if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
+            double rowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+            rowCount = Math.max(1, rowCount);
+            return new StatisticsBuilder()
+                .setRowCount(rowCount)
+                .putColumnStatistics(leftStats.columnStatistics())
+                .putColumnStatistics(rightStats.columnStatistics())
+                .build();
+        }
         /*
          * When we estimate filter A=B,
          * if any side of equation, A or B, is almost unique, the confidence level of estimation is high.
@@ -174,6 +200,20 @@ public class JoinEstimation {
     }
 
     private static Statistics estimateSemiOrAnti(Statistics leftStats, Statistics rightStats, Join join) {
+        if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
+            if (join.getJoinType().isLeftSemiOrAntiJoin()) {
+                return new StatisticsBuilder().setRowCount(leftStats.getRowCount())
+                        .putColumnStatistics(leftStats.columnStatistics())
+                        .putColumnStatistics(rightStats.columnStatistics())
+                        .build();
+            } else {
+                //right semi or anti
+                return new StatisticsBuilder().setRowCount(rightStats.getRowCount())
+                        .putColumnStatistics(leftStats.columnStatistics())
+                        .putColumnStatistics(rightStats.columnStatistics())
+                        .build();
+            }
+        }
         double rowCount = Double.POSITIVE_INFINITY;
         for (Expression conjunct : join.getHashJoinConjuncts()) {
             double eqRowCount = estimateSemiOrAntiRowCountBySlotsEqual(leftStats, rightStats,

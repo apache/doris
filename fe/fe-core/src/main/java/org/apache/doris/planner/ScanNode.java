@@ -37,11 +37,13 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -562,5 +564,33 @@ public abstract class ScanNode extends PlanNode {
             return Lists.newArrayList(outputTupleDesc.getId());
         }
         return tupleIds;
+    }
+
+    public StatsDelta genStatsDelta() throws AnalysisException {
+        return null;
+    }
+
+    public StatsDelta genQueryStats() throws UserException {
+        StatsDelta delta = genStatsDelta();
+        if (delta == null) {
+            return null;
+        }
+        for (SlotDescriptor slot : desc.getMaterializedSlots()) {
+            if (slot.isScanSlot() && slot.getColumn() != null) {
+                delta.addQueryStats(slot.getColumn().getName());
+            }
+        }
+
+        for (Expr expr : conjuncts) {
+            List<SlotId> slotIds = Lists.newArrayList();
+            expr.getIds(null, slotIds);
+            for (SlotId slotId : slotIds) {
+                SlotDescriptor slot = desc.getSlot(slotId.asInt());
+                if (slot.getColumn() != null) {
+                    delta.addFilterStats(slot.getColumn().getName());
+                }
+            }
+        }
+        return delta;
     }
 }

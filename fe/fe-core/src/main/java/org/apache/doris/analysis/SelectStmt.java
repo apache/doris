@@ -658,7 +658,10 @@ public class SelectStmt extends QueryStmt {
             Set<SlotRef> orderingSlots = Sets.newHashSet();
             Set<SlotRef> conjuntSlots = Sets.newHashSet();
             TreeNode.collect(resultExprs, Predicates.instanceOf(SlotRef.class), resultSlots);
-            TreeNode.collect(sortInfo.getOrderingExprs(), Predicates.instanceOf(SlotRef.class), orderingSlots);
+            if (sortInfo != null) {
+                TreeNode.collect(sortInfo.getOrderingExprs(),
+                        Predicates.instanceOf(SlotRef.class), orderingSlots);
+            }
             if (whereClause != null) {
                 whereClause.collect(SlotRef.class, conjuntSlots);
             }
@@ -714,20 +717,23 @@ public class SelectStmt extends QueryStmt {
                 || !ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
             return false;
         }
-        if (!evaluateOrderBy) {
-            // Need evaluate orderby, if sort node was eliminated then this optmization
-            // could be useless
-            return false;
-        }
-        // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...` query
+        // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... [ORDER BY ...] [LIMIT ...]` query
         if (getAggInfo() != null
                 || getHavingPred() != null
                 || getWithClause() != null
                 || getAnalyticInfo() != null) {
             return false;
         }
+        // ignore short circuit query
+        if (isPointQueryShortCircuit()) {
+            return false;
+        }
+        // ignore insert into select
+        if (fromInsert) {
+            return false;
+        }
+        // ensure no sub query
         if (!analyzer.isRootAnalyzer()) {
-            // ensure no sub query
             return false;
         }
         // If select stmt has inline view or this is an inline view query stmt analyze call
@@ -750,24 +756,35 @@ public class SelectStmt extends QueryStmt {
         if (!olapTable.getEnableLightSchemaChange()) {
             return false;
         }
-        // Only TOPN query at present
-        if (getOrderByElements() == null
-                    || !hasLimit()
-                    || getLimit() <= 0
-                    || getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
-            return false;
-        }
-        // Check order by exprs are all slot refs
-        // Rethink? implement more generic to support all exprs
-        LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
-        LOG.debug("getOrderByElements {}", getOrderByElements());
-        for (Expr sortExpr : sortInfo.getOrderingExprs()) {
-            if (!(sortExpr instanceof SlotRef)) {
+        if (getOrderByElements() != null) {
+            if (!evaluateOrderBy) {
+                // Need evaluate orderby, if sort node was eliminated then this optmization
+                // could be useless
                 return false;
             }
+            // case1: general topn query, like: select * from tbl where xxx order by yyy limit n
+            if (!hasLimit()
+                        || getLimit() <= 0
+                        || getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
+                return false;
+            }
+            // Check order by exprs are all slot refs
+            // Rethink? implement more generic to support all exprs
+            LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
+            LOG.debug("getOrderByElements {}", getOrderByElements());
+            for (Expr sortExpr : sortInfo.getOrderingExprs()) {
+                if (!(sortExpr instanceof SlotRef)) {
+                    return false;
+                }
+            }
+            isTwoPhaseOptEnabled = true;
+            return true;
+        } else {
+            // case2: optimize scan utilize row store column, query like select * from tbl where xxx [limit xxx]
+            // TODO: we only optimize query with select * at present
+            return olapTable.storeRowColumn() && selectList.getItems().stream().anyMatch(e -> e.isStar());
         }
-        isTwoPhaseOptEnabled = true;
-        return true;
+        // return false;
     }
 
     public List<TupleId> getTableRefIds() {

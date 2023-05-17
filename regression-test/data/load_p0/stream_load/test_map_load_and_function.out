@@ -61,7 +61,7 @@
 {1000:"k11", 2000:"k22"}
 
 -- !select_map3 --
-MAP{}
+{}
 
 -- !select_element1 --
 1000

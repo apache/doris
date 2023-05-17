@@ -793,7 +793,9 @@ public:
     Iterator end() { return Iterator(this, _total_count); }
 
     void init_once() {
-        if (_inited) return;
+        if (_inited) {
+            return;
+        }
         _inited = true;
         iterator = begin();
     }
@@ -810,7 +812,6 @@ private:
         _value_containers.emplace_back(_current_agg_data);
     }
 
-private:
     static constexpr uint32_t SUB_CONTAINER_CAPACITY = 8192;
     Arena _arena_pool;
     std::vector<char*> _key_containers;
@@ -868,19 +869,19 @@ public:
     using Sizes = std::vector<size_t>;
 
     AggregationNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~AggregationNode();
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    ~AggregationNode() override;
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare_profile(RuntimeState* state);
-    virtual Status prepare(RuntimeState* state) override;
-    virtual Status open(RuntimeState* state) override;
-    virtual Status alloc_resource(RuntimeState* state) override;
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-    virtual Status close(RuntimeState* state) override;
-    virtual void release_resource(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status alloc_resource(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+    Status close(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
     Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
-    bool is_streaming_preagg() { return _is_streaming_preagg; }
+    bool is_streaming_preagg() const { return _is_streaming_preagg; }
 
 private:
     friend class pipeline::AggSinkOperator;
@@ -961,7 +962,6 @@ private:
     std::vector<AggregateDataPtr> _values;
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 
-private:
     void _release_self_resource(RuntimeState* state);
     /// Return true if we should keep expanding hash tables in the preagg. If false,
     /// the preagg should pass through any rows it can't fit in its tables.

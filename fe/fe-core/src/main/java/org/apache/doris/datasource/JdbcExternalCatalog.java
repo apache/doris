@@ -17,9 +17,7 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
-import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.external.jdbc.JdbcClient;
@@ -51,7 +49,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props)
             throws DdlException {
-        super(catalogId, name);
+        super(catalogId, name, InitCatalogLog.Type.JDBC);
         this.type = "jdbc";
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
     }
@@ -140,40 +138,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 getOceanBaseMode(), getIncludeDatabaseMap(), getExcludeDatabaseMap());
     }
 
-    @Override
-    protected void init() {
-        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-        Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
-        InitCatalogLog initCatalogLog = new InitCatalogLog();
-        initCatalogLog.setCatalogId(id);
-        initCatalogLog.setType(InitCatalogLog.Type.JDBC);
-        List<String> allDatabaseNames = jdbcClient.getDatabaseNameList();
-        for (String dbName : allDatabaseNames) {
-            long dbId;
-            if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
-                dbId = dbNameToId.get(dbName);
-                tmpDbNameToId.put(dbName, dbId);
-                ExternalDatabase db = idToDb.get(dbId);
-                db.setUnInitialized(invalidCacheInInit);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId);
-            } else {
-                dbId = Env.getCurrentEnv().getNextId();
-                tmpDbNameToId.put(dbName, dbId);
-                JdbcExternalDatabase db = new JdbcExternalDatabase(this, dbId, dbName);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addCreateDb(dbId, dbName);
-            }
-        }
-        dbNameToId = tmpDbNameToId;
-        idToDb = tmpIdToDb;
-        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
-    }
-
-    @Override
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return Lists.newArrayList(dbNameToId.keySet());
+    protected List<String> listDatabaseNames() {
+        return jdbcClient.getDatabaseNameList();
     }
 
     @Override
@@ -182,7 +148,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         JdbcExternalDatabase db = (JdbcExternalDatabase) idToDb.get(dbNameToId.get(dbName));
         if (db != null && db.isInitialized()) {
             List<String> names = Lists.newArrayList();
-            db.getTables().stream().forEach(table -> names.add(table.getName()));
+            db.getTables().forEach(table -> names.add(table.getName()));
             return names;
         } else {
             return jdbcClient.getTablesNameList(dbName);

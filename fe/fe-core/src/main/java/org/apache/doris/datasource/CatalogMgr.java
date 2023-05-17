@@ -132,6 +132,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     catalogResource.removeReference(catalog.getName(), ReferenceType.CATALOG);
                 }
             }
+            Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
         }
         return catalog;
     }
@@ -156,6 +157,20 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public CatalogIf getCatalog(long id) {
         return idToCatalog.get(id);
+    }
+
+    public CatalogIf getCatalogOrAnalysisException(long id) throws AnalysisException {
+        return getCatalogOrException(id,
+                catalog -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
+                        ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
+    public <E extends Exception> CatalogIf getCatalogOrException(long id, Function<Long, E> e) throws E {
+        CatalogIf catalog = idToCatalog.get(id);
+        if (catalog == null) {
+            throw e.apply(id);
+        }
+        return catalog;
     }
 
     public <E extends Exception> CatalogIf getCatalogOrException(String name, Function<String, E> e) throws E {
@@ -277,6 +292,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
 
             lastDBOfCatalog.remove(stmt.getCatalogName());
+            Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
+
         } finally {
             writeUnlock();
         }

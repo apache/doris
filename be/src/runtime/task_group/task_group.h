@@ -25,6 +25,7 @@
 #include <queue>
 #include <shared_mutex>
 #include <string>
+#include <unordered_set>
 
 #include "common/status.h"
 
@@ -35,13 +36,12 @@ class PipelineTask;
 }
 
 class TPipelineResourceGroup;
+class MemTrackerLimiter;
 
 namespace taskgroup {
 
 class TaskGroup;
 struct TaskGroupInfo;
-
-const static std::string CPU_SHARE = "cpu_share";
 
 class TaskGroupEntity {
 public:
@@ -61,6 +61,8 @@ public:
 
     std::string debug_string() const;
 
+    uint64_t task_group_id() const;
+
 private:
     // TODO pipeline use MLFQ
     std::queue<pipeline::PipelineTask*> _queue;
@@ -70,9 +72,14 @@ private:
 
 using TGEntityPtr = TaskGroupEntity*;
 
-class TaskGroup {
+struct TgTrackerLimiterGroup {
+    std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
+    std::mutex group_lock;
+};
+
+class TaskGroup : public std::enable_shared_from_this<TaskGroup> {
 public:
-    TaskGroup(uint64_t id, std::string name, uint64_t cpu_share, int64_t version);
+    explicit TaskGroup(const TaskGroupInfo& tg_info);
 
     TaskGroupEntity* task_entity() { return &_task_entity; }
 
@@ -82,26 +89,36 @@ public:
 
     std::string debug_string() const;
 
-    bool check_version(int64_t version) const;
-
     void check_and_update(const TaskGroupInfo& tg_info);
 
+    void update_cpu_share_unlock(const TaskGroupInfo& tg_info);
+
+    void add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
+
+    void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
+
+    int64_t memory_limit_gc();
+
 private:
-    mutable std::shared_mutex mutex;
+    mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
     std::atomic<uint64_t> _cpu_share;
-    TaskGroupEntity _task_entity;
+    int64_t _memory_limit; // bytes
     int64_t _version;
+    TaskGroupEntity _task_entity;
+
+    std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
 };
 
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
 
 struct TaskGroupInfo {
-    uint64_t _id;
-    std::string _name;
-    uint64_t _cpu_share;
-    int64_t _version;
+    uint64_t id;
+    std::string name;
+    uint64_t cpu_share;
+    int64_t version;
+    int64_t memory_limit;
 
     static Status parse_group_info(const TPipelineResourceGroup& resource_group,
                                    TaskGroupInfo* task_group_info);

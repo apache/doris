@@ -119,7 +119,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),
-                                         opts.page_pointer.offset);
+                                         opts.file_reader->size(), opts.page_pointer.offset);
     if (opts.use_page_cache && cache->is_cache_available(opts.type) &&
         cache->lookup(cache_key, &cache_handle, opts.type)) {
         // we find page in cache, use it
@@ -143,8 +143,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     }
 
     // hold compressed page at first, reset to decompressed page later
-    std::unique_ptr<char[]> page(new char[page_size]);
-    Slice page_slice(page.get(), page_size);
+    std::unique_ptr<DataPage> page = std::make_unique<DataPage>(page_size);
+    Slice page_slice(page->data(), page_size);
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
         size_t bytes_read = 0;
@@ -177,12 +177,12 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
             return Status::Corruption("Bad page: page is compressed but codec is NO_COMPRESSION");
         }
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
-        std::unique_ptr<char[]> decompressed_page(
-                new char[footer->uncompressed_size() + footer_size + 4]);
+        std::unique_ptr<DataPage> decompressed_page =
+                std::make_unique<DataPage>(footer->uncompressed_size() + footer_size + 4);
 
         // decompress page body
         Slice compressed_body(page_slice.data, body_size);
-        Slice decompressed_body(decompressed_page.get(), footer->uncompressed_size());
+        Slice decompressed_body(decompressed_page->data(), footer->uncompressed_size());
         RETURN_IF_ERROR(opts.codec->decompress(compressed_body, &decompressed_body));
         if (decompressed_body.size != footer->uncompressed_size()) {
             return Status::Corruption(
@@ -194,7 +194,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
                footer_size + 4);
         // free memory of compressed page
         page = std::move(decompressed_page);
-        page_slice = Slice(page.get(), footer->uncompressed_size() + footer_size + 4);
+        page_slice = Slice(page->data(), footer->uncompressed_size() + footer_size + 4);
         opts.stats->uncompressed_bytes_read += page_slice.size;
     } else {
         opts.stats->uncompressed_bytes_read += body_size;
@@ -210,12 +210,13 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     }
 
     *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);
+    page->reset_size(page_slice.size);
     if (opts.use_page_cache && cache->is_cache_available(opts.type)) {
         // insert this page into cache and return the cache handle
-        cache->insert(cache_key, page_slice, &cache_handle, opts.type, opts.kept_in_memory);
+        cache->insert(cache_key, page.get(), &cache_handle, opts.type, opts.kept_in_memory);
         *handle = PageHandle(std::move(cache_handle));
     } else {
-        *handle = PageHandle(page_slice);
+        *handle = PageHandle(page.get());
     }
     page.release(); // memory now managed by handle
     return Status::OK();

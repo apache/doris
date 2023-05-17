@@ -137,6 +137,7 @@ public class NativeInsertStmt extends InsertStmt {
         super(new LabelName(null, label), null, null);
         this.tblName = target.getTblName();
         this.targetPartitionNames = target.getPartitionNames();
+        this.label = new LabelName(null, label);
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
         this.targetColumnNames = cols;
@@ -144,14 +145,17 @@ public class NativeInsertStmt extends InsertStmt {
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
-    // Ctor for CreateTableAsSelectStmt
-    public NativeInsertStmt(TableName name, QueryStmt queryStmt) {
-        super(new LabelName(null, null), null, null);
+    // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
+    public NativeInsertStmt(TableName name, PartitionNames targetPartitionNames, LabelName label,
+            QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames) {
+        super(label, null, null);
         this.tblName = name;
-        this.targetPartitionNames = null;
-        this.targetColumnNames = null;
+        this.targetPartitionNames = targetPartitionNames;
         this.queryStmt = queryStmt;
-        this.planHints = null;
+        this.planHints = planHints;
+        this.targetColumnNames = targetColumnNames;
+        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
+                && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
     public boolean isValuesOrConstantSelect() {
@@ -640,6 +644,9 @@ public class NativeInsertStmt extends InsertStmt {
                             + targetColumns.get(i).getName());
                 }
                 expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+            }
+            if (expr instanceof Subquery) {
+                throw new AnalysisException("Insert values can not be query");
             }
 
             expr.analyze(analyzer);

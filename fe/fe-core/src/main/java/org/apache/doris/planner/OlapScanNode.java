@@ -64,6 +64,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.StatsRecursiveDerive;
+import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
@@ -172,6 +173,8 @@ public class OlapScanNode extends ScanNode {
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
 
+    private ArrayList<Long> scanReplicaIds = Lists.newArrayList();
+
     private Set<Long> sampleTabletIds = Sets.newHashSet();
     private TableSample tableSample;
 
@@ -197,18 +200,18 @@ public class OlapScanNode extends ScanNode {
         olapTable = (OlapTable) desc.getTable();
         distributionColumnIds = Sets.newTreeSet();
 
-        Set<String> distColumnName = olapTable != null
-                ? olapTable.getDistributionColumnNames() : Sets.newTreeSet();
-        int columnId = 0;
+        Set<String> distColumnName = getDistributionColumnNames();
         // use for Nereids to generate uniqueId set for inverted index to avoid scan unnecessary big size column
+
+        int columnId = 0;
         for (SlotDescriptor slotDescriptor : desc.getSlots()) {
             if (slotDescriptor.getColumn() != null) {
                 outputColumnUniqueIds.add(slotDescriptor.getColumn().getUniqueId());
                 if (distColumnName.contains(slotDescriptor.getColumn().getName().toLowerCase())) {
                     distributionColumnIds.add(columnId);
                 }
+                columnId++;
             }
-            columnId++;
         }
     }
 
@@ -782,6 +785,7 @@ public class OlapScanNode extends ScanNode {
                     errs.add(err);
                     continue;
                 }
+                scanReplicaIds.add(replica.getId());
                 String ip = backend.getHost();
                 int port = backend.getBePort();
                 TScanRangeLocation scanRangeLocation = new TScanRangeLocation(new TNetworkAddress(ip, port));
@@ -1502,14 +1506,38 @@ public class OlapScanNode extends ScanNode {
         cardinality = cardinality == -1 ? 0 : cardinality;
     }
 
+    Set<String> getDistributionColumnNames() {
+        return olapTable != null
+                ? olapTable.getDistributionColumnNames()
+                : Sets.newTreeSet();
+    }
+
     @Override
     public void updateRequiredSlots(PlanTranslatorContext context,
             Set<SlotId> requiredByProjectSlotIdSet) {
         outputColumnUniqueIds.clear();
+        distributionColumnIds.clear();
+
+        Set<String> distColumnName = getDistributionColumnNames();
+
+        int columnId = 0;
         for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
             if (requiredByProjectSlotIdSet.contains(slot.getId()) && slot.getColumn() != null) {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
+                if (distColumnName.contains(slot.getColumn().getName().toLowerCase())) {
+                    distributionColumnIds.add(columnId);
+                }
+                columnId++;
             }
         }
+    }
+
+    @Override
+    public StatsDelta genStatsDelta() throws AnalysisException {
+        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
+                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(
+                        olapTable.getQualifiedDbName()).getId(),
+                olapTable.getId(), selectedIndexId == -1 ? olapTable.getBaseIndexId() : selectedIndexId,
+                scanReplicaIds);
     }
 }

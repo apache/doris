@@ -689,6 +689,7 @@ visible_functions = [
     [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_STRING'], ''],
 
     [['array_first_index'], 'BIGINT', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
+    [['array_count'], 'BIGINT', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
 
     [['array_shuffle', 'shuffle'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], ''],
     [['array_shuffle', 'shuffle'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], ''],
@@ -790,6 +791,7 @@ visible_functions = [
     [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
     
     [['array_zip'], 'ARRAY', ['ARRAY', '...'], ''],
+
 
     # reverse function for string builtin
     [['reverse'], 'VARCHAR', ['VARCHAR'], ''],

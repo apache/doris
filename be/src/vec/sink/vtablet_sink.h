@@ -85,6 +85,8 @@ class VExprContext;
 
 namespace stream_load {
 
+class OpenPartitionClosure;
+
 // The counter of add_batch rpc of a single node
 struct AddBatchCounter {
     // total execution time of a add_batch rpc
@@ -211,6 +213,8 @@ public:
 
     void open();
 
+    void open_partition(int64_t partition_id);
+
     Status init(RuntimeState* state);
 
     Status open_wait();
@@ -312,6 +316,7 @@ protected:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
+    std::unordered_set<std::unique_ptr<OpenPartitionClosure>> _open_partition_closures;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in
@@ -495,6 +500,8 @@ private:
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
                        bool& stop_processing, bool& is_continue);
 
+    void _open_partition(const VOlapTablePartition* partition);
+
     std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
@@ -599,6 +606,8 @@ private:
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
 
     RuntimeState* _state = nullptr;
+
+    std::unordered_set<int64_t> _opened_partitions;
 };
 
 } // namespace stream_load

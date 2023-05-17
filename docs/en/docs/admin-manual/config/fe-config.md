@@ -2701,6 +2701,19 @@ If false, when select from tables in information_schema database,
 the result will not contain the information of the table in external catalog.
 This is to avoid query time when external catalog is not reachable.
 
+
+#### `enable_query_hit_stats`
+
+<version since="dev"></version>
+
+Default: false
+
+IsMutable: true
+
+MasterOnly: false
+
+Controls whether to enable query hit statistics. The default is false.
+
 #### `max_instance_num`
 
 <version since="1.2.4"></version>

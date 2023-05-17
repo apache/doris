@@ -105,9 +105,9 @@ This topic is about how to compile Doris from source with macOS (both x86_64 and
 
 ## FAQ
 
-Fail to start BE up. The log shows: `fail to open StorageEngine, res=file descriptors limit is too small`
+1. Fail to start BE up. The log shows: `fail to open StorageEngine, res=file descriptors limit is too small`
 
-To fix this, please refer to the "Start-up" section above and reset  `file descriptors`.
+   To fix this, please refer to the "Start-up" section above and reset  `file descriptors`.
 
-### Java Version
-Java 8 is recommended.
+2. Java Version
+   Java 8 is recommended.

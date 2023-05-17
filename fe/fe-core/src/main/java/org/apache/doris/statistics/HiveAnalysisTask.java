@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -40,10 +41,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.text.SimpleDateFormat;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -274,8 +276,9 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
             timestamp = parameters.get(TIMESTAMP);
         }
         params.put("numRows", numRows);
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        params.put("update_time", sdf.format(new Date(Long.parseLong(timestamp) * 1000)));
+        params.put("update_time", TimeUtils.DATETIME_FORMAT.format(
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(timestamp) * 1000),
+                        ZoneId.systemDefault())));
     }
 
     private String genColumnStatId(long tableId, long indexId, String columnName, String partitionName) {

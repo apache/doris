@@ -316,14 +316,6 @@ public class CreateTableStmt extends DdlStmt {
 
         analyzeEngineName();
 
-        // `analyzeXXX` would modify `properties`, which will be used later,
-        // so we just clone a properties map here.
-        boolean enableUniqueKeyMergeOnWrite = false;
-        boolean enableStoreRowColumn = false;
-        if (properties != null) {
-            enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(new HashMap<>(properties));
-            enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
-        }
         //pre-block creation with column type ALL
         for (ColumnDef columnDef : columnDefs) {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
@@ -337,6 +329,8 @@ public class CreateTableStmt extends DdlStmt {
                                             + "please use `DECIMALV3`.");
             }
         }
+
+        boolean enableUniqueKeyMergeOnWrite = false;
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
             // olap table
@@ -401,6 +395,21 @@ public class CreateTableStmt extends DdlStmt {
                 }
             }
 
+            if (properties != null && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)
+                    && keysDesc.getKeysType() != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException(
+                        PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " property only support unique key table");
+            }
+            if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+                enableUniqueKeyMergeOnWrite = true;
+                if (properties != null) {
+                    // `analyzeXXX` would modify `properties`, which will be used later,
+                    // so we just clone a properties map here.
+                    enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(
+                            new HashMap<>(properties));
+                }
+            }
+
             keysDesc.analyze(columnDefs);
             for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
                 columnDefs.get(i).setIsKey(true);
@@ -410,7 +419,7 @@ public class CreateTableStmt extends DdlStmt {
                 if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
                     type = AggregateType.NONE;
                 }
-                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
+                if (enableUniqueKeyMergeOnWrite) {
                     type = AggregateType.NONE;
                 }
                 for (int i = keysDesc.keysColumnSize(); i < columnDefs.size(); ++i) {
@@ -443,7 +452,8 @@ public class CreateTableStmt extends DdlStmt {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
             }
         }
-        if (enableStoreRowColumn) {
+        // add a hidden column as row store
+        if (properties != null && PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties))) {
             columnDefs.add(ColumnDef.newRowStoreColumnDef());
         }
         if (Config.enable_hidden_version_column_by_default && keysDesc != null
@@ -508,7 +518,7 @@ public class CreateTableStmt extends DdlStmt {
             if (partitionDesc != null) {
                 if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc
                         || partitionDesc instanceof ColumnPartitionDesc) {
-                    partitionDesc.analyze(columnDefs, properties);
+                    partitionDesc.analyze(columnDefs, properties, keysDesc);
                 } else {
                     throw new AnalysisException("Currently only support range"
                             + " and list partition with engine type olap");
