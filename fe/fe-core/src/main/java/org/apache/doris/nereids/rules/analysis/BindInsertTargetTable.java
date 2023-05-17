@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -41,10 +42,9 @@ import java.util.stream.Collectors;
 public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
-        return logicalOlapTableSink()
-                .when(sink -> !sink.isBound())
+        return unboundOlapTableSink()
                 .thenApply(ctx -> {
-                    LogicalOlapTableSink<? extends Plan> sink = ctx.root;
+                    UnboundOlapTableSink<? extends Plan> sink = ctx.root;
                     Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
                     Database database = pair.first;
                     OlapTable table = pair.second;
@@ -58,7 +58,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                 }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
     }
 
-    private Pair<Database, OlapTable> bind(CascadesContext cascadesContext, LogicalOlapTableSink<? extends Plan> sink) {
+    private Pair<Database, OlapTable> bind(CascadesContext cascadesContext, UnboundOlapTableSink<? extends Plan> sink) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,

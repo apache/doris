@@ -20,7 +20,6 @@ package org.apache.doris.nereids.analyzer;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.RewriteJob;
 import org.apache.doris.nereids.jobs.batch.BatchRewriteJob;
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindInsertTargetTable;

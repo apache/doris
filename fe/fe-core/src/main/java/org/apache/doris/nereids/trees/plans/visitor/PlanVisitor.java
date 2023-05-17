@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -133,6 +134,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitUnboundOneRowRelation(UnboundOneRowRelation oneRowRelation, C context) {
         return visit(oneRowRelation, context);
+    }
+
+    public R visitUnboundOlapTableSink(UnboundOlapTableSink<? extends Plan> unboundOlapTableSink, C context) {
+        return visit(unboundOlapTableSink, context);
     }
 
     public R visitLogicalEmptyRelation(LogicalEmptyRelation emptyRelation, C context) {

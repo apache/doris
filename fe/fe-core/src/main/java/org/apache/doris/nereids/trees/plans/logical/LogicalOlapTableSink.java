@@ -45,36 +45,11 @@ import java.util.stream.Collectors;
  * logical olap table sink for insert command
  */
 public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
-    private List<String> nameParts;
-    private List<String> colNames;
-    private List<String> hints;
-    private List<String> partitions;
-
     // bound data sink
     private Database database;
     private OlapTable targetTable;
     private List<Long> partitionIds;
     private List<Column> cols;
-    private final boolean isBound;
-
-    public LogicalOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, partitions, Optional.empty(), Optional.empty(), child);
-    }
-
-    /**
-     * unbound data sink constructor.
-     */
-    public LogicalOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
-        this.nameParts = Preconditions.checkNotNull(nameParts, "nameParts != null in LogicalOlapTableSink");
-        this.colNames = colNames;
-        this.hints = hints;
-        this.partitions = partitions;
-        this.isBound = false;
-    }
 
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             CHILD_TYPE child) {
@@ -88,43 +63,13 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         this.database = Preconditions.checkNotNull(database, "database != null in LogicalOlapTableSink");
         this.targetTable = Preconditions.checkNotNull(targetTable, "targetTable != null in LogicalOlapTableSink");
         this.partitionIds = partitionIds;
-        this.isBound = true;
-    }
-
-    /**
-     * copy constructor
-     */
-    public static LogicalOlapTableSink<? extends Plan> createLogicalOlapTableSink(
-            LogicalOlapTableSink<? extends Plan> other) {
-        if (other.isBound()) {
-            return new LogicalOlapTableSink<>(other.database, other.targetTable, other.cols, other.partitionIds,
-                    other.groupExpression, Optional.of(other.getLogicalProperties()), other.child());
-        } else {
-            return new LogicalOlapTableSink<>(other.nameParts, other.colNames, other.hints, other.partitions,
-                    other.groupExpression, Optional.of(other.getLogicalProperties()), other.child());
-        }
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalOlapTableSink only accepts one child");
-        return createLogicalOlapTableSink(this);
-    }
-
-    public boolean isBound() {
-        return isBound;
-    }
-
-    public List<String> getNameParts() {
-        return nameParts;
-    }
-
-    public List<String> getColNames() {
-        return colNames;
-    }
-
-    public List<String> getPartitions() {
-        return partitions;
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, groupExpression,
+                Optional.of(getLogicalProperties()), children.get(0));
     }
 
     public Database getDatabase() {
@@ -152,12 +97,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
             return false;
         }
         LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) o;
-        return isBound == sink.isBound
-                && Objects.equals(nameParts, sink.nameParts)
-                && Objects.equals(colNames, sink.colNames)
-                && Objects.equals(hints, sink.hints)
-                && Objects.equals(partitions, sink.partitions)
-                && Objects.equals(database, sink.database)
+        return Objects.equals(database, sink.database)
                 && Objects.equals(targetTable, sink.targetTable)
                 && Objects.equals(partitionIds, sink.partitionIds)
                 && Objects.equals(cols, sink.cols);
@@ -165,8 +105,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public int hashCode() {
-        return Objects.hash(nameParts, colNames, hints, partitions,
-                database, targetTable, partitionIds, cols, isBound);
+        return Objects.hash(database, targetTable, partitionIds, cols);
     }
 
     @Override
@@ -181,12 +120,14 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return createLogicalOlapTableSink(this);
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, groupExpression,
+                Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return createLogicalOlapTableSink(this);
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, groupExpression,
+                logicalProperties, child());
     }
 
     @Override
