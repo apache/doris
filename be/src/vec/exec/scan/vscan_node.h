@@ -259,6 +259,8 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+
 private:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter();

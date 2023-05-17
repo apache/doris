@@ -158,6 +158,10 @@ Status VScanNode::_init_profile() {
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
+    auto* memory_usage = _scanner_profile->create_child("PeakMemoryUsage", true, true);
+    _runtime_profile->add_child(memory_usage, false, nullptr);
+    _free_blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES);
+
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
     _prefilter_timer = ADD_TIMER(_scanner_profile, "ScannerPrefilterTime");

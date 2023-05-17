@@ -37,6 +37,8 @@ Status ScannerContext::init() {
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     DCHECK(_max_thread_num > 0);
 
+    _free_blocks_memory_usage = _parent->_free_blocks_memory_usage;
+
     // 2. Calculate how many blocks need to be preallocated.
     // The calculation logic is as follows:
     //  1. Assuming that at most M rows can be scanned in one scan(config::doris_scanner_row_num),
@@ -53,10 +55,13 @@ Status ScannerContext::init() {
 
     // The free blocks is used for final output block of scanners.
     // So use _output_tuple_desc;
+    int64_t free_blocks_memory_usage = 0;
     for (int i = 0; i < pre_alloc_block_count; ++i) {
         auto block = new vectorized::Block(_output_tuple_desc->slots(), real_block_size);
+        free_blocks_memory_usage += block->allocated_bytes();
         _free_blocks.emplace_back(block);
     }
+    _free_blocks_memory_usage->add(free_blocks_memory_usage);
 
 #ifndef BE_TEST
     // 3. get thread token
@@ -81,6 +86,7 @@ vectorized::Block* ScannerContext::get_free_block(bool* get_free_block) {
         if (!_free_blocks.empty()) {
             auto block = _free_blocks.back();
             _free_blocks.pop_back();
+            _free_blocks_memory_usage->add(-block->allocated_bytes());
             return block;
         }
     }
@@ -92,6 +98,7 @@ vectorized::Block* ScannerContext::get_free_block(bool* get_free_block) {
 
 void ScannerContext::return_free_block(vectorized::Block* block) {
     block->clear_column_data();
+    _free_blocks_memory_usage->add(block->allocated_bytes());
     std::lock_guard<std::mutex> l(_free_blocks_lock);
     _free_blocks.emplace_back(block);
 }
