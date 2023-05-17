@@ -532,7 +532,14 @@ public class StmtExecutor {
         if (parsedStmt != null) {
             return;
         }
-        List<StatementBase> statements = new NereidsParser().parseSQL(originStmt.originStmt);
+        List<StatementBase> statements;
+        try {
+            statements = new NereidsParser().parseSQL(originStmt.originStmt);
+        } catch (Exception e) {
+            throw new NereidsException(
+                    new AnalysisException("Nereids parse failed. " + e.getMessage(), e)
+            );
+        }
         if (statements.size() <= originStmt.idx) {
             throw new NereidsException(
                     new AnalysisException("Nereids parse failed. Parser get " + statements.size() + " statements,"
