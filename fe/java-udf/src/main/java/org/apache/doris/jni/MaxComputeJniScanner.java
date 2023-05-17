@@ -21,6 +21,7 @@ import org.apache.doris.jni.vec.ColumnType;
 import org.apache.doris.jni.vec.ColumnValue;
 import org.apache.doris.jni.vec.ScanPredicate;
 
+import com.aliyun.odps.Odps;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
@@ -35,7 +36,8 @@ import java.util.Map;
  * MaxComputeJ JniScanner. BE will read data from the scanner object.
  */
 public class MaxComputeJniScanner extends JniScanner {
-    Odps odps;
+    private Odps odps;
+
     public static class MaxComputeColumnValue implements ColumnValue {
         private int i;
         private int j;
@@ -131,7 +133,7 @@ public class MaxComputeJniScanner extends JniScanner {
     private final MaxComputeColumnValue columnValue = new MaxComputeColumnValue();
 
     public MaxComputeJniScanner(int batchSize, Map<String, String> params) {
-        mockRows = Integer.parseInt(params.get("mock_rows"));
+        mockRows = Integer.parseInt(params.get("mc.access_key"));
         String[] requiredFields = params.get("required_fields").split(",");
         String[] types = params.get("columns_types").split("#");
         ColumnType[] columnTypes = new ColumnType[types.length];

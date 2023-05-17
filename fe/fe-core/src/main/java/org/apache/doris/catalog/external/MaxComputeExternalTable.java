@@ -168,9 +168,14 @@ public class MaxComputeExternalTable extends ExternalTable {
         return tTableDescriptor;
     }
 
+    public Table getOdpsTable() {
+        return odpsTable;
+    }
+
     @Override
     public String getMysqlType() {
         return "BASE TABLE";
     }
+
 }
 

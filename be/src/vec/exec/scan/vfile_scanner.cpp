@@ -577,6 +577,9 @@ Status VFileScanner::_get_next_reader() {
         Status init_status;
         // TODO: use data lake type
         switch (_params.format_type) {
+        case TFileFormatType::FORMAT_JNI: {
+            break;
+        }
         case TFileFormatType::FORMAT_PARQUET: {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, _params, range, _state->query_options().batch_size,

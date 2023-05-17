@@ -113,6 +113,7 @@ enum TFileFormatType {
     FORMAT_ORC,
     FORMAT_JSON,
     FORMAT_PROTO,
+    FORMAT_JNI,
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,

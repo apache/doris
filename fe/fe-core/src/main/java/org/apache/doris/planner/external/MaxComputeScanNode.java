@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.MaxComputeExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -38,11 +39,13 @@ import java.util.Map;
 public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
+    private final MaxComputeExternalCatalog catalog;
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                               StatisticalType statisticalType, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         table = (MaxComputeExternalTable) desc.getTable();
+        catalog = (MaxComputeExternalCatalog) table.getCatalog();
     }
 
     @Override
@@ -52,8 +55,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     @Override
     public TFileFormatType getFileFormatType() {
-        // TODO: use max compute format
-        return TFileFormatType.FORMAT_PARQUET;
+        return TFileFormatType.FORMAT_JNI;
     }
 
     @Override
@@ -74,7 +76,13 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     @Override
     protected List<Split> getSplits() throws UserException {
         List<Split> result = new ArrayList<>();
-        result.add(new FileSplit(new Path("/"), 0, -1, -1, 0L, new String[0], Collections.emptyList()));
+        // String splitPath = catalog.getTunnelUrl();
+        // TODO: use single max compute scan node rather than file scan node
+        com.aliyun.odps.Table odpsTable = table.getOdpsTable();
+        long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
+        String splitPath = odpsTable.getLocation();
+        result.add(new FileSplit(new Path(splitPath), 0, 100, 100,
+                modificationTime, null, Collections.emptyList()));
         return result;
     }
 }

@@ -320,6 +320,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         } else if (getLocationType() == TFileType.FILE_S3 || getLocationType() == TFileType.FILE_BROKER) {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
+        }  else if (getLocationType() == TFileType.FILE_NET) {
+            rangeDesc.setPath(fileSplit.getPath().toString());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
         return rangeDesc;

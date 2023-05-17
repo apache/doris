@@ -179,6 +179,17 @@ std::string IcebergTableDescriptor::debug_string() const {
     return out.str();
 }
 
+MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+MaxComputeTableDescriptor::~MaxComputeTableDescriptor() {}
+
+std::string MaxComputeTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "MaxComputeTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+    
 EsTableDescriptor::EsTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
 EsTableDescriptor::~EsTableDescriptor() {}
@@ -572,6 +583,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::JDBC_TABLE:
             desc = pool->add(new JdbcTableDescriptor(tdesc));
+            break;
+        case TTableType::MAX_COMPUTE_TABLE:
+            desc = pool->add(new MaxComputeTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;
