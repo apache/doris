@@ -232,10 +232,7 @@ Status ExecEnv::_init_mem_env() {
     uint32_t num_shards = config::storage_page_cache_shard_size;
     if ((num_shards & (num_shards - 1)) != 0) {
         int old_num_shards = num_shards;
-        num_shards = 1;
-        while (num_shards < old_num_shards) {
-            num_shards <<= 1;
-        }
+        num_shards = BitUtil::RoundUpToPowerOfTwo(num_shards);
         LOG(WARNING) << "num_shards should be power of two, but got " << old_num_shards
                      << ". Rounded up to " << num_shards
                      << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
