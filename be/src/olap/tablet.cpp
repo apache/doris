@@ -2730,6 +2730,8 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
                         ++row_id;
                         continue;
                     }
+                    // some unexpected error
+                    return st;
                 }
                 // same row in segments should be filtered
                 if (delete_bitmap->contains({rowset_id, seg->id(), 0}, row_id)) {
