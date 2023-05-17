@@ -31,6 +31,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -654,7 +655,7 @@ public class ColocateTableIndex implements Writable {
     public void write(DataOutput out) throws IOException {
         int size = groupName2Id.size();
         out.writeInt(size);
-        for (Map.Entry<String, GroupId> entry : groupName2Id.entrySet()) {
+        for (Map.Entry<String, GroupId> entry : ImmutableMap.copyOf(groupName2Id).entrySet()) {
             Text.writeString(out, entry.getKey()); // group name
             entry.getValue().write(out); // group id
             Collection<Long> tableIds = group2Tables.get(entry.getValue());
