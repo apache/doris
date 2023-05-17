@@ -179,14 +179,19 @@ Status InvertedIndexSearcherCache::erase(const std::string& index_file_path) {
     return Status::OK();
 }
 
-void InvertedIndexSearcherCache::prune() {
+int64_t InvertedIndexSearcherCache::prune() {
     if (_cache) {
         const int64_t curtime = UnixMillis();
-        auto pred = [curtime](const void* value) -> bool {
+        int64_t byte_size = 0L;
+        auto pred = [curtime, &byte_size](const void* value) -> bool {
             InvertedIndexSearcherCache::CacheValue* cache_value =
                     (InvertedIndexSearcherCache::CacheValue*)value;
-            return (cache_value->last_visit_time +
-                    config::index_cache_entry_no_visit_gc_time_s * 1000) < curtime;
+            if ((cache_value->last_visit_time +
+                 config::index_cache_entry_no_visit_gc_time_s * 1000) < curtime) {
+                byte_size += cache_value->size;
+                return true;
+            }
+            return false;
         };
 
         MonotonicStopWatch watch;
@@ -195,7 +200,9 @@ void InvertedIndexSearcherCache::prune() {
         int64_t prune_num = _cache->prune_if(pred, true);
         LOG(INFO) << "prune " << prune_num << " entries in inverted index cache. cost(ms): "
                   << watch.elapsed_time() / 1000 / 1000;
+        return byte_size;
     }
+    return 0L;
 }
 
 int64_t InvertedIndexSearcherCache::mem_consumption() {
@@ -256,14 +263,19 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roarin
     *handle = InvertedIndexQueryCacheHandle(_cache.get(), lru_handle);
 }
 
-void InvertedIndexQueryCache::prune() {
+int64_t InvertedIndexQueryCache::prune() {
     if (_cache) {
         const int64_t curtime = UnixMillis();
-        auto pred = [curtime](const void* value) -> bool {
+        int64_t byte_size = 0L;
+        auto pred = [curtime, &byte_size](const void* value) -> bool {
             InvertedIndexQueryCache::CacheValue* cache_value =
                     (InvertedIndexQueryCache::CacheValue*)value;
-            return (cache_value->last_visit_time +
-                    config::index_cache_entry_no_visit_gc_time_s * 1000) < curtime;
+            if ((cache_value->last_visit_time +
+                 config::index_cache_entry_no_visit_gc_time_s * 1000) < curtime) {
+                byte_size += cache_value->size;
+                return true;
+            }
+            return false;
         };
 
         MonotonicStopWatch watch;
@@ -272,7 +284,9 @@ void InvertedIndexQueryCache::prune() {
         int64_t prune_num = _cache->prune_if(pred, true);
         LOG(INFO) << "prune " << prune_num << " entries in inverted index cache. cost(ms): "
                   << watch.elapsed_time() / 1000 / 1000;
+        return byte_size;
     }
+    return 0L;
 }
 
 int64_t InvertedIndexQueryCache::mem_consumption() {

@@ -116,13 +116,11 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
     }
 
     if (segment_v2::InvertedIndexSearcherCache::instance()->mem_consumption() > min_free_size) {
-        freed_mem += segment_v2::InvertedIndexSearcherCache::instance()->mem_consumption();
-        segment_v2::InvertedIndexSearcherCache::instance()->prune();
+        freed_mem += segment_v2::InvertedIndexSearcherCache::instance()->prune();
     }
 
     if (segment_v2::InvertedIndexQueryCache::instance()->mem_consumption() > min_free_size) {
-        freed_mem += segment_v2::InvertedIndexQueryCache::instance()->mem_consumption();
-        segment_v2::InvertedIndexQueryCache::instance()->prune();
+        freed_mem += segment_v2::InvertedIndexQueryCache::instance()->prune();
     }
 }
 
