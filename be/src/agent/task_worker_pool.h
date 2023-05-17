@@ -268,7 +268,6 @@ protected:
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 }; // class TaskWorkerPool
 
-
 class CreateTableTaskPool : public TaskWorkerPool {
 public:
     CreateTableTaskPool(ExecEnv* env, const TMasterInfo& master_info, ThreadModel thread_model);

@@ -155,7 +155,8 @@ void TaskWorkerPool::start() {
         break;
     case TaskWorkerType::CLEAR_TRANSACTION_TASK:
         _worker_count = config::clear_transaction_task_worker_count;
-        _cb = std::bind<void>(&TaskWorkerPool::_clear_transaction_task_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_clear_transaction_task_worker_thread_callback,
+                              this);
         break;
     case TaskWorkerType::DELETE:
         _worker_count = config::delete_worker_count;
@@ -175,7 +176,8 @@ void TaskWorkerPool::start() {
         break;
     case TaskWorkerType::STORAGE_MEDIUM_MIGRATE:
         _worker_count = config::storage_medium_migrate_count;
-        _cb = std::bind<void>(&TaskWorkerPool::_storage_medium_migrate_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_storage_medium_migrate_worker_thread_callback,
+                              this);
         break;
     case TaskWorkerType::CHECK_CONSISTENCY:
         _worker_count = config::check_consistency_worker_count;
@@ -217,7 +219,7 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::SUBMIT_TABLE_COMPACTION:
         _worker_count = 1;
         _cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback,
-                             this);
+                              this);
         break;
     case TaskWorkerType::PUSH_STORAGE_POLICY:
         _worker_count = 1;
@@ -370,7 +372,6 @@ uint32_t TaskWorkerPool::_get_next_task_index(int32_t thread_count,
 
     return index;
 }
-
 
 void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
     while (_is_work) {
