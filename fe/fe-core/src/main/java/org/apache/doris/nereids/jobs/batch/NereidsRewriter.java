@@ -260,10 +260,11 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             // this rule batch must keep at the end of rewrite to do some plan check
-            topic("Final rewrite and check", bottomUp(
-                new AdjustNullable(),
-                new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
-                new CheckAfterRewrite()
+            topic("Final rewrite and check",
+                custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
+                bottomUp(
+                    new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
+                    new CheckAfterRewrite()
             ))
     );
 
