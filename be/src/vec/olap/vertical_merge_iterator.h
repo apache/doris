@@ -340,7 +340,7 @@ private:
 
     const Schema* _schema = nullptr;
 
-    VerticalMergeIteratorContext* _cur_iter_ctx;
+    std::unique_ptr<VerticalMergeIteratorContext> _cur_iter_ctx;
     int _block_row_max = 0;
     KeysType _keys_type;
     int32_t _seq_col_idx = -1;
