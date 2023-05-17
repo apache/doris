@@ -21,4 +21,20 @@ suite("test_set_session_default_val") {
     sql """set session insert_timeout=${default_timeout[0][1]};"""
     def session_timeout = sql """show variables where variable_name = 'insert_timeout';"""
     assertEquals(default_timeout, session_timeout)
+
+    def default_query_timeout = sql """show variables where variable_name = 'query_timeout';"""
+    def default_max_execute_timeout = sql """show variables where variable_name = 'max_execution_time';"""
+
+    sql """set query_timeout=2;"""
+    def query_timeout = sql """show variables where variable_name = 'query_timeout';"""
+    def max_execute_timeout = sql """show variables where variable_name = 'max_execution_time';"""
+    assertTrue(query_timeout[0][1] == 2)
+    assertTrue(max_execute_timeout[0][1] == default_max_execute_timeout[0][1])
+
+    sql """set max_execution_time=3000;"""
+    def query_timeout2 = sql """show variables where variable_name = 'query_timeout';"""
+    def max_execute_timeout2 = sql """show variables where variable_name = 'max_execution_time';"""
+    assertTrue(query_timeout2[0][1] == 3)
+    assertTrue(max_execute_timeout2[0][1] != default_max_execute_timeout[0][1])
+    assertTrue(max_execute_timeout2[0][1] == 3000)
 }
