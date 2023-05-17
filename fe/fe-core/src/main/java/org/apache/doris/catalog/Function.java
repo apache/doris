@@ -122,7 +122,7 @@ public class Function implements Writable {
 
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
 
-    protected boolean vectorized = false;
+    protected boolean vectorized = true;
 
     // library's checksum to make sure all backends use one library to serve user's request
     protected String checksum = "";
@@ -135,7 +135,7 @@ public class Function implements Writable {
     }
 
     public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs) {
-        this(0, name, args, retType, varArgs, false, NullableMode.DEPEND_ON_ARGUMENT);
+        this(0, name, args, retType, varArgs, true, NullableMode.DEPEND_ON_ARGUMENT);
     }
 
     public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized) {
@@ -187,6 +187,10 @@ public class Function implements Writable {
             System.arraycopy(other.argTypes, 0, this.argTypes, 0, other.argTypes.length);
         }
         this.checksum = other.checksum;
+    }
+
+    public Function clone() {
+        return new Function(this);
     }
 
     public FunctionName getFunctionName() {
@@ -538,108 +542,6 @@ public class Function implements Writable {
     // Child classes must override this function.
     public String toSql(boolean ifNotExists) {
         return "";
-    }
-
-    public static String getUdfTypeName(PrimitiveType t) {
-        switch (t) {
-            case BOOLEAN:
-                return "boolean_val";
-            case TINYINT:
-                return "tiny_int_val";
-            case SMALLINT:
-                return "small_int_val";
-            case INT:
-                return "int_val";
-            case BIGINT:
-                return "big_int_val";
-            case LARGEINT:
-                return "large_int_val";
-            case FLOAT:
-                return "float_val";
-            case DOUBLE:
-            case TIME:
-            case TIMEV2:
-                return "double_val";
-            case VARCHAR:
-            case CHAR:
-            case HLL:
-            case BITMAP:
-            case QUANTILE_STATE:
-            case STRING:
-                return "string_val";
-            case JSONB:
-                return "jsonb_val";
-            case DATE:
-            case DATETIME:
-                return "datetime_val";
-            case DATEV2:
-                return "datev2_val";
-            case DATETIMEV2:
-                return "datetimev2_val";
-            case DECIMALV2:
-                return "decimalv2_val";
-            case DECIMAL32:
-                return "decimal32_val";
-            case DECIMAL64:
-                return "decimal64_val";
-            case DECIMAL128:
-                return "decimal128_val";
-            default:
-                Preconditions.checkState(false, t.toString());
-                return "";
-        }
-    }
-
-    public static String getUdfType(PrimitiveType t) {
-        switch (t) {
-            case NULL_TYPE:
-                return "AnyVal";
-            case BOOLEAN:
-                return "BooleanVal";
-            case TINYINT:
-                return "TinyIntVal";
-            case SMALLINT:
-                return "SmallIntVal";
-            case INT:
-                return "IntVal";
-            case BIGINT:
-                return "BigIntVal";
-            case LARGEINT:
-                return "LargeIntVal";
-            case FLOAT:
-                return "FloatVal";
-            case DOUBLE:
-            case TIME:
-            case TIMEV2:
-                return "DoubleVal";
-            case VARCHAR:
-            case CHAR:
-            case HLL:
-            case BITMAP:
-            case QUANTILE_STATE:
-            case STRING:
-                return "StringVal";
-            case JSONB:
-                return "JsonbVal";
-            case DATE:
-            case DATETIME:
-                return "DateTimeVal";
-            case DATEV2:
-                return "DateV2Val";
-            case DATETIMEV2:
-                return "DateTimeV2Val";
-            case DECIMALV2:
-                return "DecimalV2Val";
-            case DECIMAL32:
-                return "Decimal32Val";
-            case DECIMAL64:
-                return "Decimal64Val";
-            case DECIMAL128:
-                return "Decimal128Val";
-            default:
-                Preconditions.checkState(false, t.toString());
-                return "";
-        }
     }
 
     public static Function getFunction(List<Function> fns, Function desc, CompareMode mode) {
