@@ -180,7 +180,7 @@ public abstract class DataType implements AbstractDataType {
             case "null_type": // ScalarType.NULL.toSql() return "null_type", so support it
                 return NullType.INSTANCE;
             case "date":
-                return fromCatalogType(ScalarType.createDateType());
+                return DateType.INSTANCE;
             case "datev2":
                 return DateV2Type.INSTANCE;
             case "time":
