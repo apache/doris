@@ -46,32 +46,17 @@ public class CheckSourceAndAdjustOutputForInsertTargetType extends OneAnalysisRu
                     .map(col -> DataType.fromCatalogType(col.getType()))
                     .collect(Collectors.toList());
             List<Slot> outputs = sink.child().getOutput();
-            List<Expression> newSlots = Lists.newArrayListWithCapacity(outputs.size());
-            if (!checkNeedCast(insertTargetTypes, outputs)) {
-                return sink;
-            }
-            for (int i = 0; i < insertTargetTypes.size(); ++i) {
-                newSlots.add(TypeCoercionUtils.castIfNotMatchType(outputs.get(i), insertTargetTypes.get(i)));
-            }
-            return sink.withChildren(
-                    new LogicalProject<>(newSlots.stream().map(expr -> expr instanceof NamedExpression
-                            ? ((NamedExpression) expr)
-                            : new Alias(expr, expr.toSql())).collect(Collectors.toList()), sink.child()));
+            checkNeedCast(insertTargetTypes, outputs);
+            return sink;
         }).toRule(RuleType.ADJUST_OUTPUT_FOR_INSERT_TARGET_TYPE);
     }
 
-    private boolean checkNeedCast(List<DataType> targetType, List<Slot> slots) {
+    private void checkNeedCast(List<DataType> targetType, List<Slot> slots) {
         Preconditions.checkArgument(targetType.size() == slots.size(),
                 String.format("insert target table contains %d slots, but source table contains %d slots",
                         targetType.size(), slots.size()));
         for (int i = 0; i < targetType.size(); i++) {
             TypeCoercionUtils.checkCanCastTo(slots.get(i).getDataType(), targetType.get(i));
         }
-        for (int i = 0; i < targetType.size(); ++i) {
-            if (!slots.get(i).getDataType().equals(targetType.get(i))) {
-                return true;
-            }
-        }
-        return false;
     }
 }
