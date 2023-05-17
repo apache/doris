@@ -534,7 +534,7 @@ Oracle 模式请参考 [Oracle类型映射](#Oracle)
     failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
     ```
  
-    这是因为在创建resource时，填写的driver_class不正确，需要正确填写，如上方例子为大小写问题，应填写为 `"driver_class" = "com.mysql.jdbc.Driver"`
+    这是因为在创建 catalog 时，填写的driver_class不正确，需要正确填写，如上方例子为大小写问题，应填写为 `"driver_class" = "com.mysql.jdbc.Driver"`
 
 5. 读取 MySQL 问题出现通信链路异常
 
