@@ -71,7 +71,7 @@ public class MetaService extends RestBaseController {
 
         Frontend fe = Env.getCurrentEnv().checkFeExist(clientHost, clientPort);
         if (fe == null) {
-            LOG.warn("request is not from valid FE. client: {}", clientHost);
+            LOG.warn("request is not from valid FE. client: {}, {}", clientHost, clientPortStr);
             return false;
         }
         return true;
