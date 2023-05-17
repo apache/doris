@@ -153,7 +153,7 @@ public:
                 --end;
             }
             if (end < 0) {
-                return StringRef("",0);
+                return StringRef("", 0);
             }
             return StringRef(str.data + begin, end - begin + 1);
         }

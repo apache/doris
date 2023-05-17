@@ -252,7 +252,7 @@ public:
     AggregateFunctionCollect(const DataTypePtr& argument_type,
                              UInt64 max_size_ = std::numeric_limits<UInt64>::max())
             : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>>(
-                      {argument_type},{}),
+                      {argument_type}, {}),
               return_type(argument_type) {}
 
     std::string get_name() const override {
