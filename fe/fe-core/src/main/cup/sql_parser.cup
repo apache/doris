@@ -2260,7 +2260,7 @@ load_stmt ::=
     opt_properties:properties
     opt_comment:comment
     {:
-        RESULT = new UnifiedLoadStmt(label, dataDescList, broker, system, properties, comment, LoadType.BROKER_LOAD);
+        RESULT = UnifiedLoadStmt.buildBrokerLoadStmt(label, dataDescList, broker, system, properties, comment);
     :}
     | KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
@@ -2272,7 +2272,7 @@ load_stmt ::=
     :}
     | KW_LOAD mysql_data_desc:desc opt_properties:properties opt_comment:comment
     {:
-        RESULT = new UnifiedLoadStmt(desc, properties, comment, LoadType.MYSQL_LOAD);
+        RESULT = UnifiedLoadStmt.buildMysqlLoadStmt(desc, properties, comment);
     :}
     ;
 

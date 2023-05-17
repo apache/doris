@@ -49,7 +49,6 @@ public class LoadManagerAdapter {
                 context.getState().setOk();
                 break;
             case MYSQL_LOAD:
-                // TODO: implement
                 String loadId = UUID.randomUUID().toString();
                 this.mysqlLoadId = loadId;
                 LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()

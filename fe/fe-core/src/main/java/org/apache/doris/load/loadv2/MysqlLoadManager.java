@@ -155,7 +155,6 @@ public class MysqlLoadManager {
     public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, DataDescription dataDesc, String loadId)
             throws IOException, UserException {
         LoadJobRowResult loadResult = new LoadJobRowResult();
-        // Mysql data load only have one data desc
         List<String> filePaths = dataDesc.getFilePaths();
         String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
         String table = dataDesc.getTableName();

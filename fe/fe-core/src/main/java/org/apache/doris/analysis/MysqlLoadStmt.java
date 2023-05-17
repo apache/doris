@@ -35,17 +35,11 @@ import java.util.Map;
 
 public class MysqlLoadStmt extends InsertStmt {
 
-    private DataDescription dataDescription;
+    private final DataDescription dataDescription;
 
     public MysqlLoadStmt(DataDescription dataDescription, Map<String, String> properties, String comments) {
-        this.label = new LabelName();
+        super(new LabelName(), properties, comments);
         this.dataDescription = dataDescription;
-        this.properties = properties;
-        if (comments != null) {
-            this.comments = comments;
-        } else {
-            this.comments = "";
-        }
     }
 
     @Override
@@ -81,7 +75,7 @@ public class MysqlLoadStmt extends InsertStmt {
             for (String path : dataDescription.getFilePaths()) {
                 if (Config.mysql_load_server_secure_path.isEmpty()) {
                     throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
-                        + " plz set the `mysql_load_server_secure_path` for FE to be a right path.");
+                            + " plz set the `mysql_load_server_secure_path` for FE to be a right path.");
                 } else {
                     File file = new File(path);
                     try {

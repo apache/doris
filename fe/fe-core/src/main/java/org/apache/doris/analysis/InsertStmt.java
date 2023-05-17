@@ -114,10 +114,16 @@ public abstract class InsertStmt extends DdlStmt {
                     .put(Properties.MAX_BATCH_INTERVAL, (Function<String, Long>) Long::valueOf)
                     .build();
 
+    public InsertStmt(LabelName label, Map<String, String> properties, String comment) {
+        this.label = label;
+        this.properties = properties;
+        this.comments = comment != null ? comment : "";
+    }
+
     // ---------------------------- for old insert stmt ----------------------------
 
     public boolean isValuesOrConstantSelect() {
-        return false;
+        throw new UnsupportedOperationException("only invoked in NativeInsertStmt");
     }
 
     public Table getTargetTable() {
