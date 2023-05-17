@@ -44,6 +44,7 @@ namespace vectorized {
 /// Data types for representing elementary values from a database in RAM.
 
 struct Null {};
+struct UInt128;
 
 // The identifier should be less than int16, because castexpr using the identifier
 // instead of type name as type parameter. It will using int16 as column type.
@@ -92,6 +93,8 @@ enum class TypeIndex {
     VARIANT = 41,
     QuantileState = 42,
     Time = 43,
+    IPv4 = 44,
+    IPv6 = 45,
     AggState
 };
 
@@ -285,6 +288,9 @@ using Date = Int64;
 using DateTime = Int64;
 using DateV2 = UInt32;
 using DateTimeV2 = UInt64;
+
+using IPv4 = UInt32;
+using IPv6 = UInt128;
 
 struct Int128I {};
 
@@ -578,6 +584,10 @@ inline const char* getTypeName(TypeIndex idx) {
         return "DateTimeV2";
     case TypeIndex::TimeV2:
         return "TimeV2";
+    case TypeIndex::IPv4:
+        return "IPv4";
+    case TypeIndex::IPv6:
+        return "IPv6";
     case TypeIndex::String:
         return TypeName<String>::get();
     case TypeIndex::FixedString:

@@ -32,31 +32,33 @@ enum PrimitiveType {
     TYPE_VARCHAR,  /* 10 */
     TYPE_DATE,     /* 11 */
     TYPE_DATETIME, /* 12 */
-    TYPE_BINARY,
+    TYPE_IPV4,     /* 13 */
+    TYPE_IPV6,     /* 14 */
+    TYPE_BINARY,   /* 15 */
     /* 13 */                     // Not implemented
-    TYPE_DECIMAL [[deprecated]], /* 14 */
-    TYPE_CHAR,                   /* 15 */
+    TYPE_DECIMAL [[deprecated]], /* 16 */
+    TYPE_CHAR,                   /* 17 */
 
-    TYPE_STRUCT,    /* 16 */
-    TYPE_ARRAY,     /* 17 */
-    TYPE_MAP,       /* 18 */
-    TYPE_HLL,       /* 19 */
-    TYPE_DECIMALV2, /* 20 */
+    TYPE_STRUCT,    /* 18 */
+    TYPE_ARRAY,     /* 19 */
+    TYPE_MAP,       /* 20 */
+    TYPE_HLL,       /* 21 */
+    TYPE_DECIMALV2, /* 22 */
 
-    TYPE_TIME,            /* 21 */
-    TYPE_OBJECT,          /* 22 */
-    TYPE_STRING,          /* 23 */
-    TYPE_QUANTILE_STATE,  /* 24 */
-    TYPE_DATEV2,          /* 25 */
-    TYPE_DATETIMEV2,      /* 26 */
-    TYPE_TIMEV2,          /* 27 */
-    TYPE_DECIMAL32,       /* 28 */
-    TYPE_DECIMAL64,       /* 29 */
-    TYPE_DECIMAL128I,     /* 30 */
-    TYPE_JSONB,           /* 31 */
-    TYPE_VARIANT,         /* 32 */
-    TYPE_LAMBDA_FUNCTION, /* 33 */
-    TYPE_AGG_STATE,       /* 34 */
+    TYPE_TIME,            /* 23 */
+    TYPE_OBJECT,          /* 24 */
+    TYPE_STRING,          /* 25 */
+    TYPE_QUANTILE_STATE,  /* 26 */
+    TYPE_DATEV2,          /* 27 */
+    TYPE_DATETIMEV2,      /* 28 */
+    TYPE_TIMEV2,          /* 29 */
+    TYPE_DECIMAL32,       /* 30 */
+    TYPE_DECIMAL64,       /* 31 */
+    TYPE_DECIMAL128I,     /* 32 */
+    TYPE_JSONB,           /* 33 */
+    TYPE_VARIANT,         /* 34 */
+    TYPE_LAMBDA_FUNCTION, /* 35 */
+    TYPE_AGG_STATE,       /* 36 */
 };
 
 }

@@ -26,16 +26,16 @@ import org.apache.doris.thrift.TIPv4Literal;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
+import java.util.regex.Pattern;
 
 public class IPv4Literal extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(IPv4Literal.class);
 
-    public static final long IPV4_MIN = 0;            // 0.0.0.0
-    public static final long IPV4_MAX = 2L << 32 - 1; // 255.255.255.255
-    private static final long IPV4_PARSE_FAILED = 2L << 32;
+    public static final long IPV4_MIN = 0L;             // 0.0.0.0
+    public static final long IPV4_MAX = (2L << 31) - 1; // 255.255.255.255
+    private static final String IPV4_REGEX =
+            "^((([1-9]|1\\d|2[0-4])\\d|25[0-5])\\.){3}(([1-9]|1\\d|2[0-4])\\d|25[0-5])$";
+    private static final Pattern IPV4_PATTERN = Pattern.compile(IPV4_REGEX);
 
     private long value;
 
@@ -48,19 +48,8 @@ public class IPv4Literal extends LiteralExpr {
 
     public IPv4Literal(String value) throws AnalysisException {
         super();
-        long result = parseIPv4toLong(value);
-        if (result != IPV4_PARSE_FAILED) {
-            this.value = result;
-            this.type = Type.IPV4;
-        } else {
-            throw new AnalysisException("Invalid IPv4 format: " + value + ". type: " + Type.IPV4);
-        }
-        analysisDone();
-    }
-
-    public IPv4Literal(long value) {
-        super();
-        this.value = value;
+        checkValueValid(value);
+        this.value = parseIPv4toLong(value);
         this.type = Type.IPV4;
         analysisDone();
     }
@@ -71,20 +60,26 @@ public class IPv4Literal extends LiteralExpr {
     }
 
     private static long parseIPv4toLong(String ipv4) {
-        try {
-            InetAddress inetAddress = InetAddress.getByName(ipv4);
-            if (inetAddress instanceof Inet4Address) {
-                byte[] bytes = inetAddress.getAddress();
-                long result = 0;
-                for (byte b : bytes) {
-                    result = result << 8 | (b & 0xFF);
-                }
-                return result;
-            }
-        } catch (UnknownHostException e) {
-            return IPV4_PARSE_FAILED;
+        String[] parts = ipv4.split("\\.");
+        if (parts.length != 4) {
+            return 0L;
         }
-        return IPV4_PARSE_FAILED;
+
+        long value = 0L;
+        for (int i = 0; i < 4; ++i) {
+            short octet;
+            try {
+                octet = Short.parseShort(parts[i]);
+            } catch (NumberFormatException e) {
+                return 0L;
+            }
+            if (octet < 0 || octet > 255) {
+                return 0L;
+            }
+            value = (value << 8) | octet;
+        }
+
+        return value;
     }
 
     private static String parseLongToIPv4(long ipv4) {
@@ -99,6 +94,13 @@ public class IPv4Literal extends LiteralExpr {
         return sb.toString();
     }
 
+    private void checkValueValid(String ipv4) throws AnalysisException {
+        if (!IPV4_PATTERN.matcher(ipv4).matches()) {
+            throw new AnalysisException("Invalid IPv4 format: " + ipv4 + ". type: " + Type.IPV4);
+        }
+    }
+
+
     @Override
     public Expr clone() {
         return new IPv4Literal(this);
@@ -112,7 +114,7 @@ public class IPv4Literal extends LiteralExpr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.IPV4_LITERAL;
-        msg.ipv4_literal = new TIPv4Literal(value);
+        msg.ipv4_literal = new TIPv4Literal(this.value);
     }
 
     @Override
@@ -127,7 +129,7 @@ public class IPv4Literal extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        return parseLongToIPv4(value);
+        return parseLongToIPv4(this.value);
     }
 
     @Override
