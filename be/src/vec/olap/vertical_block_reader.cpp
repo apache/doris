@@ -141,6 +141,10 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
     // In agg keys value columns compact, get first row for _init_agg_state
     if (!read_params.is_key_column_group && read_params.tablet->keys_type() == KeysType::AGG_KEYS) {
         auto st = _vcollect_iter->next_row(&_next_row);
+        if (!st.ok() && !st.is<END_OF_FILE>()) {
+            LOG(WARNING) << "failed to init first row for agg key";
+            return st;
+        }
         _eof = st.is<END_OF_FILE>();
     }
 
