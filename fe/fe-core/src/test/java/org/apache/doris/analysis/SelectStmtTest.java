@@ -949,4 +949,55 @@ public class SelectStmtTest {
         Assert.assertFalse(stmt.getColLabels().contains("siteid"));
         Assert.assertEquals(stmt.resultExprs.size(), 3);
     }
+
+    @Test
+    public void testAddDefaultOrderBy() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        ctx.getSessionVariable().setEnableDefaultOrder(true);
+        String sql;
+        String explainString;
+        sql = "select * from db1.baseall where k1 = 1 limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
+
+        sql = "select * from (select * from db1.baseall where k1 = 1) t limit 50, 100";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
+
+        sql = "select * from (select * from db1.baseall lateral view explode([0, 1, 2]) lv as e where k1 = 1) t limit 50, 100";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertFalse(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
+
+        sql = "select * from (select * from db1.baseall where k1 = 1) t lateral view explode([0, 1, 2]) lv as e limit 50, 100";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
+
+        sql = "select * from (select * from (select * from db1.baseall where k1 < 5) t1 where k1 = 1) t limit 50, 100";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
+
+        sql = "select * from db1.baseall join db1.table1 on k1=siteid limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertFalse(explainString.contains("order by"));
+
+        sql = "select min(pv) from db1.table1 where siteid < 10 group by siteid limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertFalse(explainString.contains("order by:"));
+
+        sql = "select pv from db1.table1 where siteid < 10 order by siteid limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainString.contains("order by: <slot 2> `siteid` ASC"));
+
+        sql = "select *, max(k2) over(partition by k1 order by k1) from db1.baseall where k1 = 1 limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertFalse(explainString.contains("order by: <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
+
+        sql = "select * from numbers(\"number\" = \"20\") where number < 15 limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertFalse(explainString.contains("order by <slot 2> `k1` ASC, <slot 3> `k2` ASC"));
+
+        sql = "select max(k1) from db1.baseall where k1 = 1 having max(k1) < 5 limit 10 offset 5";
+        explainString = dorisAssert.query(sql).explainQuery();
+        Assert.assertFalse(explainString.contains("order by"));
+    }
 }

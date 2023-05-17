@@ -462,7 +462,6 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         super.analyze(analyzer);
-
         if (mvSMap.size() != 0) {
             mvSMap.useNotCheckDescIdEquals();
             for (TableRef tableRef : getTableRefs()) {
@@ -642,6 +641,7 @@ public class SelectStmt extends QueryStmt {
                 groupingInfo.substituteGroupingFn(orderingExprNotInSelect, analyzer);
             }
         }
+
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
@@ -677,6 +677,7 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("orderingSlots {}", orderingSlots);
             LOG.debug("conjuntSlots {}", conjuntSlots);
         }
+
         checkAndSetPointQuery();
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
