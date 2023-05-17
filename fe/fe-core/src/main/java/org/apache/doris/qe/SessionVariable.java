@@ -303,7 +303,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
-    public static final String DUMP_NEREIDS = "dump_nereids";
+    public static final String ENABLE_MINIDUMP = "enable_minidump";
 
     public static final String TRACE_NEREIDS = "trace_nereids";
 
@@ -860,8 +860,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
     public boolean dumpNereidsMemo = false;
 
-    @VariableMgr.VarAttr(name = DUMP_NEREIDS)
-    public boolean dumpNereids = false;
+    @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
+    public boolean enableMinidump = false;
 
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
@@ -2077,12 +2077,12 @@ public class SessionVariable implements Serializable, Writable {
         return "";
     }
 
-    public boolean isDumpNereids() {
-        return dumpNereids;
+    public boolean isEnableMinidump() {
+        return enableMinidump;
     }
 
-    public void setDumpNereids(boolean dumpNereids) {
-        this.dumpNereids = dumpNereids;
+    public void setEnableMinidump(boolean enableMinidump) {
+        this.enableMinidump = enableMinidump;
     }
 
     public boolean isTraceNereids() {
