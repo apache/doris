@@ -565,8 +565,8 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
             {{STRING("1152921504606846976"), STRING("$[0]")}, Null()},        // int64
             {{STRING("6.18"), STRING("$[0]")}, Null()},                       // double
             {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},                  // string
-            {{STRING("{}"), STRING("$[0]")}, Null()},                         // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[0]")}, Null()}, // object
+            {{STRING("{}"), STRING("$[0]")}, STRING("{}")},                         // empty object
+            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[0]")}, STRING(R"({"k1":"v31", "k2": 300})")}, // object
             {{STRING("[]"), STRING("$[0]")}, Null()},                         // empty array
             {{STRING("null"), STRING("$[1]")}, Null()},
             {{STRING("true"), STRING("$[1]")}, Null()},
@@ -708,8 +708,8 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
             {{STRING("1152921504606846976"), STRING("$[0]")}, Null()},        // int64
             {{STRING("6.18"), STRING("$[0]")}, Null()},                       // double
             {{STRING(R"("abcd")"), STRING("$[0]")}, Null()},                  // string
-            {{STRING("{}"), STRING("$[0]")}, Null()},                         // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[0]")}, Null()}, // object
+            {{STRING("{}"), STRING("$[0]")}, STRING("{}")},                         // empty object
+            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[0]")}, STRING(R"({"k1":"v31", "k2": 300})")}, // object
             {{STRING("[]"), STRING("$[0]")}, Null()},                         // empty array
             {{STRING("null"), STRING("$[1]")}, Null()},
             {{STRING("true"), STRING("$[1]")}, Null()},
