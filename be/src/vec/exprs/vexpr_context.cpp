@@ -106,12 +106,12 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
     return _root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
 }
 
-doris::Status VExprContext::clone(RuntimeState* state, std::shared_ptr<VExprContext>& new_ctx) {
+doris::Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
     DCHECK(_prepared) << "expr context not prepared";
     DCHECK(_opened);
     DCHECK(new_ctx.get() == nullptr);
 
-    new_ctx.reset(VExprContext::create_unique(_root).release());
+    new_ctx = std::make_shared<VExprContext>(_root);
     for (auto& _fn_context : _fn_contexts) {
         new_ctx->_fn_contexts.push_back(_fn_context->clone());
     }
@@ -146,7 +146,7 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
     return Block::filter_block(block, result_column_id, column_to_keep);
 }
 
-Status VExprContext::filter_block(const VExprContexts& expr_contexts, Block* block,
+Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
                                   int column_to_keep) {
     if (expr_contexts.empty() || block->rows() == 0) {
         return Status::OK();
@@ -250,7 +250,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(
     return Status::OK();
 }
 
-Status VExprContext::execute_conjuncts_and_filter_block(const VExprContexts& ctxs, Block* block,
+Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
                                                         std::vector<uint32_t>& columns_to_filter,
                                                         int column_to_keep,
                                                         IColumn::Filter& filter) {

@@ -110,8 +110,8 @@ Status RowGroupReader::init(
         std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
-        const VExprContexts* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, VExprContexts>* slot_id_to_filter_conjuncts) {
+        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
     _col_name_to_slot_id = colname_to_slot_id;
@@ -916,8 +916,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             root->add_child(slot_ref_expr);
         }
     }
-    std::shared_ptr<VExprContext> rewritten_conjunct_ctx(
-            VExprContext::create_unique(root).release());
+    VExprContextSPtr rewritten_conjunct_ctx(VExprContext::create_unique(root).release());
     RETURN_IF_ERROR(rewritten_conjunct_ctx->prepare(_state, *_row_descriptor));
     RETURN_IF_ERROR(rewritten_conjunct_ctx->open(_state));
     _dict_filter_conjuncts.push_back(rewritten_conjunct_ctx);

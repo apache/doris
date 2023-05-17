@@ -108,11 +108,11 @@ public:
             const std::vector<std::string>& all_column_names,
             const std::vector<std::string>& missing_column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            const VExprContexts& conjuncts, const TupleDescriptor* tuple_descriptor,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
-            const VExprContexts* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContexts>* slot_id_to_filter_conjuncts,
+            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             bool filter_groups = true);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
@@ -261,7 +261,7 @@ private:
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
     const std::unordered_map<std::string, int>* _colname_to_slot_id;
-    const VExprContexts* _not_single_slot_filter_conjuncts;
-    const std::unordered_map<int, VExprContexts>* _slot_id_to_filter_conjuncts;
+    const VExprContextSPtrs* _not_single_slot_filter_conjuncts;
+    const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
 };
 } // namespace doris::vectorized

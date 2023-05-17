@@ -70,7 +70,7 @@ Status VMetaScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VMetaScanner::prepare(RuntimeState* state, const VExprContexts& conjuncts) {
+Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << "VMetaScanner::prepare";
     RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);

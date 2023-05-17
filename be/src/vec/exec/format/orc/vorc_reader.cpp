@@ -241,7 +241,7 @@ Status OrcReader::_create_file_reader() {
 
 Status OrcReader::init_reader(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        VExprContexts& conjuncts) {
+        VExprContextSPtrs& conjuncts) {
     _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.conjuncts = &conjuncts;
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);

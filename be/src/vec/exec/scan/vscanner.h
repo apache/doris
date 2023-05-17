@@ -77,7 +77,7 @@ protected:
     Status _filter_output_block(Block* block);
 
     // Not virtual, all child will call this method explictly
-    Status prepare(RuntimeState* state, const VExprContexts& conjuncts);
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
 public:
     VScanNode* get_parent() { return _parent; }
@@ -171,13 +171,13 @@ protected:
     int _total_rf_num = 0;
     // Cloned from _conjuncts of scan node.
     // It includes predicate in SQL and runtime filters.
-    VExprContexts _conjuncts;
+    VExprContextSPtrs _conjuncts;
 
-    VExprContexts _common_expr_ctxs_push_down;
+    VExprContextSPtrs _common_expr_ctxs_push_down;
     // Late arriving runtime filters will update _conjuncts.
     // The old _conjuncts will be temporarily placed in _stale_expr_ctxs
     // and will be destroyed at the end.
-    VExprContexts _stale_expr_ctxs;
+    VExprContextSPtrs _stale_expr_ctxs;
 
     // num of rows read from scanner
     int64_t _num_rows_read = 0;

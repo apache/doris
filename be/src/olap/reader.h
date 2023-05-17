@@ -139,7 +139,7 @@ public:
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         vectorized::VExpr* remaining_vconjunct_root = nullptr;
         std::vector<vectorized::VExpr*> remaining_conjunct_roots;
-        vectorized::VExprContexts common_expr_ctxs_push_down;
+        vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
 
         // used for compaction to record row ids
         bool record_rowids = false;
@@ -154,7 +154,7 @@ public:
         // limit of rows for read_orderby_key
         size_t read_orderby_key_limit = 0;
         // filter_block arguments
-        vectorized::VExprContexts* filter_block_conjuncts;
+        vectorized::VExprContextSPtrs* filter_block_conjuncts;
 
         // for vertical compaction
         bool is_key_column_group = false;

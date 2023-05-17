@@ -61,7 +61,7 @@ NewOdbcScanner::NewOdbcScanner(RuntimeState* state, NewOdbcScanNode* parent, int
           _tuple_id(odbc_scan_node.tuple_id),
           _tuple_desc(nullptr) {}
 
-Status NewOdbcScanner::prepare(RuntimeState* state, const VExprContexts& conjuncts) {
+Status NewOdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";
     RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
 
