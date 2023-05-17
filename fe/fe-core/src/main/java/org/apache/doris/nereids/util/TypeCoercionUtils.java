@@ -939,6 +939,10 @@ public class TypeCoercionUtils {
         }
 
         // numeric
+        if (leftType.isFloatType() || leftType.isDoubleType()
+                || rightType.isFloatType() || rightType.isDoubleType()) {
+            return Optional.of(DoubleType.INSTANCE);
+        }
         if (leftType.isNumericType() && rightType.isNumericType()) {
             DataType commonType = leftType;
             for (DataType dataType : NUMERIC_PRECEDENCE) {

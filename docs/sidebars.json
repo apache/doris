@@ -312,6 +312,7 @@
                                 "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
+                                "sql-manual/sql-functions/array-functions/array_count",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"
                             ]
@@ -490,6 +491,14 @@
                                         "sql-manual/sql-functions/string-functions/regexp/not_regexp"
                                     ]
                                 }
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Struct Functions",
+                            "items": [
+                                "sql-manual/sql-functions/struct-functions/struct",
+                                "sql-manual/sql-functions/struct-functions/named_struct"
                             ]
                         },
                         {
@@ -1013,7 +1022,8 @@
                                 "sql-manual/sql-reference/Data-Types/BITMAP",
                                 "sql-manual/sql-reference/Data-Types/QUANTILE_STATE",
                                 "sql-manual/sql-reference/Data-Types/ARRAY",
-                                "sql-manual/sql-reference/Data-Types/JSONB"
+                                "sql-manual/sql-reference/Data-Types/JSONB",
+                                "sql-manual/sql-reference/Data-Types/STRUCT"
                             ]
                         },
                         {

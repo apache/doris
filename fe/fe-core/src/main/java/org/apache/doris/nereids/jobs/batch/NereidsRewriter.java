@@ -67,13 +67,13 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
-import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinCommute;
-import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
-import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
+import org.apache.doris.nereids.rules.rewrite.logical.TransposeSemiJoinAgg;
+import org.apache.doris.nereids.rules.rewrite.logical.TransposeSemiJoinAggProject;
+import org.apache.doris.nereids.rules.rewrite.logical.TransposeSemiJoinLogicalJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.TransposeSemiJoinLogicalJoinProject;
 
 import com.google.common.collect.ImmutableList;
 
@@ -183,10 +183,10 @@ public class NereidsRewriter extends BatchRewriteJob {
                 // pushdown SEMI Join
                 bottomUp(
                     new SemiJoinCommute(),
-                    new SemiJoinLogicalJoinTranspose(),
-                    new SemiJoinLogicalJoinTransposeProject(),
-                    new SemiJoinAggTranspose(),
-                    new SemiJoinAggTransposeProject()
+                    new TransposeSemiJoinLogicalJoin(),
+                    new TransposeSemiJoinLogicalJoinProject(),
+                    new TransposeSemiJoinAgg(),
+                    new TransposeSemiJoinAggProject()
                 ),
 
                 topDown(

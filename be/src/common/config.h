@@ -141,6 +141,11 @@ DECLARE_mInt64(mmap_threshold); // bytes
 // Increase can reduce the number of hash table resize, but may waste more memory.
 DECLARE_mInt32(hash_table_double_grow_degree);
 
+// The max fill rate for hash table
+DECLARE_mInt32(max_fill_rate);
+
+DECLARE_mInt32(double_resize_threshold);
+
 // Expand the hash table before inserting data, the maximum expansion size.
 // There are fewer duplicate keys, reducing the number of resize hash tables
 // There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
@@ -957,6 +962,7 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DECLARE_String(file_cache_path);
+DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);

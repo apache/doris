@@ -30,7 +30,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-class SemiJoinLogicalJoinTransposeProjectTest implements MemoPatternMatchSupported {
+class TransposeSemiJoinLogicalJoinProjectTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private static final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
@@ -53,7 +53,7 @@ class SemiJoinLogicalJoinTransposeProjectTest implements MemoPatternMatchSupport
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .applyTopDown(new SemiJoinLogicalJoinTransposeProject())
+                .applyTopDown(new TransposeSemiJoinLogicalJoinProject())
                 .matchesFromRoot(
                         logicalProject(
                                 innerLogicalJoin(
@@ -85,7 +85,7 @@ class SemiJoinLogicalJoinTransposeProjectTest implements MemoPatternMatchSupport
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .applyTopDown(new SemiJoinLogicalJoinTransposeProject())
+                .applyTopDown(new TransposeSemiJoinLogicalJoinProject())
                 .matchesFromRoot(
                         logicalProject(
                                 logicalJoin(
