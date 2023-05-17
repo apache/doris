@@ -70,6 +70,7 @@ public class PlanPostProcessors {
         builder.add(new Validator());
         builder.add(new TopNScanOpt());
         builder.add(new TwoPhaseReadOpt());
+        builder.add(new MoveOlapTableSinkUp());
         return builder.build();
     }
 }
