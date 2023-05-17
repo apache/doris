@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HivePartition;
@@ -48,6 +49,8 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.BlockLocation;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.logging.log4j.LogManager;
@@ -103,7 +106,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
         if (hmsTable.isHiveTransactionalTable()) {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
-                    ConnectContext.get().getQualifiedUser(), hmsTable);
+                    ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
         }
     }
@@ -187,10 +190,48 @@ public class HiveScanNode extends FileQueryScanNode {
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                     allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
                             status.getBlockLocations(), status.getLength(), status.getModificationTime(),
-                            isSplittable, fileCacheValue.getPartitionValues()));
+                            isSplittable, fileCacheValue.getPartitionValues(), fileCacheValue.getAcidInfo()));
                 }
             }
         }
+    }
+
+    private List<Split> splitFile(Path path, long blockSize, BlockLocation[] blockLocations, long length,
+            long modificationTime, boolean splittable, List<String> partitionValues, AcidInfo acidInfo)
+            throws IOException {
+        if (blockLocations == null) {
+            blockLocations = new BlockLocation[0];
+        }
+        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
+        if (splitSize <= 0) {
+            splitSize = blockSize;
+        }
+        // Min split size is DEFAULT_SPLIT_SIZE(128MB).
+        splitSize = Math.max(splitSize, DEFAULT_SPLIT_SIZE);
+        List<Split> result = Lists.newArrayList();
+        if (!splittable) {
+            LOG.debug("Path {} is not splittable.", path);
+            String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
+            result.add(new HiveSplit(path, 0, length, length, modificationTime, hosts, partitionValues, acidInfo));
+            return result;
+        }
+        long bytesRemaining;
+        for (bytesRemaining = length; (double) bytesRemaining / (double) splitSize > 1.1D;
+                bytesRemaining -= splitSize) {
+            int location = getBlockIndex(blockLocations, length - bytesRemaining);
+            String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
+            result.add(new HiveSplit(path, length - bytesRemaining, splitSize,
+                    length, modificationTime, hosts, partitionValues, acidInfo));
+        }
+        if (bytesRemaining != 0L) {
+            int location = getBlockIndex(blockLocations, length - bytesRemaining);
+            String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
+            result.add(new HiveSplit(path, length - bytesRemaining, bytesRemaining,
+                    length, modificationTime, hosts, partitionValues, acidInfo));
+        }
+
+        LOG.debug("Path {} includes {} splits.", path, result.size());
+        return result;
     }
 
     private List<FileCacheValue> getFileSplitByTransaction(HiveMetaStoreCache cache, List<HivePartition> partitions) {
@@ -203,7 +244,7 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
-        return cache.getFilesByTransaction(partitions, validWriteIds);
+        return cache.getFilesByTransaction(partitions, validWriteIds, hiveTransaction.isFullAcid());
     }
 
     @Override

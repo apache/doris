@@ -248,7 +248,7 @@ public class FileScanNode extends ExternalScanNode {
         return result;
     }
 
-    private int getBlockIndex(BlockLocation[] blkLocations, long offset) {
+    protected int getBlockIndex(BlockLocation[] blkLocations, long offset) {
         if (blkLocations == null || blkLocations.length == 0) {
             return -1;
         }

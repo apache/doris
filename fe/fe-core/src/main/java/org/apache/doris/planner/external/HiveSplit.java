@@ -17,19 +17,33 @@
 
 package org.apache.doris.planner.external;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    TRANSACTIONAL_HIVE("transactional_hive");
+import org.apache.doris.datasource.hive.AcidInfo;
 
-    private final String tableFormatType;
+import org.apache.hadoop.fs.Path;
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
+import java.util.List;
+
+public class HiveSplit extends FileSplit {
+
+    public HiveSplit(Path path, long start, long length, long fileLength,
+            long modificationTime, String[] hosts, List<String> partitionValues, AcidInfo acidInfo) {
+        super(path, start, length, fileLength, modificationTime, hosts, partitionValues);
+        this.acidInfo = acidInfo;
     }
 
-    public String value() {
-        return tableFormatType;
+    public HiveSplit(Path path, long start, long length, long fileLength, String[] hosts, AcidInfo acidInfo) {
+        super(path, start, length, fileLength, hosts, null);
+        this.acidInfo = acidInfo;
+    }
+
+    @Override
+    public Object getInfo() {
+        return acidInfo;
+    }
+
+    private AcidInfo acidInfo;
+
+    public boolean isACID() {
+        return acidInfo != null;
     }
 }

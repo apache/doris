@@ -60,6 +60,7 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
@@ -610,16 +611,29 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
+            std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
+                    _profile, _state, _params, range, _file_col_names,
+                    _state->query_options().batch_size, _state->timezone(), _io_ctx.get(),
+                    _state->query_options().enable_orc_lazy_mat);
             if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
                 _discard_conjuncts();
             }
-            _cur_reader = OrcReader::create_unique(
-                    _profile, _state, _params, range, _file_col_names,
-                    _state->query_options().batch_size, _state->timezone(), _io_ctx.get(),
-                    _state->query_options().enable_orc_lazy_mat);
-            init_status = ((OrcReader*)(_cur_reader.get()))
-                                  ->init_reader(_colname_to_value_range, _push_down_expr);
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "transactional_hive") {
+                std::unique_ptr<TransactionalHiveReader> tran_orc_reader =
+                        TransactionalHiveReader::create_unique(std::move(orc_reader), _profile,
+                                                               _state, _params, range,
+                                                               _io_ctx.get());
+                init_status = tran_orc_reader->init_reader(_file_col_names, _colname_to_value_range,
+                                                           _push_down_expr);
+                RETURN_IF_ERROR(tran_orc_reader->init_row_filters(range));
+                _cur_reader = std::move(tran_orc_reader);
+            } else {
+                init_status = orc_reader->init_reader(&_file_col_names, _colname_to_value_range,
+                                                      _push_down_expr, false);
+                _cur_reader = std::move(orc_reader);
+            }
             break;
         }
         case TFileFormatType::FORMAT_CSV_PLAIN:

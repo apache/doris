@@ -345,6 +345,8 @@ set(VEC_FILES
   exec/format/json/new_json_reader.cpp
   exec/format/table/table_format_reader.cpp
   exec/format/table/iceberg_reader.cpp
+  exec/format/table/transactional_hive_common.cpp
+  exec/format/table/transactional_hive_reader.cpp
   exec/format/file_reader/new_plain_text_line_reader.cpp
   exec/format/file_reader/new_plain_binary_line_reader.cpp
   exec/format/parquet/delta_bit_pack_decoder.cpp
