@@ -173,10 +173,8 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
     if (size > 4294967296) { // 4G
         _stop_consume = true;
         LOG(WARNING) << fmt::format("MemHook alloc large memory: {}.", size);
-        if (config::memory_debug) {
-            doris::MemTrackerLimiter::print_log_process_usage(
-                    fmt::format("MemHook alloc large memory: {}.", size));
-        }
+        doris::MemTrackerLimiter::print_log_process_usage(
+                fmt::format("MemHook alloc large memory: {}.", size));
         _stop_consume = false;
     }
 }
