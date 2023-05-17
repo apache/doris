@@ -235,7 +235,7 @@ public:
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
-    OpentelemetrySpan get_next_span() { return _get_next_span; }
+    OpentelemetrySpan get_next_span() { return _span; }
 
     virtual std::string get_name();
 
@@ -289,13 +289,8 @@ protected:
     RuntimeProfile::Counter* _memory_used_counter;
     RuntimeProfile::Counter* _projection_timer;
 
-    /// Since get_next is a frequent operation, it is not necessary to generate a span for each call
-    /// to the get_next method. Therefore, the call of the get_next method in the ExecNode is
-    /// merged into this _get_next_span. The _get_next_span is initialized by
-    /// INIT_AND_SCOPE_GET_NEXT_SPAN when the get_next method is called for the first time
-    /// (recording the start timestamp), and is ended by RETURN_IF_ERROR_AND_CHECK_SPAN after the
-    /// last call to the get_next method (the record is terminated timestamp).
-    OpentelemetrySpan _get_next_span;
+    //
+    OpentelemetrySpan _span;
 
     // Execution options that are determined at runtime.  This is added to the
     // runtime profile at close().  Examples for options logged here would be

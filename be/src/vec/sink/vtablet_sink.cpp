@@ -1098,7 +1098,6 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
 }
 
 Status VOlapTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
     SCOPED_TIMER(_profile->total_time_counter());
@@ -1255,7 +1254,6 @@ void VOlapTableSink::_generate_row_distribution_payload(
 }
 
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -1373,7 +1371,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return _close_status;
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::close");
     vectorized::VExpr::close(_output_vexpr_ctxs, state);
     Status status = exec_status;
     if (status.ok()) {
