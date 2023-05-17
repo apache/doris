@@ -95,6 +95,12 @@ public class S3Storage extends BlobStorage {
     public void setProperties(Map<String, String> properties) {
         super.setProperties(properties);
         caseInsensitiveProperties.putAll(properties);
+        try {
+            checkS3(caseInsensitiveProperties);
+        } catch (UserException e) {
+            String msg = e.getMessage() + " Make sure you view the correct version of documentation.";
+            throw new IllegalArgumentException(msg, e);
+        }
         // Virtual hosted-style is recommended in the s3 protocol.
         // The path-style has been abandoned, but for some unexplainable reasons,
         // the s3 client will determine whether the endpiont starts with `s3`
