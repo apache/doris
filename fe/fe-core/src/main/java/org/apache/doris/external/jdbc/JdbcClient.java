@@ -229,7 +229,7 @@ public class JdbcClient {
                     if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(db)) {
                         continue;
                     }
-                    if (!includeDatabaseMap.isEmpty() && includeDatabaseMap.containsKey(db)) {
+                    if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(db)) {
                         continue;
                     }
                     databaseNames.add(db);
@@ -250,10 +250,10 @@ public class JdbcClient {
         try {
             switch (dbType) {
                 case JdbcResource.MYSQL:
-                case JdbcResource.CLICKHOUSE:
                 case JdbcResource.OCEANBASE:
                     databaseNames.add(conn.getCatalog());
                     break;
+                case JdbcResource.CLICKHOUSE:
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
                 case JdbcResource.SQLSERVER:
