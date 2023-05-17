@@ -536,21 +536,18 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
             // take the ownership of _cur_iter_ctx.
             std::unique_ptr<VerticalMergeIteratorContext> ctx(_cur_iter_ctx.release());
             // push next iterator in same rowset into heap
-            auto cur_order = ctx->order();
-            while (cur_order + 1 < _iterator_init_flags.size()) {
-                auto& next_iter = _origin_iters[cur_order + 1];
+            for (auto cur_order = ctx->order() + 1; cur_order < _iterator_init_flags.size();
+                 cur_order++) {
+                auto& next_iter = _origin_iters[cur_order];
                 std::unique_ptr<VerticalMergeIteratorContext> next_ctx(
-                        new VerticalMergeIteratorContext(
-                                std::move(next_iter), _rowset_ids[cur_order + 1], _ori_return_cols,
-                                cur_order + 1, _seq_col_idx));
+                        new VerticalMergeIteratorContext(std::move(next_iter),
+                                                         _rowset_ids[cur_order], _ori_return_cols,
+                                                         cur_order, _seq_col_idx));
                 RETURN_IF_ERROR(next_ctx->init(_opts));
-                if (!next_ctx->valid()) {
-                    // next_ctx is empty segment, move to next
-                    ++cur_order;
-                    continue;
+                if (next_ctx->valid()) {
+                    _cur_iter_ctx.swap(next_ctx);
+                    break;
                 }
-                _cur_iter_ctx.swap(next_ctx);
-                break;
             }
             // ctx resource will release automated.
         }
