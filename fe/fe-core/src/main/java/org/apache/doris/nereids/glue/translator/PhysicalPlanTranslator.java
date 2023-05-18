@@ -28,6 +28,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -272,31 +273,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!(physicalPlan instanceof PhysicalOlapTableSink) && isFragmentPartitioned(rootFragment)) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
-        List<Expr> outputExprs = Lists.newArrayList();
-        if (physicalPlan instanceof PhysicalOlapTableSink) {
-            PhysicalOlapTableSink<?> sink = ((PhysicalOlapTableSink<?>) physicalPlan);
-            // cols and outputExprs is in a corresponding order.
-            int outputIdx = 0;
-            List<Slot> outputSlots = sink.getOutput();
-            Set<Column> outputColumns = Sets.newHashSet(sink.getCols());
-            try {
-                for (Column column : sink.getTargetTable().getFullSchema()) {
-                    Expr expr;
-                    if (outputColumns.contains(column)) {
-                        expr = context.findSlotRef(outputSlots.get(outputIdx++).getExprId());
-                    } else {
-                        expr = new StringLiteral(column.getDefaultValue());
-                    }
-                    outputExprs.add(expr.checkTypeCompatibility(column.getType()));
-                }
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
-            }
-        } else {
+
+        if (!(physicalPlan instanceof PhysicalOlapTableSink)) {
+            List<Expr> outputExprs = Lists.newArrayList();
             physicalPlan.getOutput().stream().map(Slot::getExprId)
                     .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+            rootFragment.setOutputExprs(outputExprs);
         }
-        rootFragment.setOutputExprs(outputExprs);
         rootFragment.getPlanRoot().convertToVectorized();
         for (PlanFragment fragment : context.getPlanFragments()) {
             fragment.finalize(null);
@@ -311,11 +294,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
             PlanTranslatorContext context) {
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
-        TupleDescriptor tupleDescriptor = generateTupleDesc(olapTableSink.getOutput(), null, context);
+
+        TupleDescriptor olapTuple = context.generateTupleDesc();
+        for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
+            SlotDescriptor slotDesc = context.addSlotDesc(olapTuple);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setType(column.getType());
+            slotDesc.setColumn(column);
+            slotDesc.setIsNullable(column.isAllowNull());
+        }
 
         OlapTableSink sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),
-                tupleDescriptor,
+                olapTuple,
                 olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
         );
@@ -337,7 +328,34 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setDataPartition(DataPartition.hashPartitioned(specHash
                 .getOrderedShuffledColumns().stream().map(context::findSlotRef).collect(Collectors.toList())));
 
+        Map<Column, Slot> columnToSlots = Maps.newHashMap();
+        Preconditions.checkArgument(olapTableSink.getOutput().size() == olapTableSink.getCols().size(),
+                "this is a bug in insert into command");
+        for (int i = 0; i < olapTableSink.getCols().size(); ++i) {
+            columnToSlots.put(olapTableSink.getCols().get(i), olapTableSink.getOutput().get(i));
+        }
+        List<Expr> outputExprs = Lists.newArrayList();
+        try {
+            for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
+                if (columnToSlots.containsKey(column)) {
+                    ExprId exprId = columnToSlots.get(column).getExprId();
+                    outputExprs.add(context.findSlotRef(exprId).checkTypeCompatibility(column.getType()));
+                } else if (column.getDefaultValue() == null) {
+                    outputExprs.add(NullLiteral.create(column.getType()));
+                } else {
+                    if (column.getDefaultValueExprDef() != null) {
+                        outputExprs.add(column.getDefaultValueExpr());
+                    } else {
+                        StringLiteral defaultValueExpr = new StringLiteral(column.getDefaultValue());
+                        outputExprs.add(defaultValueExpr.checkTypeCompatibility(column.getType()));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
         rootFragment.finalize(null);
+        rootFragment.setOutputExprs(outputExprs);
         return rootFragment;
     }
 
