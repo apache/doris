@@ -27,7 +27,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
-import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.ArrayListMultimap;
