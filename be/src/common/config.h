@@ -116,8 +116,6 @@ DECLARE_String(memory_mode);
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-// `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G).
-// 6.4G is the maximum memory reserved for the system by default.
 DECLARE_String(mem_limit);
 
 // Soft memory limit as a fraction of hard memory limit.
@@ -581,7 +579,7 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
-DECLARE_mInt32(memory_gc_sleep_time_s);
+DECLARE_mInt32(memory_gc_sleep_time_ms);
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 DECLARE_mInt64(load_channel_memory_refresh_sleep_time_ms);
