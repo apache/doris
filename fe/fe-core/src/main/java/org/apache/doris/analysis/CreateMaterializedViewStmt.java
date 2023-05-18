@@ -385,34 +385,31 @@ public class CreateMaterializedViewStmt extends DdlStmt {
              * column: k4... kn. The key is false, aggregation type is none, isAggregationTypeImplicit is true.
              */
             int theBeginIndexOfValue = 0;
-            if (!Config.experimental_enable_duplicate_without_keys_by_default) {
-                // supply key
-                int keySizeByte = 0;
-                for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
-                    MVColumnItem column = mvColumnItemList.get(theBeginIndexOfValue);
-                    keySizeByte += column.getType().getIndexSize();
-                    if (theBeginIndexOfValue + 1 > FeConstants.shortkey_max_column_count
-                            || keySizeByte > FeConstants.shortkey_maxsize_bytes) {
-                        if (theBeginIndexOfValue == 0 && column.getType().getPrimitiveType().isCharFamily()) {
-                            column.setIsKey(true);
-                            theBeginIndexOfValue++;
-                        }
-                        break;
-                    }
-                    if (column.getType().isFloatingPointType()) {
-                        break;
-                    }
-                    if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+            // supply key
+            int keySizeByte = 0;
+            for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
+                MVColumnItem column = mvColumnItemList.get(theBeginIndexOfValue);
+                keySizeByte += column.getType().getIndexSize();
+                if (theBeginIndexOfValue + 1 > FeConstants.shortkey_max_column_count
+                        || keySizeByte > FeConstants.shortkey_maxsize_bytes) {
+                    if (theBeginIndexOfValue == 0 && column.getType().getPrimitiveType().isCharFamily()) {
                         column.setIsKey(true);
                         theBeginIndexOfValue++;
-                        break;
                     }
+                    break;
+                }
+                if (column.getType().isFloatingPointType()) {
+                    break;
+                }
+                if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
                     column.setIsKey(true);
+                    theBeginIndexOfValue++;
+                    break;
                 }
-                if (theBeginIndexOfValue == 0) {
-                    throw new AnalysisException("The first column could not be float or double type, "
-                                        + "use decimal instead");
-                }
+                column.setIsKey(true);
+            }
+            if (theBeginIndexOfValue == 0) {
+                throw new AnalysisException("The first column could not be float or double type, use decimal instead");
             }
             // supply value
             for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
