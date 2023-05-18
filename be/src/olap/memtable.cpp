@@ -326,7 +326,7 @@ void MemTable::_aggregate() {
     std::vector<RowInBlock*> temp_row_in_blocks;
     temp_row_in_blocks.reserve(_last_sorted_pos);
     RowInBlock* prev_row;
-    int row_pos = 0;
+    int row_pos = -1;
     //only init agg if needed
     for (int i = 0; i < _row_in_blocks.size(); i++) {
         if (!temp_row_in_blocks.empty() &&
