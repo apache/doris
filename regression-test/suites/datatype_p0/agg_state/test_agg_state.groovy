@@ -63,4 +63,10 @@ suite("test_agg_state") {
     qt_merge2 """select max_by_merge(k2) from a_table;"""
     
     qt_union """ select max_by_merge(kstate) from (select k1,max_by_union(k2) kstate from a_table group by k1 order by k1) t; """
+
+
+    // nereids case
+    sql "set enable_nereids_planner=true;"
+    sql "set enable_fallback_to_original_planner=false;"
+    qt_length1 """select k1,length(k2) from a_table;"""
 }
