@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
+import org.apache.doris.nereids.types.WindowFuncType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -55,7 +56,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -285,16 +285,37 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                             logicalPartitionTopN(
                                 logicalOlapScan()
                             ).when(logicalPartitionTopN -> {
-                                String funName = logicalPartitionTopN.getFunction().toString();
+                                WindowFuncType funName = logicalPartitionTopN.getFunction();
                                 List<Expression> partitionKeys = logicalPartitionTopN.getPartitionKeys();
                                 List<OrderExpression> orderKeys = logicalPartitionTopN.getOrderKeys();
                                 boolean hasGlobalLimit = logicalPartitionTopN.hasGlobalLimit();
                                 long partitionLimit = logicalPartitionTopN.getPartitionLimit();
-                                return Objects.equals(funName, "row_number()") && partitionKeys.equals(partitionKeyList)
+                                return funName == WindowFuncType.ROW_NUMBER && partitionKeys.equals(partitionKeyList)
                                     && orderKeys.equals(orderKeyList) && hasGlobalLimit && partitionLimit == 100;
                             })
                         )
                     ).when(limit -> limit.getLimit() == 100)
+                );
+    }
+
+    @Test
+    public void testTopNPushWindow() {
+        PlanChecker.from(connectContext)
+                .analyze("select *, rank() over(partition by k2 order by k2) as num from t1 order by num limit 10;")
+                .rewrite()
+                .matches(
+                    logicalTopN(
+                        logicalWindow(
+                            logicalPartitionTopN(
+                                logicalOlapScan()
+                            ).when(logicalPartitionTopN -> {
+                                WindowFuncType funName = logicalPartitionTopN.getFunction();
+                                boolean hasGlobalLimit = logicalPartitionTopN.hasGlobalLimit();
+                                long partitionLimit = logicalPartitionTopN.getPartitionLimit();
+                                return funName == WindowFuncType.RANK && hasGlobalLimit && partitionLimit == 10;
+                            })
+                        )
+                    )
                 );
     }
 

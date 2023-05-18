@@ -166,19 +166,29 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     /**
-     * Check the window function. There are some restrictions for window function:
-     * 1. The number of window function should be 1.
-     * 2. The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
-     * 3. The window frame should be 'UNBOUNDED' to 'CURRENT'.
-     * 4. The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
-    */
-    public static boolean checkConds4PartitionTopN(List<NamedExpression> windowExprs) {
+     * pushPartitionLimitThroughWindow is used to push the partitionLimit through the window
+     * and generate the partitionTopN. If the window can not meet the requirement,
+     * it will return null. So when we use this function, we need check the null in the outside.
+     */
+    public static Plan pushPartitionLimitThroughWindow(LogicalWindow<Plan> window, long partitionLimit,
+                                                       boolean hasGlobalLimit) {
+        // We have already done such optimization rule, so just ignore it.
+        if (window.child(0) instanceof LogicalPartitionTopN) {
+            return null;
+        }
+
+        // Check the window function. There are some restrictions for window function:
+        // 1. The number of window function should be 1.
+        // 2. The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
+        // 3. The window frame should be 'UNBOUNDED' to 'CURRENT'.
+        // 4. The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
+        List<NamedExpression> windowExprs = window.getWindowExpressions();
         if (windowExprs.size() != 1) {
-            return false;
+            return null;
         }
         NamedExpression windowExpr = windowExprs.get(0);
         if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
-            return false;
+            return null;
         }
 
         WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
@@ -186,22 +196,27 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         if (!(windowFunc.getFunction() instanceof RowNumber
                 || windowFunc.getFunction() instanceof Rank
                 || windowFunc.getFunction() instanceof DenseRank)) {
-            return false;
+            return null;
         }
 
         // Check the partition key and order key.
         if (windowFunc.getPartitionKeys().isEmpty() && windowFunc.getOrderKeys().isEmpty()) {
-            return false;
+            return null;
         }
 
         // Check the window type and window frame.
         Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
         if (windowFrame.isPresent()) {
             WindowFrame frame = windowFrame.get();
-            return frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
-                && frame.getRightBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.CURRENT_ROW;
+            if (!(frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
+                    && frame.getRightBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.CURRENT_ROW)) {
+                return null;
+            }
         } else {
-            return false;
+            return null;
         }
+
+        return window.withChildren(new LogicalPartitionTopN<>(windowFunc, hasGlobalLimit, partitionLimit,
+            window.child(0)));
     }
 }

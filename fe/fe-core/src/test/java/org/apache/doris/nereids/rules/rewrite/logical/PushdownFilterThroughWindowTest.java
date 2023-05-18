@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
+import org.apache.doris.nereids.types.WindowFuncType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -43,7 +44,6 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Objects;
 
 public class PushdownFilterThroughWindowTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student,
@@ -101,12 +101,12 @@ public class PushdownFilterThroughWindowTest implements MemoPatternMatchSupporte
                                 logicalPartitionTopN(
                                     logicalOlapScan()
                                 ).when(logicalPartitionTopN -> {
-                                    String funName = logicalPartitionTopN.getFunction().toString();
+                                    WindowFuncType funName = logicalPartitionTopN.getFunction();
                                     List<Expression> partitionKeys = logicalPartitionTopN.getPartitionKeys();
                                     List<OrderExpression> orderKeys = logicalPartitionTopN.getOrderKeys();
                                     boolean hasGlobalLimit = logicalPartitionTopN.hasGlobalLimit();
                                     long partitionLimit = logicalPartitionTopN.getPartitionLimit();
-                                    return Objects.equals(funName, "row_number()") && partitionKeys.equals(partitionKeyList)
+                                    return funName == WindowFuncType.ROW_NUMBER && partitionKeys.equals(partitionKeyList)
                                         && orderKeys.equals(orderKeyList) && !hasGlobalLimit && partitionLimit == 100;
                                 })
                             )

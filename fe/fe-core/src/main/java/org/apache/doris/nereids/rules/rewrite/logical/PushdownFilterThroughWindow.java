@@ -86,16 +86,13 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
             }
 
             List<NamedExpression> windowExprs = window.getWindowExpressions();
-            if (!LogicalWindow.checkConds4PartitionTopN(windowExprs)) {
+            if (windowExprs.size() != 1) {
                 return filter;
             }
-
-            Preconditions.checkArgument(windowExprs.size() == 1);
             NamedExpression windowExpr = windowExprs.get(0);
-
-            Preconditions.checkArgument(windowExpr.children().size() == 1
-                    && (windowExpr.child(0) instanceof WindowExpression));
-            WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
+            if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
+                return filter;
+            }
 
             // Check the filter conditions. Now, we currently only support simple conditions of the form
             // 'column </ <=/ = constant'. We will extract some related conjuncts and do some check.
@@ -133,9 +130,12 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
             if (!hasPartitionLimit) {
                 return filter;
             }
-            // return PartitionTopN -> Window -> Filter
-            return filter.withChildren(window.withChildren(
-                new LogicalPartitionTopN<>(windowFunc, false, partitionLimit, window.child(0))));
+
+            Plan newWindow = LogicalWindow.pushPartitionLimitThroughWindow(window, partitionLimit, false);
+            if (newWindow == null) {
+                return filter;
+            }
+            return filter.withChildren(newWindow);
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_WINDOW);
     }
 

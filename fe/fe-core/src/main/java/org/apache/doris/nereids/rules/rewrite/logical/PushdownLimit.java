@@ -21,22 +21,18 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.UnaryNode;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -64,43 +60,31 @@ public class PushdownLimit implements RewriteRuleFactory {
                         .toRule(RuleType.PUSH_LIMIT_THROUGH_JOIN),
 
                 // limit -> window
-                logicalLimit(logicalWindow()).whenNot(Limit::hasValidOffset)
-                .then(limit -> {
-                    LogicalWindow<Plan> window = limit.child();
-
-                    // We have already done such optimization rule, so just ignore it.
-                    if (window.child(0) instanceof LogicalPartitionTopN) {
-                        return limit;
-                    }
-
-                    List<NamedExpression> windowExprs = window.getWindowExpressions();
-                    if (!LogicalWindow.checkConds4PartitionTopN(windowExprs)) {
-                        return limit;
-                    }
-
-                    Preconditions.checkArgument(windowExprs.size() == 1);
-                    NamedExpression windowExpr = windowExprs.get(0);
-
-                    Preconditions.checkArgument(windowExpr.children().size() == 1
-                            && (windowExpr.child(0) instanceof WindowExpression));
-                    WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
-
-                    return limit.withChildren(window.withChildren(
-                        new LogicalPartitionTopN<>(windowFunc, true, limit.getLimit(), window.child(0))));
-                })
-                .toRule(RuleType.PUSH_LIMIT_THROUGH_JOIN),
-
-                // limit -> project -> join
-                logicalLimit(logicalProject(logicalJoin(any(), any()))).whenNot(Limit::hasValidOffset)
+                logicalLimit(logicalWindow())
                         .then(limit -> {
-                            LogicalProject<LogicalJoin<Plan, Plan>> project = limit.child();
-                            LogicalJoin<Plan, Plan> join = project.child();
-                            Plan newJoin = pushLimitThroughJoin(limit, join);
-                            if (newJoin == null || join.children().equals(newJoin.children())) {
-                                return null;
+                            LogicalWindow<Plan> window = limit.child();
+                            long partitionLimit = limit.getLimit() + limit.getOffset();
+                            Plan newWindow = LogicalWindow.pushPartitionLimitThroughWindow(window,
+                                    partitionLimit, true);
+                            if (newWindow == null) {
+                                return limit;
                             }
-                            return limit.withChildren(project.withChildren(newJoin));
-                        }).toRule(RuleType.PUSH_LIMIT_THROUGH_PROJECT_JOIN),
+                            return limit.withChildren(newWindow);
+                        }).toRule(RuleType.PUSH_LIMIT_THROUGH_WINDOW),
+
+                // limit -> project -> window
+                logicalLimit(logicalProject(logicalWindow()))
+                        .then(limit -> {
+                            LogicalProject<LogicalWindow<Plan>> project = limit.child();
+                            LogicalWindow<Plan> window = project.child();
+                            long partitionLimit = limit.getLimit() + limit.getOffset();
+                            Plan newWindow = LogicalWindow.pushPartitionLimitThroughWindow(window,
+                                    partitionLimit, true);
+                            if (newWindow == null) {
+                                return limit;
+                            }
+                            return limit.withChildren(project.withChildren(newWindow));
+                        }).toRule(RuleType.PUSH_LIMIT_THROUGH_PROJECT_WINDOW),
 
                 // limit -> union
                 logicalLimit(logicalUnion(multi()).when(union -> union.getQualifier() == Qualifier.ALL))
