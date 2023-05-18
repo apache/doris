@@ -557,7 +557,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         } else {
             rowCount = Math.min(rowCount, partitionTopN.getPartitionLimit());
         }
-        return stats.withRowCount(rowCount);
+        // TODO: for the filter push down window situation, we will prune the row count twice
+        //  because we keep the pushed down filter. And it will be calculated twice, one of them in 'PartitionTopN'
+        //  and the other is in 'Filter'. It's hard to dismiss.
+        return stats.updateRowCountOnly(rowCount);
     }
 
     private Statistics computeLimit(Limit limit) {
