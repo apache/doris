@@ -188,6 +188,19 @@ std::string MemTrackerLimiter::type_log_usage(MemTracker::Snapshot snapshot) {
                        print_bytes(snapshot.peak_consumption), snapshot.peak_consumption);
 }
 
+std::string MemTrackerLimiter::type_detail_usage(const std::string& msg, Type type) {
+    std::string detail = fmt::format("{}, Type:{}, Memory Tracker Summary", msg, type_string(type));
+    for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
+        std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
+        for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
+            if (tracker->type() == type) {
+                detail += "\n    " + MemTrackerLimiter::log_usage(tracker->make_snapshot());
+            }
+        }
+    }
+    return detail;
+}
+
 void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     if (_enable_print_log_usage) {
         _enable_print_log_usage = false;

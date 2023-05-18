@@ -189,7 +189,7 @@ void Daemon::memory_maintenance_thread() {
     int64_t last_print_proc_mem = PerfCounters::get_vm_rss();
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
-        if (!MemInfo::initialized()) {
+        if (!MemInfo::initialized() || !ExecEnv::GetInstance()->initialized()) {
             continue;
         }
         // Refresh process memory metrics.
@@ -214,10 +214,6 @@ void Daemon::memory_maintenance_thread() {
 #endif
             LOG(INFO) << MemTrackerLimiter::
                             process_mem_log_str(); // print mem log when memory state by 100M
-            if (doris::config::memory_debug) {
-                LOG_EVERY_N(INFO, 10)
-                        << doris::MemTrackerLimiter::log_process_usage_str("memory debug", false);
-            }
         }
     }
 }

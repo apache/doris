@@ -746,9 +746,6 @@ DECLARE_Int32(aws_log_level);
 // the buffer size when read data from remote storage like s3
 DECLARE_mInt32(remote_storage_read_buffer_mb);
 
-// Print more detailed logs, more detailed records, etc.
-DECLARE_mBool(memory_debug);
-
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
