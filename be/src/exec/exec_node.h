@@ -269,7 +269,7 @@ protected:
     vectorized::Block _origin_block;
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
-    std::vector<doris::vectorized::VExprContext*> _projections;
+    std::vector<std::shared_ptr<vectorized::VExprContext>> _projections;
 
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;

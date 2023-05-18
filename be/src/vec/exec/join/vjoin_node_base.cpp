@@ -183,8 +183,8 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
                                            ? tnode.hash_join_node.srcExprList
                                            : tnode.nested_loop_join_node.srcExprList;
         for (const auto& expr : output_exprs) {
-            VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, expr, &ctx));
+            VExprContextSPtr ctx;
+            RETURN_IF_ERROR(VExpr::create_expr_tree(expr, ctx));
             _output_expr_ctxs.push_back(ctx);
         }
     }

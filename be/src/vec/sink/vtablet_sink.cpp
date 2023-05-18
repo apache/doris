@@ -965,7 +965,7 @@ VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs, Status* status)
         : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
     // From the thrift expressions create the real exprs.
-    *status = vectorized::VExpr::create_expr_trees(pool, texprs, &_output_vexpr_ctxs);
+    *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
     _name = "VOlapTableSink";
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }

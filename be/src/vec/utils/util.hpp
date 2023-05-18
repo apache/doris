@@ -91,6 +91,7 @@ public:
         }
         return data_types;
     }
+<<<<<<< HEAD
 
     static VExpr* dfs_peel_conjunct(RuntimeState* state, VExprContext* context, VExpr* expr,
                                     int& leaf_index, std::function<bool(int)> checker) {
@@ -129,6 +130,8 @@ public:
         }
         return true;
     }
+=======
+>>>>>>> b9f5b60cc4 ([refactor] use shared_ptr of VExpr/VExprContext)
 };
 
 } // namespace doris::vectorized

@@ -353,7 +353,7 @@ bool VScanNode::runtime_filters_are_ready_or_timeout() {
 
 Status VScanNode::_acquire_runtime_filter(bool wait) {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
-    std::vector<VExpr*> vexprs;
+    VExprSPtrs vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         bool ready = runtime_filter->is_ready();
@@ -380,13 +380,13 @@ Status VScanNode::_acquire_runtime_filter(bool wait) {
     return Status::OK();
 }
 
-Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
+Status VScanNode::_append_rf_into_conjuncts(const VExprSPtrs& vexprs) {
     if (vexprs.empty()) {
         return Status::OK();
     }
 
     for (auto& expr : vexprs) {
-        VExprContextSPtr conjunct(VExprContext::create_unique(expr).release());
+        VExprContextSPtr conjunct = VExprContext::create_shared(expr);
         RETURN_IF_ERROR(conjunct->prepare(_state, _row_descriptor));
         RETURN_IF_ERROR(conjunct->open(_state));
         _rf_vexpr_set.insert(expr);
@@ -494,8 +494,8 @@ Status VScanNode::_normalize_conjuncts() {
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {
-            VExpr* new_root;
-            RETURN_IF_ERROR(_normalize_predicate(conjunct->root(), conjunct.get(), &new_root));
+            VExprSPtr new_root;
+            RETURN_IF_ERROR(_normalize_predicate(conjunct->root(), conjunct.get(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
                 if (_should_push_down_common_expr()) {
@@ -525,29 +525,30 @@ Status VScanNode::_normalize_conjuncts() {
     return Status::OK();
 }
 
-Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExprContext* context,
-                                       VExpr** output_expr) {
-    static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
-    auto in_predicate_checker = [](const std::vector<VExpr*>& children, const VSlotRef** slot,
-                                   VExpr** child_contains_slot) {
+Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExprContext* context,
+                                       VExprSPtr& output_expr) {
+    static constexpr auto is_leaf = [](auto&& expr) { return !expr->is_and_expr(); };
+    auto in_predicate_checker = [](const VExprSPtrs& children, std::shared_ptr<VSlotRef>& slot,
+                                   VExprSPtr& child_contains_slot) {
         if (children.empty() ||
             VExpr::expr_without_cast(children[0])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
             return false;
         }
-        *slot = reinterpret_cast<const VSlotRef*>(VExpr::expr_without_cast(children[0]));
-        *child_contains_slot = children[0];
+        slot = std::dynamic_pointer_cast<VSlotRef>(VExpr::expr_without_cast(children[0]));
+        child_contains_slot = children[0];
         return true;
     };
-    auto eq_predicate_checker = [](const std::vector<VExpr*>& children, const VSlotRef** slot,
-                                   VExpr** child_contains_slot) {
-        for (const VExpr* child : children) {
+    auto eq_predicate_checker = [](const VExprSPtrs& children, std::shared_ptr<VSlotRef>& slot,
+                                   VExprSPtr& child_contains_slot) {
+        for (const auto& child : children) {
             if (VExpr::expr_without_cast(child)->node_type() != TExprNodeType::SLOT_REF) {
                 // not a slot ref(column)
                 continue;
             }
-            *slot = reinterpret_cast<const VSlotRef*>(VExpr::expr_without_cast(child));
-            *child_contains_slot = const_cast<VExpr*>(child);
+            slot = std::dynamic_pointer_cast<VSlotRef>(VExpr::expr_without_cast(child));
+            CHECK(slot != nullptr);
+            child_contains_slot = child;
             return true;
         }
         return false;
@@ -557,15 +558,15 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExprContext* 
         if (is_leaf(conjunct_expr_root)) {
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
-            VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
-            bool is_runtimer_filter_predicate =
+            auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+            bool _is_runtime_filter_predicate =
                     _rf_vexpr_set.find(conjunct_expr_root) != _rf_vexpr_set.end();
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
             RETURN_IF_ERROR(_eval_const_conjuncts(cur_expr, context, &pdt));
             if (pdt == PushDownType::ACCEPTABLE) {
-                *output_expr = nullptr;
+                output_expr = nullptr;
                 return Status::OK();
             }
             if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
@@ -574,7 +575,7 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExprContext* 
                         [&](auto& value_range) {
                             Defer mark_runtime_filter_flag {[&]() {
                                 value_range.mark_runtime_filter_predicate(
-                                        is_runtimer_filter_predicate);
+                                        _is_runtime_filter_predicate);
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
                                     cur_expr, context, slot, value_range, &pdt));
@@ -602,31 +603,31 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExprContext* 
 
             if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, context, &pdt, is_runtimer_filter_predicate,
+                _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
                                               in_predicate_checker, eq_predicate_checker);
-                *output_expr = conjunct_expr_root; // remaining in conjunct tree
+                output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
 
             if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
-                *output_expr = nullptr;
+                output_expr = nullptr;
                 return Status::OK();
             } else {
                 // for PARTIAL_ACCEPTABLE and UNACCEPTABLE, do not remove expr from the tree
-                *output_expr = conjunct_expr_root;
+                output_expr = conjunct_expr_root;
                 return Status::OK();
             }
         } else {
-            VExpr* left_child;
+            VExprSPtr left_child;
             RETURN_IF_ERROR(
-                    _normalize_predicate(conjunct_expr_root->children()[0], context, &left_child));
-            VExpr* right_child;
+                    _normalize_predicate(conjunct_expr_root->children()[0], context, left_child));
+            VExprSPtr right_child;
             RETURN_IF_ERROR(
-                    _normalize_predicate(conjunct_expr_root->children()[1], context, &right_child));
+                    _normalize_predicate(conjunct_expr_root->children()[1], context, right_child));
 
             if (left_child != nullptr && right_child != nullptr) {
                 conjunct_expr_root->set_children({left_child, right_child});
-                *output_expr = conjunct_expr_root;
+                output_expr = conjunct_expr_root;
                 return Status::OK();
             } else {
                 if (left_child == nullptr) {
@@ -643,11 +644,11 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExprContext* 
             }
 
             // here do not close VExpr* now
-            *output_expr = left_child != nullptr ? left_child : right_child;
+            output_expr = left_child != nullptr ? left_child : right_child;
             return Status::OK();
         }
     }
-    *output_expr = conjunct_expr_root;
+    output_expr = conjunct_expr_root;
     return Status::OK();
 }
 
@@ -685,7 +686,7 @@ Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ct
     VExpr* fn_expr = expr;
     if (TExprNodeType::COMPOUND_PRED == expr->node_type() &&
         expr->fn().name.function_name == "not") {
-        fn_expr = fn_expr->children()[0];
+        fn_expr = fn_expr->children()[0].get();
         opposite = true;
     }
 
@@ -706,11 +707,12 @@ Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ct
 
 bool VScanNode::_is_predicate_acting_on_slot(
         VExpr* expr,
-        const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>& checker,
+        const std::function<bool(const VExprSPtrs&, std::shared_ptr<VSlotRef>&, VExprSPtr&)>&
+                checker,
         SlotDescriptor** slot_desc, ColumnValueRangeType** range) {
-    const VSlotRef* slot_ref = nullptr;
-    VExpr* child_contains_slot = nullptr;
-    if (!checker(expr->children(), &slot_ref, &child_contains_slot)) {
+    std::shared_ptr<VSlotRef> slot_ref;
+    VExprSPtr child_contains_slot;
+    if (!checker(expr->children(), slot_ref, child_contains_slot)) {
         // not a slot ref(column)
         return false;
     }
@@ -724,7 +726,7 @@ bool VScanNode::_is_predicate_acting_on_slot(
     if (child_contains_slot->type().type != (*slot_desc)->type().type ||
         child_contains_slot->type().precision != (*slot_desc)->type().precision ||
         child_contains_slot->type().scale != (*slot_desc)->type().scale) {
-        if (!ignore_cast(*slot_desc, child_contains_slot)) {
+        if (!ignore_cast(*slot_desc, child_contains_slot.get())) {
             // the type of predicate not match the slot's type
             return false;
         }
@@ -746,7 +748,7 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
         if (const ColumnConst* const_column =
                     check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
-            if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
+            if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                 *pdt = PushDownType::ACCEPTABLE;
                 _eos = true;
             }
@@ -763,7 +765,7 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
             DCHECK_EQ(bool_column->size(), 1);
             if (bool_column->size() == 1) {
                 constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
-                if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
+                if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                     *pdt = PushDownType::ACCEPTABLE;
                     _eos = true;
                 }
@@ -1046,16 +1048,16 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
 
 Status VScanNode::_normalize_compound_predicate(
         vectorized::VExpr* expr, VExprContext* expr_ctx, PushDownType* pdt,
-        bool is_runtimer_filter_predicate,
-        const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
+        bool _is_runtime_filter_predicate,
+        const std::function<bool(const VExprSPtrs&, std::shared_ptr<VSlotRef>&, VExprSPtr&)>&
                 in_predicate_checker,
-        const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
+        const std::function<bool(const VExprSPtrs&, std::shared_ptr<VSlotRef>&, VExprSPtr&)>&
                 eq_predicate_checker) {
     if (TExprNodeType::COMPOUND_PRED == expr->node_type()) {
         auto compound_fn_name = expr->fn().name.function_name;
         auto children_num = expr->children().size();
         for (auto i = 0; i < children_num; ++i) {
-            VExpr* child_expr = expr->children()[i];
+            auto child_expr = expr->children()[i].get();
             if (TExprNodeType::BINARY_PRED == child_expr->node_type()) {
                 SlotDescriptor* slot = nullptr;
                 ColumnValueRangeType* range_on_slot = nullptr;
@@ -1069,7 +1071,7 @@ Status VScanNode::_normalize_compound_predicate(
                             [&](auto& value_range) {
                                 Defer mark_runtime_filter_flag {[&]() {
                                     value_range.mark_runtime_filter_predicate(
-                                            is_runtimer_filter_predicate);
+                                            _is_runtime_filter_predicate);
                                 }};
                                 _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
                                                                         value_range, pdt);
@@ -1091,7 +1093,7 @@ Status VScanNode::_normalize_compound_predicate(
                             [&](auto& value_range) {
                                 Defer mark_runtime_filter_flag {[&]() {
                                     value_range.mark_runtime_filter_predicate(
-                                            is_runtimer_filter_predicate);
+                                            _is_runtime_filter_predicate);
                                 }};
                                 _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
                                                                        value_range, pdt);
@@ -1102,7 +1104,7 @@ Status VScanNode::_normalize_compound_predicate(
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
                 _normalize_compound_predicate(child_expr, expr_ctx, pdt,
-                                              is_runtimer_filter_predicate, in_predicate_checker,
+                                              _is_runtime_filter_predicate, in_predicate_checker,
                                               eq_predicate_checker);
             }
         }
@@ -1294,15 +1296,15 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
     }
 
     // 1. Check if are runtime filter ready but not applied.
-    std::vector<VExpr*> exprs;
+    VExprSPtrs exprs;
     int current_arrived_rf_num = 0;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         if (_runtime_filter_ctxs[i].apply_mark) {
             ++current_arrived_rf_num;
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
-            _runtime_filter_ctxs[i].runtime_filter->get_prepared_vexprs(&exprs, _row_descriptor,
-                                                                        _state);
+            _runtime_filter_ctxs[i].runtime_filter->get_prepared_exprs(&exprs, _row_descriptor,
+                                                                       _state);
             ++current_arrived_rf_num;
             _runtime_filter_ctxs[i].apply_mark = true;
         }

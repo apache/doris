@@ -138,10 +138,9 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _agg_intput_columns[i].resize(desc.nodes[0].num_children);
         for (int j = 0; j < desc.nodes[0].num_children; ++j) {
             ++node_idx;
-            VExpr* expr = nullptr;
-            VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(
-                    VExpr::create_tree_from_thrift(_pool, desc.nodes, &node_idx, &expr, &ctx));
+            VExprSPtr expr;
+            VExprContextSPtr ctx;
+            RETURN_IF_ERROR(VExpr::create_tree_from_thrift(desc.nodes, &node_idx, expr, ctx));
             _agg_expr_ctxs[i].emplace_back(ctx);
         }
 
@@ -154,10 +153,9 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
         }
     }
 
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, analytic_node.partition_exprs,
-                                             &_partition_by_eq_expr_ctxs));
     RETURN_IF_ERROR(
-            VExpr::create_expr_trees(_pool, analytic_node.order_by_exprs, &_order_by_eq_expr_ctxs));
+            VExpr::create_expr_trees(analytic_node.partition_exprs, _partition_by_eq_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(analytic_node.order_by_exprs, _order_by_eq_expr_ctxs));
     _partition_by_column_idxs.resize(_partition_by_eq_expr_ctxs.size());
     _ordey_by_column_idxs.resize(_order_by_eq_expr_ctxs.size());
     _agg_functions_size = _agg_functions.size();
@@ -601,8 +599,9 @@ Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block
     return Status::OK();
 }
 
-Status VAnalyticEvalNode::_insert_range_column(vectorized::Block* block, VExprContext* expr,
-                                               IColumn* dst_column, size_t length) {
+Status VAnalyticEvalNode::_insert_range_column(vectorized::Block* block,
+                                               const VExprContextSPtr& expr, IColumn* dst_column,
+                                               size_t length) {
     int result_col_id = -1;
     RETURN_IF_ERROR(expr->execute(block, &result_col_id));
     DCHECK_GE(result_col_id, 0);

@@ -147,8 +147,7 @@ AggregationNode::~AggregationNode() = default;
 Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     // ignore return status for now , so we need to introduce ExecNode::init()
-    RETURN_IF_ERROR(
-            VExpr::create_expr_trees(_pool, tnode.agg_node.grouping_exprs, &_probe_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.agg_node.grouping_exprs, _probe_expr_ctxs));
 
     // init aggregate functions
     _aggregate_evaluators.reserve(tnode.agg_node.aggregate_functions.size());
@@ -181,7 +180,7 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs) {
+void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
     DCHECK(probe_exprs.size() >= 1);
     if (probe_exprs.size() == 1) {
         auto is_nullable = probe_exprs[0]->root()->is_nullable();
@@ -262,8 +261,8 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
 
         _probe_key_sz.resize(_probe_expr_ctxs.size());
         for (int i = 0; i < _probe_expr_ctxs.size(); ++i) {
-            const auto vexpr = _probe_expr_ctxs[i]->root();
-            const auto& data_type = vexpr->data_type();
+            const auto& expr = _probe_expr_ctxs[i]->root();
+            const auto& data_type = expr->data_type();
 
             if (!data_type->have_maximum_size_of_value()) {
                 use_fixed_key = false;

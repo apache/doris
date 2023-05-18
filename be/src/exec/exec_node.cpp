@@ -106,15 +106,14 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     if (tnode.__isset.vconjunct) {
         vectorized::VExprContextSPtr context;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct, context));
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(tnode.vconjunct, context));
         _conjuncts.emplace_back(context);
     }
 
     // create the projections expr
     if (tnode.__isset.projections) {
         DCHECK(tnode.__isset.output_tuple_id);
-        RETURN_IF_ERROR(
-                vectorized::VExpr::create_expr_trees(_pool, tnode.projections, &_projections));
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
     }
 
     return Status::OK();

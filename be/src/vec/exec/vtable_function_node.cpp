@@ -48,15 +48,15 @@ Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
 
     for (const TExpr& texpr : tnode.table_function_node.fnCallExprList) {
-        VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, texpr, &ctx));
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(texpr, ctx));
         _vfn_ctxs.push_back(ctx);
 
-        VExpr* root = ctx->root();
+        auto root = ctx->root();
         const std::string& tf_name = root->fn().name.function_name;
         TableFunction* fn = nullptr;
         RETURN_IF_ERROR(TableFunctionFactory::get_fn(tf_name, _pool, &fn));
-        fn->set_vexpr_context(ctx);
+        fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }
     _fn_num = _fns.size();

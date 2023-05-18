@@ -346,10 +346,10 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
     size_t conjuncts_index = 0;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
-        VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, eq_join_conjunct.left, &ctx));
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.left, ctx));
         _probe_expr_ctxs.push_back(ctx);
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, eq_join_conjunct.right, &ctx));
+        RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.right, ctx));
         _build_expr_ctxs.push_back(ctx);
 
         bool null_aware = eq_join_conjunct.__isset.opcode &&
@@ -372,9 +372,8 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     _probe_column_disguise_null.reserve(eq_join_conjuncts.size());
 
     if (tnode.hash_join_node.__isset.vother_join_conjunct) {
-        _vother_join_conjunct_ptr.reset(new VExprContext*);
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, tnode.hash_join_node.vother_join_conjunct,
-                                                _vother_join_conjunct_ptr.get()));
+        RETURN_IF_ERROR(VExpr::create_expr_tree(tnode.hash_join_node.vother_join_conjunct,
+                                                _other_join_conjunct_ptr));
 
         // If LEFT SEMI JOIN/LEFT ANTI JOIN with not equal predicate,
         // build table should not be deduplicated.
@@ -475,8 +474,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 
     // _vother_join_conjuncts are evaluated in the context of the rows produced by this node
-    if (_vother_join_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->prepare(state, *_intermediate_row_desc));
+    if (_other_join_conjunct_ptr) {
+        RETURN_IF_ERROR(_other_join_conjunct_ptr->prepare(state, *_intermediate_row_desc));
     }
     RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
 
@@ -752,8 +751,8 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
     }
     RETURN_IF_ERROR(VExpr::open(_build_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
-    if (_vother_join_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
+    if (_other_join_conjunct_ptr) {
+        RETURN_IF_ERROR(_other_join_conjunct_ptr->open(state));
     }
     return Status::OK();
 }
@@ -762,8 +761,8 @@ void HashJoinNode::release_resource(RuntimeState* state) {
     VExpr::close(_build_expr_ctxs, state);
     VExpr::close(_probe_expr_ctxs, state);
 
-    if (_vother_join_conjunct_ptr) {
-        (*_vother_join_conjunct_ptr)->close(state);
+    if (_other_join_conjunct_ptr) {
+        _other_join_conjunct_ptr->close(state);
     }
     _release_mem();
     VJoinNodeBase::release_resource(state);
@@ -984,7 +983,7 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
     return Status::OK();
 }
 
-Status HashJoinNode::_do_evaluate(Block& block, std::vector<VExprContext*>& exprs,
+Status HashJoinNode::_do_evaluate(Block& block, VExprContextSPtrs& exprs,
                                   RuntimeProfile::Counter& expr_call_timer,
                                   std::vector<int>& res_col_ids) {
     for (size_t i = 0; i < exprs.size(); ++i) {

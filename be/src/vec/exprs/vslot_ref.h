@@ -42,9 +42,7 @@ public:
                                   int* result_column_id) override;
     virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                                   VExprContext* context) override;
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VSlotRef::create_unique(*this).release());
-    }
+    VExprSPtr clone() const override { return VSlotRef::create_shared(*this); }
 
     virtual const std::string& expr_name() const override;
     virtual std::string debug_string() const override;

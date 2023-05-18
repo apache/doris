@@ -167,7 +167,7 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
 Status IcebergTableReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
-        const std::unordered_map<std::string, VExprContext*>& missing_columns) {
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
 }
 
@@ -256,7 +256,7 @@ Status IcebergTableReader::_position_delete(
 
             std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                     partition_columns;
-            std::unordered_map<std::string, VExprContext*> missing_columns;
+            std::unordered_map<std::string, VExprContextSPtr> missing_columns;
             delete_reader.set_fill_columns(partition_columns, missing_columns);
 
             bool dictionary_coded = true;

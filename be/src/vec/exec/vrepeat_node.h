@@ -79,7 +79,7 @@ private:
 
     std::vector<SlotDescriptor*> _output_slots;
 
-    std::vector<VExprContext*> _expr_ctxs;
+    std::vector<std::shared_ptr<VExprContext>> _expr_ctxs;
     bool _child_eos;
     int _repeat_id_idx;
 };

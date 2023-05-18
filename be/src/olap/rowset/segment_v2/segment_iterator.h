@@ -187,7 +187,8 @@ private:
     bool _column_has_fulltext_index(int32_t unique_id);
     inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
     bool _can_filter_by_preds_except_leafnode_of_andnode();
-    [[nodiscard]] Status _execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr);
+    [[nodiscard]] Status _execute_predicates_except_leafnode_of_andnode(
+            const vectorized::VExprSPtr& expr);
     [[nodiscard]] Status _execute_compound_fn(const std::string& function_name);
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
@@ -234,7 +235,7 @@ private:
 
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
-    [[nodiscard]] Status _extract_common_expr_columns(vectorized::VExpr* expr);
+    [[nodiscard]] Status _extract_common_expr_columns(const vectorized::VExprSPtr& expr);
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               vectorized::Block* block);
     uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
@@ -265,7 +266,7 @@ private:
 
     // return true means one column's predicates all pushed down
     bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false);
-    void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExpr* expr);
+    void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExprSPtr& expr);
 
     // todo(wb) remove this method after RowCursor is removed
     void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
@@ -388,7 +389,7 @@ private:
     std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
     bool _enable_common_expr_pushdown = false;
-    std::vector<vectorized::VExpr*> _remaining_conjunct_roots;
+    std::vector<vectorized::VExprSPtr> _remaining_conjunct_roots;
     std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
     std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
     std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>

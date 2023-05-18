@@ -333,7 +333,7 @@ Status ParquetReader::init_reader(
 Status ParquetReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
-        const std::unordered_map<std::string, VExprContext*>& missing_columns) {
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
@@ -352,29 +352,29 @@ Status ParquetReader::set_fill_columns(
             return;
         } else if (VRuntimeFilterWrapper* runtime_filter =
                            typeid_cast<VRuntimeFilterWrapper*>(expr)) {
-            VExpr* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl());
+            VExpr* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl().get());
             if (VBloomPredicate* bloom_predicate = typeid_cast<VBloomPredicate*>(filter_impl)) {
-                for (VExpr* child : bloom_predicate->children()) {
-                    visit_slot(child);
+                for (auto& child : bloom_predicate->children()) {
+                    visit_slot(child.get());
                 }
             } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
                 if (in_predicate->children().size() > 0) {
-                    visit_slot(in_predicate->children()[0]);
+                    visit_slot(in_predicate->children()[0].get());
                 }
             } else {
-                for (VExpr* child : filter_impl->children()) {
-                    visit_slot(child);
+                for (auto& child : filter_impl->children()) {
+                    visit_slot(child.get());
                 }
             }
         } else {
-            for (VExpr* child : expr->children()) {
-                visit_slot(child);
+            for (auto& child : expr->children()) {
+                visit_slot(child.get());
             }
         }
     };
     if (!_lazy_read_ctx.conjuncts.empty()) {
         for (auto& conjunct : _lazy_read_ctx.conjuncts) {
-            visit_slot(conjunct->root());
+            visit_slot(conjunct->root().get());
         }
     }
 

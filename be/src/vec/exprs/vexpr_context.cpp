@@ -40,7 +40,7 @@ class RowDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-VExprContext::VExprContext(VExpr* expr)
+VExprContext::VExprContext(const VExprSPtr& expr)
         : _root(expr),
           _is_clone(false),
           _prepared(false),
@@ -92,23 +92,6 @@ void VExprContext::close(doris::RuntimeState* state) {
     _closed = true;
 }
 
-doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
-    DCHECK(_prepared) << "expr context not prepared";
-    DCHECK(_opened);
-    DCHECK(*new_ctx == nullptr);
-
-    *new_ctx = state->obj_pool()->add(VExprContext::create_unique(_root).release());
-    for (auto& _fn_context : _fn_contexts) {
-        (*new_ctx)->_fn_contexts.push_back(_fn_context->clone());
-    }
-
-    (*new_ctx)->_is_clone = true;
-    (*new_ctx)->_prepared = true;
-    (*new_ctx)->_opened = true;
-
-    return _root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
-}
-
 doris::Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
     DCHECK(_prepared) << "expr context not prepared";
     DCHECK(_opened);
@@ -155,26 +138,21 @@ Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block*
         return Status::OK();
     }
 
-    std::vector<VExprContext*> contexts;
-    for (auto& expr : expr_contexts) {
-        contexts.emplace_back(expr.get());
-    }
-
     std::vector<uint32_t> columns_to_filter(column_to_keep);
     std::iota(columns_to_filter.begin(), columns_to_filter.end(), 0);
 
-    return execute_conjuncts_and_filter_block(contexts, nullptr, block, columns_to_filter,
+    return execute_conjuncts_and_filter_block(expr_contexts, nullptr, block, columns_to_filter,
                                               column_to_keep);
 }
 
 // TODO Performance Optimization
-Status VExprContext::execute_conjuncts(const std::vector<VExprContext*>& ctxs,
+Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        const std::vector<IColumn::Filter*>* filters, Block* block,
                                        IColumn::Filter* result_filter, bool* can_filter_all) {
     DCHECK(result_filter->size() == block->rows());
     *can_filter_all = false;
     auto* __restrict result_filter_data = result_filter->data();
-    for (auto* ctx : ctxs) {
+    for (auto& ctx : ctxs) {
         int result_column_id = -1;
         RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
         ColumnPtr& filter_column = block->get_by_position(result_column_id).column;
@@ -236,8 +214,8 @@ Status VExprContext::execute_conjuncts(const std::vector<VExprContext*>& ctxs,
 // TODO Performance Optimization
 // need exception safety
 Status VExprContext::execute_conjuncts_and_filter_block(
-        const std::vector<VExprContext*>& ctxs, const std::vector<IColumn::Filter*>* filters,
-        Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep) {
+        const VExprContextSPtrs& ctxs, const std::vector<IColumn::Filter*>* filters, Block* block,
+        std::vector<uint32_t>& columns_to_filter, int column_to_keep) {
     IColumn::Filter result_filter(block->rows(), 1);
     bool can_filter_all;
     RETURN_IF_ERROR(execute_conjuncts(ctxs, filters, block, &result_filter, &can_filter_all));
@@ -259,12 +237,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
                                                         IColumn::Filter& filter) {
     filter.resize_fill(block->rows(), 1);
     bool can_filter_all;
-    std::vector<VExprContext*> contexts;
-    for (auto& expr : ctxs) {
-        contexts.emplace_back(expr.get());
-    }
-
-    RETURN_IF_ERROR(execute_conjuncts(contexts, nullptr, block, &filter, &can_filter_all));
+    RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, block, &filter, &can_filter_all));
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();
@@ -278,11 +251,10 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
 }
 
 Status VExprContext::get_output_block_after_execute_exprs(
-        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs, const Block& input_block,
-        Block* output_block) {
+        const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block) {
     vectorized::Block tmp_block(input_block.get_columns_with_type_and_name());
     vectorized::ColumnsWithTypeAndName result_columns;
-    for (auto vexpr_ctx : output_vexpr_ctxs) {
+    for (auto& vexpr_ctx : output_vexpr_ctxs) {
         int result_column_id = -1;
         RETURN_IF_ERROR(vexpr_ctx->execute(&tmp_block, &result_column_id));
         DCHECK(result_column_id != -1);

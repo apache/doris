@@ -679,8 +679,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         if (row_count) {
             int result_column_id = -1;
             int orig_columns = output_block->columns();
-            RETURN_IF_ERROR((*_join_node->_vother_join_conjunct_ptr)
-                                    ->execute(output_block, &result_column_id));
+            RETURN_IF_ERROR(
+                    _join_node->_other_join_conjunct_ptr->execute(output_block, &result_column_id));
 
             auto column = output_block->get_by_position(result_column_id).column;
             if constexpr (JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||

@@ -127,8 +127,8 @@ Status VFileScanner::prepare(
                                               std::vector<bool>({false})));
         // prepare pre filters
         if (_params.__isset.pre_filter_exprs) {
-            RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(
-                    _state->obj_pool(), _params.pre_filter_exprs, &_pre_conjunct_ctx_ptr));
+            RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_params.pre_filter_exprs,
+                                                                       _pre_conjunct_ctx_ptr));
             RETURN_IF_ERROR(_pre_conjunct_ctx_ptr->prepare(_state, *_src_row_desc));
             RETURN_IF_ERROR(_pre_conjunct_ctx_ptr->open(_state));
         }
@@ -148,20 +148,20 @@ Status VFileScanner::_split_conjuncts() {
     return Status::OK();
 }
 Status VFileScanner::_split_conjuncts_expr(const VExprContextSPtr& context,
-                                           const VExpr* conjunct_expr_root) {
-    static constexpr auto is_leaf = [](const VExpr* expr) { return !expr->is_and_expr(); };
+                                           const VExprSPtr& conjunct_expr_root) {
+    static constexpr auto is_leaf = [](const auto& expr) { return !expr->is_and_expr(); };
     if (conjunct_expr_root) {
         if (is_leaf(conjunct_expr_root)) {
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
-            auto* cur_expr = const_cast<VExpr*>(impl ? impl : conjunct_expr_root);
-            VExprContextSPtr new_ctx(VExprContext::create_unique(cur_expr).release());
+            auto cur_expr = impl ? impl : conjunct_expr_root;
+            VExprContextSPtr new_ctx = VExprContext::create_shared(cur_expr);
             context->clone_fn_contexts(new_ctx.get());
             RETURN_IF_ERROR(new_ctx->prepare(_state, *_default_val_row_desc));
             RETURN_IF_ERROR(new_ctx->open(_state));
 
             std::vector<int> slot_ids;
-            _get_slot_ids(cur_expr, &slot_ids);
+            _get_slot_ids(cur_expr.get(), &slot_ids);
             if (slot_ids.size() == 0) {
                 _not_single_slot_filter_conjuncts.emplace_back(new_ctx);
                 return Status::OK();
@@ -188,12 +188,12 @@ Status VFileScanner::_split_conjuncts_expr(const VExprContextSPtr& context,
 }
 
 void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
-    for (VExpr* child_expr : expr->children()) {
+    for (auto& child_expr : expr->children()) {
         if (child_expr->is_slot_ref()) {
-            VSlotRef* slot_ref = reinterpret_cast<VSlotRef*>(child_expr);
+            VSlotRef* slot_ref = reinterpret_cast<VSlotRef*>(child_expr.get());
             slot_ids->emplace_back(slot_ref->slot_id());
         }
-        _get_slot_ids(child_expr, slot_ids);
+        _get_slot_ids(child_expr.get(), slot_ids);
     }
 }
 
@@ -411,7 +411,7 @@ Status VFileScanner::_fill_missing_columns(size_t rows) {
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
-            auto* ctx = it->second;
+            auto& ctx = it->second;
             auto origin_column_num = _src_block_ptr->columns();
             int result_column_id = -1;
             // PT1 => dest primitive type
@@ -447,7 +447,7 @@ Status VFileScanner::_pre_filter_src_block() {
         SCOPED_TIMER(_pre_filter_timer);
         auto origin_column_num = _src_block_ptr->columns();
         auto old_rows = _src_block_ptr->rows();
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctx_ptr,
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctx_ptr.get(),
                                                                _src_block_ptr, origin_column_num));
         _counter.num_rows_unselected += old_rows - _src_block.rows();
     }
@@ -478,7 +478,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         int dest_index = ctx_idx++;
         vectorized::ColumnPtr column_ptr;
 
-        auto* ctx = _dest_vexpr_ctx[dest_index];
+        auto& ctx = _dest_vexpr_ctx[dest_index];
         int result_column_id = -1;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
@@ -689,7 +689,7 @@ Status VFileScanner::_get_next_reader() {
 Status VFileScanner::_generate_fill_columns() {
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
-    std::unordered_map<std::string, VExprContext*> missing_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
 
     const TFileRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
@@ -787,12 +787,11 @@ Status VFileScanner::_init_expr_ctxes() {
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        vectorized::VExprContext* ctx = nullptr;
+        vectorized::VExprContextSPtr ctx;
         auto it = _params.default_value_of_src_slot.find(slot_desc->id());
         if (it != std::end(_params.default_value_of_src_slot)) {
             if (!it->second.nodes.empty()) {
-                RETURN_IF_ERROR(
-                        vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+                RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(it->second, ctx));
                 RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
                 RETURN_IF_ERROR(ctx->open(_state));
             }
@@ -815,10 +814,9 @@ Status VFileScanner::_init_expr_ctxes() {
                                              slot_desc->id(), slot_desc->col_name());
             }
 
-            vectorized::VExprContext* ctx = nullptr;
+            vectorized::VExprContextSPtr ctx;
             if (!it->second.nodes.empty()) {
-                RETURN_IF_ERROR(
-                        vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+                RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(it->second, ctx));
                 RETURN_IF_ERROR(ctx->prepare(_state, *_src_row_desc));
                 RETURN_IF_ERROR(ctx->open(_state));
             }
@@ -864,7 +862,7 @@ Status VFileScanner::close(RuntimeState* state) {
         }
     }
 
-    for (auto it : _col_default_value_ctx) {
+    for (auto& it : _col_default_value_ctx) {
         if (it.second != nullptr) {
             it.second->close(state);
         }

@@ -85,7 +85,7 @@ void VOrcOutputStream::set_written_len(int64_t written_len) {
 }
 
 VOrcWriterWrapper::VOrcWriterWrapper(doris::io::FileWriter* file_writer,
-                                     const std::vector<VExprContext*>& output_vexpr_ctxs,
+                                     const VExprContextSPtrs& output_vexpr_ctxs,
                                      const std::string& schema, bool output_object_data)
         : VFileWriterWrapper(output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
