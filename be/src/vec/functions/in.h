@@ -143,7 +143,8 @@ public:
         col_null_map_to = ColumnUInt8::create(input_rows_count, false);
         auto& vec_null_map_to = col_null_map_to->get_data();
 
-        const auto& materialized_column = block.get_by_position(arguments[0]).column;
+        const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
+        const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
 
         if (in_state->use_set) {
             if (materialized_column->is_nullable()) {
@@ -195,8 +196,13 @@ public:
             for (int i = 1; i < arguments.size(); ++i) {
                 set_columns.emplace_back(block.get_by_position(arguments[i]).column);
             }
-            impl_without_set(context, set_columns, input_rows_count, vec_res, vec_null_map_to,
-                             materialized_column);
+            if (col_const) {
+                impl_without_set<true>(context, set_columns, input_rows_count, vec_res,
+                                       vec_null_map_to, materialized_column);
+            } else {
+                impl_without_set<false>(context, set_columns, input_rows_count, vec_res,
+                                        vec_null_map_to, materialized_column);
+            }
         }
 
         if (block.get_by_position(result).type->is_nullable()) {
@@ -237,13 +243,14 @@ private:
         }
     }
 
+    template <bool Const>
     static void impl_without_set(FunctionContext* context,
                                  const std::vector<ColumnPtr>& set_columns, size_t input_rows_count,
                                  ColumnUInt8::Container& vec_res,
                                  ColumnUInt8::Container& vec_null_map_to,
                                  const ColumnPtr& materialized_column) {
         for (size_t i = 0; i < input_rows_count; ++i) {
-            const auto& ref_data = materialized_column->get_data_at(i);
+            const auto& ref_data = materialized_column->get_data_at(index_check_const(i, Const));
             if (ref_data.data == nullptr) {
                 vec_null_map_to[i] = true;
                 continue;
