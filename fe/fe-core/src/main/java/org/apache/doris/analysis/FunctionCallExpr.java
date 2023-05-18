@@ -1362,16 +1362,19 @@ public class FunctionCallExpr extends Expr {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
             if (assignmentCompatibleType.isDecimalV3()) {
-                if (childTypes[1].isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
+                if (assignmentCompatibleType.isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
                     uncheckedCastChild(assignmentCompatibleType, 1);
                 }
-                if (childTypes[2].isDecimalV3() && !childTypes[2].equals(assignmentCompatibleType)) {
+                if (assignmentCompatibleType.isDecimalV3() && !childTypes[2].equals(assignmentCompatibleType)) {
                     uncheckedCastChild(assignmentCompatibleType, 2);
                 }
             }
             childTypes[0] = Type.BOOLEAN;
             childTypes[1] = assignmentCompatibleType;
             childTypes[2] = assignmentCompatibleType;
+
+            argTypes[1] = assignmentCompatibleType;
+            argTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             if (assignmentCompatibleType.isDatetimeV2()) {
@@ -1382,15 +1385,18 @@ public class FunctionCallExpr extends Expr {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
             if (assignmentCompatibleType.isDecimalV3()) {
-                if (childTypes[0].isDecimalV3() && !childTypes[0].equals(assignmentCompatibleType)) {
+                if (assignmentCompatibleType.isDecimalV3() && !childTypes[0].equals(assignmentCompatibleType)) {
                     uncheckedCastChild(assignmentCompatibleType, 0);
                 }
-                if (childTypes[1].isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
+                if (assignmentCompatibleType.isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
                     uncheckedCastChild(assignmentCompatibleType, 1);
                 }
             }
             childTypes[0] = assignmentCompatibleType;
             childTypes[1] = assignmentCompatibleType;
+
+            argTypes[0] = assignmentCompatibleType;
+            argTypes[1] = assignmentCompatibleType;
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("coalesce") && children.size() > 1) {
@@ -1402,8 +1408,9 @@ public class FunctionCallExpr extends Expr {
             }
             if (assignmentCompatibleType.isDecimalV3()) {
                 for (int i = 0; i < childTypes.length; i++) {
-                    if (childTypes[i].isDecimalV3() && !childTypes[i].equals(assignmentCompatibleType)) {
+                    if (assignmentCompatibleType.isDecimalV3() && !childTypes[i].equals(assignmentCompatibleType)) {
                         uncheckedCastChild(assignmentCompatibleType, i);
+                        argTypes[i] = assignmentCompatibleType;
                     }
                 }
             }
