@@ -78,6 +78,7 @@ Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, void** cl
         std::lock_guard<std::mutex> lock(_lock);
         auto client_map_entry = _client_map.find(*client_key);
         DCHECK(client_map_entry != _client_map.end());
+        DCHECK(++_reopen_counter[*client_key] == 1);
         client_to_close = client_map_entry->second;
     }
     const std::string ipaddress = client_to_close->ipaddress();
@@ -91,6 +92,7 @@ Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, void** cl
     {
         std::lock_guard<std::mutex> lock(_lock);
         _client_map.erase(*client_key);
+        DCHECK(--_reopen_counter[*client_key] == 0);
     }
     delete client_to_close;
     *client_key = nullptr;

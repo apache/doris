@@ -116,6 +116,8 @@ private:
     using ClientMap = std::unordered_map<void*, ThriftClientImpl*>;
     ClientMap _client_map;
 
+    std::unordered_map<void*, int> _reopen_counter;
+
     bool _metrics_enabled;
 
     // max connections per host in this cache, -1 means unlimited
