@@ -449,7 +449,7 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
 
 Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const {
     bool arguments_is_const = VectorizedUtils::all_arguments_are_constant(block, arguments);
-    if (VectorizedUtils::all_arguments_are_constant(block, arguments) != is_constant()) {
+    if (arguments_is_const != is_constant()) {
         return Status::InternalError(
                 "const check failed, expr={}, expr_is_constant={}, arguments_is_const={}",
                 debug_string(), is_constant(), arguments_is_const);
