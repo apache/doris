@@ -349,13 +349,17 @@ void MemTable::_aggregate() {
         } else {
             prev_row = _row_in_blocks[i];
             if (!temp_row_in_blocks.empty()) {
+                // no more rows to merge for prev row, finalize it
                 finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos - 1);
             }
             temp_row_in_blocks.push_back(prev_row);
             row_pos++;
         }
     }
-    finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos - 1);
+    if (!temp_row_in_blocks.empty()) {
+        // finalize the last low
+        finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos);
+    }
     if constexpr (!is_final) {
         // if is not final, we collect the agg results to input_block and then continue to insert
         size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
