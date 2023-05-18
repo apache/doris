@@ -50,8 +50,9 @@ Status HDFSCommonBuilder::run_kinit() {
     }
     std::string ticket_path = TICKET_CACHE_PATH + generate_uuid_string();
     fmt::memory_buffer kinit_command;
-    fmt::format_to(kinit_command, "kinit -c {} -R -t {} -k {}", ticket_path, hdfs_kerberos_keytab,
-                   hdfs_kerberos_principal);
+    // We can assign kinit path in env
+    fmt::format_to(kinit_command, std::string(std::getenv("KRB_HOME")) + "/bin/kinit -c {} -R -t {} -k {}", ticket_path,
+                   hdfs_kerberos_keytab, hdfs_kerberos_principal);
     VLOG_NOTICE << "kinit command: " << fmt::to_string(kinit_command);
     std::string msg;
     AgentUtils util;
@@ -59,10 +60,10 @@ Status HDFSCommonBuilder::run_kinit() {
     if (!rc) {
         return Status::InternalError("Kinit failed, errMsg: " + msg);
     }
-#ifdef USE_LIBHDFS3
-    hdfsBuilderSetPrincipal(hdfs_builder, hdfs_kerberos_principal.c_str());
-    hdfsBuilderSetKerbTicketCachePath(hdfs_builder, ticket_path.c_str());
-#endif
+    #ifdef USE_LIBHDFS3
+        hdfsBuilderSetPrincipal(hdfs_builder, hdfs_kerberos_principal.c_str());
+    #endif
+        hdfsBuilderConfSetStr(hdfs_builder, "hadoop.security.kerberos.ticket.cache.path", ticket_path.c_str());
     return Status::OK();
 }
 
@@ -105,23 +106,30 @@ Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* build
     if (hdfsParams.__isset.hdfs_kerberos_principal) {
         builder->need_kinit = true;
         builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
+        hdfsBuilderSetUserName(builder->get(), hdfsParams.hdfs_kerberos_principal.c_str());
+    } else if (hdfsParams.__isset.user) {
+        hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
+        hdfsBuilderSetKerb5Conf(builder->get(), nullptr);
+        hdfsBuilderSetKeyTabFile(builder->get(), nullptr);
     }
     if (hdfsParams.__isset.hdfs_kerberos_keytab) {
         builder->need_kinit = true;
         builder->hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
+        hdfsBuilderSetKeyTabFile(builder->get(), hdfsParams.hdfs_kerberos_keytab.c_str());
     }
     // set other conf
     if (hdfsParams.__isset.hdfs_conf) {
         for (const THdfsConf& conf : hdfsParams.hdfs_conf) {
             hdfsBuilderConfSetStr(builder->get(), conf.key.c_str(), conf.value.c_str());
+            // Set krb5.conf, we should define java.security.krb5.conf in catalog properties
+            if (strcmp(conf.key.c_str(), "java.security.krb5.conf") == 0) {
+                hdfsBuilderSetKerb5Conf(builder->get(), conf.value.c_str());
+            }
         }
     }
 
     if (builder->is_need_kinit()) {
         RETURN_IF_ERROR(builder->run_kinit());
-    } else if (hdfsParams.__isset.user) {
-        // set hdfs user
-        hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
     }
 
     return Status::OK();
