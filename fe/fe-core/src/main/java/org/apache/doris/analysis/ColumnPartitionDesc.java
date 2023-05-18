@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
@@ -55,10 +56,10 @@ public class ColumnPartitionDesc extends PartitionDesc {
         singlePartitionDescs = partitionDesc.getSinglePartitionDescs();
     }
 
-    private Table matchTable(Map<String, Table> olapTables) throws AnalysisException {
+    private Table matchTable(Map<String, TableIf> olapTables) throws AnalysisException {
         Table matched = null;
         for (SlotRef column : columns) {
-            Table table = olapTables.get(column.getDesc().getParent().getTable().getName());
+            TableIf table = olapTables.get(column.getDesc().getParent().getTable().getName());
             if (table != null) {
                 if (!(table instanceof OlapTable)) {
                     throw new AnalysisException(
@@ -67,7 +68,7 @@ public class ColumnPartitionDesc extends PartitionDesc {
                 if (matched != null && !matched.getName().equals(table.getName())) {
                     throw new AnalysisException("The partition columns must be in the same table.");
                 } else if (matched == null) {
-                    matched = table;
+                    matched = (Table)table;
                 }
             }
         }
