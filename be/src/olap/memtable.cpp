@@ -350,7 +350,7 @@ void MemTable::_aggregate() {
             prev_row = _row_in_blocks[i];
             if (!temp_row_in_blocks.empty()) {
                 // no more rows to merge for prev row, finalize it
-                finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos - 1);
+                finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos);
             }
             temp_row_in_blocks.push_back(prev_row);
             row_pos++;
