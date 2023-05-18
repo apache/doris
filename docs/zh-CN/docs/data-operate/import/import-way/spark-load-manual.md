@@ -243,7 +243,7 @@ PROPERTIES
   "broker.username" = "username",
   "broker.password" = "",
   "broker.dfs.nameservices" = "nameservices01",
-  "broker.dfs.ha.namenodes.HDFS4001273" = "mynamenode1, mynamenode2",
+  "broker.dfs.ha.namenodes.nameservices01" = "mynamenode1, mynamenode2",
   "broker.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
   "broker.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
   "broker.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
