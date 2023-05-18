@@ -1108,6 +1108,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     for (auto index_channel : _channels) {
+        LOG(INFO) << "open index id = " << index_channel->_index_id;
         index_channel->for_each_node_channel(
                 [](const std::shared_ptr<VNodeChannel>& ch) { ch->open(); });
     }
@@ -1146,6 +1147,7 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
     if (it == _opened_partitions.end()) {
         _opened_partitions.insert(id);
         for (int j = 0; j < partition->indexes.size(); ++j) {
+            LOG(INFO) << "lazy open index id = " << partition->indexes[j].index_id;
             for (const auto& tid : partition->indexes[j].tablets) {
                 auto it = _channels[j]->_channels_by_tablet.find(tid);
                 for (const auto& channel : it->second) {
