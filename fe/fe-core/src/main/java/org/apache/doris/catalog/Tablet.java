@@ -277,6 +277,24 @@ public class Tablet extends MetaObject implements Writable {
         return allQueryableReplica;
     }
 
+    public String getDetailsStatusForQuery(long visibleVersion) {
+        StringBuilder sb = new StringBuilder("Visible Replicas:");
+        sb.append("Visible version: ").append(visibleVersion);
+        sb.append(", Replicas: ");
+        for (Replica replica : replicas) {
+            sb.append(replica.toString());
+        }
+        sb.append(", Backends: ");
+        for (Replica replica : replicas) {
+            Backend be = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
+            if (be == null) {
+                sb.append("Backend [id=" + id + ", not exists]");
+            } else {
+                sb.append(be.getHealthyStatus());
+            }
+        }
+    }
+
     public Replica getReplicaById(long replicaId) {
         for (Replica replica : replicas) {
             if (replica.getId() == replicaId) {

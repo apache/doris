@@ -601,15 +601,20 @@ public class Backend implements Writable {
 
         Backend backend = (Backend) obj;
 
-        return (id == backend.id) && (host.equals(backend.host)) && (heartbeatPort == backend.heartbeatPort)
-                && (bePort == backend.bePort) && (isAlive.get() == backend.isAlive.get());
+        return (id == backend.id) && (host.equals(backend.host)) && (heartbeatPort == backend.heartbeatPort) && (bePort
+                == backend.bePort) && (isAlive.get() == backend.isAlive.get());
     }
 
     @Override
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
-                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime)
-                + ", tags: " + tagMap + "]";
+                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", tags: " + tagMap + "]";
+    }
+
+    public String getHealthyStatus() {
+        return "Backend [id=" + id + ", isDecommission: " + isDecommissioned + ", backendState: " + backendState
+                + ", backendStatus: " + backendStatus + ", isAlive: " + isAlive.get() + ", lastUpdateTime: "
+                + TimeUtils.longToTimeString(lastUpdateMs);
     }
 
     public String getOwnerClusterName() {
@@ -746,6 +751,13 @@ public class Backend implements Writable {
         public volatile boolean isQueryDisabled = false;
         @SerializedName("isLoadDisabled")
         public volatile boolean isLoadDisabled = false;
+
+        @Override
+        public String toString() {
+            return "[" + "lastSuccessReportTabletsTime='" + lastSuccessReportTabletsTime + '\''
+                    + ", lastStreamLoadTime=" + lastStreamLoadTime + ", isQueryDisabled=" + isQueryDisabled
+                    + ", isLoadDisabled=" + isLoadDisabled + "]";
+        }
     }
 
     public Tag getLocationTag() {
