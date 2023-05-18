@@ -35,6 +35,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -274,24 +275,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
         List<Expr> outputExprs = Lists.newArrayList();
-        physicalPlan.getOutput().stream().map(Slot::getExprId)
-                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         if (physicalPlan instanceof PhysicalOlapTableSink) {
             PhysicalOlapTableSink<?> sink = ((PhysicalOlapTableSink<?>) physicalPlan);
-            List<Column> cols = sink.getCols();
-            for (int i = 0; i < cols.size(); ++i) {
-                if (!outputExprs.get(i).getType().equals(cols.get(i).getType())) {
-                    outputExprs.set(i, new CastExpr(cols.get(i).getType(), outputExprs.get(i)));
-                }
-            }
-            OlapTable table = sink.getTargetTable();
-            if (outputExprs.size() != table.getColumns().size()) {
-                for (Column column : table.getColumns()) {
-                    if (!column.isVisible()) {
-                        outputExprs.add(new IntLiteral(0));
+            // cols and outputExprs is in a corresponding order.
+            int outputIdx = 0;
+            List<Slot> outputSlots = sink.getOutput();
+            Set<Column> outputColumns = Sets.newHashSet(sink.getCols());
+            try {
+                for (Column column : sink.getTargetTable().getFullSchema()) {
+                    Expr expr;
+                    if (outputColumns.contains(column)) {
+                        expr = context.findSlotRef(outputSlots.get(outputIdx++).getExprId());
+                    } else {
+                        expr = new StringLiteral(column.getDefaultValue());
                     }
+                    outputExprs.add(expr.checkTypeCompatibility(column.getType()));
                 }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
             }
+        } else {
+            physicalPlan.getOutput().stream().map(Slot::getExprId)
+                    .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         }
         rootFragment.setOutputExprs(outputExprs);
         rootFragment.getPlanRoot().convertToVectorized();
