@@ -466,7 +466,6 @@ public class JdbcClient {
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
                 tableSchema.add(field);
-                isModify = false;
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
