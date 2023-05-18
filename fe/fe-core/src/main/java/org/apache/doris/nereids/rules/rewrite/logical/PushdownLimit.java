@@ -59,6 +59,18 @@ public class PushdownLimit implements RewriteRuleFactory {
                         })
                         .toRule(RuleType.PUSH_LIMIT_THROUGH_JOIN),
 
+                // limit -> project -> join
+                logicalLimit(logicalProject(logicalJoin(any(), any()))).whenNot(Limit::hasValidOffset)
+                        .then(limit -> {
+                            LogicalProject<LogicalJoin<Plan, Plan>> project = limit.child();
+                            LogicalJoin<Plan, Plan> join = project.child();
+                            Plan newJoin = pushLimitThroughJoin(limit, join);
+                            if (newJoin == null || join.children().equals(newJoin.children())) {
+                                return null;
+                            }
+                            return limit.withChildren(project.withChildren(newJoin));
+                        }).toRule(RuleType.PUSH_LIMIT_THROUGH_PROJECT_JOIN),
+
                 // limit -> window
                 logicalLimit(logicalWindow())
                         .then(limit -> {
