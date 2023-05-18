@@ -46,11 +46,13 @@ public class ResourceGroup implements Writable {
 
     public static final String MEMORY_LIMIT = "memory_limit";
 
+    public static final String ENABLE_OVERCOMMIT = "enable_overcommit";
+
     private static final ImmutableSet<String> REQUIRED_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
             CPU_SHARE).add(MEMORY_LIMIT).build();
 
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
-            CPU_SHARE).add(MEMORY_LIMIT).build();
+            CPU_SHARE).add(MEMORY_LIMIT).add(ENABLE_OVERCOMMIT).build();
 
     @SerializedName(value = "id")
     private long id;
@@ -78,6 +80,9 @@ public class ResourceGroup implements Writable {
         this.version = version;
         String memoryLimitString = properties.get(MEMORY_LIMIT);
         this.memoryLimitPercent = Double.parseDouble(memoryLimitString.substring(0, memoryLimitString.length() - 1));
+        if (properties.containsKey(ENABLE_OVERCOMMIT)) {
+            properties.put(ENABLE_OVERCOMMIT, properties.get(ENABLE_OVERCOMMIT).toLowerCase());
+        }
     }
 
     public static ResourceGroup create(String name, Map<String, String> properties) throws DdlException {
@@ -128,6 +133,13 @@ public class ResourceGroup implements Writable {
         } catch (NumberFormatException  e) {
             LOG.debug(memLimitErr, e);
             throw new DdlException(memLimitErr);
+        }
+
+        if (properties.containsKey(ENABLE_OVERCOMMIT)) {
+            String value = properties.get(ENABLE_OVERCOMMIT).toLowerCase();
+            if (!("true".equals(value) || "false".equals(value))) {
+                throw new DdlException("The value of '" + ENABLE_OVERCOMMIT + "' must be true or false.");
+            }
         }
     }
 

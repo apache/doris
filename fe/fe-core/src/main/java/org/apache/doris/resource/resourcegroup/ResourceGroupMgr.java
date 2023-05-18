@@ -123,7 +123,8 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
             }
             Map<String, String> properties = Maps.newHashMap();
             properties.put(ResourceGroup.CPU_SHARE, "10");
-            properties.put(ResourceGroup.MEMORY_LIMIT, "100%");
+            properties.put(ResourceGroup.MEMORY_LIMIT, "30%");
+            properties.put(ResourceGroup.ENABLE_OVERCOMMIT, "true");
             defaultResourceGroup = ResourceGroup.create(DEFAULT_GROUP_NAME, properties);
             nameToResourceGroup.put(DEFAULT_GROUP_NAME, defaultResourceGroup);
             idToResourceGroup.put(defaultResourceGroup.getId(), defaultResourceGroup);

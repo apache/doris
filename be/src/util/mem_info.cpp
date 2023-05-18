@@ -42,6 +42,8 @@
 #include "olap/segment_loader.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/task_group/task_group.h"
+#include "runtime/task_group/task_group_manager.h"
 #include "util/cgroup_util.h"
 #include "util/defer_op.h"
 #include "util/parse_util.h"
@@ -144,6 +146,8 @@ bool MemInfo::process_minor_gc() {
     // TODO add freed_mem
     SegmentLoader::instance()->prune();
 
+    freed_mem += tg_soft_memory_limit_gc(_s_process_minor_gc_size - freed_mem);
+
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
             "Before free top memory overcommit query in Minor GC", MemTrackerLimiter::Type::QUERY);
     if (config::enable_query_memroy_overcommit) {
@@ -213,6 +217,52 @@ bool MemInfo::process_full_gc() {
         return true;
     }
     return false;
+}
+
+int64_t MemInfo::tg_memory_limit_gc() {
+    std::vector<taskgroup::TaskGroupPtr> task_groups;
+    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+            [](const taskgroup::TaskGroupPtr& task_group) {
+                return !task_group->enable_overcommit();
+            },
+            &task_groups);
+
+    int64_t total_free_memory = 0;
+    for (const auto& task_group : task_groups) {
+        total_free_memory += task_group->memory_limit_gc();
+    }
+    return total_free_memory;
+}
+
+int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory) {
+    std::vector<taskgroup::TaskGroupPtr> task_groups;
+    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+            [](const taskgroup::TaskGroupPtr& task_group) {
+                return task_group->enable_overcommit();
+            },
+            &task_groups);
+
+    int64_t total_exceeded_memory = 0;
+    std::vector<int64_t> used_memorys;
+    std::vector<int64_t> exceeded_memorys;
+    for (const auto& task_group : task_groups) {
+        auto used_memory = task_group->memory_used();
+        auto exceeded = used_memory - task_group->memory_limit();
+        auto exceeded_memory = exceeded > 0 ? exceeded : 0;
+        total_exceeded_memory += exceeded_memory;
+        used_memorys.emplace_back(used_memory);
+        exceeded_memorys.emplace_back(exceeded_memory);
+    }
+
+    int64_t total_free_memory = 0;
+    for (int i = 0; i < task_groups.size(); ++i) {
+        // Use resource group exceeded memory as a weight
+        int64_t tg_need_free_memory = static_cast<double>(exceeded_memorys[i]) /
+                                      total_exceeded_memory * request_free_memory;
+        total_free_memory +=
+                task_groups[i]->soft_memory_limit_gc(tg_need_free_memory, used_memorys[i]);
+    }
+    return total_free_memory;
 }
 
 #ifndef __APPLE__
