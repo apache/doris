@@ -116,8 +116,12 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
     PageHandle handle;
     Slice body;
     PageFooterPB footer;
+    PageTypePB page_type = DATA_PAGE;
+    if (_is_pk_index) {
+        page_type = PRIMARY_KEY_INDEX_PAGE;
+    }
     RETURN_IF_ERROR(
-            _reader->read_page(pp, &handle, &body, &footer, DATA_PAGE, _compress_codec, true));
+            _reader->read_page(pp, &handle, &body, &footer, page_type, _compress_codec, true));
     // parse data page
     // note that page_index is not used in IndexedColumnIterator, so we pass 0
     PageDecoderOptions opts;
