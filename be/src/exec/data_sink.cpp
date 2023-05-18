@@ -31,6 +31,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "vec/sink/multi_cast_data_stream_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vjdbc_table_sink.h"
 #include "vec/sink/vmemory_scratch_sink.h"
@@ -160,6 +161,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
         RETURN_IF_ERROR(status);
         break;
+    }
+    case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {
+        return Status::NotSupported("MULTI_CAST_DATA_STREAM_SINK only support in pipeline engine");
     }
 
     default: {
@@ -300,6 +304,14 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         DCHECK(thrift_sink.__isset.olap_table_sink);
         sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
         RETURN_IF_ERROR(status);
+        break;
+    }
+    case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {
+        DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
+        DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
+        auto multi_cast_data_streamer = std::make_shared<pipeline::MultiCastDataStreamer>(
+                row_desc, pool, thrift_sink.multi_cast_stream_sink.sinks.size());
+        sink->reset(new vectorized::MultiCastDataStreamSink(multi_cast_data_streamer));
         break;
     }
 

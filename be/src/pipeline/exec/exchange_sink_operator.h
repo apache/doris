@@ -37,19 +37,21 @@ class PipelineFragmentContext;
 class ExchangeSinkOperatorBuilder final
         : public DataSinkOperatorBuilder<vectorized::VDataStreamSender> {
 public:
-    ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink, PipelineFragmentContext* context);
+    ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink, PipelineFragmentContext* context,
+                                int mult_cast_id = -1);
 
     OperatorPtr build_operator() override;
 
 private:
     PipelineFragmentContext* _context;
+    int _mult_cast_id = -1;
 };
 
 // Now local exchange is not supported since VDataStreamRecvr is considered as a pipeline broker.
 class ExchangeSinkOperator final : public DataSinkOperator<ExchangeSinkOperatorBuilder> {
 public:
     ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink,
-                         PipelineFragmentContext* context);
+                         PipelineFragmentContext* context, int mult_cast_id);
     Status init(const TDataSink& tsink) override;
 
     Status prepare(RuntimeState* state) override;
@@ -65,6 +67,7 @@ private:
     int _dest_node_id = -1;
     RuntimeState* _state = nullptr;
     PipelineFragmentContext* _context;
+    int _mult_cast_id = -1;
 };
 
 } // namespace pipeline
