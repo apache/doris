@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 /**
  * adjust output for insert target type
  */
-public class CheckSourceAndAdjustOutputForInsertTargetType extends OneAnalysisRuleFactory {
+public class CheckTypeToInsertTargetColumn extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return logicalOlapTableSink().then(sink -> {
@@ -43,7 +43,7 @@ public class CheckSourceAndAdjustOutputForInsertTargetType extends OneAnalysisRu
             List<Slot> outputs = sink.child().getOutput();
             checkNeedCast(insertTargetTypes, outputs);
             return sink;
-        }).toRule(RuleType.ADJUST_OUTPUT_FOR_INSERT_TARGET_TYPE);
+        }).toRule(RuleType.CHECK_TYPE_TO_INSERT_TARGET_COLUMN);
     }
 
     private void checkNeedCast(List<DataType> targetType, List<Slot> slots) {
