@@ -51,6 +51,7 @@ void ClientCacheHelper::_get_client_from_cache(const TNetworkAddress& hostport, 
     std::list<void*>& info_list = cache_entry->second;
     if (!info_list.empty()) {
         *client_key = info_list.front();
+        DCHECK(++_client_cnter[*client_key] == 1);
         VLOG_RPC << "get_client(): cached client for " << hostport;
         info_list.pop_front();
     }
@@ -78,6 +79,7 @@ Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, void** cl
         std::lock_guard<std::mutex> lock(_lock);
         auto client_map_entry = _client_map.find(*client_key);
         DCHECK(client_map_entry != _client_map.end());
+        DCHECK(++_client_cnter[*client_key] == 1);
         client_to_close = client_map_entry->second;
     }
     const std::string ipaddress = client_to_close->ipaddress();
@@ -91,6 +93,7 @@ Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, void** cl
     {
         std::lock_guard<std::mutex> lock(_lock);
         _client_map.erase(*client_key);
+        _client_cnter.erase(*client_key);
     }
     delete client_to_close;
     *client_key = nullptr;
@@ -155,8 +158,10 @@ void ClientCacheHelper::release_client(void** client_key) {
             cache_list->second.size() >= _max_cache_size_per_host) {
             // cache of this host is full, close this client connection and remove if from _client_map
             _client_map.erase(*client_key);
+            _client_cnter.erase(*client_key);
         } else {
             cache_list->second.push_back(*client_key);
+            DCHECK(--_client_cnter[*client_key] == 0);
             // There is no need to close client if we put it to cache list.
             client_to_close = nullptr;
         }
