@@ -356,7 +356,7 @@ public:
     }
 
     bool has_hll_slot() const {
-        for (auto slot: _slots) {
+        for (auto slot : _slots) {
             if (slot->type().is_hll_type()) {
                 return true;
             }

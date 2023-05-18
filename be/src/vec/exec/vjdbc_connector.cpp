@@ -359,8 +359,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
         }
 
         str_hll_cols.push_back(
-            _input_hll_string_types[_map_column_idx_to_cast_idx_hll[column_index]]
-                    ->create_column());
+                _input_hll_string_types[_map_column_idx_to_cast_idx_hll[column_index]]
+                        ->create_column());
         break;
     }
     default: {
@@ -395,30 +395,34 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
 
         // Get method id of the constructor and the add in ArrayList
         jmethodID arrayListConstructor = env->GetMethodID(arrayListClass, "<init>", "()V");
-        jmethodID arrayListAddMethod = env->GetMethodID(arrayListClass, "add", "(Ljava/lang/Object;)Z");
+        jmethodID arrayListAddMethod =
+                env->GetMethodID(arrayListClass, "add", "(Ljava/lang/Object;)Z");
 
         // Create an ArrayList object
         jobject arrayListObject = env->NewObject(arrayListClass, arrayListConstructor);
-        for (int column_index = 0; column_index < column_size;
-             ++column_index) {
+        for (int column_index = 0; column_index < column_size; ++column_index) {
             auto slot_desc = _tuple_desc->slots()[column_index];
             if (slot_desc->type().is_hll_type()) {
                 // Create an Integer object
-                jobject integerObject = env->NewObject(integerClass, env->GetMethodID(integerClass, "<init>", "(I)V"), (int) slot_desc->type().type);
+                jobject integerObject = env->NewObject(
+                        integerClass, env->GetMethodID(integerClass, "<init>", "(I)V"),
+                        (int)slot_desc->type().type);
                 // Add Integer into ArrayList
                 env->CallBooleanMethod(arrayListObject, arrayListAddMethod, integerObject);
 
             } else {
-                jobject integerObject = env->NewObject(integerClass, env->GetMethodID(integerClass, "<init>", "(I)V"), 0);
+                jobject integerObject = env->NewObject(
+                        integerClass, env->GetMethodID(integerClass, "<init>", "(I)V"), 0);
                 env->CallBooleanMethod(arrayListObject, arrayListAddMethod, integerObject);
             }
         }
 
         block_obj = env->CallNonvirtualObjectMethod(_executor_obj, _executor_clazz,
-                                                        _executor_get_blocks_new_id, batch_size, arrayListObject);
+                                                    _executor_get_blocks_new_id, batch_size,
+                                                    arrayListObject);
     } else {
         block_obj = env->CallNonvirtualObjectMethod(_executor_obj, _executor_clazz,
-                                                        _executor_get_blocks_id, batch_size);
+                                                    _executor_get_blocks_id, batch_size);
     }
 
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
@@ -627,7 +631,7 @@ Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_dat
         str_hll_cols[_map_column_idx_to_cast_idx_hll[column_index]]->resize(num_rows);
         if (column_is_nullable) {
             auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                str_hll_cols[_map_column_idx_to_cast_idx_hll[column_index]].get());
+                    str_hll_cols[_map_column_idx_to_cast_idx_hll[column_index]].get());
             auto& null_map = nullable_column->get_null_map_data();
             memset(null_map.data(), 0, num_rows);
             address[0] = reinterpret_cast<int64_t>(null_map.data());
@@ -642,7 +646,7 @@ Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_dat
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1], chars_addres);
         break;
-    }    
+    }
     default: {
         const std::string& error_msg =
                 fmt::format("Fail to convert jdbc value to {} on column: {}",
@@ -698,8 +702,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 "(Ljava/lang/Object;ZIJJJ)V", _executor_get_string_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchArrayResult",
                                 "(Ljava/lang/Object;ZIJJJ)V", _executor_get_array_result));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchHllResult",
-                                "(Ljava/lang/Object;ZIJJJ)V", _executor_get_hll_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchHllResult", "(Ljava/lang/Object;ZIJJJ)V",
+                                _executor_get_hll_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchCharResult",
                                 "(Ljava/lang/Object;ZIJJJZ)V", _executor_get_char_result));
 
@@ -725,7 +729,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
 
     RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock", JDBC_EXECUTOR_GET_BLOCK_SIGNATURE,
                                 _executor_get_blocks_id));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock", JDBC_EXECUTOR_GET_BLOCK_WITH_TYPES_SIGNATURE,
+    RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock",
+                                JDBC_EXECUTOR_GET_BLOCK_WITH_TYPES_SIGNATURE,
                                 _executor_get_blocks_new_id));
     RETURN_IF_ERROR(register_id(_executor_list_clazz, "get", "(I)Ljava/lang/Object;",
                                 _executor_get_list_id));
@@ -746,7 +751,7 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
 }
 
 Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block,
-                                            int column_index, int rows) {
+                                          int column_index, int rows) {
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = std::make_shared<DataTypeInt16>();
