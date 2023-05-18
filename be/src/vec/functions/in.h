@@ -78,6 +78,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 0; }
 
+    bool use_default_implementation_for_constants() const override { return true; }
+
     DataTypePtr get_return_type_impl(const DataTypes& args) const override {
         for (const auto& arg : args) {
             if (arg->is_nullable()) {
@@ -140,9 +142,7 @@ public:
         col_null_map_to = ColumnUInt8::create(input_rows_count, false);
         auto& vec_null_map_to = col_null_map_to->get_data();
 
-        /// First argument may be a single column.
-        const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
-        const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
+        const auto& materialized_column = block.get_by_position(arguments[0]).column;
 
         if (in_state->use_set) {
             if (materialized_column->is_nullable()) {
@@ -195,13 +195,8 @@ public:
             for (int i = 1; i < arguments.size(); ++i) {
                 set_columns.emplace_back(block.get_by_position(arguments[i]).column);
             }
-            if (col_const) {
-                impl_without_set<true>(context, set_columns, input_rows_count, vec_res,
-                                       vec_null_map_to, materialized_column);
-            } else {
-                impl_without_set<false>(context, set_columns, input_rows_count, vec_res,
-                                        vec_null_map_to, materialized_column);
-            }
+            impl_without_set(context, set_columns, input_rows_count, vec_res, vec_null_map_to,
+                             materialized_column);
         }
 
         if (block.get_by_position(result).type->is_nullable()) {
@@ -242,14 +237,13 @@ private:
         }
     }
 
-    template <bool Const>
     static void impl_without_set(FunctionContext* context,
                                  const std::vector<ColumnPtr>& set_columns, size_t input_rows_count,
                                  ColumnUInt8::Container& vec_res,
                                  ColumnUInt8::Container& vec_null_map_to,
                                  const ColumnPtr& materialized_column) {
         for (size_t i = 0; i < input_rows_count; ++i) {
-            const auto& ref_data = materialized_column->get_data_at(index_check_const(i, Const));
+            const auto& ref_data = materialized_column->get_data_at(i);
             if (ref_data.data == nullptr) {
                 vec_null_map_to[i] = true;
                 continue;

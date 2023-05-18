@@ -124,4 +124,6 @@ suite("test_in_expr", "query") {
     
     qt_select "select t11.c0 from t11 group by t11.c0 having not ('1' in (t11.c0)) order by t11.c0;"
     qt_select "select t11.c0 from t11 group by t11.c0 having ('1' not in (t11.c0)) order by t11.c0;"
+
+    qt_select "SELECT  (abs(1)=1) IN (null) FROM t11;"
 }
