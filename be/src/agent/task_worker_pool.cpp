@@ -139,8 +139,6 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::CREATE_TABLE:
         break;
     case TaskWorkerType::DROP_TABLE:
-        _worker_count = config::drop_tablet_worker_count;
-        _cb = std::bind<void>(&TaskWorkerPool::_drop_tablet_worker_thread_callback, this);
         break;
     case TaskWorkerType::PUSH:
     case TaskWorkerType::REALTIME_PUSH:
@@ -365,59 +363,6 @@ uint32_t TaskWorkerPool::_get_next_task_index(int32_t thread_count,
     }
 
     return index;
-}
-
-void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
-    while (_is_work) {
-        TAgentTaskRequest agent_task_req;
-        TDropTabletReq drop_tablet_req;
-        {
-            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            _worker_thread_condition_variable.wait(
-                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
-            if (!_is_work) {
-                return;
-            }
-
-            agent_task_req = _tasks.front();
-            drop_tablet_req = agent_task_req.drop_tablet_req;
-            _tasks.pop_front();
-        }
-
-        Status status;
-        TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                drop_tablet_req.tablet_id, false);
-        if (dropped_tablet != nullptr) {
-            status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                    drop_tablet_req.tablet_id, drop_tablet_req.replica_id,
-                    drop_tablet_req.is_drop_table_or_partition);
-        } else {
-            status = Status::NotFound("could not find tablet {}", drop_tablet_req.tablet_id);
-        }
-        if (status.ok()) {
-            // if tablet is dropped by fe, then the related txn should also be removed
-            StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
-                    dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
-                    drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
-            LOG_INFO("successfully drop tablet")
-                    .tag("signature", agent_task_req.signature)
-                    .tag("tablet_id", drop_tablet_req.tablet_id);
-        } else {
-            LOG_WARNING("failed to drop tablet")
-                    .tag("signature", agent_task_req.signature)
-                    .tag("tablet_id", drop_tablet_req.tablet_id)
-                    .error(status);
-        }
-
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(BackendOptions::get_local_backend());
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
-        finish_task_request.__set_task_status(status.to_thrift());
-
-        _finish_task(finish_task_request);
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
-    }
 }
 
 void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
@@ -1874,6 +1819,65 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(status.to_thrift());
+        _finish_task(finish_task_request);
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+    }
+}
+
+DropTableTaskPool::DropTableTaskPool(ExecEnv* env, ThreadModel thread_model)
+        : TaskWorkerPool(TaskWorkerType::DROP_TABLE, env, *env->master_info(), thread_model) {
+    _worker_count = config::drop_tablet_worker_count;
+    _cb = [this]() { _drop_tablet_worker_thread_callback(); };
+}
+
+void DropTableTaskPool::_drop_tablet_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        TDropTabletReq drop_tablet_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            drop_tablet_req = agent_task_req.drop_tablet_req;
+            _tasks.pop_front();
+        }
+
+        Status status;
+        TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                drop_tablet_req.tablet_id, false);
+        if (dropped_tablet != nullptr) {
+            status = StorageEngine::instance()->tablet_manager()->drop_tablet(
+                    drop_tablet_req.tablet_id, drop_tablet_req.replica_id,
+                    drop_tablet_req.is_drop_table_or_partition);
+        } else {
+            status = Status::NotFound("could not find tablet {}", drop_tablet_req.tablet_id);
+        }
+        if (status.ok()) {
+            // if tablet is dropped by fe, then the related txn should also be removed
+            StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
+                    dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
+                    drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
+            LOG_INFO("successfully drop tablet")
+                    .tag("signature", agent_task_req.signature)
+                    .tag("tablet_id", drop_tablet_req.tablet_id);
+        } else {
+            LOG_WARNING("failed to drop tablet")
+                    .tag("signature", agent_task_req.signature)
+                    .tag("tablet_id", drop_tablet_req.tablet_id)
+                    .error(status);
+        }
+
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(BackendOptions::get_local_backend());
+        finish_task_request.__set_task_type(agent_task_req.task_type);
+        finish_task_request.__set_signature(agent_task_req.signature);
+        finish_task_request.__set_task_status(status.to_thrift());
+
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
