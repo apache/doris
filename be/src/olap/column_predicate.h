@@ -214,6 +214,8 @@ public:
 
     virtual void clone(ColumnPredicate** to) const { LOG(FATAL) << "clone not supported"; }
 
+    virtual int get_filter_id() const { return -1; }
+
     std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
 
     const std::string pred_type_string(PredicateType type) {

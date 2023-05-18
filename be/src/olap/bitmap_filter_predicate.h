@@ -99,6 +99,8 @@ private:
 
     std::shared_ptr<BitmapFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
+
+    int get_filter_id() const override { return _filter->get_filter_id(); }
 };
 
 template <PrimitiveType T>

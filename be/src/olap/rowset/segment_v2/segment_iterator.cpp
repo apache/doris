@@ -1604,26 +1604,18 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
-        if (predicate->type() == PredicateType::BF) {
-            uint16_t size = selected_size;
-            // is a BloomFilter
-            auto* bf_predicate = reinterpret_cast<BloomFilterColumnHleper*>(predicate);
-            int bf_id = bf_predicate->get_filter_id();
-            if (_opts.stats->bloom_filter_info.find(bf_id) ==
-                _opts.stats->bloom_filter_info.end()) {
-                _opts.stats->bloom_filter_info[bf_id] = {0, 0, 0};
-            }
-            auto& mp = _opts.stats->bloom_filter_info;
-            selected_size =
-                    predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
-            uint16_t new_size = selected_size;
-            mp[bf_id][0] += size;
-            mp[bf_id][1] += size - new_size;
-            mp[bf_id][2] = bf_predicate->_always_true;
-        } else {
-            selected_size =
-                    predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
+        uint16_t size = selected_size;
+        // now  BloomFilter or BitmapFilter  id not equal -1
+        int bf_id = predicate->get_filter_id();
+        if (_opts.stats->bloom_filter_info.find(bf_id) == _opts.stats->bloom_filter_info.end()) {
+            _opts.stats->bloom_filter_info[bf_id] = {0, 0, 0};
         }
+        auto& mp = _opts.stats->bloom_filter_info;
+        selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
+        uint16_t new_size = selected_size;
+        mp[bf_id][0] += size;
+        mp[bf_id][1] += size - new_size;
+        mp[bf_id][2] = static_cast<int64_t>(predicate->type());
     }
     _opts.stats->short_circuit_cond_input_rows += original_size;
     _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;

@@ -89,7 +89,7 @@ protected:
 
     Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
-    void updata_bloomfilter(int id, const std::array<int64_t, 3>& info);
+    void updata_filter(int id, const std::array<int64_t, 3>& info);
 
 private:
     Status _build_key_ranges_and_filters();
