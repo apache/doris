@@ -136,6 +136,7 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         int loop_start = has_case ? 2 : 1;
@@ -239,7 +240,7 @@ public:
                     }
                 } else {
                     auto* __restrict cond_raw_data =
-                            reinterpret_cast<const ColumnUInt8*>(when_column_ptr.get())
+                            assert_cast<const ColumnUInt8*>(when_column_ptr.get())
                                     ->get_data()
                                     .data();
 
@@ -304,7 +305,7 @@ public:
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
         auto* __restrict result_raw_data =
-                reinterpret_cast<ColumnType*>(result_column_ptr.get())->get_data().data();
+                assert_cast<ColumnType*>(result_column_ptr.get())->get_data().data();
 
         // set default value
         for (int i = 0; i < rows_count; i++) {
@@ -314,7 +315,7 @@ public:
         // some types had simd automatically, but some not.
         for (uint8_t i = (has_else ? 0 : 1); i < column_holder.pair_count; i++) {
             auto* __restrict column_raw_data =
-                    reinterpret_cast<ColumnType*>(
+                    assert_cast<ColumnType*>(
                             column_holder.then_ptrs[i].value()->assume_mutable().get())
                             ->get_data()
                             .data();
@@ -375,6 +376,10 @@ public:
             }
         }
 
+        for (int i = 0; i < arguments.size(); i++) {
+            block.replace_by_position_if_const(arguments[i]);
+        }
+
         if (when_null) {
             return execute_get_then_null<ColumnType, true>(data_type, block, arguments, result,
                                                            input_rows_count);
@@ -387,10 +392,10 @@ public:
     Status execute_get_type(const DataTypePtr& data_type, Block& block,
                             const ColumnNumbers& arguments, size_t result,
                             size_t input_rows_count) {
-        WhichDataType which(data_type->is_nullable()
-                                    ? reinterpret_cast<const DataTypeNullable*>(data_type.get())
-                                              ->get_nested_type()
-                                    : data_type);
+        WhichDataType which(
+                data_type->is_nullable()
+                        ? assert_cast<const DataTypeNullable*>(data_type.get())->get_nested_type()
+                        : data_type);
 #define DISPATCH(TYPE, COLUMN_TYPE)                                                    \
     if (which.idx == TypeIndex::TYPE)                                                  \
         return execute_get_when_null<COLUMN_TYPE>(data_type, block, arguments, result, \
