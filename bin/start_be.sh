@@ -20,6 +20,13 @@ set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+if [ $(id -u) -eq 0 ]; then # current user has root privileges
+    # system will no longer throw bad_alloc, memory alloc are always accepted,
+    # memory limit check is handed over to Doris Allocator, make sure throw exception position is controllable,
+    # otherwise bad_alloc can be thrown anywhere and it will be difficult to achieve exception safety.
+    sudo echo 1 > /proc/sys/vm/overcommit_memory
+fi
+
 MACHINE_OS=$(uname -s)
 if [[ "$(uname -s)" == 'Darwin' ]] && command -v brew &>/dev/null; then
     PATH="$(brew --prefix)/opt/gnu-getopt/bin:${PATH}"
