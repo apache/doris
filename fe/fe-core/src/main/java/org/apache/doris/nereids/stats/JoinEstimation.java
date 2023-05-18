@@ -131,7 +131,6 @@ public class JoinEstimation {
                             return 0;
                         }
                     }).collect(Collectors.toList());
-
             double sel = 1.0;
             for (int i = 0; i < sortedJoinConditions.size(); i++) {
                 sel *= Math.pow(sortedJoinConditions.get(i).second, 1 / Math.pow(2, i));
