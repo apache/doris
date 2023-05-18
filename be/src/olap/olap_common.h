@@ -317,6 +317,10 @@ struct OlapReaderStatistics {
     int64_t expr_filter_ns = 0;
     int64_t output_col_ns = 0;
 
+    // The table below represents the bloom_filter  id, 
+    // array[0] represents input, array[1] represents filtered, and array[2] represents _always_true.
+    std::vector<std::array<int64_t,3>>bloom_filter_info;
+
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_bf_filtered = 0;

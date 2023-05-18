@@ -642,4 +642,30 @@ bool NewOlapScanNode::_is_key_column(const std::string& key_name) {
     return res != _olap_scan_node.key_column_name.end();
 }
 
+void NewOlapScanNode::updata_bloomfilter(int id, const std::array<int64_t, 3>& update_info) {
+    // get defult
+    if (id >= _bloom_filter_info.size()) {
+        _bloom_filter_info.resize(id + 1);
+        _bloom_filter_info[id] = {0, 0, 0};
+    }
+
+    // update
+    _bloom_filter_info[id][0] += update_info[0];
+    _bloom_filter_info[id][1] += update_info[1];
+    _bloom_filter_info[id][2] = update_info[2];
+
+    // to string
+    auto& info = _bloom_filter_info[id];
+    std::string bloom_filter_name = "_bloom_filter_info id : 0";
+    bloom_filter_name.back() = '0' + id;
+    std::string info_str;
+    info_str += "input : " + std::to_string(info[0]) + "  ,  ";
+    info_str += "filtered : " + std::to_string(info[1]) + "  ,  ";
+    info_str += "always_true : " + std::to_string(info[2]);
+    info_str = "[ " + info_str + " ]";
+
+    // add info
+    _segment_profile->add_info_string(bloom_filter_name, info_str);
+}
+
 }; // namespace doris::vectorized

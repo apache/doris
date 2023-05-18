@@ -30,15 +30,27 @@
 namespace doris {
 
 // only use in runtime filter and segment v2
+
+class BloomFilterColumnHleper : public ColumnPredicate {
+public:
+    BloomFilterColumnHleper(uint32_t column_id, int id)
+            : ColumnPredicate(column_id), _filter_id(id) {};
+    int get_filter_id() const { return _filter_id; }
+    mutable uint64_t _evaluated_rows = 1;
+    mutable uint64_t _passed_rows = 0;
+    mutable bool _always_true = false;
+    mutable bool _has_calculate_filter = false;
+    int _filter_id = -1;
+};
 template <PrimitiveType T>
-class BloomFilterColumnPredicate : public ColumnPredicate {
+class BloomFilterColumnPredicate : public BloomFilterColumnHleper {
 public:
     using SpecificFilter = BloomFilterFunc<T>;
 
     BloomFilterColumnPredicate(uint32_t column_id,
                                const std::shared_ptr<BloomFilterFuncBase>& filter,
                                int be_exec_version)
-            : ColumnPredicate(column_id),
+            : BloomFilterColumnHleper(column_id, filter->get_filter_id()),
               _filter(filter),
               _specific_filter(reinterpret_cast<SpecificFilter*>(_filter.get())),
               _be_exec_version(be_exec_version) {}
@@ -134,10 +146,6 @@ private:
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
-    mutable uint64_t _evaluated_rows = 1;
-    mutable uint64_t _passed_rows = 0;
-    mutable bool _always_true = false;
-    mutable bool _has_calculate_filter = false;
     int _be_exec_version;
 };
 

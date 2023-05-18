@@ -46,6 +46,7 @@
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/bloom_filter_predicate.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
@@ -1603,11 +1604,33 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
-        selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
+        if (predicate->type() == PredicateType::BF) {
+            uint16_t size = selected_size;
+            // is a BloomFilter
+            auto* bf_predicate = reinterpret_cast<BloomFilterColumnHleper*>(predicate);
+            //auto BF_predicate = BloomFilterColumnHleper
+            // LOG_WARNING("find a BloomFilter ").tag("id : ", bf_predicate->get_filter_id());
+            int bf_id = bf_predicate->get_filter_id();
+            auto& vec = _opts.stats->bloom_filter_info;
+            if (bf_id >= vec.size()) {
+                vec.resize(bf_id + 1);
+                vec[bf_id] = {0, 0, 0};
+            }
+            selected_size =
+                    predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
+            uint16_t new_size = selected_size;
+            vec[bf_id][0] += size;
+            vec[bf_id][1] += size - new_size;
+            vec[bf_id][2] = bf_predicate->_always_true;
+        } else {
+            uint16_t size = selected_size;
+            selected_size =
+                    predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
+            uint16_t new_size = selected_size;
+        }
     }
     _opts.stats->short_circuit_cond_input_rows += original_size;
     _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
-
     // evaluate delete condition
     original_size = selected_size;
     selected_size = _opts.delete_condition_predicates->evaluate(_current_return_columns,

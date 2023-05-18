@@ -21,6 +21,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <stdint.h>
 
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <set>
@@ -88,6 +89,8 @@ protected:
 
     Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
+    void updata_bloomfilter(int id, const std::array<int64_t, 3>& info);
+
 private:
     Status _build_key_ranges_and_filters();
 
@@ -128,6 +131,7 @@ private:
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
     RuntimeProfile::Counter* _expr_filter_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
+    std::vector<std::array<int64_t,3>>_bloom_filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
