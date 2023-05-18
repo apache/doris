@@ -550,7 +550,7 @@ public class RoutineLoadManager implements Writable {
       else return all of result
      */
     public List<RoutineLoadJob> getJob(String dbFullName, String jobName,
-            boolean includeHistory, PatternMatcher matcher)
+                                       boolean includeHistory, PatternMatcher matcher)
             throws MetaNotFoundException {
         Preconditions.checkArgument(jobName == null || matcher == null,
                 "jobName and matcher cannot be not null at the same time");
@@ -740,8 +740,9 @@ public class RoutineLoadManager implements Writable {
     public void alterRoutineLoadJob(AlterRoutineLoadStmt stmt) throws UserException {
         RoutineLoadJob job = checkPrivAndGetJob(stmt.getDbName(), stmt.getLabel());
         if (stmt.hasDataSourceProperty()
-                && !stmt.getDataSourceProperties().getType().equalsIgnoreCase(job.dataSourceType.name())) {
-            throw new DdlException("The specified job type is not: " + stmt.getDataSourceProperties().getType());
+                && !stmt.getDataSourceProperties().getDataSourceType().equalsIgnoreCase(job.dataSourceType.name())) {
+            throw new DdlException("The specified job type is not: "
+                    + stmt.getDataSourceProperties().getDataSourceType());
         }
         job.modifyProperties(stmt);
     }

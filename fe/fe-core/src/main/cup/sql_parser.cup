@@ -911,7 +911,6 @@ nonterminal ExplainOptions opt_explain_options;
 nonterminal Boolean opt_tmp;
 
 nonterminal OutFileClause opt_outfile;
-nonterminal RoutineLoadDataSourceProperties opt_datasource_properties;
 
 nonterminal Boolean opt_signed_unsigned;
 
@@ -1300,7 +1299,7 @@ alter_stmt ::=
         RESULT = new AlterResourceGroupStmt(resourceGroupName, properties);
     :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
-      opt_datasource_properties:datasourceProperties
+      key_value_map:datasourceProperties
     {:
         RESULT = new AlterRoutineLoadStmt(jobLabel, jobProperties, datasourceProperties);
     :}
@@ -1338,18 +1337,6 @@ alter_stmt ::=
       opt_password_option:passwdOptions
     {:
         RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions);
-    :}
-    ;
-
-opt_datasource_properties ::=
-    // empty
-    {:
-        RESULT = new RoutineLoadDataSourceProperties();
-    :}
-    | KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
-    {:
-        // the 3rd parameter "true" means this is for AlterRoutineLoad operation.
-        RESULT = new RoutineLoadDataSourceProperties(type, customProperties, true);
     :}
     ;
 
