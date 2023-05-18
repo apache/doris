@@ -832,26 +832,25 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbParseNullableErrorNull>(
             "json_parse_nullable_error_to_null");
     factory.register_alias("json_parse_nullable_error_to_null",
-            "jsonb_parse_nullable_error_to_null");
+                           "jsonb_parse_nullable_error_to_null");
     factory.register_function<FunctionJsonbParseNullableErrorValue>(
             "json_parse_nullable_error_to_value");
     factory.register_alias("json_parse_nullable_error_to_value",
-            "jsonb_parse_nullable_error_to_value");
+                           "jsonb_parse_nullable_error_to_value");
     factory.register_function<FunctionJsonbParseNullableErrorInvalid>(
             "json_parse_nullable_error_to_invalid");
     factory.register_alias("json_parse_nullable_error_to_invalid",
-            "json_parse_nullable_error_to_invalid");
+                           "json_parse_nullable_error_to_invalid");
 
     factory.register_function<FunctionJsonbParseNotnull>("json_parse_notnull");
     factory.register_alias("json_parse_notnull", "jsonb_parse_notnull");
     factory.register_function<FunctionJsonbParseNotnullErrorValue>(
             "json_parse_notnull_error_to_value");
-    factory.register_alias("json_parse_notnull",
-            "jsonb_parse_notnull");
+    factory.register_alias("json_parse_notnull", "jsonb_parse_notnull");
     factory.register_function<FunctionJsonbParseNotnullErrorInvalid>(
             "json_parse_notnull_error_to_invalid");
     factory.register_alias("json_parse_notnull_error_to_invalid",
-            "jsonb_parse_notnull_error_to_invalid");
+                           "jsonb_parse_notnull_error_to_invalid");
 
     factory.register_function<FunctionJsonbExists>();
     factory.register_alias(FunctionJsonbExists::name, FunctionJsonbExists::alias);
