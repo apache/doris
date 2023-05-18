@@ -130,19 +130,6 @@ suite("test_doris_jdbc_catalog", "p0") {
         DISTRIBUTED BY HASH(`pin_id`) BUCKETS 16
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "dynamic_partition.enable" = "true",
-        "dynamic_partition.time_unit" = "MONTH",
-        "dynamic_partition.time_zone" = "Asia/Shanghai",
-        "dynamic_partition.start" = "-2147483648",
-        "dynamic_partition.end" = "5",
-        "dynamic_partition.prefix" = "p",
-        "dynamic_partition.replication_allocation" = "tag.location.default: 1",
-        "dynamic_partition.buckets" = "16",
-        "dynamic_partition.create_history_partition" = "false",
-        "dynamic_partition.history_partition_num" = "-1",
-        "dynamic_partition.hot_partition_num" = "0",
-        "dynamic_partition.reserved_history_periods" = "NULL",
-        "dynamic_partition.start_day_of_month" = "1",
         "in_memory" = "false",
         "storage_format" = "DEFAULT"
         ); """

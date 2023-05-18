@@ -337,6 +337,8 @@ public class JdbcExecutor {
             curBlockRows = 0;
             do {
                 for (int i = 0; i < columnCount; ++i) {
+                    // colArray[i] > 0, means the type is Hll/Bitmap, we should read it with getBytes
+                    // instead of getObject, as Hll/Bitmap in JDBC will map to String by default.
                     if (colArray[i] > 0) {
                         block.get(i)[curBlockRows] = resultSet.getBytes(i + 1);
                     } else {

@@ -67,7 +67,7 @@ const char* JDBC_EXECUTOR_WRITE_SIGNATURE = "(Ljava/lang/String;)I";
 const char* JDBC_EXECUTOR_STMT_WRITE_SIGNATURE = "(Ljava/util/Map;)I";
 const char* JDBC_EXECUTOR_HAS_NEXT_SIGNATURE = "()Z";
 const char* JDBC_EXECUTOR_GET_BLOCK_SIGNATURE = "(I)Ljava/util/List;";
-const char* JDBC_EXECUTOR_GET_BLOCK_NEW_SIGNATURE = "(ILjava/lang/Object;)Ljava/util/List;";
+const char* JDBC_EXECUTOR_GET_BLOCK_WITH_TYPES_SIGNATURE = "(ILjava/lang/Object;)Ljava/util/List;";
 const char* JDBC_EXECUTOR_GET_TYPES_SIGNATURE = "()Ljava/util/List;";
 const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
@@ -442,7 +442,6 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
         if (slot_desc->type().is_array_type()) {
             _cast_string_to_array(slot_desc, block, column_index, num_rows);
         } else if (slot_desc->type().is_hll_type()) {
-            LOG(INFO) << block->dump_data();
             _cast_string_to_hll(slot_desc, block, column_index, num_rows);
         }
         materialized_column_index++;
@@ -726,7 +725,7 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
 
     RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock", JDBC_EXECUTOR_GET_BLOCK_SIGNATURE,
                                 _executor_get_blocks_id));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock", JDBC_EXECUTOR_GET_BLOCK_NEW_SIGNATURE,
+    RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock", JDBC_EXECUTOR_GET_BLOCK_WITH_TYPES_SIGNATURE,
                                 _executor_get_blocks_new_id));
     RETURN_IF_ERROR(register_id(_executor_list_clazz, "get", "(I)Ljava/lang/Object;",
                                 _executor_get_list_id));

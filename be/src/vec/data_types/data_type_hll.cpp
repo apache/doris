@@ -142,11 +142,9 @@ Status DataTypeHLL::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& data_column = assert_cast<ColumnHLL&>(*column);
     auto& data = data_column.get_data();
 
-    std::string str;
-    str = rb.to_string();
     HyperLogLog hll;
-    if (!hll.deserialize(Slice(str))) {
-        LOG(WARNING) << "deserialize hll from string fail!";
+    if (!hll.deserialize(Slice(rb.to_string()))) {
+        return Status::InternalError("deserialize hll from string fail!");
     }
     data.push_back(std::move(hll));
     return Status::OK();
