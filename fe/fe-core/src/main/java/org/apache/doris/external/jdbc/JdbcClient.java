@@ -403,6 +403,8 @@ public class JdbcClient {
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
+            String modifiedTableName;
+            boolean isModify = false;
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
             // catalog - the catalog of this table, `null` means all catalogs
             // schema - The schema of the table; corresponding to tablespace in Oracle
@@ -418,12 +420,18 @@ public class JdbcClient {
                     rs = databaseMetaData.getColumns(dbName, null, tableName, null);
                     break;
                 case JdbcResource.POSTGRESQL:
-                case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
                 case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
+                    break;
+                case JdbcResource.ORACLE:
+                    modifiedTableName = tableName.replace("/", "%");
+                    if (!modifiedTableName.equals(tableName)) {
+                        isModify = true;
+                    }
+                    rs = databaseMetaData.getColumns(null, dbName, modifiedTableName, null);
                     break;
                 case JdbcResource.TRINO:
                 case JdbcResource.PRESTO:
@@ -433,6 +441,14 @@ public class JdbcClient {
                     throw new JdbcClientException("Unknown database type");
             }
             while (rs.next()) {
+                // for oracle special table name
+                if (isModify) {
+                    String actualTableName = rs.getString("TABLE_NAME");
+                    if (!tableName.equals(actualTableName)) {
+                        continue;
+                    }
+                }
+
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
@@ -450,6 +466,7 @@ public class JdbcClient {
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
                 tableSchema.add(field);
+                isModify = false;
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
