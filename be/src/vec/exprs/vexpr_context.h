@@ -27,6 +27,7 @@
 #include "runtime/types.h"
 #include "udf/udf.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class RowDescriptor;
@@ -34,27 +35,21 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::vectorized {
-class VExpr;
-
-class VExprContext;
-using VExprContextSPtr = std::shared_ptr<VExprContext>;
-using VExprContextSPtrs = std::vector<VExprContextSPtr>;
 
 class VExprContext {
     ENABLE_FACTORY_CREATOR(VExprContext);
 
 public:
-    VExprContext(VExpr* expr);
+    VExprContext(const VExprSPtr& expr);
     ~VExprContext();
     [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
     [[nodiscard]] Status open(RuntimeState* state);
     void close(RuntimeState* state);
-    [[nodiscard]] Status clone(RuntimeState* state, VExprContext** new_ctx);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
 
-    VExpr* root() { return _root; }
-    void set_root(VExpr* expr) { _root = expr; }
+    VExprSPtr root() { return _root; }
+    void set_root(const VExprSPtr& expr) { _root = expr; }
 
     /// Creates a FunctionContext, and returns the index that's passed to fn_context() to
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
@@ -77,20 +72,20 @@ public:
     [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
                                              int column_to_keep);
 
-    [[nodiscard]] static Status execute_conjuncts(const std::vector<VExprContext*>& ctxs,
+    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                                   const std::vector<IColumn::Filter*>* filters,
                                                   Block* block, IColumn::Filter* result_filter,
                                                   bool* can_filter_all);
     [[nodiscard]] static Status execute_conjuncts_and_filter_block(
-            const std::vector<VExprContext*>& ctxs, const std::vector<IColumn::Filter*>* filters,
+            const VExprContextSPtrs& ctxs, const std::vector<IColumn::Filter*>* filters,
             Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep);
 
     static Status execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
                                                      std::vector<uint32_t>& columns_to_filter,
                                                      int column_to_keep, IColumn::Filter& filter);
 
-    [[nodiscard]] static Status get_output_block_after_execute_exprs(
-            const std::vector<vectorized::VExprContext*>&, const Block&, Block*);
+    [[nodiscard]] static Status get_output_block_after_execute_exprs(const VExprContextSPtrs&,
+                                                                     const Block&, Block*);
 
     int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);
@@ -144,7 +139,7 @@ private:
     friend class VExpr;
 
     /// The expr tree this context is for.
-    VExpr* _root;
+    VExprSPtr _root;
 
     /// True if this context came from a Clone() call. Used to manage FunctionStateScope.
     bool _is_clone;

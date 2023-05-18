@@ -199,8 +199,8 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
     }
 
     for (auto& texprs : result_texpr_lists) {
-        std::vector<VExprContext*> ctxs;
-        RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, texprs, &ctxs));
+        VExprContextSPtrs ctxs;
+        RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _child_expr_lists.push_back(ctxs);
     }
 
@@ -212,7 +212,7 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
     // open result expr lists.
-    for (const std::vector<VExprContext*>& exprs : _child_expr_lists) {
+    for (const VExprContextSPtrs& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
     _probe_columns.resize(_child_expr_lists[1].size());

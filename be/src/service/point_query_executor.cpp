@@ -47,7 +47,7 @@
 namespace doris {
 
 Reusable::~Reusable() {
-    for (vectorized::VExprContext* ctx : _output_exprs_ctxs) {
+    for (auto& ctx : _output_exprs_ctxs) {
         ctx->close(_runtime_state.get());
     }
 }
@@ -62,8 +62,7 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
         _block_pool[i] = vectorized::Block::create_unique(tuple_desc()->slots(), 10);
     }
 
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_runtime_state->obj_pool(), output_exprs,
-                                                         &_output_exprs_ctxs));
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(output_exprs, _output_exprs_ctxs));
     RowDescriptor row_desc(tuple_desc(), false);
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));

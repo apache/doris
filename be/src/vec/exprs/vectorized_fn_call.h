@@ -51,9 +51,7 @@ public:
                 FunctionContext::FunctionStateScope scope) override;
     void close(RuntimeState* state, VExprContext* context,
                FunctionContext::FunctionStateScope scope) override;
-    VExpr* clone(ObjectPool* pool) const override {
-        return pool->add(VectorizedFnCall::create_unique(*this).release());
-    }
+    VExprSPtr clone() const override { return VectorizedFnCall::create_shared(*this); }
     const std::string& expr_name() const override;
     std::string debug_string() const override;
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);

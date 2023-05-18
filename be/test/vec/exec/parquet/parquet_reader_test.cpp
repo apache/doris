@@ -144,7 +144,7 @@ TEST_F(ParquetReaderTest, normal) {
                           nullptr, nullptr, nullptr);
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
-    std::unordered_map<std::string, VExprContext*> missing_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
     p_reader->set_fill_columns(partition_columns, missing_columns);
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {

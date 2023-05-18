@@ -91,35 +91,6 @@ public:
         }
         return data_types;
     }
-
-    static VExpr* dfs_peel_conjunct(RuntimeState* state, VExprContext* context, VExpr* expr,
-                                    int& leaf_index, std::function<bool(int)> checker) {
-        static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
-
-        if (is_leaf(expr)) {
-            if (checker(leaf_index++)) {
-                expr->close(state, context, context->get_function_state_scope());
-                return nullptr;
-            }
-            return expr;
-        } else {
-            VExpr* left_child =
-                    dfs_peel_conjunct(state, context, expr->children()[0], leaf_index, checker);
-            VExpr* right_child =
-                    dfs_peel_conjunct(state, context, expr->children()[1], leaf_index, checker);
-
-            if (left_child != nullptr && right_child != nullptr) {
-                expr->set_children({left_child, right_child});
-                return expr;
-            } else {
-                // here only close the and expr self, do not close the child
-                expr->set_children({});
-                expr->close(state, context, context->get_function_state_scope());
-            }
-
-            return left_child != nullptr ? left_child : right_child;
-        }
-    }
 };
 
 } // namespace doris::vectorized

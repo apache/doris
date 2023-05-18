@@ -621,7 +621,7 @@ bool OrcReader::_init_search_argument(
 Status OrcReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
-        const std::unordered_map<std::string, VExprContext*>& missing_columns) {
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
@@ -641,29 +641,29 @@ Status OrcReader::set_fill_columns(
             return;
         } else if (VRuntimeFilterWrapper* runtime_filter =
                            typeid_cast<VRuntimeFilterWrapper*>(expr)) {
-            VExpr* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl());
+            auto filter_impl = const_cast<VExpr*>(runtime_filter->get_impl().get());
             if (VBloomPredicate* bloom_predicate = typeid_cast<VBloomPredicate*>(filter_impl)) {
-                for (VExpr* child : bloom_predicate->children()) {
-                    visit_slot(child);
+                for (auto& child : bloom_predicate->children()) {
+                    visit_slot(child.get());
                 }
             } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
                 if (in_predicate->children().size() > 0) {
-                    visit_slot(in_predicate->children()[0]);
+                    visit_slot(in_predicate->children()[0].get());
                 }
             } else {
-                for (VExpr* child : filter_impl->children()) {
-                    visit_slot(child);
+                for (auto& child : filter_impl->children()) {
+                    visit_slot(child.get());
                 }
             }
         } else {
-            for (VExpr* child : expr->children()) {
-                visit_slot(child);
+            for (auto& child : expr->children()) {
+                visit_slot(child.get());
             }
         }
     };
     if (_lazy_read_ctx.conjuncts != nullptr) {
         for (auto& conjunct : *_lazy_read_ctx.conjuncts) {
-            visit_slot(conjunct->root());
+            visit_slot(conjunct->root().get());
         }
     }
 
@@ -779,7 +779,7 @@ Status OrcReader::_fill_partition_columns(
 
 Status OrcReader::_fill_missing_columns(
         Block* block, size_t rows,
-        const std::unordered_map<std::string, VExprContext*>& missing_columns) {
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     for (auto& kv : missing_columns) {
         if (kv.second == nullptr) {
             // no default column, fill with null
@@ -788,7 +788,7 @@ Status OrcReader::_fill_missing_columns(
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
-            auto* ctx = kv.second;
+            auto& ctx = kv.second;
             auto origin_column_num = block->columns();
             int result_column_id = -1;
             // PT1 => dest primitive type
@@ -1245,9 +1245,9 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             for (uint32_t i = 0; i < column_to_keep; ++i) {
                 columns_to_filter[i] = i;
             }
-            std::vector<VExprContext*> filter_conjuncts;
+            VExprContextSPtrs filter_conjuncts;
             for (auto& conjunct : *_lazy_read_ctx.conjuncts) {
-                filter_conjuncts.push_back(conjunct.get());
+                filter_conjuncts.push_back(conjunct);
             }
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
@@ -1294,9 +1294,9 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     _filter.reset(new IColumn::Filter(size, 1));
     auto* __restrict result_filter_data = _filter->data();
     bool can_filter_all = false;
-    std::vector<VExprContext*> filter_conjuncts;
+    VExprContextSPtrs filter_conjuncts;
     for (auto& conjunct : *_lazy_read_ctx.conjuncts) {
-        filter_conjuncts.push_back(conjunct.get());
+        filter_conjuncts.push_back(conjunct);
     }
     RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts(
             filter_conjuncts, nullptr, block, _filter.get(), &can_filter_all)));

@@ -338,7 +338,7 @@ VDataStreamRecvr::~VDataStreamRecvr() {
     DCHECK(_mgr == nullptr) << "Must call close()";
 }
 
-Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& ordering_expr,
+Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
                                        const std::vector<bool>& is_asc_order,
                                        const std::vector<bool>& nulls_first, size_t batch_size,
                                        int64_t limit, size_t offset) {

@@ -32,6 +32,7 @@
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vparquet_column_reader.h"
 
 namespace cctz {
@@ -50,8 +51,6 @@ class IOContext;
 namespace vectorized {
 class Block;
 class FieldDescriptor;
-class VExprContext;
-using VExprContextSPtrs = std::vector<std::shared_ptr<VExprContext>>;
 } // namespace vectorized
 } // namespace doris
 namespace tparquet {
@@ -96,9 +95,9 @@ public:
         // lazy read partition columns or all partition columns
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
-        std::unordered_map<std::string, VExprContext*> predicate_missing_columns;
+        std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
         // lazy read missing columns or all missing columns
-        std::unordered_map<std::string, VExprContext*> missing_columns;
+        std::unordered_map<std::string, VExprContextSPtr> missing_columns;
     };
 
     /**
@@ -175,7 +174,7 @@ private:
                     partition_columns);
     Status _fill_missing_columns(
             Block* block, size_t rows,
-            const std::unordered_map<std::string, VExprContext*>& missing_columns);
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
     Status _build_pos_delete_filter(size_t read_rows);
     Status _filter_block(Block* block, int column_to_keep,
                          const std::vector<uint32_t>& columns_to_filter);

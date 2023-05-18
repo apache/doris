@@ -104,7 +104,7 @@ private:
     int64_t _valid_element_in_hash_tbl;
 
     //The i-th result expr list refers to the i-th child.
-    std::vector<std::vector<VExprContext*>> _child_expr_lists;
+    std::vector<VExprContextSPtrs> _child_expr_lists;
     //record build column type
     DataTypes _left_table_data_types;
     //first:column_id, could point to origin column or cast column

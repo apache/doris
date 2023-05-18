@@ -140,7 +140,7 @@ public:
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
     std::vector<tparquet::KeyValue> get_metadata_key_values();
     void set_table_to_file_col_map(std::unordered_map<std::string, std::string>& map) {

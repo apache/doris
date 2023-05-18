@@ -240,7 +240,7 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();
     _column_predicate_info.reset(new ColumnPredicateInfo());
 
-    for (auto expr : _remaining_conjunct_roots) {
+    for (auto& expr : _remaining_conjunct_roots) {
         _calculate_pred_in_remaining_conjunct_root(expr);
     }
 
@@ -526,15 +526,15 @@ bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
     }
 }
 
-Status SegmentIterator::_extract_common_expr_columns(vectorized::VExpr* expr) {
-    auto children = expr->children();
+Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr& expr) {
+    auto& children = expr->children();
     for (int i = 0; i < children.size(); ++i) {
         RETURN_IF_ERROR(_extract_common_expr_columns(children[i]));
     }
 
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
-        auto slot_expr = dynamic_cast<doris::vectorized::VSlotRef*>(expr);
+        auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
         _is_common_expr_column[_schema.column_id(slot_expr->column_id())] = true;
         _common_expr_columns.insert(_schema.column_id(slot_expr->column_id()));
     }
@@ -542,12 +542,13 @@ Status SegmentIterator::_extract_common_expr_columns(vectorized::VExpr* expr) {
     return Status::OK();
 }
 
-Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr) {
+Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
+        const vectorized::VExprSPtr& expr) {
     if (expr == nullptr) {
         return Status::OK();
     }
 
-    auto children = expr->children();
+    auto& children = expr->children();
     for (int i = 0; i < children.size(); ++i) {
         RETURN_IF_ERROR(_execute_predicates_except_leafnode_of_andnode(children[i]));
     }
@@ -556,7 +557,7 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(vectorize
     if (node_type == TExprNodeType::SLOT_REF) {
         _column_predicate_info->column_name = expr->expr_name();
     } else if (_is_literal_node(node_type)) {
-        auto v_literal_expr = dynamic_cast<doris::vectorized::VLiteral*>(expr);
+        auto v_literal_expr = std::dynamic_pointer_cast<doris::vectorized::VLiteral>(expr);
         _column_predicate_info->query_value = v_literal_expr->value();
     } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED) {
         if (node_type == TExprNodeType::MATCH_PRED) {
@@ -2094,12 +2095,13 @@ bool SegmentIterator::_check_column_pred_all_push_down(const std::string& column
     return true;
 }
 
-void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(const vectorized::VExpr* expr) {
+void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
+        const vectorized::VExprSPtr& expr) {
     if (expr == nullptr) {
         return;
     }
 
-    auto children = expr->children();
+    auto& children = expr->children();
     for (int i = 0; i < children.size(); ++i) {
         _calculate_pred_in_remaining_conjunct_root(children[i]);
     }
@@ -2108,7 +2110,7 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(const vectorize
     if (node_type == TExprNodeType::SLOT_REF) {
         _column_predicate_info->column_name = expr->expr_name();
     } else if (_is_literal_node(node_type)) {
-        auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr);
+        auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
         _column_predicate_info->query_value = v_literal_expr->value();
     } else {
         if (node_type == TExprNodeType::MATCH_PRED) {

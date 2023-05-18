@@ -97,8 +97,7 @@ Status VResultFileSink::init(const TDataSink& tsink) {
 
 Status VResultFileSink::prepare_exprs(RuntimeState* state) {
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(
-            VExpr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return Status::OK();

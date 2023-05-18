@@ -112,9 +112,8 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     if (tnode.nested_loop_join_node.__isset.vjoin_conjunct) {
-        _vjoin_conjunct_ptr.reset(new VExprContext*);
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, tnode.nested_loop_join_node.vjoin_conjunct,
-                                                _vjoin_conjunct_ptr.get()));
+        RETURN_IF_ERROR(VExpr::create_expr_tree(tnode.nested_loop_join_node.vjoin_conjunct,
+                                                _join_conjunct_ptr));
     }
 
     std::vector<TExpr> filter_src_exprs;
@@ -123,8 +122,7 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
                 RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
     }
-    RETURN_IF_ERROR(
-            vectorized::VExpr::create_expr_trees(_pool, filter_src_exprs, &_filter_src_expr_ctxs));
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
     return Status::OK();
 }
 
@@ -149,8 +147,8 @@ Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
         RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
     }
 
-    if (_vjoin_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->prepare(state, *_intermediate_row_desc));
+    if (_join_conjunct_ptr) {
+        RETURN_IF_ERROR(_join_conjunct_ptr->prepare(state, *_intermediate_row_desc));
     }
     _num_probe_side_columns = child(0)->row_desc().num_materialized_slots();
     _num_build_side_columns = child(1)->row_desc().num_materialized_slots();
@@ -551,10 +549,10 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
     size_t build_block_idx =
             _current_build_pos == 0 ? _build_blocks.size() - 1 : _current_build_pos - 1;
     size_t processed_blocks_num = _offset_stack.size();
-    if (LIKELY(_vjoin_conjunct_ptr != nullptr && block->rows() > 0)) {
-        DCHECK((*_vjoin_conjunct_ptr) != nullptr);
+    if (LIKELY(_join_conjunct_ptr != nullptr && block->rows() > 0)) {
+        DCHECK(_join_conjunct_ptr != nullptr);
         int result_column_id = -1;
-        RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->execute(block, &result_column_id));
+        RETURN_IF_ERROR(_join_conjunct_ptr->execute(block, &result_column_id));
         const auto& filter_column = block->get_by_position(result_column_id).column;
         if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
             const auto& nested_column = nullable_column->get_nested_column_ptr();
@@ -643,8 +641,8 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
 
 Status VNestedLoopJoinNode::alloc_resource(doris::RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
-    if (_vjoin_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->open(state));
+    if (_join_conjunct_ptr) {
+        RETURN_IF_ERROR(_join_conjunct_ptr->open(state));
     }
     return VExpr::open(_filter_src_expr_ctxs, state);
 }
@@ -729,7 +727,7 @@ bool VNestedLoopJoinNode::need_more_input_data() const {
 void VNestedLoopJoinNode::release_resource(doris::RuntimeState* state) {
     VJoinNodeBase::release_resource(state);
     VExpr::close(_filter_src_expr_ctxs, state);
-    if (_vjoin_conjunct_ptr) (*_vjoin_conjunct_ptr)->close(state);
+    if (_join_conjunct_ptr) _join_conjunct_ptr->close(state);
 }
 
 } // namespace doris::vectorized

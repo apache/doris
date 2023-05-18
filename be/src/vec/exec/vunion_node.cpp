@@ -63,15 +63,15 @@ Status VUnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     // Create const_expr_ctx_lists_ from thrift exprs.
     auto& const_texpr_lists = tnode.union_node.const_expr_lists;
     for (auto& texprs : const_texpr_lists) {
-        std::vector<VExprContext*> ctxs;
-        RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, texprs, &ctxs));
+        VExprContextSPtrs ctxs;
+        RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _const_expr_lists.push_back(ctxs);
     }
     // Create result_expr_ctx_lists_ from thrift exprs.
     auto& result_texpr_lists = tnode.union_node.result_expr_lists;
     for (auto& texprs : result_texpr_lists) {
-        std::vector<VExprContext*> ctxs;
-        RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, texprs, &ctxs));
+        VExprContextSPtrs ctxs;
+        RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _child_expr_lists.push_back(ctxs);
     }
     return Status::OK();
@@ -83,7 +83,7 @@ Status VUnionNode::prepare(RuntimeState* state) {
     _materialize_exprs_evaluate_timer =
             ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
     // Prepare const expr lists.
-    for (const std::vector<VExprContext*>& exprs : _const_expr_lists) {
+    for (const VExprContextSPtrs& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(VExpr::prepare(exprs, state, _row_descriptor));
     }
 
@@ -107,11 +107,11 @@ Status VUnionNode::open(RuntimeState* state) {
 Status VUnionNode::alloc_resource(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // open const expr lists.
-    for (const std::vector<VExprContext*>& exprs : _const_expr_lists) {
+    for (const auto& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
     // open result expr lists.
-    for (const std::vector<VExprContext*>& exprs : _child_expr_lists) {
+    for (const auto& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
     return ExecNode::alloc_resource(state);
@@ -339,7 +339,7 @@ void VUnionNode::debug_string(int indentation_level, std::stringstream* out) con
 }
 
 Status VUnionNode::materialize_block(Block* src_block, int child_idx, Block* res_block) {
-    const std::vector<VExprContext*>& child_exprs = _child_expr_lists[child_idx];
+    const auto& child_exprs = _child_expr_lists[child_idx];
     ColumnsWithTypeAndName colunms;
     for (size_t i = 0; i < child_exprs.size(); ++i) {
         int result_column_id = -1;

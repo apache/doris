@@ -89,7 +89,7 @@ public:
 
     TupleDescriptor* tuple_desc() { return _desc_tbl->get_tuple_descriptor(0); }
 
-    const std::vector<vectorized::VExprContext*>& output_exprs() { return _output_exprs_ctxs; }
+    const auto& output_exprs() { return _output_exprs_ctxs; }
 
 private:
     // caching TupleDescriptor, output_expr, etc...
@@ -98,7 +98,7 @@ private:
     std::mutex _block_mutex;
     // prevent from allocte too many tmp blocks
     std::vector<std::unique_ptr<vectorized::Block>> _block_pool;
-    std::vector<vectorized::VExprContext*> _output_exprs_ctxs;
+    std::vector<vectorized::VExprContextSPtr> _output_exprs_ctxs;
     int64_t _create_timestamp = 0;
     vectorized::DataTypeSerDeSPtrs _data_type_serdes;
     std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;

@@ -17,25 +17,17 @@
 
 #pragma once
 
-#include <fmt/core.h>
-
-#include "common/status.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
+#include <memory>
+#include <vector>
 
 namespace doris::vectorized {
 class VExpr;
-class LambdaFunction {
-public:
-    virtual ~LambdaFunction() = default;
+class VExprContext;
 
-    virtual std::string get_name() const = 0;
+using VExprSPtr = std::shared_ptr<VExpr>;
+using VExprContextSPtr = std::shared_ptr<VExprContext>;
 
-    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id, const DataTypePtr& result_type,
-                                  const VExprSPtrs& children) = 0;
-};
-
-using LambdaFunctionPtr = std::shared_ptr<LambdaFunction>;
+using VExprSPtrs = std::vector<VExprSPtr>;
+using VExprContextSPtrs = std::vector<VExprContextSPtr>;
 
 } // namespace doris::vectorized

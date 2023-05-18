@@ -108,11 +108,11 @@ protected:
     // created from param.expr_of_dest_slot
     // For query, it saves default value expr of all dest columns, or nullptr for NULL.
     // For load, it saves conversion expr/default value of all dest columns.
-    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
+    VExprContextSPtrs _dest_vexpr_ctx;
     // dest slot name to index in _dest_vexpr_ctx;
     std::unordered_map<std::string, int> _dest_slot_name_to_idx;
     // col name to default value expr
-    std::unordered_map<std::string, vectorized::VExprContext*> _col_default_value_ctx;
+    std::unordered_map<std::string, vectorized::VExprContextSPtr> _col_default_value_ctx;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
@@ -128,7 +128,7 @@ protected:
     std::unordered_set<std::string> _missing_cols;
 
     // For load task
-    doris::vectorized::VExprContext* _pre_conjunct_ctx_ptr = nullptr;
+    vectorized::VExprContextSPtr _pre_conjunct_ctx_ptr;
     std::unique_ptr<RowDescriptor> _src_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
@@ -180,7 +180,8 @@ private:
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
     Status _split_conjuncts();
-    Status _split_conjuncts_expr(const VExprContextSPtr& context, const VExpr* root);
+    Status _split_conjuncts_expr(const VExprContextSPtr& context,
+                                 const VExprSPtr& conjunct_expr_root);
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
 
     void _reset_counter() {

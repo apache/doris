@@ -64,7 +64,7 @@ struct RowsetReaderContext {
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
-    std::vector<vectorized::VExpr*> remaining_conjunct_roots;
+    std::vector<vectorized::VExprSPtr> remaining_conjunct_roots;
     vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;
     int sequence_id_idx = -1;

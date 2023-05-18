@@ -80,7 +80,7 @@ public:
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
     bool fill_all_columns() const override;
 

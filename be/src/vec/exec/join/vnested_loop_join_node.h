@@ -246,11 +246,11 @@ private:
     MutableColumns _dst_columns;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    std::vector<vectorized::VExprContext*> _filter_src_expr_ctxs;
+    VExprContextSPtrs _filter_src_expr_ctxs;
     bool _is_output_left_side_only = false;
     bool _need_more_input_data = true;
     std::stack<uint16_t> _offset_stack;
-    std::unique_ptr<VExprContext*> _vjoin_conjunct_ptr;
+    VExprContextSPtr _join_conjunct_ptr;
 
     friend struct RuntimeFilterBuild;
 };
