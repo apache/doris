@@ -1235,7 +1235,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * 类型：bool
 * 描述：导入时大部分partition可能都不需要写入，可以使用延迟打开的方式只打开需要写入的partition。升级版本出现混合部署的时候，需要设置为false。
-* 默认值：true
+* 默认值：false
 
 #### `streaming_load_rpc_max_alive_time_sec`
 
