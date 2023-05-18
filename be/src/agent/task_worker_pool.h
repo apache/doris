@@ -178,7 +178,7 @@ public:
     // notify the worker. currently for task/disk/tablet report thread
     void notify_thread();
 
-private:
+protected:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
@@ -228,7 +228,7 @@ private:
     // random sleep 1~second seconds
     void _random_sleep(int second);
 
-private:
+protected:
     std::string _name;
 
     // Reference to the ExecEnv::_master_info
@@ -255,6 +255,7 @@ private:
     // Always 1 when _thread_model is SINGLE_THREAD
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
+    std::function<void()> _cb;
 
     static std::atomic_ulong _s_report_version;
 
@@ -263,4 +264,13 @@ private:
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 }; // class TaskWorkerPool
+
+class CreateTableTaskPool : public TaskWorkerPool {
+public:
+    CreateTableTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _create_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(CreateTableTaskPool);
+};
+
 } // namespace doris

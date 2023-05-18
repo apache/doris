@@ -78,9 +78,7 @@ DEFINE_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-// `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G).
-// 6.4G is the maximum memory reserved for the system by default.
-DEFINE_String(mem_limit, "auto");
+DEFINE_String(mem_limit, "80%");
 
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
@@ -103,6 +101,9 @@ DEFINE_mInt64(mmap_threshold, "134217728"); // bytes
 // Increase can reduce the number of hash table resize, but may waste more memory.
 DEFINE_mInt32(hash_table_double_grow_degree, "31");
 
+DEFINE_mInt32(max_fill_rate, "2");
+
+DEFINE_mInt32(double_resize_threshold, "23");
 // Expand the hash table before inserting data, the maximum expansion size.
 // There are fewer duplicate keys, reducing the number of resize hash tables
 // There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
@@ -301,6 +302,9 @@ DEFINE_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_Bool(disable_storage_row_cache, "true");
 
+// Cache for mow primary key storage page size
+DEFINE_String(pk_storage_page_cache_limit, "10%");
+
 DEFINE_Bool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 
@@ -447,11 +451,11 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
-// The configuration is used to enable lazy open feature, and the default value is true.
+// The configuration is used to enable lazy open feature, and the default value is false.
 // When there is mixed deployment in the upgraded version, it needs to be set to false.
-DEFINE_mBool(enable_lazy_open_partition, "true");
+DEFINE_mBool(enable_lazy_open_partition, "false");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
-DEFINE_mBool(tablet_writer_ignore_eovercrowded, "false");
+DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -542,7 +546,7 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
-DEFINE_mInt32(memory_gc_sleep_time_s, "1");
+DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 DEFINE_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
@@ -936,8 +940,16 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
-DEFINE_Validator(file_cache_max_file_segment_size,
-                 [](const int64_t config) -> bool { return config >= 4096; }); // 4KB
+// 4KB <= file_cache_max_file_segment_size <= 256MB
+DEFINE_Validator(file_cache_max_file_segment_size, [](const int64_t config) -> bool {
+    return config >= 4096 && config <= 268435456;
+});
+DEFINE_Int64(file_cache_min_file_segment_size, "1048576"); // 1MB
+// 4KB <= file_cache_min_file_segment_size <= 256MB
+DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> bool {
+    return config >= 4096 && config <= 268435456 &&
+           config <= config::file_cache_max_file_segment_size;
+});
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 
@@ -983,6 +995,9 @@ DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
+
+//disable shrink memory by default
+DEFINE_Bool(enable_shrink_memory, "false");
 
 #ifdef BE_TEST
 // test s3

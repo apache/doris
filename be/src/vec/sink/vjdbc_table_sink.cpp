@@ -62,7 +62,6 @@ Status VJdbcTableSink::init(const TDataSink& t_sink) {
 }
 
 Status VJdbcTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJdbcTableSink::open");
     RETURN_IF_ERROR(VTableSink::open(state));
 
     // create writer
@@ -77,7 +76,6 @@ Status VJdbcTableSink::open(RuntimeState* state) {
 }
 
 Status VJdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VJdbcTableSink::send");
     Status status = Status::OK();
     if (block == nullptr || block->rows() == 0) {
         return status;
@@ -100,7 +98,6 @@ Status VJdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
 }
 
 Status VJdbcTableSink::close(RuntimeState* state, Status exec_status) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJdbcTableSink::close");
     RETURN_IF_ERROR(VTableSink::close(state, exec_status));
     if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());

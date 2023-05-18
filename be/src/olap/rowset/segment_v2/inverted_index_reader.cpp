@@ -478,12 +478,7 @@ Status BkdIndexReader::bkd_query(OlapReaderStatistics* stats, const std::string&
                                  const void* query_value, InvertedIndexQueryType query_type,
                                  std::shared_ptr<lucene::util::bkd::bkd_reader>& r,
                                  InvertedIndexVisitor* visitor) {
-    auto status = get_bkd_reader(r);
-    if (!status.ok()) {
-        LOG(WARNING) << "get bkd reader for column " << column_name
-                     << " failed: " << status.code_as_string();
-        return status;
-    }
+    RETURN_IF_ERROR(get_bkd_reader(r));
     char tmp[r->bytes_per_dim_];
     switch (query_type) {
     case InvertedIndexQueryType::EQUAL_QUERY: {
@@ -520,7 +515,15 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
     auto visitor = std::make_unique<InvertedIndexVisitor>(nullptr, query_type, true);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
-        RETURN_IF_ERROR(bkd_query(stats, column_name, query_value, query_type, r, visitor.get()));
+        auto st = bkd_query(stats, column_name, query_value, query_type, r, visitor.get());
+        if (!st.ok()) {
+            if (st.code() == ErrorCode::END_OF_FILE) {
+                return Status::OK();
+            }
+            LOG(WARNING) << "bkd_query for column " << column_name
+                         << " failed: " << st.code_as_string();
+            return st;
+        }
         *count = r->estimate_point_count(visitor.get());
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
@@ -562,7 +565,15 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& col
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-        RETURN_IF_ERROR(bkd_query(stats, column_name, query_value, query_type, r, visitor.get()));
+        auto st = bkd_query(stats, column_name, query_value, query_type, r, visitor.get());
+        if (!st.ok()) {
+            if (st.code() == ErrorCode::END_OF_FILE) {
+                return Status::OK();
+            }
+            LOG(WARNING) << "bkd_query for column " << column_name
+                         << " failed: " << st.code_as_string();
+            return st;
+        }
         r->intersect(visitor.get());
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
@@ -606,6 +617,7 @@ Status BkdIndexReader::get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_rea
 
     bkdReader = std::make_shared<lucene::util::bkd::bkd_reader>(data_in.release());
     if (0 == bkdReader->read_meta(meta_in.get())) {
+        VLOG_NOTICE << "bkd index file is empty:" << _compoundReader->toString();
         return Status::EndOfFile("bkd index file is empty");
     }
 

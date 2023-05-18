@@ -233,9 +233,8 @@ public abstract class PlanVisitor<R, C> {
         return visit(having, context);
     }
 
-    public R visitLogicalSetOperation(
-            LogicalSetOperation logicalSetOperation, C context) {
-        return visit(logicalSetOperation, context);
+    public R visitLogicalSetOperation(LogicalSetOperation setOperation, C context) {
+        return visit(setOperation, context);
     }
 
     public R visitLogicalUnion(LogicalUnion union, C context) {

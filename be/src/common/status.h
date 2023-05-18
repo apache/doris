@@ -523,19 +523,6 @@ inline std::string Status::to_string() const {
 #define RETURN_ERROR_IF_NON_VEC \
     return Status::NotSupported("Non-vectorized engine is not supported since Doris 2.0.");
 
-// End _get_next_span after last call to get_next method
-#define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \
-    do {                                                          \
-        Status _status_ = (stmt);                                 \
-        auto _span = (get_next_span);                             \
-        if (UNLIKELY(_span && (!_status_.ok() || done))) {        \
-            _span->End();                                         \
-        }                                                         \
-        if (UNLIKELY(!_status_.ok())) {                           \
-            return _status_;                                      \
-        }                                                         \
-    } while (false)
-
 #define RETURN_IF_STATUS_ERROR(status, stmt) \
     do {                                     \
         status = (stmt);                     \

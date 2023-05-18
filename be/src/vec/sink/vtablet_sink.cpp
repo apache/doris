@@ -963,10 +963,7 @@ void VNodeChannel::mark_close() {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool),
-          _input_row_desc(row_desc),
-          _filter_bitmap(1024),
-          _stop_background_threads_latch(1) {
+        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(pool, texprs, &_output_vexpr_ctxs);
     _name = "VOlapTableSink";
@@ -1097,8 +1094,13 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
+static void* periodic_send_batch(void* sink) {
+    VOlapTableSink* vsink = (VOlapTableSink*)sink;
+    vsink->_send_batch_process();
+    return nullptr;
+}
+
 Status VOlapTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
     SCOPED_TIMER(_profile->total_time_counter());
@@ -1131,9 +1133,9 @@ Status VOlapTableSink::open(RuntimeState* state) {
             MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
-    RETURN_IF_ERROR(Thread::create(
-            "OlapTableSink", "send_batch_process",
-            [this, state]() { this->_send_batch_process(state); }, &_sender_thread));
+    if (bthread_start_background(&_sender_thread, NULL, periodic_send_batch, (void*)this) != 0) {
+        return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
+    }
 
     return Status::OK();
 }
@@ -1154,17 +1156,17 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
     }
 }
 
-void VOlapTableSink::_send_batch_process(RuntimeState* state) {
+void VOlapTableSink::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
-    SCOPED_ATTACH_TASK(state);
+    SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    do {
+    while (true) {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num, this,
-                                                  state](const std::shared_ptr<VNodeChannel>& ch) {
+            index_channel->for_each_node_channel([&running_channels_num,
+                                                  this](const std::shared_ptr<VNodeChannel>& ch) {
                 running_channels_num +=
-                        ch->try_send_and_fetch_status(state, this->_send_batch_thread_pool_token);
+                        ch->try_send_and_fetch_status(_state, this->_send_batch_thread_pool_token);
             });
         }
 
@@ -1174,8 +1176,8 @@ void VOlapTableSink::_send_batch_process(RuntimeState* state) {
                       << print_id(_load_id);
             return;
         }
-    } while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(config::olap_table_sink_send_interval_ms)));
+        bthread_usleep(config::olap_table_sink_send_interval_ms * 1000);
+    }
 }
 
 size_t VOlapTableSink::get_pending_bytes() const {
@@ -1255,7 +1257,6 @@ void VOlapTableSink::_generate_row_distribution_payload(
 }
 
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -1373,7 +1374,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return _close_status;
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::close");
     vectorized::VExpr::close(_output_vexpr_ctxs, state);
     Status status = exec_status;
     if (status.ok()) {
@@ -1479,9 +1479,8 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
 
     // Sender join() must put after node channels mark_close/cancel.
     // But there is no specific sequence required between sender join() & close_wait().
-    _stop_background_threads_latch.count_down();
     if (_sender_thread) {
-        _sender_thread->join();
+        bthread_join(_sender_thread, nullptr);
         // We have to wait all task in _send_batch_thread_pool_token finished,
         // because it is difficult to handle concurrent problem if we just
         // shutdown it.

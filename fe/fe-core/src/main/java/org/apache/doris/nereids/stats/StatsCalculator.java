@@ -520,10 +520,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         new ColumnStatisticBuilder(cache).setHistogram(histogram);
                 columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
                 cache = columnStatisticBuilder.build();
-                totalHistogramMap.put(table.getName() + colName, histogram);
+                totalHistogramMap.put(table.getName() + ":" + colName, histogram);
             }
             columnStatisticMap.put(slotReference, cache);
-            totalColumnStatisticMap.put(table.getName() + colName, cache);
+            totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
             totalHistogramMap.put(table.getName() + colName, histogram);
         }
         return new Statistics(rowCount, columnStatisticMap);

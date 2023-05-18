@@ -515,14 +515,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
                                const FinishCallback& cb) {
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
 #ifndef BE_TEST
-    auto span = exec_state->executor()->runtime_state()->get_tracer()->StartSpan(func_name);
     SCOPED_ATTACH_TASK(exec_state->executor()->runtime_state());
-#else
-    auto span = telemetry::get_noop_tracer()->StartSpan(func_name);
 #endif
-    auto scope = opentelemetry::trace::Scope {span};
-    span->SetAttribute("query_id", print_id(exec_state->query_id()));
-    span->SetAttribute("instance_id", print_id(exec_state->fragment_instance_id()));
 
     LOG_INFO(func_name)
             .tag("query_id", exec_state->query_id())
@@ -732,13 +726,16 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                                        const FinishCallback& cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
+    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
+    cur_span->SetAttribute("query_id", print_id(params.params.query_id));
+    cur_span->SetAttribute("instance_id", print_id(params.params.fragment_instance_id));
+
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
     VLOG_ROW << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
-    START_AND_SCOPE_SPAN(tracer, span, "FragmentMgr::exec_plan_fragment");
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -809,13 +806,15 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const FinishCallback& cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
+    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
+    cur_span->SetAttribute("query_id", print_id(params.query_id));
+
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
     VLOG_ROW << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
-    START_AND_SCOPE_SPAN(tracer, span, "FragmentMgr::exec_plan_fragment");
 
     std::shared_ptr<FragmentExecState> exec_state;
     std::shared_ptr<QueryContext> query_ctx;
@@ -833,6 +832,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 continue;
             }
         }
+        START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
+        span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
         query_ctx->fragment_ids.push_back(fragment_instance_id);
 

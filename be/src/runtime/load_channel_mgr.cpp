@@ -302,13 +302,14 @@ Status LoadChannelMgr::_start_load_channels_clean() {
 void LoadChannelMgr::_handle_mem_exceed_limit() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
-    int64_t process_mem_limit = MemInfo::soft_mem_limit();
+    int64_t process_soft_mem_limit = MemInfo::soft_mem_limit();
     int64_t proc_mem_no_allocator_cache = MemInfo::proc_mem_no_allocator_cache();
     // If process memory is almost full but data load don't consume more than 5% (50% * 10%) of
     // total memory, we don't need to reduce memory of load jobs.
-    bool reduce_on_process_mem_limit = proc_mem_no_allocator_cache >= process_mem_limit &&
-                                       _mem_tracker->consumption() >= _load_hard_mem_limit / 10;
-    if (_mem_tracker->consumption() < _load_soft_mem_limit && !reduce_on_process_mem_limit) {
+    bool reduce_on_process_soft_mem_limit =
+            proc_mem_no_allocator_cache >= process_soft_mem_limit &&
+            _mem_tracker->consumption() >= _load_hard_mem_limit / 10;
+    if (_mem_tracker->consumption() < _load_soft_mem_limit && !reduce_on_process_soft_mem_limit) {
         return;
     }
     // Indicate whether current thread is reducing mem on hard limit.
@@ -327,7 +328,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
                   << ", waited for flush, time_ns:" << timer.elapsed_time();
 
         bool hard_limit_reached = _mem_tracker->consumption() >= _load_hard_mem_limit ||
-                                  proc_mem_no_allocator_cache >= process_mem_limit;
+                                  proc_mem_no_allocator_cache >= process_soft_mem_limit;
         // Some other thread is flushing data, and not reached hard limit now,
         // we don't need to handle mem limit in current thread.
         if (_soft_reduce_mem_in_progress && !hard_limit_reached) {
@@ -407,7 +408,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
             << PrettyPrinter::print_bytes(std::get<3>(writers_to_reduce_mem.front()))
             << ", min mem:" << PrettyPrinter::print_bytes(std::get<3>(writers_to_reduce_mem.back()))
             << "), ";
-        if (proc_mem_no_allocator_cache < process_mem_limit) {
+        if (proc_mem_no_allocator_cache < process_soft_mem_limit) {
             oss << "because total load mem consumption "
                 << PrettyPrinter::print_bytes(_mem_tracker->consumption()) << " has exceeded";
             if (_mem_tracker->consumption() > _load_hard_mem_limit) {
@@ -423,7 +424,8 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
             reducing_mem_on_hard_limit = true;
             oss << "because proc_mem_no_allocator_cache consumption "
                 << PrettyPrinter::print_bytes(proc_mem_no_allocator_cache)
-                << ", has exceeded process limit " << PrettyPrinter::print_bytes(process_mem_limit)
+                << ", has exceeded process soft limit "
+                << PrettyPrinter::print_bytes(process_soft_mem_limit)
                 << ", total load mem consumption: "
                 << PrettyPrinter::print_bytes(_mem_tracker->consumption())
                 << ", vm_rss: " << PerfCounters::get_vm_rss_str()

@@ -62,22 +62,22 @@ true
 true
 
 -- !if_nullif3 --
-true
-true
-true
-true
-true
-true
-true
-true
-true
-true
-true
-true
-true
-true
-true
-true
+-1
+10
+10
+10
+10
+10
+10
+10
+10
+10
+10
+10
+10
+10
+10
+10
 
 -- !if_nullif4 --
 false
@@ -134,22 +134,22 @@ hello
 hello
 
 -- !if_nullif7 --
-false
-false
-false
-false
-false
-false
-false
-false
-false
-true
-true
-true
-true
-true
-true
-true
+0
+0
+0
+0
+0
+0
+0
+0
+0
+-1
+-1
+-1
+-1
+-1
+-1
+-1
 
 -- !if_nullif8 --
 -1
@@ -399,14 +399,14 @@ null	NULL	null	NULLL
 11011905
 
 -- !if_nullif23 --
-123.123
-1243.5
-24453.325
+123.123000000
+1243.500000000
+24453.325000000
 
 -- !if_nullif24 --
-123.123
-1243.5
-24453.325
+123.123000000
+1243.500000000
+24453.325000000
 
 -- !if_nullif23 --
 false

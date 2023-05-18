@@ -81,8 +81,14 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return windowExpressions;
     }
 
-    public LogicalWindow withChecked(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow(windowExpressions, true, Optional.empty(), Optional.empty(), child);
+    public LogicalWindow<Plan> withExpression(List<NamedExpression> windowExpressions, Plan child) {
+        return new LogicalWindow<>(windowExpressions, isChecked, Optional.empty(),
+                Optional.empty(), child);
+    }
+
+    public LogicalWindow<Plan> withChecked(List<NamedExpression> windowExpressions, Plan child) {
+        return new LogicalWindow<>(windowExpressions, true, Optional.empty(),
+                Optional.of(getLogicalProperties()), child);
     }
 
     @Override

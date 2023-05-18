@@ -113,6 +113,12 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
                 StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
         StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
     }
+    if (StoragePageCache::instance()->get_page_cache_mem_consumption(
+                segment_v2::PRIMARY_KEY_INDEX_PAGE) > min_free_size) {
+        freed_mem += StoragePageCache::instance()->get_page_cache_mem_consumption(
+                segment_v2::PRIMARY_KEY_INDEX_PAGE);
+        StoragePageCache::instance()->prune(segment_v2::PRIMARY_KEY_INDEX_PAGE);
+    }
 }
 
 // step1: free all cache
@@ -245,21 +251,16 @@ void MemInfo::init() {
     }
 
     bool is_percent = true;
-    if (config::mem_limit == "auto") {
-        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.8, _s_physical_mem - 6871947672);
-    } else {
-        _s_mem_limit =
-                ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
-        if (_s_mem_limit <= 0) {
-            LOG(WARNING) << "Failed to parse mem limit from '" + config::mem_limit + "'.";
-        }
-        if (_s_mem_limit > _s_physical_mem) {
-            LOG(WARNING) << "Memory limit " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES)
-                         << " exceeds physical memory of "
-                         << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
-                         << ". Using physical memory instead";
-            _s_mem_limit = _s_physical_mem;
-        }
+    _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
+    if (_s_mem_limit <= 0) {
+        LOG(WARNING) << "Failed to parse mem limit from '" + config::mem_limit + "'.";
+    }
+    if (_s_mem_limit > _s_physical_mem) {
+        LOG(WARNING) << "Memory limit " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES)
+                     << " exceeds physical memory of "
+                     << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
+                     << ". Using physical memory instead";
+        _s_mem_limit = _s_physical_mem;
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
@@ -324,13 +325,8 @@ void MemInfo::init() {
         _s_physical_mem = -1;
     }
 
-    if (config::mem_limit == "auto") {
-        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.8, _s_physical_mem - 6871947672);
-    } else {
-        bool is_percent = true;
-        _s_mem_limit =
-                ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
-    }
+    bool is_percent = true;
+    _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
     _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);

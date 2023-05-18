@@ -788,7 +788,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .addAll(distinctArguments)
                 .build();
 
-        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true);
 
         Map<AggregateFunction, Alias> nonDistinctAggFunctionToAliasPhase1 = aggregateFunctions.stream()
                 .filter(aggregateFunction -> !aggregateFunction.isDistinct())
@@ -1295,7 +1295,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .addAll(distinctArguments)
                 .build();
 
-        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true);
 
         Map<AggregateFunction, Alias> nonDistinctAggFunctionToAliasPhase1 = aggregateFunctions.stream()
                 .filter(aggregateFunction -> !aggregateFunction.isDistinct())

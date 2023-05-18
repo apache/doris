@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -227,7 +228,9 @@ public class TypeCoercionUtils {
      * cast input type if input's datatype is not same with dateType.
      */
     public static Expression castIfNotSameType(Expression input, DataType targetType) {
-        if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)
+        if (input.isNullLiteral()) {
+            return new NullLiteral(targetType);
+        } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)
                 || (isVarCharOrStringType(input.getDataType())
                         && isVarCharOrStringType(targetType))) {
             return input;
@@ -939,6 +942,10 @@ public class TypeCoercionUtils {
         }
 
         // numeric
+        if (leftType.isFloatType() || leftType.isDoubleType()
+                || rightType.isFloatType() || rightType.isDoubleType()) {
+            return Optional.of(DoubleType.INSTANCE);
+        }
         if (leftType.isNumericType() && rightType.isNumericType()) {
             DataType commonType = leftType;
             for (DataType dataType : NUMERIC_PRECEDENCE) {
@@ -1007,7 +1014,7 @@ public class TypeCoercionUtils {
     }
 
     /**
-     * two types' common type, see {@link TypeCoercionUtilsTest#testFindPrimitiveCommonType()}
+     * two types' common type, see TypeCoercionUtilsTest#testFindCommonPrimitiveTypeForCaseWhen()
      */
     @VisibleForTesting
     protected static Optional<DataType> findCommonPrimitiveTypeForCaseWhen(DataType t1, DataType t2) {
@@ -1162,14 +1169,17 @@ public class TypeCoercionUtils {
                         throw new AnalysisException(function.getName() + " key can't be NULL: " + function.toSql());
                     }
                     // Not to return NULL directly, so save string, but flag is '0'
-                    newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("NULL"));
+                    newArguments.add(new StringLiteral("NULL"));
                 } else {
                     newArguments.add(argument);
                 }
             }
-            // add json type string to the last
-            newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
-                    jsonTypeStr.toString()));
+            if (arguments.isEmpty()) {
+                newArguments.add(new StringLiteral(""));
+            } else {
+                // add json type string to the last
+                newArguments.add(new StringLiteral(jsonTypeStr.toString()));
+            }
             return (BoundFunction) function.withChildren(newArguments);
         } catch (Throwable t) {
             throw new AnalysisException(t.getMessage());

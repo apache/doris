@@ -135,6 +135,9 @@ Status SchemaTablesScanner::_get_new_table() {
 Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto table_num = _table_result.tables.size();
+    if (table_num == 0) {
+        return Status::OK();
+    }
     std::vector<void*> null_datas(table_num, nullptr);
     std::vector<void*> datas(table_num);
 
