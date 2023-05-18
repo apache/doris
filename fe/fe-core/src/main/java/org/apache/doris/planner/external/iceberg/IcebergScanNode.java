@@ -270,7 +270,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() throws UserException {
-        return source.getIcebergTable().spec().fields().stream().map(PartitionField::name)
+        return source.getIcebergTable().spec().fields().stream().map(PartitionField::name).map(String::toLowerCase)
             .collect(Collectors.toList());
     }
 
