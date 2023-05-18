@@ -29,7 +29,7 @@ import org.apache.doris.qe.ConnectContext;
 /**
  * Pushdown semi-join through agg
  */
-public class SemiJoinAggTransposeProject extends OneRewriteRuleFactory {
+public class TransposeSemiJoinAggProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalProject(logicalAggregate()), any())
@@ -40,11 +40,11 @@ public class SemiJoinAggTransposeProject extends OneRewriteRuleFactory {
                 .then(join -> {
                     LogicalProject<LogicalAggregate<Plan>> project = join.left();
                     LogicalAggregate<Plan> aggregate = project.child();
-                    if (!SemiJoinAggTranspose.canTranspose(aggregate, join)) {
+                    if (!TransposeSemiJoinAgg.canTranspose(aggregate, join)) {
                         return null;
                     }
                     Plan newPlan = aggregate.withChildren(join.withChildren(aggregate.child(), join.right()));
                     return project.withChildren(newPlan);
-                }).toRule(RuleType.LOGICAL_SEMI_JOIN_AGG_TRANSPOSE_PROJECT);
+                }).toRule(RuleType.TRANSPOSE_LOGICAL_SEMI_JOIN_AGG_PROJECT);
     }
 }

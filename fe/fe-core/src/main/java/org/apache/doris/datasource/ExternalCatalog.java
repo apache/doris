@@ -234,7 +234,7 @@ public abstract class ExternalCatalog
             if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
                 continue;
             }
-            if (!includeDatabaseMap.isEmpty() && includeDatabaseMap.containsKey(dbName)) {
+            if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
                 continue;
             }
             long dbId;

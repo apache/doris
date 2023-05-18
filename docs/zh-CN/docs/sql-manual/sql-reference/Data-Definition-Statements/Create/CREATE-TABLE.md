@@ -361,7 +361,7 @@ distribution_desc
         动态分区相关参数如下：
     
         * `dynamic_partition.enable`: 用于指定表级别的动态分区功能是否开启。默认为 true。
-        * `dynamic_partition.time_unit:` 用于指定动态添加分区的时间单位，可选择为DAY（天），WEEK(周)，MONTH（月），HOUR（时）。
+        * `dynamic_partition.time_unit:` 用于指定动态添加分区的时间单位，可选择为DAY（天），WEEK(周)，MONTH（月），YEAR（年），HOUR（时）。
         * `dynamic_partition.start`: 用于指定向前删除多少个分区。值必须小于0。默认为 Integer.MIN_VALUE。
         * `dynamic_partition.end`: 用于指定提前创建的分区数量。值必须大于0。
         * `dynamic_partition.prefix`: 用于指定创建的分区名前缀，例如分区名前缀为p，则自动创建分区名为p20200108。

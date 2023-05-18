@@ -142,7 +142,6 @@ Status VResultFileSink::prepare(RuntimeState* state) {
 }
 
 Status VResultFileSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VResultFileSink::open");
     if (!_is_top_sink) {
         RETURN_IF_ERROR(_stream_sender->open(state));
     }
@@ -150,7 +149,6 @@ Status VResultFileSink::open(RuntimeState* state) {
 }
 
 Status VResultFileSink::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultFileSink::send");
     RETURN_IF_ERROR(_writer->append_block(*block));
     return Status::OK();
 }
@@ -160,7 +158,6 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
 
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VResultFileSink::close");
     Status final_status = exec_status;
     // close the writer
     if (_writer) {

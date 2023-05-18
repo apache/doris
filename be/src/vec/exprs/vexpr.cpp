@@ -345,8 +345,6 @@ std::string VExpr::debug_string() const {
     // TODO: implement partial debug string for member vars
     std::stringstream out;
     out << " type=" << _type.debug_string();
-    out << " codegen="
-        << "false";
 
     if (!_children.empty()) {
         out << " children=" << debug_string(_children);

@@ -885,7 +885,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                         tablet->publised_count++;
                         if (tablet->publised_count % 10 == 0) {
                             StorageEngine::instance()->submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION);
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
                             LOG(INFO) << "trigger compaction succ, tabletid:" << succ_tablet_ids[i]
                                       << ", publised:" << tablet->publised_count;
                         }
@@ -1760,8 +1760,8 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
                 continue;
             }
 
-            Status status =
-                    StorageEngine::instance()->submit_compaction_task(tablet_ptr, compaction_type);
+            Status status = StorageEngine::instance()->submit_compaction_task(
+                    tablet_ptr, compaction_type, false);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to submit table compaction task. error=" << status;
             }

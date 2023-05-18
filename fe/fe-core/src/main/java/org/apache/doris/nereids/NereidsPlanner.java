@@ -268,7 +268,7 @@ public class NereidsPlanner extends Planner {
             }
             // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
             serializeOutputToDumpFile(physicalPlan, statementContext.getConnectContext());
-            if (statementContext.getConnectContext().getSessionVariable().isDumpNereids()) {
+            if (statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
                 MinidumpUtils.saveMinidumpString(statementContext.getConnectContext().getMinidump(),
                         DebugUtil.printId(statementContext.getConnectContext().queryId()));
             }

@@ -391,7 +391,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate
         //  so complex aggregate plan than legacy planner, and should add forbid parallel scan hint when
         //  generate physical aggregate plan.
-        if (leftMostNode instanceof OlapScanNode && aggregate.getAggMode() == AggMode.INPUT_TO_RESULT) {
+        if (leftMostNode instanceof OlapScanNode && aggregate.getAggregateParam().needColocateScan) {
             currentFragment.getPlanRoot().setShouldColoScan();
             currentFragment.setHasColocatePlanNode(!ConnectContext.get().getSessionVariable().enablePipelineEngine());
         }
@@ -672,6 +672,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         }
         Preconditions.checkNotNull(scanNode);
+        fileScan.getConjuncts().stream()
+            .map(e -> ExpressionTranslator.translate(e, context))
+            .forEach(scanNode::addConjunct);
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);

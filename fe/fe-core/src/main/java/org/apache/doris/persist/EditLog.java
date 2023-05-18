@@ -482,6 +482,10 @@ public class EditLog {
                     MetaContext.get().setMetaVersion(version);
                     break;
                 }
+                case OperationType.OP_CREATE_CLUSTER: {
+                    // Do nothing
+                    break;
+                }
                 case OperationType.OP_ADD_BROKER: {
                     final BrokerMgr.ModifyBrokerInfo param = (BrokerMgr.ModifyBrokerInfo) journal.getData();
                     env.getBrokerMgr().replayAddBrokers(param.brokerName, param.brokerAddresses);

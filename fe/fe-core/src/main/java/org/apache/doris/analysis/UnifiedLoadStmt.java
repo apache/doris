@@ -55,14 +55,14 @@ public class UnifiedLoadStmt extends DdlStmt {
     }
 
     public static UnifiedLoadStmt buildBrokerLoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                                                      BrokerDesc brokerDesc, String cluster,
+                                                      BrokerDesc brokerDesc,
                                                       Map<String, String> properties, String comment) {
         StatementBase proxyStmt;
         final ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
             proxyStmt = new BrokerLoadStmt(label, dataDescriptions, brokerDesc, properties, comment);
         } else {
-            proxyStmt = new LoadStmt(label, dataDescriptions, brokerDesc, cluster, properties, comment);
+            proxyStmt = new LoadStmt(label, dataDescriptions, brokerDesc, properties, comment);
         }
         return new UnifiedLoadStmt(proxyStmt);
     }

@@ -333,6 +333,8 @@ public class Env {
     // set to true after finished replay all meta and ready to serve
     // set to false when catalog is not ready.
     private AtomicBoolean isReady = new AtomicBoolean(false);
+    // set to true after http server start
+    private AtomicBoolean httpReady = new AtomicBoolean(false);
     // set to true if FE can offer READ service.
     // canRead can be true even if isReady is false.
     // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
@@ -918,6 +920,14 @@ public class Env {
 
     public boolean isReady() {
         return isReady.get();
+    }
+
+    public boolean isHttpReady() {
+        return httpReady.get();
+    }
+
+    public void setHttpReady(boolean httpReady) {
+        this.httpReady.set(httpReady);
     }
 
     private void getClusterIdAndRole() throws IOException {

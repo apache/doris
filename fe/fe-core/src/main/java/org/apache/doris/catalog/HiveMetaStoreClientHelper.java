@@ -700,7 +700,8 @@ public class HiveMetaStoreClientHelper {
      * Convert hive type to doris type.
      */
     public static Type hiveTypeToDorisType(String hiveType) {
-        return hiveTypeToDorisType(hiveType, 0);
+        // use the largest scale as default time scale.
+        return hiveTypeToDorisType(hiveType, 6);
     }
 
     /**
