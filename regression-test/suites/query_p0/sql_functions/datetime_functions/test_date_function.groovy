@@ -447,6 +447,8 @@ suite("test_date_function") {
     sql """ drop table ${tableName} """
 
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
+    qt_sql """ select date_format('2023-05-07', '%X %v %w'); """
+    qt_sql """ select date_format('2023-05-07', '%X %V %w'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
     qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """

@@ -922,9 +922,6 @@ public class DateLiteral extends LiteralExpr {
                     case 'T': // %T Time, 24-hour (HH:mm:ss)
                         builder.appendPattern("HH:mm:ss");
                         break;
-                    case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
-                        builder.appendValue(ChronoField.ALIGNED_WEEK_OF_YEAR, 2);
-                        break;
                     case 'x':
                     case 'Y': // %Y Year, numeric, four digits
                         // %x Year for the week, where Monday is the first day of the week,
@@ -943,6 +940,7 @@ public class DateLiteral extends LiteralExpr {
                     case 'U': // %U Week (00..53), where Sunday is the first day of the week
                     case 'u': // %u Week (00..53), where Monday is the first day of the week
                     case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
+                    case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
                     case 'X': // %X Year for the week where Sunday is the first day of the week,
                         // numeric, four digits; used with %V
                     case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
