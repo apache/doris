@@ -44,6 +44,22 @@ namespace doris {
 
 TextConverter::TextConverter(char escape_char) : _escape_char(escape_char) {}
 
+void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
+                                        vectorized::MutableColumnPtr* column_ptr, const char* data,
+                                        size_t len) {
+    DCHECK(column_ptr->get()->is_nullable());
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
+    if ((len == 2 && data[0] == '\\' && data[1] == 'N') || len == SQL_NULL_DATA) {
+        nullable_column->get_null_map_data().push_back(1);
+        reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column())
+                .insert_default();
+    } else {
+        nullable_column->get_null_map_data().push_back(0);
+        reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column())
+                .insert_data(data, len);
+    }
+}
+
 bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                                      vectorized::IColumn* nullable_col_ptr, const char* data,
                                      size_t len, bool copy_string, bool need_escape, size_t rows) {

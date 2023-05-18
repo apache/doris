@@ -116,6 +116,7 @@ Status RowGroupReader::init(
     _row_descriptor = row_descriptor;
     _col_name_to_slot_id = colname_to_slot_id;
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
+    _text_converter.reset(new TextConverter('\\'));
     if (not_single_slot_filter_conjuncts) {
         _filter_conjuncts.insert(_filter_conjuncts.end(), not_single_slot_filter_conjuncts->begin(),
                                  not_single_slot_filter_conjuncts->end());
