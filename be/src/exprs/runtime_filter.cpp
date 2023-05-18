@@ -1057,7 +1057,11 @@ public:
 
     friend class IRuntimeFilter;
 
-    void set_bloom_filter_id(int id) { _context.bloom_filter_func->set_filter_id(id); }
+    void set_bloom_filter_id(int id) {
+        if (_context.bloom_filter_func) {
+            _context.bloom_filter_func->set_filter_id(id);
+        }
+    }
 
 private:
     RuntimeState* _state;
