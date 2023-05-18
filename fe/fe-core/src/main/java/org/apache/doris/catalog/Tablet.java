@@ -293,6 +293,7 @@ public class Tablet extends MetaObject implements Writable {
                 sb.append(be.getHealthyStatus());
             }
         }
+        return sb.toString();
     }
 
     public Replica getReplicaById(long replicaId) {
