@@ -712,6 +712,16 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
     using UnsignedCppType = uint64_t;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
+    using CppType = uint32_t;
+    using UnsignedCppType = uint32_t;
+};
+template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
+    using CppType = uint128_t;
+    using UnsignedCppType = uint128_t;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
     using CppType = Slice;
 };
@@ -764,6 +774,8 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     static inline CppType get_cpp_type_value(const void* address) {
         if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
             return get_int128_from_unalign(address);
+        } else if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_IPV6) {
+            return get_uint128_from_unalign(address);
         }
         return *reinterpret_cast<const CppType*>(address);
     }
@@ -951,6 +963,99 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
 };
 
 template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        uint32_t value = StringParser::string_to_unsigned_int<uint32_t>(scan_key.c_str(), scan_key.size(), &result);
+
+        if (result == StringParser::PARSE_FAILURE) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+        }
+        *reinterpret_cast<uint32_t*>(buf) = value;
+        return Status::OK();
+    }
+
+    static std::string to_string(const void* src) {
+        uint32_t value = *reinterpret_cast<const uint32_t*>(src);
+        std::stringstream ss;
+        ss << ((value >> 24) & 0xFF) << '.'
+           << ((value >> 16) & 0xFF) << '.'
+           << ((value >> 8) & 0xFF) << '.'
+           << (value & 0xFF);
+        return ss.str();
+    }
+};
+
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        std::istringstream iss(scan_key);
+        std::string token;
+        uint128_t result = 0;
+        int count = 0;
+
+        while (std::getline(iss, token, ':')) {
+            if (token.empty()) {
+                count += 8 - count;
+                break;
+            }
+
+            if (count > 8) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>();;
+            }
+
+            uint16_t value;
+            std::istringstream ss(token);
+            if (!(ss >> std::hex >> value)) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>();;
+            }
+
+            result = (result << 16) | value;
+            count++;
+        }
+
+        if (count < 8) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>();;
+        }
+
+        *reinterpret_cast<uint128_t*>(buf) = result;
+        return Status::OK();
+    }
+
+    static std::string to_string(const void* src) {
+        std::stringstream result;
+        uint128_t ipv6 = *reinterpret_cast<const uint128_t*>(src);
+
+        for (int i = 0; i < 8; i++) {
+            uint16_t part = static_cast<uint16_t>((ipv6 >> (112 - i * 16)) & 0xFFFF);
+            result << std::to_string(part);
+            if (i != 7) {
+                result << ":";
+            }
+        }
+
+        return result.str();
+    }
+
+    static void set_to_max(void* buf) {
+        *reinterpret_cast<PackedInt128*>(buf) =
+                static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
+    }
+
+    static void set_to_min(void* buf) {
+        *reinterpret_cast<PackedInt128*>(buf) =
+                -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                  static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
+    }
+};
+
+template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
         : public NumericFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT, true> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
@@ -1032,7 +1137,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
         }
         *reinterpret_cast<int32_t*>(buf) = (int32_t)value;
         return Status::OK();
-    }
+         }
     static void set_to_max(void* buf) {
         CppType* data = reinterpret_cast<CppType*>(buf);
         *data = 999999999;

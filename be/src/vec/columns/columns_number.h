@@ -32,7 +32,7 @@ using ColumnUInt8 = ColumnVector<UInt8>;
 using ColumnUInt16 = ColumnVector<UInt16>;
 using ColumnUInt32 = ColumnVector<UInt32>;
 using ColumnUInt64 = ColumnVector<UInt64>;
-using ColumnUInt128 = ColumnVector<UInt128>;
+using ColumnUInt128 = ColumnVector<uint128_t>;
 
 using ColumnInt8 = ColumnVector<Int8>;
 using ColumnInt16 = ColumnVector<Int16>;

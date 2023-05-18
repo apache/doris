@@ -38,7 +38,7 @@ std::string DataTypeIPv6::to_string(const IColumn& column, size_t row_num) const
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
-    UInt128 value = assert_cast<const ColumnUInt128&>(*ptr).get_element(row_num);
+    uint128_t value = assert_cast<const ColumnUInt128&>(*ptr).get_element(row_num);
     return convert_ipv6_to_string(value);
 }
 
@@ -49,7 +49,7 @@ void DataTypeIPv6::to_string(const IColumn& column, size_t row_num, BufferWritab
 
 Status DataTypeIPv6::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* column_data = static_cast<ColumnUInt128*>(column);
-    UInt128 value;
+    uint128_t value;
     if (!convert_string_to_ipv6(value, rb.to_string())) {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                "Invalid value: {} for type IPv6", rb.to_string());
@@ -58,44 +58,51 @@ Status DataTypeIPv6::from_string(ReadBuffer& rb, IColumn* column) const {
     return Status::OK();
 }
 
-std::string DataTypeIPv6::convert_ipv6_to_string(UInt128 ipv6) {
-    std::stringstream ss;
-    ss << std::hex << std::setfill('0');
+std::string DataTypeIPv6::convert_ipv6_to_string(uint128_t ipv6) {
+    std::stringstream result;
 
-    for (int i = 7; i >= 0; i--) {
-        UInt16 field = (i < 4) ? ((ipv6.low >> (16 * i)) & 0xFFFF) : ((ipv6.high >> (16 * (i - 4))) & 0xFFFF);
-        ss << std::setw(4) << field;
-        if (i != 0) {
-            ss << ":";
+    for (int i = 0; i < 8; i++) {
+        uint16_t part = static_cast<uint16_t>((ipv6 >> (112 - i * 16)) & 0xFFFF);
+        result << std::to_string(part);
+        if (i != 7) {
+            result << ":";
         }
     }
 
-    return ss.str();
+    return result.str();
 }
 
-bool DataTypeIPv6::convert_string_to_ipv6(UInt128& x, std::string ipv6) {
-    std::stringstream ss(ipv6);
+bool DataTypeIPv6::convert_string_to_ipv6(uint128_t& x, std::string ipv6) {
+    std::istringstream iss(ipv6);
+    std::string token;
+    uint128_t result = 0;
+    int count = 0;
 
-    UInt16 fields[8];
-    char delimiter;
-    for (int i = 0; i < 8; i++) {
-        if (!(ss >> std::hex >> fields[i])) {
+    while (std::getline(iss, token, ':')) {
+        if (token.empty()) {
+            count += 8 - count;
+            break;
+        }
+
+        if (count > 8) {
             return false;
         }
-        if (i < 7 && !(ss >> delimiter) && delimiter != ':') {
+
+        uint16_t value;
+        std::istringstream ss(token);
+        if (!(ss >> std::hex >> value)) {
             return false;
         }
+
+        result = (result << 16) | value;
+        count++;
     }
 
-    x.low = 0;
-    x.high = 0;
-    for (int i = 0; i < 4; i++) {
-        x.low |= static_cast<uint64_t>(fields[i]) << (16 * (3 - i));
-    }
-    for (int i = 4; i < 8; i++) {
-        x.high |= static_cast<uint64_t>(fields[i]) << (16 * (7 - i));
+    if (count < 8) {
+        return false;
     }
 
+    x = result;
     return true;
 }
 
