@@ -38,10 +38,10 @@
 #include <math.h>
 #include <string.h>
 
-#include <roaring/roaring.hh>
 #include <algorithm>
 #include <filesystem>
 #include <ostream>
+#include <roaring/roaring.hh>
 #include <set>
 
 #include "common/config.h"
