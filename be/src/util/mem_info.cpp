@@ -191,6 +191,8 @@ bool MemInfo::process_full_gc() {
         }
     }
 
+    freed_mem += tg_soft_memory_limit_gc(_s_process_minor_gc_size - freed_mem);
+
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory query in Full GC",
                                                         MemTrackerLimiter::Type::QUERY);
     freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
@@ -219,7 +221,7 @@ bool MemInfo::process_full_gc() {
     return false;
 }
 
-int64_t MemInfo::tg_memory_limit_gc() {
+int64_t MemInfo::tg_hard_memory_limit_gc() {
     std::vector<taskgroup::TaskGroupPtr> task_groups;
     taskgroup::TaskGroupManager::instance()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {

@@ -123,7 +123,7 @@ public:
     static bool process_minor_gc();
     static bool process_full_gc();
 
-    static int64_t tg_memory_limit_gc();
+    static int64_t tg_hard_memory_limit_gc();
 
     static int64_t tg_soft_memory_limit_gc(int64_t request_free_memory);
 
