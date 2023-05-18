@@ -496,6 +496,10 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof QuantileStateType;
     }
 
+    public boolean isAggStateType() {
+        return this instanceof AggStateType;
+    }
+
     public boolean isHllType() {
         return this instanceof HllType;
     }
