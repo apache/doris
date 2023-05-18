@@ -993,6 +993,9 @@ DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
 
+//disable shrink memory by default
+DEFINE_Bool(enable_shrink_memory, "false");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
