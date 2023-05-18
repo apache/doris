@@ -318,11 +318,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         );
 
         ExchangeNode exchangeNode = ((ExchangeNode) rootFragment.getPlanRoot());
-        DataPartition dataPartition = sink.getOutputPartition();
         PlanFragment currentFragment = new PlanFragment(
                 context.nextFragmentId(),
                 exchangeNode,
-                dataPartition);
+                rootFragment.getDataPartition());
 
         rootFragment.setPlanRoot(exchangeNode.getChild(0));
         rootFragment.setDestination(exchangeNode);
@@ -332,7 +331,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         DistributionSpecHash specHash = ((DistributionSpecHash) ((PhysicalDistribute) olapTableSink.child())
                 .getDistributionSpec());
-        rootFragment.setOutputPartition(DataPartition.hashPartitioned(specHash
+        rootFragment.setDataPartition(DataPartition.hashPartitioned(specHash
                 .getOrderedShuffledColumns().stream().map(context::findSlotRef).collect(Collectors.toList())));
 
         rootFragment.finalize(null);
