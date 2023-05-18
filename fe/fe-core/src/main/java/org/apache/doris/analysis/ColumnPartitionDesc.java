@@ -68,7 +68,7 @@ public class ColumnPartitionDesc extends PartitionDesc {
                 if (matched != null && !matched.getName().equals(table.getName())) {
                     throw new AnalysisException("The partition columns must be in the same table.");
                 } else if (matched == null) {
-                    matched = (Table)table;
+                    matched = (Table) table;
                 }
             }
         }
