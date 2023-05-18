@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmapSubsetIterator;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.AbstractReceiver;
@@ -40,7 +39,7 @@ import java.util.stream.Collectors;
  * More details are in Paper: Dynamic Programming Strikes Back and Build Query Optimizer.
  */
 public class SubgraphEnumerator {
-    public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
+    public static final Logger LOG = LogManager.getLogger(SubgraphEnumerator.class);
 
     // The receiver receives the csg and cmp and record them, named DPTable in paper
     AbstractReceiver receiver;
