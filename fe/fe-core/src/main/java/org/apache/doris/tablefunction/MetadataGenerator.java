@@ -250,11 +250,10 @@ public class MetadataGenerator {
         for (List<String> rGroupsInfo : resourceGroupsInfo) {
             TRow trow = new TRow();
             Long id = Long.valueOf(rGroupsInfo.get(0));
-            int value = Integer.valueOf(rGroupsInfo.get(3));
             trow.addToColumnValue(new TCell().setLongVal(id));
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1)));
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(2)));
-            trow.addToColumnValue(new TCell().setIntVal(value));
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(3)));
             dataBatch.add(trow);
         }
 

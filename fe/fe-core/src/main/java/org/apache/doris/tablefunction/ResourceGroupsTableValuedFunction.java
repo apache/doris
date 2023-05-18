@@ -74,9 +74,9 @@ public class ResourceGroupsTableValuedFunction extends MetadataTableValuedFuncti
     public List<Column> getTableColumns() throws AnalysisException {
         List<Column> resColumns = Lists.newArrayList();
         resColumns.add(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)));
-        resColumns.add(new Column("Name", ScalarType.createVarchar(64)));
-        resColumns.add(new Column("Item", ScalarType.createVarchar(64)));
-        resColumns.add(new Column("Value", ScalarType.createType(PrimitiveType.INT)));
+        resColumns.add(new Column("Name", ScalarType.createStringType()));
+        resColumns.add(new Column("Item", ScalarType.createStringType()));
+        resColumns.add(new Column("Value", ScalarType.createStringType()));
         return resColumns;
     }
 }
