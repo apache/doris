@@ -848,12 +848,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
+        Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(),
+                (ExternalTable) table, partitionNames);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
-        replayAddExternalPartitions(log);
         Env.getCurrentEnv().getEditLog().logAddExternalPartitions(log);
     }
 
@@ -875,8 +876,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr()
+        try {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
                 .addPartitionsCache(catalog.getId(), table, log.getPartitionNames());
+        } catch (HMSClientException e) {
+            LOG.warn("Network problem occurs or hms table has been deleted, fallback to invalidate table cache", e);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(),
+                    db.getFullName(), table.getName());
+        }
     }
 
     public void dropExternalPartitions(String catalogName, String dbName, String tableName, List<String> partitionNames,
@@ -937,23 +944,32 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public void refreshExternalPartitions(String catalogName, String dbName, String tableName,
-            List<String> partitionNames)
+            List<String> partitionNames, boolean ignoreIfNotExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
-            throw new DdlException("No catalog found with name: " + catalogName);
+            if (!ignoreIfNotExists) {
+                throw new DdlException("No catalog found with name: " + catalogName);
+            }
+            return;
         }
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+            if (!ignoreIfNotExists) {
+                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+            }
+            return;
         }
 
         TableIf table = db.getTableNullable(tableName);
         if (table == null) {
-            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+            if (!ignoreIfNotExists) {
+                throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+            }
+            return;
         }
 
         ExternalObjectLog log = new ExternalObjectLog();
