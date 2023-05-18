@@ -44,7 +44,7 @@ public class CheckTypeToInsertTargetColumn extends OneAnalysisRuleFactory {
             checkNeedCast(insertTargetTypes, outputs);
             return sink;
         }).toRule(RuleType.CHECK_TYPE_TO_INSERT_TARGET_COLUMN);
-    }`
+    }
 
     private void checkNeedCast(List<DataType> targetType, List<Slot> slots) {
         Preconditions.checkArgument(targetType.size() == slots.size(),
