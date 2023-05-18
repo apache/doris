@@ -1169,14 +1169,17 @@ public class TypeCoercionUtils {
                         throw new AnalysisException(function.getName() + " key can't be NULL: " + function.toSql());
                     }
                     // Not to return NULL directly, so save string, but flag is '0'
-                    newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("NULL"));
+                    newArguments.add(new StringLiteral("NULL"));
                 } else {
                     newArguments.add(argument);
                 }
             }
-            // add json type string to the last
-            newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
-                    jsonTypeStr.toString()));
+            if (arguments.isEmpty()) {
+                newArguments.add(new StringLiteral(""));
+            } else {
+                // add json type string to the last
+                newArguments.add(new StringLiteral(jsonTypeStr.toString()));
+            }
             return (BoundFunction) function.withChildren(newArguments);
         } catch (Throwable t) {
             throw new AnalysisException(t.getMessage());
