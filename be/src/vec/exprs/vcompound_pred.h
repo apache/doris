@@ -151,7 +151,7 @@ private:
                 return false;
             }
         }
-        return false;
+        return true;
     }
 
     uint8* _get_raw_data(ColumnPtr column) const {
