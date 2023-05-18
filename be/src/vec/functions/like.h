@@ -264,6 +264,7 @@ private:
 class FunctionRegexp : public FunctionLikeBase {
 public:
     static constexpr auto name = "regexp";
+    static constexpr auto alias = "rlike";
 
     static FunctionPtr create() { return std::make_shared<FunctionRegexp>(); }
 
