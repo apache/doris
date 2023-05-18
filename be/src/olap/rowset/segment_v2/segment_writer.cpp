@@ -339,8 +339,10 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
                                                            .assume_mutable()
                                                            .get());
     row_store_column->clear();
+    vectorized::DataTypeSerDeSPtrs serdes =
+            vectorized::create_data_type_serdes(block.get_data_types());
     vectorized::JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
-                                                   _tablet_schema->num_columns());
+                                                   _tablet_schema->num_columns(), serdes);
     VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
                << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
                << watch.elapsed_time() / 1000;

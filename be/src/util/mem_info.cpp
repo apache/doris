@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/segment_loader.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -113,6 +114,15 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
                 StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
         StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
     }
+
+    if (segment_v2::InvertedIndexSearcherCache::instance()->mem_consumption() > min_free_size) {
+        freed_mem += segment_v2::InvertedIndexSearcherCache::instance()->prune();
+    }
+
+    if (segment_v2::InvertedIndexQueryCache::instance()->mem_consumption() > min_free_size) {
+        freed_mem += segment_v2::InvertedIndexQueryCache::instance()->prune();
+    }
+
     if (StoragePageCache::instance()->get_page_cache_mem_consumption(
                 segment_v2::PRIMARY_KEY_INDEX_PAGE) > min_free_size) {
         freed_mem += StoragePageCache::instance()->get_page_cache_mem_consumption(
@@ -144,6 +154,8 @@ bool MemInfo::process_minor_gc() {
     // TODO add freed_mem
     SegmentLoader::instance()->prune();
 
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
+            "Before free top memory overcommit query in Minor GC", MemTrackerLimiter::Type::QUERY);
     if (config::enable_query_memroy_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
@@ -185,11 +197,16 @@ bool MemInfo::process_full_gc() {
         }
     }
 
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory query in Full GC",
+                                                        MemTrackerLimiter::Type::QUERY);
     freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
                                                           vm_rss_str, mem_available_str);
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
+
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
+            "Before free top memory overcommit load in Full GC", MemTrackerLimiter::Type::LOAD);
     if (config::enable_query_memroy_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
                 _s_process_full_gc_size - freed_mem, vm_rss_str, mem_available_str);
@@ -197,6 +214,9 @@ bool MemInfo::process_full_gc() {
             return true;
         }
     }
+
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory load in Full GC",
+                                                        MemTrackerLimiter::Type::LOAD);
     freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem,
                                                          vm_rss_str, mem_available_str);
     if (freed_mem > _s_process_full_gc_size) {

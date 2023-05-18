@@ -1,7 +1,7 @@
 ---
 {
-    "title": "jsonb_exists_path",
-    "language": "en"
+    "title": "json_type",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,23 +24,32 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## jsonb_exists_path
+## jsonb_type
 
 ### description
 
-It is used to judge whether the field specified by json_path exists in the JSONB data. If it exists, it returns TRUE, and if it does not exist, it returns FALSE
+用来判断json_path指定的字段在JSONB数据中的类型，如果字段不存在返回NULL，如果存在返回下面的类型之一
+
+- object
+- array
+- null
+- bool
+- int
+- bigint
+- double
+- string
 
 #### Syntax
 
 ```sql
-BOOLEAN jsonb_exists_path(JSONB j, VARCHAR json_path)
+STRING json_type(JSON j, VARCHAR json_path)
 ```
 
 ### example
 
-Refer to [jsonb tutorial](../../sql-reference/Data-Types/JSONB.md)
+参考 [json tutorial](../../sql-reference/Data-Types/JSON.md) 中的示例
 
 ### keywords
 
-jsonb_exists_path
+json_type
 

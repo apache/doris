@@ -40,7 +40,7 @@
 namespace doris {
 namespace vectorized {
 class Block;
-}
+} // namespace vectorized
 
 struct OlapTableIndexSchema;
 class TColumn;
