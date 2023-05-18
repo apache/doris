@@ -33,6 +33,10 @@ under the License.
 - 静态列， 在建表时指定的列， 例如分区列、主键列
 - 动态列， 随着导入自动识别并增加的列
 
+## 指定动态表标识
+- 方式一：通过在最后一列后加 ...
+- 方式二：通过在properties中指定 "dynamic_schema" = "true"
+
 ## 建表
 
 ```sql
@@ -40,6 +44,7 @@ CREATE DATABASE test_dynamic_table;
 
 -- 建表， 并指定静态列类型， 导入遇到对应列会自动转换成静态列的类型
 -- 选择随机分桶方式
+-- 方式一：通过...标识该表是动态表
 CREATE TABLE IF NOT EXISTS test_dynamic_table (
                 qid bigint,
                 `answers.date` array<datetime>,
@@ -49,6 +54,19 @@ CREATE TABLE IF NOT EXISTS test_dynamic_table (
 DUPLICATE KEY(`qid`)
 DISTRIBUTED BY RANDOM BUCKETS 5 
 properties("replication_num" = "1");
+
+-- 方式二：通过在properties中指定 "dynamic_schema" = "true"
+CREATE TABLE IF NOT EXISTS test_dynamic_table (
+                qid bigint,
+                `answers.date` array<datetime>,
+                `title` string
+        )
+DUPLICATE KEY(`qid`)
+DISTRIBUTED BY RANDOM BUCKETS 5 
+properties(
+    "replication_num" = "1",
+    "dynamic_schema" = "true"
+);
 
 -- 可以看到三列Column在表中默认添加， 类型是指定类型
 mysql> DESC test_dynamic_table;
