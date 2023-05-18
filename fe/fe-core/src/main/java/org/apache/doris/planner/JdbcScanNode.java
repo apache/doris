@@ -162,7 +162,8 @@ public class JdbcScanNode extends ScanNode {
         StringBuilder sql = new StringBuilder("SELECT ");
 
         // Oracle use the where clause to do top n
-        if (shouldPushDownLimit() && (jdbcType == TOdbcTableType.ORACLE || jdbcType == TOdbcTableType.OCEANBASE_ORACLE)) {
+        if (shouldPushDownLimit() && (jdbcType == TOdbcTableType.ORACLE
+                || jdbcType == TOdbcTableType.OCEANBASE_ORACLE)) {
             filters.add("ROWNUM <= " + limit);
         }
 
