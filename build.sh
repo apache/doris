@@ -75,6 +75,7 @@ Usage: $0 <options>
 clean_gensrc() {
     pushd "${DORIS_HOME}/gensrc"
     make clean
+    rm -rf "${DORIS_HOME}/gensrc/build"
     rm -rf "${DORIS_HOME}/fe/fe-common/target"
     rm -rf "${DORIS_HOME}/fe/fe-core/target"
     popd
@@ -394,7 +395,7 @@ echo "Get params:
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
 fi
-"${DORIS_HOME}"/generated-source.sh
+"${DORIS_HOME}"/generated-source.sh noclean
 
 # Assesmble FE modules
 FE_MODULES=''
