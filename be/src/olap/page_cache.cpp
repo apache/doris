@@ -26,14 +26,15 @@ namespace doris {
 StoragePageCache* StoragePageCache::_s_instance = nullptr;
 
 void StoragePageCache::create_global_cache(size_t capacity, int32_t index_cache_percentage,
-                                           uint32_t num_shards) {
+                                           int64_t pk_index_cache_capacity, uint32_t num_shards) {
     DCHECK(_s_instance == nullptr);
-    static StoragePageCache instance(capacity, index_cache_percentage, num_shards);
+    static StoragePageCache instance(capacity, index_cache_percentage, pk_index_cache_capacity,
+                                     num_shards);
     _s_instance = &instance;
 }
 
 StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percentage,
-                                   uint32_t num_shards)
+                                   int64_t pk_index_cache_capacity, uint32_t num_shards)
         : _index_cache_percentage(index_cache_percentage) {
     if (index_cache_percentage == 0) {
         _data_page_cache = std::unique_ptr<Cache>(
@@ -50,6 +51,10 @@ StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percenta
                               LRUCacheType::SIZE, num_shards));
     } else {
         CHECK(false) << "invalid index page cache percentage";
+    }
+    if (pk_index_cache_capacity > 0) {
+        _pk_index_page_cache = std::unique_ptr<Cache>(new_lru_cache(
+                "PkIndexPageCache", pk_index_cache_capacity, LRUCacheType::SIZE, num_shards));
     }
 }
 

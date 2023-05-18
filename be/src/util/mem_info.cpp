@@ -113,6 +113,12 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
                 StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
         StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
     }
+    if (StoragePageCache::instance()->get_page_cache_mem_consumption(
+                segment_v2::PRIMARY_KEY_INDEX_PAGE) > min_free_size) {
+        freed_mem += StoragePageCache::instance()->get_page_cache_mem_consumption(
+                segment_v2::PRIMARY_KEY_INDEX_PAGE);
+        StoragePageCache::instance()->prune(segment_v2::PRIMARY_KEY_INDEX_PAGE);
+    }
 }
 
 // step1: free all cache
