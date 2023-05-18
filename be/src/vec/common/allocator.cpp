@@ -32,8 +32,8 @@
 #include "runtime/thread_context.h"
 #include "util/mem_info.h"
 
-template <bool clear_memory_, bool mmap_populate>
-void Allocator<clear_memory_, mmap_populate>::sys_memory_check(size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t size) const {
     if (doris::skip_memory_check) return;
     if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
         // Only thread attach query, and has not completely waited for thread_wait_gc_max_milliseconds,
@@ -58,7 +58,7 @@ void Allocator<clear_memory_, mmap_populate>::sys_memory_check(size_t size) cons
                         "tracker:<{}>, exec node:<{}>, {}.",
                         size, doris::thread_context()->thread_mem_tracker()->label(),
                         doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
-                        doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(size));
+                        doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
                 doris::MemTrackerLimiter::print_log_process_usage(err_msg);
                 // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
                 if (!doris::enable_thread_catch_bad_alloc) {
@@ -73,15 +73,15 @@ void Allocator<clear_memory_, mmap_populate>::sys_memory_check(size_t size) cons
                     "exec node:<{}>, {}.",
                     size, doris::thread_context()->thread_mem_tracker()->label(),
                     doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
-                    doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(size));
+                    doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
             doris::MemTrackerLimiter::print_log_process_usage(err_msg);
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
         }
     }
 }
 
-template <bool clear_memory_, bool mmap_populate>
-void Allocator<clear_memory_, mmap_populate>::memory_tracker_check(size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(size_t size) const {
     if (doris::skip_memory_check) return;
     auto st = doris::thread_context()->thread_mem_tracker()->check_limit(size);
     if (!st) {
@@ -101,30 +101,35 @@ void Allocator<clear_memory_, mmap_populate>::memory_tracker_check(size_t size) 
     }
 }
 
-template <bool clear_memory_, bool mmap_populate>
-void Allocator<clear_memory_, mmap_populate>::memory_check(size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_check(size_t size) const {
     sys_memory_check(size);
     memory_tracker_check(size);
 }
 
-template <bool clear_memory_, bool mmap_populate>
-void Allocator<clear_memory_, mmap_populate>::consume_memory(size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+void Allocator<clear_memory_, mmap_populate, use_mmap>::consume_memory(size_t size) const {
     CONSUME_THREAD_MEM_TRACKER(size);
 }
 
-template <bool clear_memory_, bool mmap_populate>
-void Allocator<clear_memory_, mmap_populate>::release_memory(size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+void Allocator<clear_memory_, mmap_populate, use_mmap>::release_memory(size_t size) const {
     RELEASE_THREAD_MEM_TRACKER(size);
 }
 
-template <bool clear_memory_, bool mmap_populate>
-void Allocator<clear_memory_, mmap_populate>::throw_bad_alloc(const std::string& err) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
+        const std::string& err) const {
     LOG(WARNING) << err;
     doris::MemTrackerLimiter::print_log_process_usage(err);
     throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }
 
-template class Allocator<true, true>;
-template class Allocator<true, false>;
-template class Allocator<false, true>;
-template class Allocator<false, false>;
+template class Allocator<true, true, true>;
+template class Allocator<true, true, false>;
+template class Allocator<true, false, true>;
+template class Allocator<true, false, false>;
+template class Allocator<false, true, true>;
+template class Allocator<false, true, false>;
+template class Allocator<false, false, true>;
+template class Allocator<false, false, false>;
