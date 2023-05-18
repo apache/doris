@@ -1589,7 +1589,7 @@ public class FunctionCallExpr extends Expr {
                         && ((ArrayType) args[ix]).getItemType().isDecimalV3()))) {
                     continue;
                 } else if (!argTypes[i].matchesType(args[ix])
-                        && (!fn.getReturnType().isDecimalV3()
+                        && (!fn.getReturnType().isDecimalV3OrContainsDecimalV3()
                                 || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
                     uncheckedCastChild(args[ix], i);
                 }
@@ -1683,14 +1683,28 @@ public class FunctionCallExpr extends Expr {
                 this.type = children.get(1).getType();
             }
         } else if (fnName.getFunction().equalsIgnoreCase("named_struct")) {
-            List<String> fieldNames = Lists.newArrayList();
-            for (int i = 0; i < children.size(); i++) {
-                if ((i & 1) == 0) {
-                    StringLiteral nameLiteral = (StringLiteral) children.get(i);
-                    fieldNames.add(nameLiteral.getStringValue());
+            ArrayList<StructField> newFields = Lists.newArrayList();
+            ArrayList<StructField> originFields = ((StructType) type).getFields();
+            for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
+                Type fieldType = originFields.get(i + i >> 2).getType();
+                if (fieldType.isDecimalV3() || fieldType.isDatetimeV2()) {
+                    fieldType = children.get(i + 1).type;
                 }
+                StringLiteral nameLiteral = (StringLiteral) children.get(i);
+                newFields.add(new StructField(nameLiteral.getStringValue(), fieldType));
             }
-            this.type = ((StructType) type).replaceFieldsWithNames(fieldNames);
+            this.type = new StructType(newFields);
+        } else if (fnName.getFunction().equalsIgnoreCase("struct")) {
+            ArrayList<StructField> newFields = Lists.newArrayList();
+            ArrayList<StructField> originFields = ((StructType) type).getFields();
+            for (int i = 0; i < children.size(); i++) {
+                Type fieldType = originFields.get(i).getType();
+                if (originFields.get(i).getType().isDecimalV3() || originFields.get(i).getType().isDatetimeV2()) {
+                    fieldType = children.get(i).type;
+                }
+                newFields.add(new StructField(fieldType));
+            }
+            this.type = new StructType(newFields);
         } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                 .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
                 || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")
@@ -1707,7 +1721,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_shuffle")
                 || fnName.getFunction().equalsIgnoreCase("shuffle")
                 || fnName.getFunction().equalsIgnoreCase("array_except")
-                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
+                || fnName.getFunction().equalsIgnoreCase("array_concat")
+                || fnName.getFunction().equalsIgnoreCase("array_apply")) {
             if (children.size() > 0) {
                 this.type = children.get(0).getType();
             }
