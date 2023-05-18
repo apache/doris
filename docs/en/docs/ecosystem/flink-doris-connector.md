@@ -63,12 +63,6 @@ Enter the flink version you need to compile according to the prompt.
 After the compilation is successful, the target jar package will be generated in the `dist` directory, such as: `flink-doris-connector-1.3.0-SNAPSHOT.jar`.
 Copy this file to `classpath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
-**Remarks:** 
-
-You need to enable http v2 in the Doris FE `conf/fe.conf` file
-```
-enable_http_server_v2 = true
-```
 
 ## Using Maven
 

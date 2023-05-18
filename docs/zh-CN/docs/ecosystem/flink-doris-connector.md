@@ -65,12 +65,6 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 编译成功后，会在 `dist` 目录生成目标jar包，如：`flink-doris-connector-1.3.0-SNAPSHOT.jar`。
 将此文件复制到 `Flink` 的 `classpath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `lib/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
 
-**备注**
-
-需要在 Doris FE `conf/fe.conf` 文件中配置启用 http v2
-```
-enable_http_server_v2 = true
-```
 
 ## 使用 Maven 管理
 
