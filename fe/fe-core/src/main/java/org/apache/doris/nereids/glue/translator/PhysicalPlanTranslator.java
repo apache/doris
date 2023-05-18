@@ -52,6 +52,7 @@ import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.load.sync.model.Data;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
@@ -307,16 +308,36 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
             PlanTranslatorContext context) {
-        PlanFragment fragment = olapTableSink.child().accept(this, context);
-        TupleDescriptor descriptor = fragment.getPlanRoot().getOutputTupleDesc();
+        PlanFragment rootFragment = olapTableSink.child().accept(this, context);
+        TupleDescriptor tupleDescriptor = generateTupleDesc(olapTableSink.getOutput(), null, context);
+
         OlapTableSink sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),
-                descriptor,
+                tupleDescriptor,
                 olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
         );
-        fragment.resetSink(sink);
-        return fragment;
+
+        ExchangeNode exchangeNode = ((ExchangeNode) rootFragment.getPlanRoot());
+        DataPartition dataPartition = sink.getOutputPartition();
+        PlanFragment currentFragment = new PlanFragment(
+                context.nextFragmentId(),
+                exchangeNode,
+                dataPartition);
+
+        rootFragment.setPlanRoot(exchangeNode.getChild(0));
+        rootFragment.setDestination(exchangeNode);
+        context.addPlanFragment(currentFragment);
+        rootFragment = currentFragment;
+        rootFragment.setSink(sink);
+
+        DistributionSpecHash specHash = ((DistributionSpecHash) ((PhysicalDistribute) olapTableSink.child())
+                .getDistributionSpec());
+        rootFragment.setOutputPartition(DataPartition.hashPartitioned(specHash
+                .getOrderedShuffledColumns().stream().map(context::findSlotRef).collect(Collectors.toList())));
+
+        rootFragment.finalize(null);
+        return rootFragment;
     }
 
     /**
