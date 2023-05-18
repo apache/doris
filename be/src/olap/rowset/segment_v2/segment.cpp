@@ -35,7 +35,7 @@
 #include "olap/column_predicate.h"
 #include "olap/iterators.h"
 #include "olap/primary_key_index.h"
-#include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
@@ -118,6 +118,33 @@ Status Segment::_open() {
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     read_options.stats->total_segment_number++;
+    RETURN_IF_ERROR(load_index());
+    // trying to prune the current segment by column bloomfilters
+    for (auto& entry : read_options.col_id_to_predicates) {
+        int32_t column_id = entry.first;
+        // schema change
+        if (_tablet_schema->num_columns() <= column_id) {
+            continue;
+        }
+        int32_t uid = read_options.tablet_schema->column(column_id).unique_id();
+        auto it = _column_bloom_filters.find(uid);
+        if (it == _column_bloom_filters.end() || !entry.second->can_do_bloom_filter()) {
+            continue;
+        }
+        if (!it->second.empty()
+            // condition match none of bf
+            && std::none_of(it->second.begin(), it->second.end(),
+                            [&](const std::unique_ptr<BloomFilter>& bf) {
+                                return entry.second->evaluate_and(bf.get());
+                            })) {
+            // any condition not satisfied, return.
+            iter->reset(new EmptySegmentIterator(*schema));
+            VLOG_DEBUG << "segment filtered by bf";
+            read_options.stats->filtered_segment_number++;
+            return Status::OK();
+        }
+    }
+
     // trying to prune the current segment by segment-level zone map
     for (auto& entry : read_options.col_id_to_predicates) {
         int32_t column_id = entry.first;
@@ -126,11 +153,12 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             continue;
         }
         int32_t uid = read_options.tablet_schema->column(column_id).unique_id();
-        if (_column_readers.count(uid) < 1 || !_column_readers.at(uid)->has_zone_map()) {
+        auto it = _column_readers.find(uid);
+        if (it == _column_readers.end() || !it->second->has_zone_map()) {
             continue;
         }
         if (read_options.col_id_to_predicates.count(column_id) > 0 &&
-            !_column_readers.at(uid)->match_condition(entry.second.get())) {
+            !it->second->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
             iter->reset(new EmptySegmentIterator(*schema));
             read_options.stats->filtered_segment_number++;
@@ -156,7 +184,6 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
     }
 
-    RETURN_IF_ERROR(load_index());
     if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
         read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
@@ -165,6 +192,11 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     }
 
     return iter->get()->init(read_options);
+}
+
+const std::vector<std::unique_ptr<BloomFilter>>& Segment::bloom_filter_for_column(
+        uint32_t unique_cid) {
+    return _column_bloom_filters[unique_cid];
 }
 
 Status Segment::_parse_footer() {
@@ -233,12 +265,31 @@ Status Segment::_load_pk_bloom_filter() {
     });
 }
 
+Status Segment::load_column_bloom_filters() {
+    if (!config::enable_caching_bloom_filters) {
+        return Status::OK();
+    }
+    return _load_col_bf_once.call([this] {
+        for (const auto& reader : _column_readers) {
+            if (reader.second->has_bloom_filter_index()) {
+                size_t bf_size = 0;
+                reader.second->load_bloom_filters(_column_bloom_filters[reader.first], &bf_size);
+                _meta_mem_usage += bf_size;
+                _segment_meta_mem_tracker->consume(bf_size);
+            }
+        }
+        LOG(INFO) << "segment meta mem usage: " << _meta_mem_usage;
+        return Status::OK();
+    });
+}
+
 Status Segment::load_pk_index_and_bf() {
     RETURN_IF_ERROR(load_index());
     RETURN_IF_ERROR(_load_pk_bloom_filter());
     return Status::OK();
 }
 Status Segment::load_index() {
+    RETURN_IF_ERROR(load_column_bloom_filters());
     return _load_index_once.call([this] {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta()) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());

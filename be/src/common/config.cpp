@@ -1005,7 +1005,7 @@ DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
 
 //disable shrink memory by default
 DEFINE_Bool(enable_shrink_memory, "false");
-DEFINE_mInt32(schema_cache_capacity, "1024");
+DEFINE_mInt32(schema_cache_capacity, "10240");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // enable feature binlog, default false
@@ -1013,6 +1013,8 @@ DEFINE_Bool(enable_feature_binlog, "false");
 
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
+// enable caching parsed BloomFilter in segment
+DEFINE_Bool(enable_caching_bloom_filters, "true");
 
 #ifdef BE_TEST
 // test s3

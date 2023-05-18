@@ -19,6 +19,7 @@
 
 #include <assert.h>
 #include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <memory>
@@ -428,8 +429,35 @@ Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_ind
     return Status::OK();
 }
 
-Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
-                                                    RowRanges* row_ranges) {
+Status ColumnReader::load_bloom_filters(std::vector<std::unique_ptr<BloomFilter>>& bfs,
+                                        size_t* bf_size) {
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory));
+    RETURN_IF_ERROR(_load_bloom_filter_index(_use_index_page_cache, _opts.kept_in_memory));
+    std::unique_ptr<BloomFilterIndexIterator> bf_iter;
+    RETURN_IF_ERROR(_bloom_filter_index->new_iterator(&bf_iter));
+    auto iter = _ordinal_index->seek_at_or_before(0);
+    int idx = 0;
+    std::set<uint32_t> page_ids;
+    while (idx < num_rows() && iter.valid()) {
+        page_ids.insert(iter.page_index());
+        idx = iter.last_ordinal() + 1;
+        iter.next();
+    }
+    size_t bloom_filter_size = 0;
+    for (auto& pid : page_ids) {
+        std::unique_ptr<BloomFilter> bf;
+        RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
+        bloom_filter_size += bf->size();
+        bfs.push_back(std::move(bf));
+    }
+    *bf_size = bloom_filter_size;
+    LOG(INFO) << "load column bloom_filter_size:" << bloom_filter_size;
+    return Status::OK();
+}
+
+Status ColumnReader::get_row_ranges_by_bloom_filter(
+        const AndBlockColumnPredicate* col_predicates, RowRanges* row_ranges,
+        const std::vector<std::unique_ptr<BloomFilter>>& hint_bf) {
     RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory));
     RETURN_IF_ERROR(_load_bloom_filter_index(_use_index_page_cache, _opts.kept_in_memory));
     RowRanges bf_row_ranges;
@@ -450,11 +478,19 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
         }
     }
     for (auto& pid : page_ids) {
-        std::unique_ptr<BloomFilter> bf;
-        RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
-        if (col_predicates->evaluate_and(bf.get())) {
-            bf_row_ranges.add(RowRange(_ordinal_index->get_first_ordinal(pid),
-                                       _ordinal_index->get_last_ordinal(pid) + 1));
+        auto evaluate = [&](const BloomFilter& bf) {
+            if (col_predicates->evaluate_and(&bf)) {
+                bf_row_ranges.add(RowRange(_ordinal_index->get_first_ordinal(pid),
+                                           _ordinal_index->get_last_ordinal(pid) + 1));
+            }
+        };
+        if (hint_bf.size() <= pid) {
+            std::unique_ptr<BloomFilter> bf;
+            RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
+            evaluate(*bf);
+        } else {
+            // use hinted bloom filter to avoid read_bloom_filter, since read_bloom_filter is quite heavy
+            evaluate(*hint_bf[pid]);
         }
     }
     RowRanges::ranges_intersection(*row_ranges, bf_row_ranges, row_ranges);
@@ -1200,9 +1236,11 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(
 }
 
 Status FileColumnIterator::get_row_ranges_by_bloom_filter(
-        const AndBlockColumnPredicate* col_predicates, RowRanges* row_ranges) {
+        const AndBlockColumnPredicate* col_predicates, RowRanges* row_ranges,
+        const std::vector<std::unique_ptr<BloomFilter>>& hint_bf) {
     if (col_predicates->can_do_bloom_filter() && _reader->has_bloom_filter_index()) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(col_predicates, row_ranges));
+        RETURN_IF_ERROR(
+                _reader->get_row_ranges_by_bloom_filter(col_predicates, row_ranges, hint_bf));
     }
     return Status::OK();
 }

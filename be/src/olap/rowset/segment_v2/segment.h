@@ -33,6 +33,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/schema.h"
@@ -118,6 +119,8 @@ public:
 
     Status load_pk_index_and_bf();
 
+    Status load_column_bloom_filters();
+
     std::string min_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().min_key();
@@ -130,6 +133,8 @@ public:
     io::FileReaderSPtr file_reader() { return _file_reader; }
 
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
+
+    const std::vector<std::unique_ptr<BloomFilter>>& bloom_filter_for_column(uint32_t unique_cid);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
@@ -174,6 +179,11 @@ private:
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
     // Segment may be destructed after StorageEngine, in order to exit gracefully.
     std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
+
+    // TODO limit size
+    // Cached bloom filters
+    std::unordered_map<uint32_t, std::vector<std::unique_ptr<BloomFilter>>> _column_bloom_filters;
+    DorisCallOnce<Status> _load_col_bf_once;
 };
 
 } // namespace segment_v2

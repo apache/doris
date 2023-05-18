@@ -437,7 +437,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
         uint32_t unique_cid = _schema->unique_id(cid);
         RETURN_IF_ERROR(_column_iterators[unique_cid]->get_row_ranges_by_bloom_filter(
-                _opts.col_id_to_predicates.at(cid).get(), &column_bf_row_ranges));
+                _opts.col_id_to_predicates.at(cid).get(), &column_bf_row_ranges,
+                _segment->bloom_filter_for_column(unique_cid)));
         RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
     }
 

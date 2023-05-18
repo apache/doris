@@ -1029,6 +1029,8 @@ DECLARE_Bool(enable_feature_binlog);
 
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
+// enable caching parsed BloomFilter in segment
+DECLARE_Bool(enable_caching_bloom_filters);
 
 #ifdef BE_TEST
 // test s3
