@@ -54,78 +54,22 @@ Github: https://github.com/apache/doris-flink-connector
 
 Ready to work
 
-1.Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
+1. Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
 
-2.Specify the thrift installation directory
+2. Execute following command in source dir:
+`sh build.sh`
+Enter the flink version you need to compile according to the prompt.
 
-```bash
-##source file content
-#export THRIFT_BIN=
-#export MVN_BIN=
-#export JAVA_HOME=
-
-##amend as below,MacOS as an example
-export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-#export MVN_BIN=
-#export JAVA_HOME=
-```
-
-Install `thrift` 0.13.0 (Note: `Doris` 0.15 and the latest builds are based on `thrift` 0.13.0, previous versions are still built with `thrift` 0.9.3)
-Windows:
-  1. Download: `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
-  2. Modify thrift-0.13.0.exe to thrift 
- 
-MacOS:
-  1. Download: `brew install thrift@0.13.0`
-  2. default address: /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-
-Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that the version cannot be found. The solution is as follows, execute it in the terminal:
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.13.0`
- Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
- 
-Linux:
-   ```bash
-    1. wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz  # Download source package
-    2. yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++  # Install dependencies
-    3. tar zxvf thrift-0.13.0.tar.gz
-    4. cd thrift-0.13.0
-    5. ./configure --without-tests
-    6. make
-    7. make install
-    8. thrift --version  # Check the version after installation is complete
-   ```
-   Note: If you have compiled Doris, you do not need to install thrift, you can directly use `$DORIS_HOME/thirdparty/installed/bin/thrift`
-
-
-Execute following command in source dir:
-
-```bash
-sh build.sh
-
-  Usage:
-    build.sh --flink version # specify flink version (after flink-doris-connector v1.2 and flink-1.15, there is no need to provide scala version)
-    build.sh --tag           # this is a build from tag
-  e.g.:
-    build.sh --flink 1.16.0
-    build.sh --tag
-```
-Then, for example, execute the command to compile according to the version you need:
-`sh build.sh --flink 1.16.0`
-
-
-After successful compilation, the file `flink-doris-connector-1.16-1.3.0-SNAPSHOT.jar` will be generated in the `target/` directory. Copy this file to `classpath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
+After the compilation is successful, the target jar package will be generated in the `dist` directory, such as: `flink-doris-connector-1.3.0-SNAPSHOT.jar`.
+Copy this file to `classpath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 **Remarks:** 
 
-1. Doris FE should be configured to enable http v2 in the configuration
-
-   conf/fe.conf
-
+You need to enable http v2 in the Doris FE `conf/fe.conf` file
 ```
 enable_http_server_v2 = true
 ```
+
 ## Using Maven
 
 Add flink-doris-connector Maven dependencies
