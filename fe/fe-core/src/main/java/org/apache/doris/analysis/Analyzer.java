@@ -57,6 +57,7 @@ import org.apache.doris.rewrite.MatchPredicateRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteAliasFunctionRule;
 import org.apache.doris.rewrite.RewriteBinaryPredicatesRule;
+import org.apache.doris.rewrite.RewriteCastToStringRule;
 import org.apache.doris.rewrite.RewriteDateLiteralRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
@@ -430,6 +431,7 @@ public class Analyzer {
             rules.add(RewriteBinaryPredicatesRule.INSTANCE);
             rules.add(RewriteImplicitCastRule.INSTANCE);
             rules.add(RoundLiteralInBinaryPredicatesRule.INSTANCE);
+            rules.add(RewriteCastToStringRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(EraseRedundantCastExpr.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);

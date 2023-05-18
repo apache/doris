@@ -6398,23 +6398,7 @@ func_args_def ::=
 
 cast_expr ::=
   KW_CAST LPAREN expr:e KW_AS type_def:targetType RPAREN
-  {:
-    CastExpr castExpr = new CastExpr(targetType, e);
-    if (targetType.getType().getRawLength() != -1
-        && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR
-        || targetType.getType().getPrimitiveType() == PrimitiveType.CHAR)) {
-        // transfer cast(xx as char(N)/varchar(N)) to substr(cast(xx as char), 1, N)
-        // this is just a workaround to make the result correct
-        ArrayList<Expr> exprs = new ArrayList<>();
-        exprs.add(castExpr);
-        exprs.add(new IntLiteral(1));
-        exprs.add(new IntLiteral(targetType.getType().getLength()));
-        RESULT = new FunctionCallExpr("substr", new FunctionParams(exprs));
-    }
-    else {
-        RESULT = castExpr;
-    }
-  :}
+  {: RESULT = new CastExpr(targetType, e); :}
   ;
 
 case_expr ::=
