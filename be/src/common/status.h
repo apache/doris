@@ -293,7 +293,11 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
         && code != ErrorCode::INVERTED_INDEX_NO_TERMS
         && code != ErrorCode::META_KEY_NOT_FOUND
-        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST;
+        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
+        && code != ErrorCode::TRANSACTION_NOT_EXIST
+        && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
+        && code != ErrorCode::TOO_MANY_TRANSACTIONS
+        && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED;
 }
 // clang-format on
 
