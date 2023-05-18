@@ -182,12 +182,7 @@ protected:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
-    uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
-                                  TPriority::type priority);
 
-    void _push_worker_thread_callback();
-    void _publish_version_worker_thread_callback();
-    void _clear_transaction_task_worker_thread_callback();
     void _alter_tablet_worker_thread_callback();
     void _alter_inverted_index_worker_thread_callback();
     void _clone_worker_thread_callback();
@@ -277,6 +272,34 @@ public:
     void _drop_tablet_worker_thread_callback();
 
     DISALLOW_COPY_AND_ASSIGN(DropTableTaskPool);
+};
+
+class PushTaskPool : public TaskWorkerPool {
+public:
+    enum class PushWokerType { LOAD_V2, DELETE };
+    PushTaskPool(ExecEnv* env, ThreadModel thread_model, PushWokerType type);
+    void _push_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(PushTaskPool);
+
+private:
+    PushWokerType _push_worker_type;
+};
+
+class PublishVersionTaskPool : public TaskWorkerPool {
+public:
+    PublishVersionTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _publish_version_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(PublishVersionTaskPool);
+};
+
+class ClearTransactionTaskPool : public TaskWorkerPool {
+public:
+    ClearTransactionTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _clear_transaction_task_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(ClearTransactionTaskPool);
 };
 
 } // namespace doris
