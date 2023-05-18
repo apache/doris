@@ -1730,7 +1730,7 @@ opt_mv_refersh_info ::=
     :}
     | KW_NEVER KW_REFRESH
     {:
-        RESULT = new MVRefreshInfo(false);
+        RESULT = new MVRefreshInfo(true);
     :}
     ;
 
