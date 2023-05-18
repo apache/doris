@@ -172,7 +172,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -391,7 +390,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate
         //  so complex aggregate plan than legacy planner, and should add forbid parallel scan hint when
         //  generate physical aggregate plan.
-        if (leftMostNode instanceof OlapScanNode && aggregate.getAggMode() == AggMode.INPUT_TO_RESULT) {
+        if (leftMostNode instanceof OlapScanNode && aggregate.getAggregateParam().needColocateScan) {
             currentFragment.getPlanRoot().setShouldColoScan();
             currentFragment.setHasColocatePlanNode(!ConnectContext.get().getSessionVariable().enablePipelineEngine());
         }
@@ -548,7 +547,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Create OlapScanNode
         List<Slot> slotList = new ImmutableList.Builder<Slot>()
                 .addAll(olapScan.getOutput())
-                .addAll(filterSlotsOfSelectedIndex(olapScan.getNonUserVisibleOutput(), olapScan))
                 .build();
         Set<ExprId> deferredMaterializedExprIds = Collections.emptySet();
         if (olapScan.getMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS).isPresent()) {
@@ -559,20 +557,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, deferredMaterializedExprIds, context);
         if (olapScan.getMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS).isPresent()) {
             injectRowIdColumnSlot(tupleDescriptor);
-        }
-
-        // Use column with the same name in selected materialized index meta for slot desc,
-        // to get the correct col unique id.
-        if (olapScan.getSelectedIndexId() != olapTable.getBaseIndexId()) {
-            Map<String, Column> indexCols = olapTable.getSchemaByIndexId(olapScan.getSelectedIndexId())
-                    .stream()
-                    .collect(Collectors.toMap(Column::getName, Function.identity()));
-            tupleDescriptor.getSlots().forEach(slotDesc -> {
-                Column column = slotDesc.getColumn();
-                if (column != null && indexCols.containsKey(column.getName())) {
-                    slotDesc.setColumn(indexCols.get(column.getName()));
-                }
-            });
         }
         tupleDescriptor.setTable(olapTable);
 
@@ -672,6 +656,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         }
         Preconditions.checkNotNull(scanNode);
+        fileScan.getConjuncts().stream()
+            .map(e -> ExpressionTranslator.translate(e, context))
+            .forEach(scanNode::addConjunct);
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
@@ -2296,15 +2283,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         public List<List<Expression>> getResultExpressions() {
             return resultExpressions;
         }
-    }
-
-    private List<Slot> filterSlotsOfSelectedIndex(List<Slot> slots, PhysicalOlapScan olapScan) {
-        ImmutableSet<Column> selectIndexColumns = ImmutableSet.copyOf(olapScan.getTable()
-                .getIndexIdToMeta().get(olapScan.getSelectedIndexId()).getSchema());
-        return slots.stream()
-                .filter(slot -> ((SlotReference) slot).getColumn().isPresent()
-                        && selectIndexColumns.contains(((SlotReference) slot).getColumn().get()))
-                .collect(ImmutableList.toImmutableList());
     }
 
     private PlanFragment createPlanFragment(PlanNode planNode, DataPartition dataPartition, AbstractPlan physicalPlan) {

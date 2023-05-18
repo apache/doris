@@ -86,7 +86,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 logicalFilter(logicalOlapScan().when(this::shouldSelectIndex))
                         .then(filter -> {
                             LogicalOlapScan scan = filter.child();
-                            return filter.withChildren(select(scan, ImmutableSet::of, filter::getConjuncts));
+                            return filter.withChildren(select(scan, filter::getOutputSet, filter::getConjuncts));
                         })
                         .toRule(RuleType.MATERIALIZED_INDEX_FILTER_SCAN),
 

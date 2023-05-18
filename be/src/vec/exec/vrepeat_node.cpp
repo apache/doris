@@ -81,7 +81,6 @@ Status VRepeatNode::prepare(RuntimeState* state) {
 }
 
 Status VRepeatNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::open");
     VLOG_CRITICAL << "VRepeatNode::open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -90,7 +89,6 @@ Status VRepeatNode::open(RuntimeState* state) {
 }
 
 Status VRepeatNode::alloc_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(VExpr::open(_expr_ctxs, state));
@@ -249,7 +247,6 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is nullptr");
     }
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VRepeatNode::get_next");
     VLOG_CRITICAL << "VRepeatNode::get_next";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
@@ -260,14 +257,12 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     }
     DCHECK(block->rows() == 0);
     while (need_more_input_data()) {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &_child_block, &_child_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), _child_eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, &_child_block, &_child_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
         push(state, &_child_block, _child_eos);
     }
@@ -284,7 +279,6 @@ Status VRepeatNode::close(RuntimeState* state) {
 }
 
 void VRepeatNode::release_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::close");
     VExpr::close(_expr_ctxs, state);
     ExecNode::release_resource(state);
 }

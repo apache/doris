@@ -838,7 +838,6 @@ nonterminal DataDescription data_desc, mysql_data_desc;
 nonterminal List<DataDescription> data_desc_list;
 nonterminal LabelName job_label;
 nonterminal String opt_with_label;
-nonterminal String opt_system;
 nonterminal BrokerDesc opt_broker;
 nonterminal ResourceDesc resource_desc;
 nonterminal List<String> opt_col_list, opt_dup_keys, opt_columns_from_path;
@@ -2276,11 +2275,10 @@ load_stmt ::=
     KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
     opt_broker:broker
-    opt_system:system
     opt_properties:properties
     opt_comment:comment
     {:
-        RESULT = new UnifiedLoadStmt(label, dataDescList, broker, system, properties, comment, LoadType.BROKER_LOAD);
+        RESULT = new UnifiedLoadStmt(label, dataDescList, broker, properties, comment, LoadType.BROKER_LOAD);
     :}
     | KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
@@ -2547,16 +2545,6 @@ opt_col_mapping_list ::=
     | KW_SET LPAREN expr_list:list RPAREN
     {:
         RESULT = list;
-    :}
-    ;
-
-opt_system ::=
-    {:
-        RESULT = null;
-    :}
-    | KW_BY ident_or_text:system
-    {:
-        RESULT = system;
     :}
     ;
 
@@ -6209,6 +6197,10 @@ function_call_expr ::=
       RESULT = new FunctionCallExpr(fn_name, params);
     }
   :}
+  | KW_LIKE LPAREN function_params:params RPAREN
+  {: RESULT = new FunctionCallExpr("like", params); :}
+  | KW_REGEXP LPAREN function_params:params RPAREN
+  {: RESULT = new FunctionCallExpr("regexp", params); :}
   | function_name:fn_name LPAREN ident:id ARROW expr:e COMMA function_params:params RPAREN
   {: 
     List<Expr> exprs = params.exprs();

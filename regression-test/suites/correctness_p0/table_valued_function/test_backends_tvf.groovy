@@ -19,30 +19,30 @@
 suite("test_backends_tvf") {
     List<List<Object>> table =  sql """ select * from backends(); """
     assertTrue(table.size() > 0) // row should > 0
-    assertTrue(table[0].size == 26) // column should be 26
+    assertTrue(table[0].size == 25) // column should be 25
 
     // filter columns
-    table = sql """ select BackendId, HostName, Alive, TotalCapacity, Version, NodeRole from backends();"""
+    table = sql """ select BackendId, Host, Alive, TotalCapacity, Version, NodeRole from backends();"""
     assertTrue(table.size() > 0) // row should > 0
-    assertTrue(table[0].size == 6) // column should be 26
+    assertTrue(table[0].size == 6) // column should be 25
     assertEquals(true, table[0][2])
 
     // case insensitive
-    table = sql """ select backendid, Hostname, alive, Totalcapacity, version, nodeRole from backends();"""
+    table = sql """ select backendid, Host, alive, Totalcapacity, version, nodeRole from backends();"""
     assertTrue(table.size() > 0) // row should > 0
-    assertTrue(table[0].size == 6) // column should be 26
+    assertTrue(table[0].size == 6) // column should be 25
     assertEquals(true, table[0][2])
 
     // test aliase columns
-    table = sql """ select backendid as id, Hostname as name, alive, NodeRole as r from backends();"""
+    table = sql """ select backendid as id, Host as name, alive, NodeRole as r from backends();"""
     assertTrue(table.size() > 0) // row should > 0
-    assertTrue(table[0].size == 4) // column should be 26
+    assertTrue(table[0].size == 4) // column should be 25
     assertEquals(true, table[0][2])
 
     // test changing position of columns
-    table = sql """ select Hostname as name, NodeRole as r, alive, ip from backends();"""
+    table = sql """ select Host as name, NodeRole as r, alive from backends();"""
     assertTrue(table.size() > 0) // row should > 0
-    assertTrue(table[0].size == 4) // column should be 26
+    assertTrue(table[0].size == 3) // column should be 25
     assertEquals(true, table[0][2])
 
     def res = sql """ select count(*) from backends() where alive = 1; """
@@ -50,4 +50,12 @@ suite("test_backends_tvf") {
 
     res = sql """ select count(*) from backends() where alive = true; """
     assertTrue(res[0][0] > 0)
+
+    sql """ select BackendId, Cluster, Host, HeartbeatPort,
+            BePort, HttpPort, BrpcPort, LastStartTime, LastHeartbeat, Alive
+            SystemDecommissioned, ClusterDecommissioned, TabletNum
+            DataUsedCapacity, AvailCapacity, TotalCapacity, UsedPct
+            MaxDiskUsedPct, RemoteUsedCapacity, Tag, ErrMsg, Version, Status
+            HeartbeatFailureCounter, NodeRole from backends();
+    """
 }

@@ -230,7 +230,22 @@ Status ExecEnv::_init_mem_env() {
     }
     int32_t index_percentage = config::index_page_cache_percentage;
     uint32_t num_shards = config::storage_page_cache_shard_size;
-    StoragePageCache::create_global_cache(storage_cache_limit, index_percentage, num_shards);
+    if ((num_shards & (num_shards - 1)) != 0) {
+        int old_num_shards = num_shards;
+        num_shards = BitUtil::RoundUpToPowerOfTwo(num_shards);
+        LOG(WARNING) << "num_shards should be power of two, but got " << old_num_shards
+                     << ". Rounded up to " << num_shards
+                     << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
+                        "conf file to be a power of two for better performance.";
+    }
+    int64_t pk_storage_page_cache_limit =
+            ParseUtil::parse_mem_spec(config::pk_storage_page_cache_limit, MemInfo::mem_limit(),
+                                      MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && pk_storage_page_cache_limit > MemInfo::mem_limit() / 2) {
+        pk_storage_page_cache_limit = storage_cache_limit / 2;
+    }
+    StoragePageCache::create_global_cache(storage_cache_limit, index_percentage,
+                                          pk_storage_page_cache_limit, num_shards);
     LOG(INFO) << "Storage page cache memory limit: "
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;

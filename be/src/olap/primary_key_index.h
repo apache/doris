@@ -90,6 +90,7 @@ public:
     Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator) const {
         DCHECK(_index_parsed);
         index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get()));
+        (*index_iterator)->set_is_pk_index(true);
         return Status::OK();
     }
 

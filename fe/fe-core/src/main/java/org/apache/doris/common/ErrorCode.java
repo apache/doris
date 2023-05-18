@@ -1125,7 +1125,7 @@ public enum ErrorCode {
     ERR_DYNAMIC_PARTITION_MUST_HAS_SAME_BUCKET_NUM_WITH_COLOCATE_TABLE(5063, new byte[]{'4', '2', '0', '0', '0'},
         "Dynamic partition buckets must equal the distribution buckets if creating a colocate table: %s"),
     ERROR_DYNAMIC_PARTITION_TIME_UNIT(5065, new byte[]{'4', '2', '0', '0', '0'},
-            "Unsupported time unit %s. Expect HOUR/DAY/WEEK/MONTH."),
+            "Unsupported time unit %s. Expect HOUR/DAY/WEEK/MONTH/YEAR."),
     ERROR_DYNAMIC_PARTITION_START_ZERO(5066, new byte[]{'4', '2', '0', '0', '0'},
             "Dynamic partition start must less than 0"),
     ERROR_DYNAMIC_PARTITION_START_FORMAT(5066, new byte[]{'4', '2', '0', '0', '0'},

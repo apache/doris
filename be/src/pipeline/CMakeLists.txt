@@ -58,7 +58,9 @@ set(PIPELINE_FILES
         exec/union_source_operator.cpp
         exec/data_queue.cpp
         exec/select_operator.cpp
-        exec/empty_source_operator.cpp)
+        exec/empty_source_operator.cpp
+        exec/multi_cast_data_streamer.cpp
+        exec/multi_cast_data_stream_source.cpp)
 
 if (WITH_MYSQL)
     set(PIPELINE_FILES

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
@@ -44,7 +45,10 @@ public class DateLiteral extends Literal {
     protected static DateTimeFormatter DATE_FORMATTER = null;
     protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
     protected static DateTimeFormatter DATEKEY_FORMATTER = null;
-
+    // for cast datetime type to date type.
+    protected static DateTimeFormatter DATE_TIME_FORMATTER = null;
+    private static final LocalDateTime startOfAD = LocalDateTime.of(0, 1, 1, 0, 0, 0);
+    private static final LocalDateTime endOfAD = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
 
     private static final DateLiteral MIN_DATE = new DateLiteral(0000, 1, 1);
@@ -61,6 +65,7 @@ public class DateLiteral extends Literal {
             DATE_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d").toFormatter();
             DATEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d").toFormatter();
             DATE_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d").toFormatter();
+            DATE_TIME_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
             System.exit(-1);
@@ -114,6 +119,8 @@ public class DateLiteral extends Literal {
                 dateTime = DATE_FORMATTER_TWO_DIGIT.parse(s);
             } else if (s.length() == DATEKEY_LENGTH && !s.contains("-")) {
                 dateTime = DATEKEY_FORMATTER.parse(s);
+            } else if (s.length() == 19) {
+                dateTime = DATE_TIME_FORMATTER.parse(s);
             } else {
                 dateTime = DATE_FORMATTER.parse(s);
             }
@@ -141,6 +148,10 @@ public class DateLiteral extends Literal {
             return true;
         }
         return false;
+    }
+
+    protected static boolean isDateOutOfRange(LocalDateTime dateTime) {
+        return dateTime.isBefore(startOfAD) || dateTime.isAfter(endOfAD);
     }
 
     @Override
@@ -190,18 +201,25 @@ public class DateLiteral extends Literal {
         return day;
     }
 
-    public DateLiteral plusDays(int days) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days);
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public Expression plusDays(int days) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days));
     }
 
-    public DateLiteral plusMonths(int months) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months);
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public Expression plusMonths(int months) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months));
     }
 
-    public DateLiteral plusYears(int years) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years);
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public Expression plusYears(int years) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years));
+    }
+
+    public LocalDateTime toJavaDateType() {
+        return LocalDateTime.of(((int) getYear()), ((int) getMonth()), ((int) getDay()), 0, 0, 0);
+    }
+
+    public static Expression fromJavaDateType(LocalDateTime dateTime) {
+        return isDateOutOfRange(dateTime)
+                ? new NullLiteral(DateType.INSTANCE)
+                : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }

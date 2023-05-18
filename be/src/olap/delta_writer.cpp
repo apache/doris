@@ -141,8 +141,8 @@ Status DeltaWriter::init() {
     if (!config::disable_auto_compaction &&
         _tablet->exceed_version_limit(config::max_tablet_version_num - 100)) {
         //trigger compaction
-        StorageEngine::instance()->submit_compaction_task(_tablet,
-                                                          CompactionType::CUMULATIVE_COMPACTION);
+        StorageEngine::instance()->submit_compaction_task(
+                _tablet, CompactionType::CUMULATIVE_COMPACTION, true);
         if (_tablet->version_count() > config::max_tablet_version_num) {
             LOG(WARNING) << "failed to init delta writer. version count: "
                          << _tablet->version_count()
@@ -225,7 +225,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
     _mem_table->insert(block, row_idxs, is_append);
 
-    if (UNLIKELY(_mem_table->need_agg())) {
+    if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {

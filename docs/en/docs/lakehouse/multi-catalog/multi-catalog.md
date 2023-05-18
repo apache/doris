@@ -76,10 +76,6 @@ Multi-Catalog works as an additional and enhanced external table connection meth
     
     The deletion only means to remove the mapping in Doris to the corresponding catalog. It doesn't change the external catalog itself by all means.
     
-5. Resource
-
-	Resource is a set of configurations. Users can create a Resource using the [CREATE RESOURCE](https://doris.apache.org/docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE/) command, and then apply this Resource for a newly created Catalog. One Resource can be reused for multiple Catalogs. 
-
 ## Examples
 
 ### Connect to Hive

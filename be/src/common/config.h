@@ -116,8 +116,6 @@ DECLARE_String(memory_mode);
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-// `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G).
-// 6.4G is the maximum memory reserved for the system by default.
 DECLARE_String(mem_limit);
 
 // Soft memory limit as a fraction of hard memory limit.
@@ -344,6 +342,10 @@ DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_Bool(disable_storage_row_cache);
 
+// Cache for mow primary key storage page size, it's seperated from
+// storage_page_cache_limit
+DECLARE_String(pk_storage_page_cache_limit);
+
 DECLARE_Bool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
 
@@ -486,7 +488,7 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
-// The configuration is used to enable lazy open feature, and the default value is true.
+// The configuration is used to enable lazy open feature, and the default value is false.
 // When there is mixed deployment in the upgraded version, it needs to be set to false.
 DECLARE_mBool(enable_lazy_open_partition);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
@@ -581,7 +583,7 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
-DECLARE_mInt32(memory_gc_sleep_time_s);
+DECLARE_mInt32(memory_gc_sleep_time_ms);
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 DECLARE_mInt64(load_channel_memory_refresh_sleep_time_ms);
@@ -1011,6 +1013,9 @@ DECLARE_mInt32(s3_write_buffer_size);
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DECLARE_mInt32(s3_write_buffer_whole_size);
+
+//enable shrink memory
+DECLARE_Bool(enable_shrink_memory);
 
 #ifdef BE_TEST
 // test s3

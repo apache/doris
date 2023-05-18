@@ -532,7 +532,14 @@ public class StmtExecutor {
         if (parsedStmt != null) {
             return;
         }
-        List<StatementBase> statements = new NereidsParser().parseSQL(originStmt.originStmt);
+        List<StatementBase> statements;
+        try {
+            statements = new NereidsParser().parseSQL(originStmt.originStmt);
+        } catch (Exception e) {
+            throw new NereidsException(
+                    new AnalysisException("Nereids parse failed. " + e.getMessage(), e)
+            );
+        }
         if (statements.size() <= originStmt.idx) {
             throw new NereidsException(
                     new AnalysisException("Nereids parse failed. Parser get " + statements.size() + " statements,"
@@ -590,18 +597,6 @@ public class StmtExecutor {
         // set isQuery first otherwise this state will be lost if some error occurs
         if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
-        }
-        if (parsedStmt instanceof UnifiedLoadStmt) {
-            // glue code for unified load
-            final UnifiedLoadStmt unifiedLoadStmt = (UnifiedLoadStmt) parsedStmt;
-            unifiedLoadStmt.init();
-            final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
-            parsedStmt = proxyStmt;
-            if (!(proxyStmt instanceof LoadStmt)) {
-                Preconditions.checkState(
-                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needLoadManager(),
-                        new IllegalStateException("enable_unified_load=true, should be external insert stmt"));
-            }
         }
 
         try {
@@ -864,6 +859,20 @@ public class StmtExecutor {
             SelectStmt selectStmt = ((ShowStmt) parsedStmt).toSelectStmt(analyzer);
             if (selectStmt != null) {
                 setParsedStmt(selectStmt);
+            }
+        }
+
+        // convert unified load stmt here
+        if (parsedStmt instanceof UnifiedLoadStmt) {
+            // glue code for unified load
+            final UnifiedLoadStmt unifiedLoadStmt = (UnifiedLoadStmt) parsedStmt;
+            unifiedLoadStmt.init();
+            final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
+            parsedStmt = proxyStmt;
+            if (!(proxyStmt instanceof LoadStmt)) {
+                Preconditions.checkState(
+                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needLoadManager(),
+                        "enable_unified_load=true, should be external insert stmt");
             }
         }
 

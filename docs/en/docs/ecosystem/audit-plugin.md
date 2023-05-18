@@ -5,7 +5,7 @@
 }
 ---
 
-<!-
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements. See the NOTICE file
 distributed with this work for additional information
@@ -22,7 +22,7 @@ software distributed under the License is distributed on an
 KIND, either express or implied. See the License for the
 specific language governing permissions and limitations
 under the License.
-->
+-->
 
 # Audit log plugin
 
@@ -55,7 +55,7 @@ You can place this file on an http download server or copy(or unzip) it to the s
 
 ### Installation
 
-After deployment is complete, and before installing the plugin, you need to create the audit database and tables previously specified in `plugin.conf`. If `enable_slow_log` is set true, the slow table `doris_slow_log_tbl__` needs to be created, with the same schema as `doris_audit_log_tbl__`. The database and table creation statement is as follows:
+After deployment is complete, and before installing the plugin, you need to create the audit log database and tables previously specified in `plugin.conf`. If `enable_slow_log` is set true, the slow table `doris_slow_log_tbl__` needs to be created, with the same schema as `doris_audit_log_tbl__`. The database and table creation statement is as follows:
 
 ```
 create database doris_audit_db__;

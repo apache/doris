@@ -529,7 +529,7 @@ public class Alter {
             olapTable = (MaterializedView) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
 
             // 2. drop old job and kill the associated tasks
-            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl());
+            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl(), isReplay);
 
             // 3. overwrite the refresh info in the memory of fe.
             olapTable.writeLock();

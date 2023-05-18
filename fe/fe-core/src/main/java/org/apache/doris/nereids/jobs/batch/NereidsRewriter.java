@@ -61,6 +61,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeSort;
+import org.apache.doris.nereids.rules.rewrite.logical.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
@@ -244,7 +245,8 @@ public class NereidsRewriter extends BatchRewriteJob {
                     //       generate one PhysicalLimit if current distribution is gather or two
                     //       PhysicalLimits with gather exchange
                     new SplitLimit(),
-                    new PruneOlapScanPartition()
+                    new PruneOlapScanPartition(),
+                    new PruneFileScanPartition()
                 )
             ),
 
@@ -260,10 +262,11 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             // this rule batch must keep at the end of rewrite to do some plan check
-            topic("Final rewrite and check", bottomUp(
-                new AdjustNullable(),
-                new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
-                new CheckAfterRewrite()
+            topic("Final rewrite and check",
+                custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
+                bottomUp(
+                    new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
+                    new CheckAfterRewrite()
             ))
     );
 
