@@ -644,8 +644,7 @@ bool NewOlapScanNode::_is_key_column(const std::string& key_name) {
 
 void NewOlapScanNode::updata_bloomfilter(int id, const std::array<int64_t, 3>& update_info) {
     // get defult
-    if (id >= _bloom_filter_info.size()) {
-        _bloom_filter_info.resize(id + 1);
+    if (_bloom_filter_info.find(id) == _bloom_filter_info.end()) {
         _bloom_filter_info[id] = {0, 0, 0};
     }
 
@@ -656,7 +655,7 @@ void NewOlapScanNode::updata_bloomfilter(int id, const std::array<int64_t, 3>& u
 
     // to string
     auto& info = _bloom_filter_info[id];
-    std::string bloom_filter_name = "_bloom_filter_info id : 0";
+    std::string bloom_filter_name = "_BloomFilterInfo id : 0";
     bloom_filter_name.back() = '0' + id;
     std::string info_str;
     info_str += "input : " + std::to_string(info[0]) + "  ,  ";

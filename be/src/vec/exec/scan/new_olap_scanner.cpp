@@ -554,9 +554,9 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);
     COUNTER_UPDATE(olap_parent->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
-                   
-    for (size_t i = 0; i < stats.bloom_filter_info.size(); i++) {
-        olap_parent->updata_bloomfilter(i, stats.bloom_filter_info[i]);
+
+    for (auto& [id, info] : stats.bloom_filter_info) {
+        olap_parent->updata_bloomfilter(id, info);
     }
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);

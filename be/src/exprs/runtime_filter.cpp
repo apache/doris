@@ -1511,7 +1511,7 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
     if (_profile != nullptr) {
         _profile->add_info_string("RealRuntimeFilterType",
                                   ::doris::to_string(_wrapper->get_real_type()));
-       _wrapper->set_bloom_filter_id(_filter_id);
+        _wrapper->set_bloom_filter_id(_filter_id);
     }
 }
 

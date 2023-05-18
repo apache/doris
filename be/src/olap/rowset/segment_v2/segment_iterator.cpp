@@ -1608,25 +1608,21 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
             uint16_t size = selected_size;
             // is a BloomFilter
             auto* bf_predicate = reinterpret_cast<BloomFilterColumnHleper*>(predicate);
-            //auto BF_predicate = BloomFilterColumnHleper
-            // LOG_WARNING("find a BloomFilter ").tag("id : ", bf_predicate->get_filter_id());
             int bf_id = bf_predicate->get_filter_id();
-            auto& vec = _opts.stats->bloom_filter_info;
-            if (bf_id >= vec.size()) {
-                vec.resize(bf_id + 1);
-                vec[bf_id] = {0, 0, 0};
+            if (_opts.stats->bloom_filter_info.find(bf_id) ==
+                _opts.stats->bloom_filter_info.end()) {
+                _opts.stats->bloom_filter_info[bf_id] = {0, 0, 0};
             }
+            auto& mp = _opts.stats->bloom_filter_info;
             selected_size =
                     predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
             uint16_t new_size = selected_size;
-            vec[bf_id][0] += size;
-            vec[bf_id][1] += size - new_size;
-            vec[bf_id][2] = bf_predicate->_always_true;
+            mp[bf_id][0] += size;
+            mp[bf_id][1] += size - new_size;
+            mp[bf_id][2] = bf_predicate->_always_true;
         } else {
-            uint16_t size = selected_size;
             selected_size =
                     predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
-            uint16_t new_size = selected_size;
         }
     }
     _opts.stats->short_circuit_cond_input_rows += original_size;
