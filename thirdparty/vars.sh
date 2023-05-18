@@ -417,16 +417,16 @@ NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
 
 # opentelemetry-proto
-OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.18.0.tar.gz"
-OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.18.0.tar.gz
-OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.18.0
-OPENTELEMETRY_PROTO_MD5SUM="5179f58bb4edbd805590bffd2cf4df85"
+OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.19.0.tar.gz"
+OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.19.0.tar.gz
+OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.19.0
+OPENTELEMETRY_PROTO_MD5SUM="8a5fb1ba721341994a5e7cae8b38bcc6"
 
 # opentelemetry
-OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.4.0.tar.gz"
-OPENTELEMETRY_NAME=opentelemetry-cpp-1.4.0.tar.gz
-OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.4.0
-OPENTELEMETRY_MD5SUM="511b670dd1abb596da53684d23742c5f"
+OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.8.3.tar.gz"
+OPENTELEMETRY_NAME=opentelemetry-cpp-1.8.3.tar.gz
+OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.8.3
+OPENTELEMETRY_MD5SUM="a051dbbced2b7eb7a7227bdf5b3b9a10"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
