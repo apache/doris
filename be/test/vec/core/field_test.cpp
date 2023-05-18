@@ -179,11 +179,6 @@ TEST(FieldTest, Test_Field_Decimal128I) {
 
 // Date
 TEST(FieldTest, Test_Field_Date) {
-    // int64_t now_clock = VecDateTimeValue::local_time().to_int64(), now_date = now_clock; //, now_time = now_clock;
-    // DataTypeDate::cast_to_date(now_date);
-    // std::cout << now_clock << ' ' << now_date << std::endl;
-    // VecDateTimeValue a = binary_cast<Int64, VecDateTimeValue>(now_date);
-    // a.cast_to_date();
     VecDateTimeValue a;
     a.set_time(2000, 10, 16, 3, 16, 33);
     a.cast_to_date();
@@ -198,8 +193,6 @@ TEST(FieldTest, Test_Field_Date) {
     }
     b.cast_to_date();
 
-    // std::cout << a << ' '<< b << std::endl;
-
     EXPECT_EQ(a, b);
     EXPECT_EQ(a.debug_string(), b.debug_string());
 }
@@ -209,10 +202,10 @@ TEST(FieldTest, Test_Field_DateV2) {
     DateV2Value<DateV2ValueType> a;
     a.set_time(2000, 10, 16, 3, 16, 33, 114514);
 
-    Field field_DateV2(a.to_int64());
-
+    Field field_DateV2(a.to_date_int_val());
+    
     DateV2Value<DateV2ValueType> b;
-    if (!b.from_date_int64(get<Int64>(field_DateV2))) {
+    if (!b.set_date_uint32(get<DateV2Value<DateV2ValueType>::underlying_value>(field_DateV2))) {
         EXPECT_EQ(1, 2);
     }
 
@@ -243,32 +236,15 @@ TEST(FieldTest, Test_Field_DateTimeV2) {
     DateV2Value<DateTimeV2ValueType> a;
     a.set_time(2000, 10, 16, 3, 16, 33, 114514);
 
-    Field field_DateTimeV2(UInt64(*reinterpret_cast<UInt64*>(&a)));
+    Field field_DateTimeV2(a.to_date_int_val());
 
     DateV2Value<DateTimeV2ValueType> b;
-    if (!b.set_datetime_uint64(get<UInt64>(field_DateTimeV2))) {
+    if (!b.set_datetime_uint64(get<DateV2Value<DateTimeV2ValueType>::underlying_value>(field_DateTimeV2))) {
         EXPECT_EQ(1, 2);
     }
 
-    std::cout << a << ' '<< b << std::endl;
-
     EXPECT_EQ(a, b);
     EXPECT_EQ(a.debug_string(), b.debug_string());
-
-    // DateV2Value<DateTimeV2ValueType> a;
-    // a.set_time(2000, 10, 16, 3, 16, 33, 114514);
-
-    // Field field_DateTimeV2(a.to_int64());
-
-    // DateV2Value<DateTimeV2ValueType> b;
-    // if (!b.from_date_int64(get<Int64>(field_DateTimeV2))) {
-    //     EXPECT_EQ(1, 2);
-    // }
-
-    // std::cout << a << ' '<< b << std::endl;
-
-    // EXPECT_EQ(a, b);
-    // EXPECT_EQ(a.debug_string(), b.debug_string());
 }
 
 }
