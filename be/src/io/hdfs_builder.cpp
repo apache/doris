@@ -55,7 +55,7 @@ Status HDFSCommonBuilder::run_kinit() {
     if (krb_home_str.empty()) {
         fmt::format_to(kinit_command, "kinit -c {} -R -t {} -k {}", ticket_path, hdfs_kerberos_keytab,
                 hdfs_kerberos_principal);
-    }else {
+    } else {
         // Assign kerberos home in env, get kinit in kerberos home
         fmt::format_to(kinit_command, krb_home_str + "/bin/kinit -c {} -R -t {} -k {}", ticket_path,
                        hdfs_kerberos_keytab, hdfs_kerberos_principal);
