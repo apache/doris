@@ -579,18 +579,6 @@ public class StmtExecutor {
         if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
         }
-        if (parsedStmt instanceof UnifiedLoadStmt) {
-            // glue code for unified load
-            final UnifiedLoadStmt unifiedLoadStmt = (UnifiedLoadStmt) parsedStmt;
-            unifiedLoadStmt.init();
-            final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
-            parsedStmt = proxyStmt;
-            if (!(proxyStmt instanceof LoadStmt)) {
-                Preconditions.checkState(
-                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needLoadManager(),
-                        new IllegalStateException("enable_unified_load=true, should be external insert stmt"));
-            }
-        }
 
         try {
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
@@ -850,6 +838,20 @@ public class StmtExecutor {
             SelectStmt selectStmt = ((ShowStmt) parsedStmt).toSelectStmt(analyzer);
             if (selectStmt != null) {
                 setParsedStmt(selectStmt);
+            }
+        }
+
+        // convert unified load stmt here
+        if (parsedStmt instanceof UnifiedLoadStmt) {
+            // glue code for unified load
+            final UnifiedLoadStmt unifiedLoadStmt = (UnifiedLoadStmt) parsedStmt;
+            unifiedLoadStmt.init();
+            final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
+            parsedStmt = proxyStmt;
+            if (!(proxyStmt instanceof LoadStmt)) {
+                Preconditions.checkState(
+                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needLoadManager(),
+                        "enable_unified_load=true, should be external insert stmt");
             }
         }
 
