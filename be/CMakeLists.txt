@@ -1031,7 +1031,7 @@ gen_pch_target(pipeline_pch true thirdparty_pch)
 gen_pch_target(io_pch true thirdparty_pch)
 gen_pch_target(runtime_pch true thirdparty_pch)
 gen_pch_target(service_pch true thirdparty_pch)
-gen_pch_target(vec_pch false thirdparty_pch)
+# gen_pch_target(vec_pch false thirdparty_pch)
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
