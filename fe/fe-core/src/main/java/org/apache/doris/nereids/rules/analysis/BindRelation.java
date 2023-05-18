@@ -115,8 +115,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
             return new LogicalSubQueryAlias<>(unboundRelation.getNameParts(), ctePlan);
         }
-        String catalogName = cascadesContext.getConnectContext().getCurrentCatalog().getName();
-        String dbName = cascadesContext.getConnectContext().getDatabase();
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                unboundRelation.getNameParts());
         TableIf table = null;
         if (cascadesContext.getTables() != null) {
             table = cascadesContext.getTableByName(tableName);
@@ -124,15 +124,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (table == null) {
             // In some cases even if we have already called the "cascadesContext.getTableByName",
             // it also gets the null. So, we just check it in the catalog again for safety.
-            table = getTable(catalogName, dbName, tableName, cascadesContext.getConnectContext().getEnv());
+            table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
 
         // TODO: should generate different Scan sub class according to table's type
-        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
-                unboundRelation.getNameParts());
-        TableIf table = cascadesContext.getTables() != null
-                ? cascadesContext.getTableByName(tableName)
-                : RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
