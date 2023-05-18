@@ -609,17 +609,16 @@
                             "items": [
                                 "sql-manual/sql-functions/json-functions/json_parse",
                                 "sql-manual/sql-functions/json-functions/json_extract",
-                                "sql-manual/sql-functions/json-functions/json_extract",
                                 "sql-manual/sql-functions/json-functions/json_exists_path",
                                 "sql-manual/sql-functions/json-functions/json_type",
-                                "sql-manual/sql-functions/json-functions/get_json_double",
-                                "sql-manual/sql-functions/json-functions/get_json_int",
-                                "sql-manual/sql-functions/json-functions/get_json_string",
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
                                 "sql-manual/sql-functions/json-functions/json_quote",
                                 "sql-manual/sql-functions/json-functions/json_unquote",
-                                "sql-manual/sql-functions/json-functions/json_valid"
+                                "sql-manual/sql-functions/json-functions/json_valid",
+                                "sql-manual/sql-functions/json-functions/get_json_double",
+                                "sql-manual/sql-functions/json-functions/get_json_int",
+                                "sql-manual/sql-functions/json-functions/get_json_string"
                             ]
                         },
                         {
