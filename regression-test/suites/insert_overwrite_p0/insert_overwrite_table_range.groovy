@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_iot_range") {
-    def dbName = "test_iot_db";
+    def dbName = "test_iot_db_range";
     sql """drop database if exists ${dbName}"""
     sql """create database ${dbName}"""
     sql """use ${dbName}"""
@@ -156,7 +156,7 @@ suite("test_iot_range") {
     } finally {
         sql """ DROP TABLE IF EXISTS test_iot """
         sql """ DROP TABLE IF EXISTS test_iot1 """
-        sql """ DROP DATABASE IF EXISTS test_iot_db """
+        sql """ DROP DATABASE IF EXISTS ${dbName} """
     }
 
 }
