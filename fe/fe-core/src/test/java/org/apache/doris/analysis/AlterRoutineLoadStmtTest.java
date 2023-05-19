@@ -63,16 +63,20 @@ public class AlterRoutineLoadStmtTest {
                 accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
-                Env.getCurrentEnv().getRoutineLoadManager()
-                        .getJob(anyString, anyString);
-                minTimes = 0;
-                result = new KafkaRoutineLoadJob();
             }
         };
     }
 
     @Test
     public void testNormal() throws UserException {
+        new Expectations() {
+            {
+                Env.getCurrentEnv().getRoutineLoadManager()
+                        .getJob(anyString, anyString);
+                minTimes = 0;
+                result = new KafkaRoutineLoadJob();
+            }
+        };
         { // CHECKSTYLE IGNORE THIS LINE
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, "100");
@@ -84,12 +88,7 @@ public class AlterRoutineLoadStmtTest {
             dataSourceProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), "10000, 20000, 30000");
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
                     jobProperties, dataSourceProperties);
-            try {
-                stmt.analyze(analyzer);
-            } catch (UserException e) {
-                throw new UserException(e);
-            }
-
+            stmt.analyze(analyzer);
             Assert.assertEquals(2, stmt.getAnalyzedJobProperties().size());
             Assert.assertTrue(stmt.getAnalyzedJobProperties().containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
             Assert.assertTrue(stmt.getAnalyzedJobProperties().containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY));
@@ -103,14 +102,22 @@ public class AlterRoutineLoadStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoProperties() throws AnalysisException, UserException {
+    public void testNoProperties() throws UserException {
         AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
                 Maps.newHashMap(), new HashMap<>());
         stmt.analyze(analyzer);
     }
 
     @Test
-    public void testUnsupportedProperties() {
+    public void testUnsupportedProperties() throws MetaNotFoundException {
+        new Expectations() {
+            {
+                Env.getCurrentEnv().getRoutineLoadManager()
+                        .getJob(anyString, anyString);
+                minTimes = 0;
+                result = new KafkaRoutineLoadJob();
+            }
+        };
         { // CHECKSTYLE IGNORE THIS LINE
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.FORMAT, "csv");
