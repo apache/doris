@@ -146,6 +146,23 @@ public:
         return _get_page_cache(page_type)->mem_consumption();
     }
 
+    Cache* get_page_cache(segment_v2::PageTypePB page_type) {
+        switch (page_type) {
+        case segment_v2::DATA_PAGE: {
+            return _data_page_cache.get();
+        }
+        case segment_v2::INDEX_PAGE:
+            return _index_page_cache.get();
+        case segment_v2::PRIMARY_KEY_INDEX_PAGE:
+            return _pk_index_page_cache.get();
+        default:
+            return nullptr;
+        }
+    }
+    Cache* get_data_page_cache() { return _get_page_cache(segment_v2::DATA_PAGE); }
+    Cache* get_index_page_cache() { return _get_page_cache(segment_v2::INDEX_PAGE); }
+    Cache* get_pk_index_page_cache() { return _get_page_cache(segment_v2::PRIMARY_KEY_INDEX_PAGE); }
+
 private:
     StoragePageCache();
     static StoragePageCache* _s_instance;

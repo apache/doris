@@ -283,6 +283,26 @@ void Daemon::memory_tracker_profile_refresh_thread() {
     }
 }
 
+void Daemon::evict_page_cache_thread() {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(60000))) {
+        const auto& cache = StoragePageCache::instance();
+        auto ratio = config::storage_page_cache_evict_ratio;
+        auto expire_before = MonotonicSeconds() - config::storage_page_cache_expire_second;
+        auto* data_cache = cache->get_data_page_cache();
+        if (data_cache != nullptr) {
+            data_cache->evict_expired(ratio, expire_before);
+        }
+        auto* index_cache = cache->get_index_page_cache();
+        if (index_cache != nullptr) {
+            index_cache->evict_expired(ratio, expire_before);
+        }
+        auto* pk_cache = cache->get_pk_index_page_cache();
+        if (index_cache != nullptr) {
+            index_cache->evict_expired(ratio, expire_before);
+        }
+    }
+}
+
 /*
  * this thread will calculate some metrics at a fix interval(15 sec)
  * 1. push bytes per second
@@ -460,6 +480,14 @@ void Daemon::start() {
             [this]() { this->memory_tracker_profile_refresh_thread(); },
             &_memory_tracker_profile_refresh_thread);
     CHECK(st.ok()) << st;
+
+    if (config::enable_storage_page_cache_expire && !config::disable_storage_page_cache) {
+        st = Thread::create(
+                "Daemon", "evict_expire_thread", [this]() { this->evict_expire_thread(); },
+                &_insert_sentinel_thread);
+
+        CHECK(st.ok()) << st.to_string();
+    }
 
     if (config::enable_metric_calculator) {
         st = Thread::create(

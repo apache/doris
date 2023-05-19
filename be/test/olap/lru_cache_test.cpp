@@ -239,31 +239,31 @@ TEST_F(CacheTest, Usage) {
     // handle_size = sizeof(handle) - 1 + key size = 104 - 1 + 3 = 106
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    ASSERT_EQ(206, cache.get_usage()); // 100 + 106
+    ASSERT_EQ(214, cache.get_usage()); // 100 + 114
 
     CacheKey key2("200");
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    ASSERT_EQ(512, cache.get_usage()); // 206 + 306(d), d = DURABLE
+    ASSERT_EQ(528, cache.get_usage()); // 214 + 314(d), d = DURABLE
 
     CacheKey key3("300");
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(918, cache.get_usage()); // 206 + 306(d) + 406
+    ASSERT_EQ(934, cache.get_usage()); // 214 + 314(d) + 406
 
     CacheKey key4("400");
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    ASSERT_EQ(812, cache.get_usage()); // 306(d) + 506, evict 206 406
+    ASSERT_EQ(828, cache.get_usage()); // 314(d) + 514, evict 214 414
 
     CacheKey key5("500");
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    ASSERT_EQ(912, cache.get_usage()); // 306(d) + 606, evict 506
+    ASSERT_EQ(928, cache.get_usage()); // 314(d) + 614, evict 506
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    ASSERT_EQ(1012, cache.get_usage()); // 306(d) + 706, evict 506
+    ASSERT_EQ(1028, cache.get_usage()); // 314(d) + 714, evict 506
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    ASSERT_EQ(0, cache.get_usage()); // evict 306 706, because 950 + 106 > 1040, so insert failed
+    ASSERT_EQ(0, cache.get_usage()); // evict 314 714, because 950 + 114 > 1040, so insert failed
 }
 
 TEST_F(CacheTest, Prune) {
@@ -366,6 +366,25 @@ TEST_F(CacheTest, PruneIfLazyMode) {
     auto pred3 = [](const void* value) -> bool { return DecodeValue((void*)value) <= 600; };
     EXPECT_EQ(3, cache.prune_if(pred3, true));
     EXPECT_EQ(4, cache.get_usage());
+}
+
+TEST_F(CacheTest, EvictExpired) {
+    CacheKey k0("100");
+    CacheKey k1("101");
+    CacheKey kw("102");
+    Insert(k0, 100, 1);
+    Insert(k1, 101, 1);
+    sleep(1);
+    auto t1 = MonotonicSeconds();
+    Insert(k2, 102, 1);
+    _cache->evict_expired(1.0, t1);
+    ASSERT_EQ(-1, Lookup(k0));
+    ASSERT_EQ(-1, Lookup(k1));
+    ASSERT_EQ(102, Lookup(k2));
+    sleep(1);
+    auto t2 = MonotonicSeconds();
+    _cache->evict_expired(1.0, t2);
+    ASSERT_EQ(-1, Lookup(k2));
 }
 
 TEST_F(CacheTest, HeavyEntries) {

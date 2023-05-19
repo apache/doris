@@ -14,6 +14,7 @@
 #include "gutil/bits.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
+#include "util/time.h"
 
 using std::string;
 using std::stringstream;
@@ -164,7 +165,8 @@ uint32_t HandleTable::element_count() const {
     return _elems;
 }
 
-LRUCache::LRUCache(LRUCacheType type) : _type(type) {
+LRUCache::LRUCache(LRUCacheType type, bool evict_expire)
+        : _type(type), _evict_expire(evict_expire) {
     // Make empty circular linked list
     _lru_normal.next = &_lru_normal;
     _lru_normal.prev = &_lru_normal;
@@ -220,13 +222,16 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
     // longer than the entries just inserted,
     // so use asc set to sorted these entries's timestamp and LRUHandle*
     if (_cache_value_check_timestamp) {
+        auto value_time = _cache_value_time_extractor(e->value);
         if (e->priority == CachePriority::NORMAL) {
-            _sorted_normal_entries_with_timestamp.insert(
-                    std::make_pair(_cache_value_time_extractor(e->value), e));
+            _sorted_normal_entries_with_timestamp.insert(std::make_pair(value_time, e));
         } else if (e->priority == CachePriority::DURABLE) {
-            _sorted_durable_entries_with_timestamp.insert(
-                    std::make_pair(_cache_value_time_extractor(e->value), e));
+            _sorted_durable_entries_with_timestamp.insert(value_time, e));
         }
+        // convert mills to seconds.
+        e->use_time = value_time / 1000;
+    } else if (_evict_expire) {
+        e->use_time = MonotonicSeconds();
     }
 }
 
@@ -245,6 +250,58 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
         ++_hit_count;
     }
     return reinterpret_cast<Cache::Handle*>(e);
+}
+
+void LRUCache::evict_expired(double ratio, int64_t expire_before) {
+    auto total_size = static_cast<size_t>(_capacity * ratio);
+    auto start = MonotonicMillis();
+    LRUHandle* to_remove_head = nullptr;
+    {
+        std::lock_guard lock(_mutex);
+        if (_cache_value_check_timestamp) {
+            _evict_from_lru_with_time(e->total_size, &to_remove_head, expire_before);
+        } else {
+            auto target_usage = _usage > total_size ? _usage - total_size : 0;
+            LRUHandle* cur = &_lru;
+            // 1. evict normal cache entries
+            while (_usage > target_usage && cur->next != &_lru) {
+                LRUHandle* old = cur->next;
+                if (old->priority == CachePriority::DURABLE) {
+                    cur = cur->next;
+                    continue;
+                }
+                if (old->use_time >= expire_before) {
+                    break;
+                }
+                _evict_one_entry(old);
+                old->next = to_remove_head;
+                to_remove_head = old;
+            }
+            // 2. evict durable cache entries if need
+            while (_usage > target_usage && _lru.next != &_lru) {
+                LRUHandle* old = _lru.next;
+                if (old->use_time >= expire_before) {
+                    break;
+                }
+                DCHECK(old->priority == CachePriority::DURABLE);
+                _evict_one_entry(old);
+                old->next = to_remove_head;
+                to_remove_head = old;
+            }
+        }
+    }
+    auto cost_mills = MonotonicMillis() - start;
+    // we free the entries here outside of mutex for
+    // performance reasons
+    auto freed_size = 0;
+    while (to_remove_head != nullptr) {
+        LRUHandle* next = to_remove_head->next;
+        freed_size += to_remove_head->total_size;
+        to_remove_head->free();
+        to_remove_head = next;
+    }
+    LOG(INFO) << "evict expired size:" << freed_size << ", capacity:" << _capacity
+              << ", cost mills:" << cost_mills;
 }
 
 void LRUCache::release(Cache::Handle* handle) {
@@ -285,7 +342,8 @@ void LRUCache::release(Cache::Handle* handle) {
     }
 }
 
-void LRUCache::_evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head) {
+void LRUCache::_evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head,
+                                         int64_t before_seconds) {
     // 1. evict normal cache entries
     while ((_usage + total_size > _capacity || _check_element_count_limit()) &&
            !_sorted_normal_entries_with_timestamp.empty()) {
@@ -293,6 +351,9 @@ void LRUCache::_evict_from_lru_with_time(size_t total_size, LRUHandle** to_remov
         LRUHandle* remove_handle = entry_pair->second;
         DCHECK(remove_handle != nullptr);
         DCHECK(remove_handle->priority == CachePriority::NORMAL);
+        if (before_seconds > 0 && remove_handle->use_time > before_seconds) {
+            break;
+        }
         _evict_one_entry(remove_handle);
         remove_handle->next = *to_remove_head;
         *to_remove_head = remove_handle;
@@ -305,6 +366,9 @@ void LRUCache::_evict_from_lru_with_time(size_t total_size, LRUHandle** to_remov
         LRUHandle* remove_handle = entry_pair->second;
         DCHECK(remove_handle != nullptr);
         DCHECK(remove_handle->priority == CachePriority::DURABLE);
+        if (before_seconds > 0 && remove_handle->use_time > before_seconds) {
+            break;
+        }
         _evict_one_entry(remove_handle);
         remove_handle->next = *to_remove_head;
         *to_remove_head = remove_handle;
@@ -364,6 +428,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->next = e->prev = nullptr;
     e->in_cache = true;
     e->priority = priority;
+    e->use_time = 0;
     e->mem_tracker = tracker;
     e->type = _type;
     memcpy(e->key_data, key.data(), key.size());
@@ -516,13 +581,15 @@ inline uint32_t ShardedLRUCache::_hash_slice(const CacheKey& s) {
 }
 
 ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                                 uint32_t num_shards, uint32_t total_element_count_capacity)
+                                 uint32_t num_shards, uint32_t total_element_count_capacity,
+                                 bool evict_expire)
         : _name(name),
           _num_shard_bits(Bits::FindLSBSetNonZero(num_shards)),
           _num_shards(num_shards),
           _shards(nullptr),
           _last_id(1),
-          _total_capacity(total_capacity) {
+          _total_capacity(total_capacity),
+          _evict_expire(evict_expire) {
     _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, name);
     CHECK(num_shards > 0) << "num_shards cannot be 0";
     CHECK_EQ((num_shards & (num_shards - 1)), 0)
@@ -533,7 +600,7 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
             (total_element_count_capacity + (_num_shards - 1)) / _num_shards;
     LRUCache** shards = new (std::nothrow) LRUCache*[_num_shards];
     for (int s = 0; s < _num_shards; s++) {
-        shards[s] = new LRUCache(type);
+        shards[s] = new LRUCache(type, evict_expire);
         shards[s]->set_capacity(per_shard);
         shards[s]->set_element_count_capacity(per_shard_element_count_capacity);
     }
@@ -554,8 +621,9 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
                                  uint32_t num_shards,
                                  CacheValueTimeExtractor cache_value_time_extractor,
                                  bool cache_value_check_timestamp,
-                                 uint32_t total_element_count_capacity)
-        : ShardedLRUCache(name, total_capacity, type, num_shards, total_element_count_capacity) {
+                                 uint32_t total_element_count_capacity, bool evict_expire)
+        : ShardedLRUCache(name, total_capacity, type, num_shards, total_element_count_capacity,
+                          evict_expire) {
     for (int s = 0; s < _num_shards; s++) {
         _shards[s]->set_cache_value_time_extractor(cache_value_time_extractor);
         _shards[s]->set_cache_value_check_timestamp(cache_value_check_timestamp);
@@ -625,6 +693,12 @@ int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
     return num_prune;
 }
 
+void ShardedLRUCache::evict_expired(double ratio, int64_t expire_before) {
+    for (int s = 0; s < _num_shards; s++) {
+        _shards[s]->evict_expired(ratio, expire_before);
+    }
+}
+
 int64_t ShardedLRUCache::mem_consumption() {
     return _mem_tracker->consumption();
 }
@@ -659,8 +733,8 @@ void ShardedLRUCache::update_cache_metrics() const {
 }
 
 Cache* new_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
-                     uint32_t num_shards) {
-    return new ShardedLRUCache(name, capacity, type, num_shards);
+                     uint32_t num_shards, bool evict_expire) {
+    return new ShardedLRUCache(name, capacity, type, num_shards, evict_expire);
 }
 
 } // namespace doris

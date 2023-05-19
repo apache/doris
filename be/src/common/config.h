@@ -346,6 +346,10 @@ DECLARE_Bool(disable_storage_row_cache);
 // storage_page_cache_limit
 DECLARE_String(pk_storage_page_cache_limit);
 
+CONF_Bool(enable_storage_page_cache_expire, "false");
+CONF_mInt32(storage_page_cache_expire_second, "7200");
+CONF_mDouble(storage_page_cache_evict_ratio, "0.005");
+
 DECLARE_Bool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
 

@@ -62,7 +62,8 @@ enum LRUCacheType {
 // Create a new cache with a specified name and capacity.
 // This implementation of Cache uses a least-recently-used eviction policy.
 extern Cache* new_lru_cache(const std::string& name, size_t capacity,
-                            LRUCacheType type = LRUCacheType::SIZE, uint32_t num_shards = 16);
+                            LRUCacheType type = LRUCacheType::SIZE, uint32_t num_shards = 16,
+                            bool evict_expire = false);
 
 class CacheKey {
 public:
@@ -227,6 +228,8 @@ public:
     // may hold lock for a long time to execute predicate.
     virtual int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) { return 0; }
 
+    virtual void evict_expired(double ratio, int64_t expire_before) {}
+
     virtual int64_t mem_consumption() = 0;
 
     virtual int64_t get_usage() = 0;
@@ -253,6 +256,7 @@ struct LRUHandle {
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
+    int64_t use_time = 0;
     MemTrackerLimiter* mem_tracker;
     char key_data[1]; // Beginning of key
     LRUCacheType type;
@@ -326,7 +330,7 @@ using LRUHandleSortedSet = std::set<std::pair<int64_t, LRUHandle*>>;
 // A single shard of sharded cache.
 class LRUCache {
 public:
-    LRUCache(LRUCacheType type);
+    LRUCache(LRUCacheType type, bool evict_expire = false);
     ~LRUCache();
 
     // Separate from constructor so caller can easily make an array of LRUCache
@@ -345,6 +349,7 @@ public:
     void erase(const CacheKey& key, uint32_t hash);
     int64_t prune();
     int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false);
+    void evict_expired(double ratio, int64_t expire_before);
 
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
@@ -359,7 +364,8 @@ private:
     void _lru_append(LRUHandle* list, LRUHandle* e);
     bool _unref(LRUHandle* e);
     void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
-    void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head);
+    void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head,
+                                   int64_t before_seconds = 0);
     void _evict_one_entry(LRUHandle* e);
     bool _check_element_count_limit();
 
@@ -391,16 +397,19 @@ private:
     LRUHandleSortedSet _sorted_durable_entries_with_timestamp;
 
     uint32_t _element_count_capacity = 0;
+    bool _evict_expire = false;
 };
 
 class ShardedLRUCache : public Cache {
 public:
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards, uint32_t element_count_capacity = 0);
+                             uint32_t num_shards, uint32_t element_count_capacity = 0,
+                             bool evict_expire = false);
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
                              uint32_t num_shards,
                              CacheValueTimeExtractor cache_value_time_extractor,
-                             bool cache_value_check_timestamp, uint32_t element_count_capacity = 0);
+                             bool cache_value_check_timestamp, uint32_t element_count_capacity = 0,
+                             bool evict_expire = false);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
@@ -415,6 +424,7 @@ public:
     virtual uint64_t new_id() override;
     virtual int64_t prune() override;
     int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
+    void evict_expired(double ratio, int64_t expire_before) override;
     int64_t mem_consumption() override;
     int64_t get_usage() override;
     size_t get_total_capacity() override { return _total_capacity; };
