@@ -37,13 +37,15 @@
 #include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
 
 void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block& block,
-                                        ColumnString& dst, int num_cols) {
+                                        ColumnString& dst, int num_cols,
+                                        const DataTypeSerDeSPtrs& serdes) {
     auto num_rows = block.rows();
     Arena pool;
     assert(num_cols <= block.columns());
@@ -57,8 +59,8 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
                 // ignore dst row store column
                 continue;
             }
-            block.get_data_type(j)->get_serde()->write_one_cell_to_jsonb(
-                    *column, jsonb_writer, &pool, tablet_column.unique_id(), i);
+            serdes[j]->write_one_cell_to_jsonb(*column, jsonb_writer, &pool,
+                                               tablet_column.unique_id(), i);
         }
         jsonb_writer.writeEndObject();
         dst.insert_data(jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
@@ -66,56 +68,44 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
 }
 
 // batch rows
-void JsonbSerializeUtil::jsonb_to_block(const TupleDescriptor& desc,
-                                        const ColumnString& jsonb_column, Block& dst) {
+void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes,
+                                        const ColumnString& jsonb_column,
+                                        const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
+                                        Block& dst) {
     for (int i = 0; i < jsonb_column.size(); ++i) {
         StringRef jsonb_data = jsonb_column.get_data_at(i);
-        jsonb_to_block(desc, jsonb_data.data, jsonb_data.size, dst);
+        jsonb_to_block(serdes, jsonb_data.data, jsonb_data.size, col_id_to_idx, dst);
     }
 }
 
 // single row
-void JsonbSerializeUtil::jsonb_to_block(const TupleDescriptor& desc, const char* data, size_t size,
+void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data,
+                                        size_t size,
+                                        const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
                                         Block& dst) {
     auto pdoc = JsonbDocument::createDocument(data, size);
     JsonbDocument& doc = *pdoc;
-    for (int j = 0; j < desc.slots().size(); ++j) {
-        SlotDescriptor* slot = desc.slots()[j];
-        JsonbValue* slot_value = doc->find(slot->col_unique_id());
-        MutableColumnPtr dst_column = dst.get_by_position(j).column->assume_mutable();
-        if (!slot_value || slot_value->isNull()) {
-            // null or not exist
-            dst_column->insert_default();
-            continue;
+    size_t num_rows = dst.rows();
+    size_t filled_columns = 0;
+    for (auto it = doc->begin(); it != doc->end(); ++it) {
+        auto col_it = col_id_to_idx.find(it->getKeyId());
+        if (col_it != col_id_to_idx.end()) {
+            MutableColumnPtr dst_column =
+                    dst.get_by_position(col_it->second).column->assume_mutable();
+            serdes[col_it->second]->read_one_cell_from_jsonb(*dst_column, it->value());
+            ++filled_columns;
         }
-        dst.get_data_type(j)->get_serde()->read_one_cell_from_jsonb(*dst_column, slot_value);
     }
-}
-
-void JsonbSerializeUtil::jsonb_to_block(TabletSchemaSPtr schema,
-                                        const std::vector<uint32_t>& col_ids,
-                                        const ColumnString& jsonb_column, Block& dst) {
-    for (int i = 0; i < jsonb_column.size(); ++i) {
-        StringRef jsonb_data = jsonb_column.get_data_at(i);
-        jsonb_to_block(schema, col_ids, jsonb_data.data, jsonb_data.size, dst);
-    }
-}
-
-void JsonbSerializeUtil::jsonb_to_block(TabletSchemaSPtr schema,
-                                        const std::vector<uint32_t>& col_ids, const char* data,
-                                        size_t size, Block& dst) {
-    auto pdoc = JsonbDocument::createDocument(data, size);
-    JsonbDocument& doc = *pdoc;
-    for (int j = 0; j < col_ids.size(); ++j) {
-        auto column = schema->column(col_ids[j]);
-        JsonbValue* slot_value = doc->find(column.unique_id());
-        MutableColumnPtr dst_column = dst.get_by_position(j).column->assume_mutable();
-        if (!slot_value || slot_value->isNull()) {
-            // null or not exist
-            dst_column->insert_default();
-            continue;
+    if (filled_columns < dst.columns()) {
+        // fill missing slot
+        for (auto& column_type_name : dst) {
+            MutableColumnPtr col = column_type_name.column->assume_mutable();
+            if (col->size() < num_rows + 1) {
+                DCHECK(col->size() == num_rows);
+                col->insert_default();
+            }
+            DCHECK(col->size() == num_rows + 1);
         }
-        dst.get_data_type(j)->get_serde()->read_one_cell_from_jsonb(*dst_column, slot_value);
     }
 }
 

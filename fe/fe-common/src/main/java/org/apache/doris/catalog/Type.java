@@ -149,6 +149,10 @@ public abstract class Type {
         numericDateTimeTypes = Lists.newArrayList();
         numericDateTimeTypes.add(DATE);
         numericDateTimeTypes.add(DATETIME);
+        numericDateTimeTypes.add(DATEV2);
+        numericDateTimeTypes.add(DATETIMEV2);
+        numericDateTimeTypes.add(TIME);
+        numericDateTimeTypes.add(TIMEV2);
         numericDateTimeTypes.addAll(numericTypes);
 
         trivialTypes = Lists.newArrayList();
@@ -195,6 +199,9 @@ public abstract class Type {
         mapSubTypes.add(FLOAT);
         mapSubTypes.add(DOUBLE);
         mapSubTypes.add(DECIMALV2);
+        mapSubTypes.add(DECIMAL32); // same DEFAULT_DECIMALV3
+        mapSubTypes.add(DECIMAL64);
+        mapSubTypes.add(DECIMAL128);
         mapSubTypes.add(DATE);
         mapSubTypes.add(DATETIME);
         mapSubTypes.add(DATEV2);
@@ -210,6 +217,9 @@ public abstract class Type {
         structSubTypes.add(FLOAT);
         structSubTypes.add(DOUBLE);
         structSubTypes.add(DECIMALV2);
+        structSubTypes.add(DECIMAL32); // same DEFAULT_DECIMALV3
+        structSubTypes.add(DECIMAL64);
+        structSubTypes.add(DECIMAL128);
         structSubTypes.add(DATE);
         structSubTypes.add(DATETIME);
         structSubTypes.add(DATEV2);
@@ -335,6 +345,41 @@ public abstract class Type {
 
     public boolean isDecimalV2() {
         return isScalarType(PrimitiveType.DECIMALV2);
+    }
+
+    public boolean typeContainsPrecision() {
+        if (PrimitiveType.typeWithPrecision.contains(this.getPrimitiveType())) {
+            return true;
+        } else if (isStructType()) {
+            for (StructField field : ((StructType) this).getFields()) {
+                if (PrimitiveType.typeWithPrecision.contains(field.getType().getPrimitiveType())) {
+                    return true;
+                }
+            }
+        } else if (isMapType()) {
+            return PrimitiveType.typeWithPrecision.contains(((MapType) this).getKeyType().getPrimitiveType())
+                    || PrimitiveType.typeWithPrecision.contains(((MapType) this).getValueType().getPrimitiveType());
+        } else if (isArrayType()) {
+            return PrimitiveType.typeWithPrecision.contains(((ArrayType) this).getItemType().getPrimitiveType());
+        }
+        return false;
+    }
+
+    public boolean isDecimalV3OrContainsDecimalV3() {
+        if (isDecimalV3()) {
+            return true;
+        } else if (isStructType()) {
+            for (StructField field : ((StructType) this).getFields()) {
+                if (field.getType().isDecimalV3()) {
+                    return true;
+                }
+            }
+        } else if (isMapType()) {
+            return ((MapType) this).getKeyType().isDecimalV3() || ((MapType) this).getValueType().isDecimalV3();
+        } else if (isArrayType()) {
+            return ((ArrayType) this).getItemType().isDecimalV3();
+        }
+        return false;
     }
 
     public boolean isDecimalV3() {

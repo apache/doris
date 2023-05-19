@@ -37,7 +37,7 @@ uint8_t* SystemAllocator::allocate(size_t length) {
     return allocate_via_malloc(length);
 }
 
-void SystemAllocator::free(uint8_t* ptr, size_t length) {
+void SystemAllocator::free(uint8_t* ptr) {
     ::free(ptr);
 }
 

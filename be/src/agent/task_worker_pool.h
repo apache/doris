@@ -185,8 +185,6 @@ protected:
     uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
                                   TPriority::type priority);
 
-    void _create_tablet_worker_thread_callback();
-    void _drop_tablet_worker_thread_callback();
     void _push_worker_thread_callback();
     void _publish_version_worker_thread_callback();
     void _clear_transaction_task_worker_thread_callback();
@@ -271,6 +269,14 @@ public:
     void _create_tablet_worker_thread_callback();
 
     DISALLOW_COPY_AND_ASSIGN(CreateTableTaskPool);
+};
+
+class DropTableTaskPool : public TaskWorkerPool {
+public:
+    DropTableTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _drop_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(DropTableTaskPool);
 };
 
 } // namespace doris

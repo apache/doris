@@ -48,6 +48,7 @@ Usage: $0 <options>
      --hive-udf         build Hive UDF library for Spark Load. Default ON.
      --java-udf         build Java UDF. Default ON.
      --clean            clean and build target
+     --output           specify the output directory
      -j                 build Backend parallel
 
   Environment variables:
@@ -65,6 +66,7 @@ Usage: $0 <options>
     $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
+    $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -75,6 +77,7 @@ Usage: $0 <options>
 clean_gensrc() {
     pushd "${DORIS_HOME}/gensrc"
     make clean
+    rm -rf "${DORIS_HOME}/gensrc/build"
     rm -rf "${DORIS_HOME}/fe/fe-common/target"
     rm -rf "${DORIS_HOME}/fe/fe-core/target"
     popd
@@ -120,6 +123,7 @@ if ! OPTS="$(getopt \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
+    -l 'output:' \
     -o 'hj:' \
     -- "$@")"; then
     usage
@@ -212,6 +216,10 @@ else
             PARAMETER_FLAG=1
             shift 2
             ;;
+        --output)
+            DORIS_OUTPUT="$2"
+            shift 2
+            ;;
         --)
             shift
             break
@@ -252,19 +260,26 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
     fi
 fi
 
-echo "Update apache-orc ..."
-set +e
-cd "${DORIS_HOME}"
-echo "Update apache-orc submodule ..."
-git submodule update --init --recursive be/src/apache-orc
-exit_code=$?
-set -e
-if [[ "${exit_code}" -ne 0 ]]; then
-    echo "Update apache-orc submodule failed, start to download and extract apache-orc package ..."
-    rm -rf "${DORIS_HOME}/be/src/apache-orc"
-    mkdir -p "${DORIS_HOME}/be/src/apache-orc"
-    curl -L https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz | tar -xz -C "${DORIS_HOME}/be/src/apache-orc" --strip-components=1
-fi
+update_submodule() {
+    local submodule_path=$1
+    local submodule_name=$2
+    local archive_url=$3
+
+    set +e
+    cd "${DORIS_HOME}"
+    echo "Update ${submodule_name} submodule ..."
+    git submodule update --init --recursive "${submodule_path}"
+    exit_code=$?
+    set -e
+    if [[ "${exit_code}" -ne 0 ]]; then
+        echo "Update ${submodule_name} submodule failed, start to download and extract ${submodule_name} package ..."
+        mkdir -p "${DORIS_HOME}/${submodule_path}"
+        curl -L "${archive_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
+    fi
+}
+
+update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
+update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
     clean_gensrc
@@ -394,7 +409,7 @@ echo "Get params:
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
 fi
-"${DORIS_HOME}"/generated-source.sh
+"${DORIS_HOME}"/generated-source.sh noclean
 
 # Assesmble FE modules
 FE_MODULES=''
@@ -530,7 +545,8 @@ if [[ "${FE_MODULES}" != '' ]]; then
 fi
 
 # Clean and prepare output dir
-DORIS_OUTPUT=${DORIS_HOME}/output/
+DORIS_OUTPUT=${DORIS_OUTPUT:="${DORIS_HOME}/output/"}
+echo "OUTPUT DIR=${DORIS_OUTPUT}"
 mkdir -p "${DORIS_OUTPUT}"
 
 # Copy Frontend and Backend
@@ -573,9 +589,11 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
+    cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
 
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
+        rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs/native/"
     fi
 
     if [[ "${DISABLE_JAVA_UDF_IN_CONF}" -eq 1 ]]; then
@@ -618,7 +636,6 @@ EOF
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
-    cp -r -p "${DORIS_THIRDPARTY}/installed/share/dict" "${DORIS_OUTPUT}/be/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

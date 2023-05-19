@@ -1,3 +1,18 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f4fa0649..a64e74bc 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -118,9 +118,8 @@ option(WITH_GSL
+ 
+ option(WITH_ABSEIL "Whether to use Abseil for C++latest features" OFF)
+ 
++set(OPENTELEMETRY_INSTALL_default ON)
+ if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+-  set(OPENTELEMETRY_INSTALL_default ON)
+-else()
+   set(OPENTELEMETRY_INSTALL_default OFF)
+ endif()
+ option(OPENTELEMETRY_INSTALL "Whether to install opentelemetry targets"
 diff --git a/api/include/opentelemetry/common/threadlocal.h b/api/include/opentelemetry/common/threadlocal.h
 new file mode 100644
 index 00000000..23a39e14
@@ -129,18 +144,18 @@ index 00000000..23a39e14
 +OPENTELEMETRY_END_NAMESPACE
 \ No newline at end of file
 diff --git a/api/include/opentelemetry/context/runtime_context.h b/api/include/opentelemetry/context/runtime_context.h
-index 167a928f..608b6dac 100644
+index bec96a9a..2349a29c 100644
 --- a/api/include/opentelemetry/context/runtime_context.h
 +++ b/api/include/opentelemetry/context/runtime_context.h
-@@ -4,6 +4,7 @@
- #pragma once
+@@ -5,6 +5,7 @@
  
+ #include "opentelemetry/common/macros.h"
  #include "opentelemetry/context/context.h"
 +#include "opentelemetry/common/threadlocal.h"
  
  OPENTELEMETRY_BEGIN_NAMESPACE
  namespace context
-@@ -188,7 +189,7 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+@@ -189,7 +190,7 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
    ThreadLocalContextStorage() noexcept = default;
  
    // Return the current context.
@@ -149,7 +164,7 @@ index 167a928f..608b6dac 100644
  
    // Resets the context to the value previous to the passed in token. This will
    // also detach all child contexts of the passed in token.
-@@ -196,23 +197,23 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+@@ -197,23 +198,23 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
    bool Detach(Token &token) noexcept override
    {
      // In most cases, the context to be detached is on the top of the stack.
@@ -179,7 +194,7 @@ index 167a928f..608b6dac 100644
  
      return true;
    }
-@@ -221,14 +222,14 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+@@ -222,14 +223,14 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
    // that can be used to reset to the previous Context.
    nostd::unique_ptr<Token> Attach(const Context &context) noexcept override
    {
@@ -195,13 +210,13 @@ index 167a928f..608b6dac 100644
 +  public:
      friend class ThreadLocalContextStorage;
  
-     Stack() noexcept : size_(0), capacity_(0), base_(nullptr){};
-@@ -315,9 +316,10 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+     Stack() noexcept : size_(0), capacity_(0), base_(nullptr) {}
+@@ -316,9 +317,10 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
      Context *base_;
    };
  
--  Stack &GetStack()
-+  Stack *GetStack()
+-  OPENTELEMETRY_API_SINGLETON Stack &GetStack()
++  OPENTELEMETRY_API_SINGLETON Stack *GetStack()
    {
 -    static thread_local Stack stack_ = Stack();
 +    // static thread_local Stack stack_ = Stack();
@@ -209,37 +224,29 @@ index 167a928f..608b6dac 100644
      return stack_;
    }
  };
-diff --git a/api/include/opentelemetry/nostd/shared_ptr.h b/api/include/opentelemetry/nostd/shared_ptr.h
-index e1eac615..7afc30f9 100644
---- a/api/include/opentelemetry/nostd/shared_ptr.h
-+++ b/api/include/opentelemetry/nostd/shared_ptr.h
-@@ -56,7 +56,8 @@ class shared_ptr
-               typename std::enable_if<std::is_convertible<pointer, U *>::value>::type * = nullptr>
-     void MoveTo(typename shared_ptr<U>::PlacementBuffer &buffer) noexcept
-     {
--      new (buffer.data) shared_ptr_wrapper{std::move(this->ptr_)};
-+      using other_shared_ptr_wrapper = typename shared_ptr<U>::shared_ptr_wrapper;
-+      new (buffer.data) other_shared_ptr_wrapper{std::move(this->ptr_)};
-     }
- 
-     virtual pointer Get() const noexcept { return ptr_.get(); }
 diff --git a/sdk/CMakeLists.txt b/sdk/CMakeLists.txt
-index 1a824fe0..91d4b5c8 100644
+index 2e8f3bb6..224e6463 100644
 --- a/sdk/CMakeLists.txt
 +++ b/sdk/CMakeLists.txt
-@@ -1,4 +1,4 @@
+@@ -1,7 +1,7 @@
+ # Copyright The OpenTelemetry Authors
+ # SPDX-License-Identifier: Apache-2.0
+ 
 -add_library(opentelemetry_sdk INTERFACE)
 +add_library(opentelemetry_sdk INTERFACE ../api/include/opentelemetry/common/threadlocal.h)
  target_include_directories(
    opentelemetry_sdk
    INTERFACE "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>"
 diff --git a/sdk/src/common/CMakeLists.txt b/sdk/src/common/CMakeLists.txt
-index debffef4..b4fc875a 100644
+index b23a93e8..1cc0e0f2 100644
 --- a/sdk/src/common/CMakeLists.txt
 +++ b/sdk/src/common/CMakeLists.txt
-@@ -1,4 +1,4 @@
--set(COMMON_SRCS random.cc core.cc)
-+set(COMMON_SRCS random.cc core.cc threadlocal.cc)
+@@ -1,7 +1,7 @@
+ # Copyright The OpenTelemetry Authors
+ # SPDX-License-Identifier: Apache-2.0
+ 
+-set(COMMON_SRCS random.cc core.cc global_log_handler.cc env_variables.cc)
++set(COMMON_SRCS random.cc core.cc global_log_handler.cc env_variables.cc threadlocal.cc)
  if(WIN32)
    list(APPEND COMMON_SRCS platform/fork_windows.cc)
  else()
