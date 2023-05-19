@@ -211,11 +211,12 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
     }
 }
 
-void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist) {
+void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block,
+                                           RowInBlock* new_row, RowInBlock* row_in_skiplist) {
     if (_tablet_schema->has_sequence_col()) {
         auto sequence_idx = _tablet_schema->sequence_col_idx();
-        DCHECK_LT(sequence_idx, _input_mutable_block.columns());
-        auto col_ptr = _input_mutable_block.mutable_columns()[sequence_idx].get();
+        DCHECK_LT(sequence_idx, mutable_block.columns());
+        auto col_ptr = mutable_block.mutable_columns()[sequence_idx].get();
         auto res = col_ptr->compare_at(row_in_skiplist->_row_pos, new_row->_row_pos, *col_ptr, -1);
         // dst sequence column larger than src, don't need to update
         if (res > 0) {
@@ -227,7 +228,7 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
     }
     // dst is non-sequence row, or dst sequence is smaller
     for (uint32_t cid = _schema->num_key_columns(); cid < _num_columns; ++cid) {
-        auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
+        auto col_ptr = mutable_block.mutable_columns()[cid].get();
         _agg_functions[cid]->add(row_in_skiplist->agg_places(cid),
                                  const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                                  new_row->_row_pos, nullptr);
@@ -342,7 +343,7 @@ void MemTable::_aggregate() {
                 }
             }
             _merged_rows++;
-            _aggregate_two_row_in_block(_row_in_blocks[i], prev_row);
+            _aggregate_two_row_in_block(mutable_block, _row_in_blocks[i], prev_row);
         } else {
             prev_row = _row_in_blocks[i];
             if (!temp_row_in_blocks.empty()) {

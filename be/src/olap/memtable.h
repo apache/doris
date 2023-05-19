@@ -117,7 +117,8 @@ private:
 
 private:
     // for vectorized
-    void _aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist);
+    void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
+                                     RowInBlock* row_in_skiplist);
 
     Status _generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
                                    int64_t atomic_num_segments_after_flush);
