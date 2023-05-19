@@ -258,7 +258,7 @@ private:
     // build expr
     VExprContextSPtrs _build_expr_ctxs;
     // other expr
-    VExprContextSPtr _other_join_conjunct_ptr;
+    VExprContextSPtrs _other_join_conjuncts;
 
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;

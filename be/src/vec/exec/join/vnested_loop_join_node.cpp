@@ -111,9 +111,14 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _is_output_left_side_only = tnode.nested_loop_join_node.is_output_left_side_only;
     }
 
-    if (tnode.nested_loop_join_node.__isset.vjoin_conjunct) {
-        RETURN_IF_ERROR(VExpr::create_expr_tree(tnode.nested_loop_join_node.vjoin_conjunct,
-                                                _join_conjunct_ptr));
+    if (tnode.nested_loop_join_node.__isset.join_conjuncts) {
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.nested_loop_join_node.join_conjuncts,
+                                                 _join_conjuncts));
+    } else if (tnode.nested_loop_join_node.__isset.vjoin_conjunct) {
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(
+                VExpr::create_expr_tree(tnode.nested_loop_join_node.vjoin_conjunct, context));
+        _join_conjuncts.emplace_back(context);
     }
 
     std::vector<TExpr> filter_src_exprs;
@@ -147,8 +152,8 @@ Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
         RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
     }
 
-    if (_join_conjunct_ptr) {
-        RETURN_IF_ERROR(_join_conjunct_ptr->prepare(state, *_intermediate_row_desc));
+    for (auto& conjunct : _join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
     _num_probe_side_columns = child(0)->row_desc().num_materialized_slots();
     _num_build_side_columns = child(1)->row_desc().num_materialized_slots();
@@ -549,71 +554,15 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
     size_t build_block_idx =
             _current_build_pos == 0 ? _build_blocks.size() - 1 : _current_build_pos - 1;
     size_t processed_blocks_num = _offset_stack.size();
-    if (LIKELY(_join_conjunct_ptr != nullptr && block->rows() > 0)) {
-        DCHECK(_join_conjunct_ptr != nullptr);
-        int result_column_id = -1;
-        RETURN_IF_ERROR(_join_conjunct_ptr->execute(block, &result_column_id));
-        const auto& filter_column = block->get_by_position(result_column_id).column;
-        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
-            const auto& nested_column = nullable_column->get_nested_column_ptr();
+    if (LIKELY(!_join_conjuncts.empty() && block->rows() > 0)) {
+        IColumn::Filter filter(block->rows(), 1);
+        bool can_filter_all = false;
+        RETURN_IF_ERROR(VExprContext::execute_conjuncts(_join_conjuncts, nullptr, block, &filter,
+                                                        &can_filter_all));
 
-            MutableColumnPtr mutable_holder =
-                    nested_column->use_count() == 1
-                            ? nested_column->assume_mutable()
-                            : nested_column->clone_resized(nested_column->size());
-
-            ColumnUInt8* concrete_column = assert_cast<ColumnUInt8*>(mutable_holder.get());
-            auto* __restrict null_map = nullable_column->get_null_map_data().data();
-            IColumn::Filter& filter = concrete_column->get_data();
-            auto* __restrict filter_data = filter.data();
-
-            const size_t size = filter.size();
-            if constexpr (IgnoreNull) {
-                for (size_t i = 0; i < size; ++i) {
-                    filter_data[i] |= null_map[i];
-                }
-            } else {
-                for (size_t i = 0; i < size; ++i) {
-                    filter_data[i] &= !null_map[i];
-                }
-            }
-            _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
-                                                        SetProbeSideFlag>(
-                    block, column_to_keep, build_block_idx, processed_blocks_num, materialize,
-                    filter);
-        } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
-            bool ret = const_column->get_bool(0);
-            if (ret) {
-                if constexpr (SetBuildSideFlag) {
-                    for (size_t i = 0; i < processed_blocks_num; i++) {
-                        auto& build_side_flag =
-                                assert_cast<ColumnUInt8*>(
-                                        _build_side_visited_flags[build_block_idx].get())
-                                        ->get_data();
-                        auto* __restrict build_side_flag_data = build_side_flag.data();
-                        auto cur_sz = build_side_flag.size();
-                        _offset_stack.pop();
-                        memset(reinterpret_cast<void*>(build_side_flag_data), 1, cur_sz);
-                        build_block_idx = build_block_idx == 0 ? _build_blocks.size() - 1
-                                                               : build_block_idx - 1;
-                    }
-                }
-                if constexpr (SetProbeSideFlag) {
-                    _cur_probe_row_visited_flags |= ret;
-                }
-            }
-            if (!materialize || !ret) {
-                CLEAR_BLOCK
-            }
-        } else {
-            const IColumn::Filter& filter =
-                    assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
-                            .get_data();
-            _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
-                                                        SetProbeSideFlag>(
-                    block, column_to_keep, build_block_idx, processed_blocks_num, materialize,
-                    filter);
-        }
+        _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
+                                                    SetProbeSideFlag>(
+                block, column_to_keep, build_block_idx, processed_blocks_num, materialize, filter);
     } else if (block->rows() > 0) {
         if constexpr (SetBuildSideFlag) {
             for (size_t i = 0; i < processed_blocks_num; i++) {
@@ -641,8 +590,8 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
 
 Status VNestedLoopJoinNode::alloc_resource(doris::RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
-    if (_join_conjunct_ptr) {
-        RETURN_IF_ERROR(_join_conjunct_ptr->open(state));
+    for (auto& conjunct : _join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
     }
     return VExpr::open(_filter_src_expr_ctxs, state);
 }
@@ -727,7 +676,9 @@ bool VNestedLoopJoinNode::need_more_input_data() const {
 void VNestedLoopJoinNode::release_resource(doris::RuntimeState* state) {
     VJoinNodeBase::release_resource(state);
     VExpr::close(_filter_src_expr_ctxs, state);
-    if (_join_conjunct_ptr) _join_conjunct_ptr->close(state);
+    for (auto& conjunct : _join_conjuncts) {
+        conjunct->close(state);
+    }
 }
 
 } // namespace doris::vectorized

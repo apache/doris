@@ -27,14 +27,11 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
@@ -44,7 +41,6 @@ import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.thrift.TExplainLevel;
-import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
 
@@ -392,24 +388,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return statsDeriveResultList;
     }
 
-    protected void initCompoundPredicate(Expr expr) {
-        if (expr instanceof CompoundPredicate) {
-            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
-            compoundPredicate.setType(Type.BOOLEAN);
-            List<Type> args = new ArrayList<>();
-            args.add(Type.BOOLEAN);
-            args.add(Type.BOOLEAN);
-            Function function = new Function(new FunctionName("", compoundPredicate.getOp().toString()),
-                    args, Type.BOOLEAN, false);
-            function.setBinaryType(TFunctionBinaryType.BUILTIN);
-            expr.setFn(function);
-        }
-
-        for (Expr child : expr.getChildren()) {
-            initCompoundPredicate(child);
-        }
-    }
-
     protected Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
@@ -576,9 +554,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             msg.addToRowTuples(tid.asInt());
             msg.addToNullableTuples(nullableTupleIds.contains(tid));
         }
-        // `conjuncts` is never needed on vectorized engine except scan nodes which use them as push-down predicates.
-        if (this instanceof ScanNode || !VectorizedUtil.isVectorized()) {
-            for (Expr e : conjuncts) {
+
+        for (Expr e : conjuncts) {
+            if (!(e instanceof BitmapFilterPredicate)) {
                 msg.addToConjuncts(e.treeToThrift());
             }
         }
@@ -1041,28 +1019,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected String getRuntimeFilterExplainString(boolean isBuildNode) {
         return getRuntimeFilterExplainString(isBuildNode, false);
-    }
-
-    public void convertToVectorized() {
-        List<Expr> conjunctsExcludeBitmapFilter = Lists.newArrayList();
-        for (Expr expr : conjuncts) {
-            if (!(expr instanceof BitmapFilterPredicate)) {
-                conjunctsExcludeBitmapFilter.add(expr);
-            }
-        }
-        if (!conjunctsExcludeBitmapFilter.isEmpty()) {
-            vconjunct = convertConjunctsToAndCompoundPredicate(conjunctsExcludeBitmapFilter);
-            initCompoundPredicate(vconjunct);
-        }
-
-        if (!preFilterConjuncts.isEmpty()) {
-            vpreFilterConjunct = convertConjunctsToAndCompoundPredicate(preFilterConjuncts);
-            initCompoundPredicate(vpreFilterConjunct);
-        }
-
-        for (PlanNode child : children) {
-            child.convertToVectorized();
-        }
     }
 
     /**

@@ -126,11 +126,19 @@ Status VFileScanner::prepare(
                                               std::vector<TupleId>({_input_tuple_desc->id()}),
                                               std::vector<bool>({false})));
         // prepare pre filters
-        if (_params.__isset.pre_filter_exprs) {
-            RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_params.pre_filter_exprs,
-                                                                       _pre_conjunct_ctx_ptr));
-            RETURN_IF_ERROR(_pre_conjunct_ctx_ptr->prepare(_state, *_src_row_desc));
-            RETURN_IF_ERROR(_pre_conjunct_ctx_ptr->open(_state));
+        if (_params.__isset.pre_filter_exprs_list) {
+            RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_trees(
+                    _params.pre_filter_exprs_list, _pre_conjunct_ctxs));
+        } else if (_params.__isset.pre_filter_exprs) {
+            VExprContextSPtr context;
+            RETURN_IF_ERROR(
+                    doris::vectorized::VExpr::create_expr_tree(_params.pre_filter_exprs, context));
+            _pre_conjunct_ctxs.emplace_back(context);
+        }
+
+        for (auto& conjunct : _pre_conjunct_ctxs) {
+            RETURN_IF_ERROR(conjunct->prepare(_state, *_src_row_desc));
+            RETURN_IF_ERROR(conjunct->open(_state));
         }
     }
 
@@ -257,7 +265,7 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
                 // Fill columns not exist in file with null or default value
                 RETURN_IF_ERROR(_fill_missing_columns(read_rows));
             }
-            // Apply _pre_conjunct_ctx_ptr to filter src block.
+            // Apply _pre_conjunct_ctxs to filter src block.
             RETURN_IF_ERROR(_pre_filter_src_block());
             // Convert src block to output block (dest block), string to dest data type and apply filters.
             RETURN_IF_ERROR(_convert_to_output_block(block));
@@ -443,12 +451,12 @@ Status VFileScanner::_pre_filter_src_block() {
     if (!_is_load) {
         return Status::OK();
     }
-    if (_pre_conjunct_ctx_ptr) {
+    if (!_pre_conjunct_ctxs.empty()) {
         SCOPED_TIMER(_pre_filter_timer);
         auto origin_column_num = _src_block_ptr->columns();
         auto old_rows = _src_block_ptr->rows();
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctx_ptr.get(),
-                                                               _src_block_ptr, origin_column_num));
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctxs, _src_block_ptr,
+                                                               origin_column_num));
         _counter.num_rows_unselected += old_rows - _src_block.rows();
     }
     return Status::OK();
@@ -868,8 +876,8 @@ Status VFileScanner::close(RuntimeState* state) {
         }
     }
 
-    if (_pre_conjunct_ctx_ptr) {
-        _pre_conjunct_ctx_ptr->close(state);
+    for (auto& conjunct : _pre_conjunct_ctxs) {
+        conjunct->close(state);
     }
 
     for (auto& conjunct : _push_down_conjuncts) {

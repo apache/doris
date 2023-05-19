@@ -250,7 +250,7 @@ private:
     bool _is_output_left_side_only = false;
     bool _need_more_input_data = true;
     std::stack<uint16_t> _offset_stack;
-    VExprContextSPtr _join_conjunct_ptr;
+    VExprContextSPtrs _join_conjuncts;
 
     friend struct RuntimeFilterBuild;
 };

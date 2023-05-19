@@ -302,10 +302,8 @@ public class FileLoadScanNode extends FileScanNode {
         // Need re compute memory layout after set some slot descriptor to nullable
         srcTupleDesc.computeStatAndMemLayout();
 
-        if (!preFilterConjuncts.isEmpty()) {
-            Expr vPreFilterExpr = convertConjunctsToAndCompoundPredicate(preFilterConjuncts);
-            initCompoundPredicate(vPreFilterExpr);
-            params.setPreFilterExprs(vPreFilterExpr.treeToThrift());
+        for (Expr e : preFilterConjuncts) {
+            params.addToPreFilterExprsList(e.treeToThrift());
         }
     }
 
