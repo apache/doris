@@ -328,12 +328,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = rewriteChildren(boundFunction, context);
-        /*
-        //functions, like current_date, do not have arg
+        // functions related to current/local/now will be calculated by be.
         if (boundFunction.getArguments().isEmpty()) {
             return boundFunction;
         }
-         */
         Optional<Expression> checkedExpr = preProcess(boundFunction);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
