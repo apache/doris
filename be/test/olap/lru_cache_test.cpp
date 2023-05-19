@@ -373,7 +373,7 @@ TEST_F(CacheTest, EvictExpired) {
     Insert(101, 101, 1);
     sleep(1);
     auto t1 = MonotonicSeconds();
-    Insert(k2, 102, 1);
+    Insert(102, 102, 1);
     _cache->evict_expired(1.0, t1);
     ASSERT_EQ(-1, Lookup(100));
     ASSERT_EQ(-1, Lookup(101));
