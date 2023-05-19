@@ -144,6 +144,7 @@ suite("test_doris_jdbc_catalog", "p0") {
     order_qt_tb1 """ select pin_id, hll_union_agg(user_log_acct) from ${hllTable} group by pin_id; """
 
     // query with jdbc external table
+    sql """ refresh catalog  ${catalog_name} """
     qt_sql """select current_catalog()"""
     sql """ switch ${catalog_name} """
     qt_sql """select current_catalog()"""
