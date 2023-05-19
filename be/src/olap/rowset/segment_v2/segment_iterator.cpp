@@ -1605,7 +1605,7 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
         uint16_t size = selected_size;
-        // now  BloomFilter or BitmapFilter  id not equal -1
+        // Currently, only the id of BloomFilter and BitmapFilter is not equal to -1.
         int bf_id = predicate->get_filter_id();
         if (_opts.stats->bloom_filter_info.find(bf_id) == _opts.stats->bloom_filter_info.end()) {
             _opts.stats->bloom_filter_info[bf_id] = {0, 0, 0};

@@ -643,7 +643,7 @@ bool NewOlapScanNode::_is_key_column(const std::string& key_name) {
 }
 
 void NewOlapScanNode::updata_filter(int id, const std::array<int64_t, 3>& update_info) {
-    static std::vector<std::string> PredicateTypeName(20, "Unkonw");
+    static std::vector<std::string> PredicateTypeName(20, "Unknow");
     PredicateTypeName[static_cast<int>(PredicateType::BF)] = "BloomFilter";
     PredicateTypeName[static_cast<int>(PredicateType::BITMAP_FILTER)] = "BitmapFilter";
     // get defult
@@ -658,11 +658,11 @@ void NewOlapScanNode::updata_filter(int id, const std::array<int64_t, 3>& update
 
     // to string
     auto& info = _bloom_filter_info[id];
-    std::string bloom_filter_name = "_RuntimeFilterInfo id : ";
+    std::string bloom_filter_name = "RuntimeFilterInfo id ";
     bloom_filter_name += std::to_string(id);
     std::string info_str;
-    info_str += "type : " + PredicateTypeName[info[2]] + "  ,  ";
-    info_str += "input : " + std::to_string(info[0]) + "  ,  ";
+    info_str += "type : " + PredicateTypeName[info[2]] + ", ";
+    info_str += "input : " + std::to_string(info[0]) + ", ";
     info_str += "filtered : " + std::to_string(info[1]);
     info_str = "[ " + info_str + " ]";
 
