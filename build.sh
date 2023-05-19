@@ -272,7 +272,7 @@ update_submodule() {
     exit_code=$?
     set -e
     if [[ "${exit_code}" -ne 0 ]]; then
-        echo "Update ${submodule_name} submodule failed, start to download and extract apache-orc package ..."
+        echo "Update ${submodule_name} submodule failed, start to download and extract ${submodule_name} package ..."
         mkdir -p "${DORIS_HOME}/${submodule_path}"
         curl -L "${archive_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
