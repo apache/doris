@@ -1681,11 +1681,11 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Status st;
         if (i < _parsed_jsonpaths.size()) {
             st = JsonFunctions::extract_from_object(*value, _parsed_jsonpaths[i], &json_value);
-            if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            if (!st.ok() && !st.is<NOT_FOUND>()) {
                 return st;
             }
         }
-        if (i >= _parsed_jsonpaths.size() || st.is<ErrorCode::NOT_FOUND>()) {
+        if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
             // not match in jsondata.
             if (!slot_descs[i]->is_nullable()) {
                 RETURN_IF_ERROR(_append_error_msg(
