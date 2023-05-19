@@ -965,6 +965,21 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public static Type getAssignmentCompatibleType(List<Expr> children) {
+        Type assignmentCompatibleType = Type.INVALID;
+        for (int i = 0; i < children.size()
+                && (assignmentCompatibleType.isDecimalV3() || assignmentCompatibleType.isDatetimeV2()
+                || assignmentCompatibleType.isInvalid()); i++) {
+            if (children.get(i) instanceof NullLiteral) {
+                continue;
+            }
+            assignmentCompatibleType = assignmentCompatibleType.isInvalid() ? children.get(i).type
+                    : ScalarType.getAssignmentCompatibleType(assignmentCompatibleType, children.get(i).type,
+                    true);
+        }
+        return assignmentCompatibleType;
+    }
+
     // Convert this expr into msg (excluding children), which requires setting
     // msg.op as well as the expr-specific field.
     protected abstract void toThrift(TExprNode msg);
