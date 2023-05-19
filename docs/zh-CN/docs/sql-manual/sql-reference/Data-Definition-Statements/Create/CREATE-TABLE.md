@@ -695,6 +695,35 @@ distribution_desc
 
 </version>
 
+<version since="2.0">
+
+14. 批量无排序列Duplicate表
+
+```sql
+    CREATE TABLE example_db.table_hash
+    (
+        k1 DATE,
+        k2 DECIMAL(10, 2) DEFAULT "10.5",
+        k3 CHAR(10) COMMENT "string column",
+        k4 INT NOT NULL DEFAULT "1" COMMENT "int column"
+    )
+    COMMENT "duplicate without keys"
+    PARTITION BY RANGE(k1)
+    (
+        PARTITION p1 VALUES LESS THAN ("2020-02-01"),
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+        "replication_num" = "1"
+    );
+```
+
+注：需要在fe.conf中添加`experimental_enable_duplicate_without_keys_by_default = true`
+
+</version>
+
 ### Keywords
 
     CREATE, TABLE

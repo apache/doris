@@ -698,6 +698,37 @@ NOTE: Multi Partition can be mixed with conventional manual creation of partitio
 
 </version>
 
+</version>
+
+<version since="2.0">
+
+14. Add a duplicate without SORTING COLUMN table
+
+```sql
+    CREATE TABLE example_db.table_hash
+    (
+        k1 DATE,
+        k2 DECIMAL(10, 2) DEFAULT "10.5",
+        k3 CHAR(10) COMMENT "string column",
+        k4 INT NOT NULL DEFAULT "1" COMMENT "int column"
+    )
+    COMMENT "duplicate without keys"
+    PARTITION BY RANGE(k1)
+    (
+        PARTITION p1 VALUES LESS THAN ("2020-02-01"),
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+        "replication_num" = "1"
+    );
+```
+
+NOTE: need add `experimental_enable_duplicate_without_keys_by_default = true` in fe.conf
+
+</version>
+
 ### Keywords
 
     CREATE, TABLE

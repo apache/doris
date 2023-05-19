@@ -1006,6 +1006,14 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 - 类型：boolean
 - 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distnct 会改写为 bitmap_union_count(c1)。 当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1) 如果变量为 false，则不发生任何改写。
 
+#### `experimental_enable_duplicate_without_keys_by_default`
+
+默认值：false
+
+是否可以动态配置：true
+
+当配置为true时，如果创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个没有排序列和前缀索引的Duplicate模型的表。
+
 ### 导入与导出
 
 #### `enable_vectorized_load`
