@@ -586,6 +586,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
             Table table = Table.read(in);
+            if (table.getType() == TableType.HUDI) {
+                LOG.warn("read a HUDI table {}, id: {}, discard it.", table.getName(), table.getId());
+                continue;
+            }
             table.setQualifiedDbName(fullQualifiedName);
             String tableName = table.getName();
             nameToTable.put(tableName, table);

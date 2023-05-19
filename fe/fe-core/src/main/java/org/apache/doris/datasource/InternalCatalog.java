@@ -1219,6 +1219,10 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
+        if (table.getType() == TableType.HUDI) {
+            LOG.warn("replay creating HUDI table {}, id {}, discard it.", table.getName(), table.getId());
+            return;
+        }
         Database db = this.fullNameToDb.get(dbName);
         try {
             db.createTableWithLock(table, true, false);
@@ -2822,9 +2826,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             newChecksum ^= db.getId();
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
-            if (db.getDbState() == DbState.LINK) {
-                fullNameToDb.put(db.getAttachDb(), db);
-            }
             Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
         }
         // ATTN: this should be done after load Db, and before loadAlterJob
