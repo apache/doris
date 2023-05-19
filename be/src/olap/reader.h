@@ -154,7 +154,7 @@ public:
         // limit of rows for read_orderby_key
         size_t read_orderby_key_limit = 0;
         // filter_block arguments
-        vectorized::VExprContextSPtrs* filter_block_conjuncts;
+        vectorized::VExprContextSPtrs filter_block_conjuncts;
 
         // for vertical compaction
         bool is_key_column_group = false;

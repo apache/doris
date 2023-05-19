@@ -97,7 +97,7 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
-    for (auto ctx : _dict_filter_conjuncts) {
+    for (auto& ctx : _dict_filter_conjuncts) {
         if (ctx) {
             ctx->close(_state);
         }
@@ -161,7 +161,7 @@ Status RowGroupReader::init(
         } else {
             if (_slot_id_to_filter_conjuncts->find(slot_id) !=
                 _slot_id_to_filter_conjuncts->end()) {
-                for (auto ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
+                for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
                     _filter_conjuncts.push_back(ctx);
                 }
             }
@@ -173,7 +173,7 @@ Status RowGroupReader::init(
         auto& [value, slot_desc] = kv.second;
         auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
         if (iter != _slot_id_to_filter_conjuncts->end()) {
-            for (VExprContext* ctx : iter->second) {
+            for (auto& ctx : iter->second) {
                 _filter_conjuncts.push_back(ctx);
             }
         }

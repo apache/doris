@@ -90,7 +90,7 @@ struct OrcPredicate {
 };
 
 struct LazyReadContext {
-    VExprContextSPtrs* conjuncts = nullptr;
+    VExprContextSPtrs conjuncts;
     bool can_lazy_read = false;
     // block->rows() returns the number of rows of the first column,
     // so we should check and resize the first column
