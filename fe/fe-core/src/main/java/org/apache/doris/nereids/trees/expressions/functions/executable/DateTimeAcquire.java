@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.TimeZone;
 
 /**
  * executable functions:
@@ -78,7 +77,7 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "curdate", argTypes = {}, returnType = "DATE")
     public static Expression curDate() {
-        return DateLiteral.fromJavaDateType();
+        return DateLiteral.fromJavaDateType(LocalDateTime.now(getTimeZone()));
     }
 
     @ExecFunction(name = "current_date", argTypes = {}, returnType = "DATE")
