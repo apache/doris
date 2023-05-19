@@ -461,8 +461,8 @@ Status MemTable::flush() {
 Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
     SCOPED_RAW_TIMER(&duration_ns);
-    _sort();
-    if (_keys_type == KeysType::DUP_KEYS) {
+    int same_keys_num = _sort();
+    if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         vectorized::Block in_block = _input_mutable_block.to_block();
         prepare_block_for_flush(in_block);
     } else {
