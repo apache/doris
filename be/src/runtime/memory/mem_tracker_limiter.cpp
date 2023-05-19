@@ -490,7 +490,6 @@ int64_t MemTrackerLimiter::tg_memory_limit_gc(
         int64_t need_free_mem, int64_t used_memory, uint64_t id, const std::string& name,
         int64_t memory_limit,
         std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups) {
-    need_free_mem = std::min(need_free_mem, used_memory - memory_limit);
     if (need_free_mem <= 0) {
         return 0;
     }

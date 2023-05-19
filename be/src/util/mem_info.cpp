@@ -124,7 +124,8 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
 }
 
 // step1: free all cache
-// step2: free top overcommit query, if enable query memroy overcommit
+// step2: free resource groups memory that enable overcommit
+// step3: free global top overcommit query, if enable query memroy overcommit
 // TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
 bool MemInfo::process_minor_gc() {
     MonotonicStopWatch watch;
@@ -147,6 +148,9 @@ bool MemInfo::process_minor_gc() {
     SegmentLoader::instance()->prune();
 
     freed_mem += tg_soft_memory_limit_gc(_s_process_minor_gc_size - freed_mem);
+    if (freed_mem > _s_process_minor_gc_size) {
+        return true;
+    }
 
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
             "Before free top memory overcommit query in Minor GC", MemTrackerLimiter::Type::QUERY);
@@ -161,9 +165,10 @@ bool MemInfo::process_minor_gc() {
 }
 
 // step1: free all cache
-// step2: free top memory query
-// step3: free top overcommit load, load retries are more expensive, So cancel at the end.
-// step4: free top memory load
+// step2: free resource groups memory that enable overcommit
+// step3: free global top memory query
+// step4: free top overcommit load, load retries are more expensive, So cancel at the end.
+// step5: free top memory load
 bool MemInfo::process_full_gc() {
     MonotonicStopWatch watch;
     watch.start();
@@ -191,7 +196,10 @@ bool MemInfo::process_full_gc() {
         }
     }
 
-    freed_mem += tg_soft_memory_limit_gc(_s_process_minor_gc_size - freed_mem);
+    freed_mem += tg_soft_memory_limit_gc(_s_process_full_gc_size - freed_mem);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
 
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory query in Full GC",
                                                         MemTrackerLimiter::Type::QUERY);
@@ -225,13 +233,13 @@ int64_t MemInfo::tg_hard_memory_limit_gc() {
     std::vector<taskgroup::TaskGroupPtr> task_groups;
     taskgroup::TaskGroupManager::instance()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
-                return !task_group->enable_overcommit();
+                return !task_group->enable_memory_overcommit();
             },
             &task_groups);
 
     int64_t total_free_memory = 0;
     for (const auto& task_group : task_groups) {
-        total_free_memory += task_group->memory_limit_gc();
+        total_free_memory += task_group->hard_memory_limit_gc();
     }
     return total_free_memory;
 }
@@ -240,7 +248,7 @@ int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory) {
     std::vector<taskgroup::TaskGroupPtr> task_groups;
     taskgroup::TaskGroupManager::instance()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
-                return task_group->enable_overcommit();
+                return task_group->enable_memory_overcommit();
             },
             &task_groups);
 
@@ -257,10 +265,17 @@ int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory) {
     }
 
     int64_t total_free_memory = 0;
+    bool gc_all_exceeded = request_free_memory >= total_exceeded_memory;
     for (int i = 0; i < task_groups.size(); ++i) {
-        // Use resource group exceeded memory as a weight
-        int64_t tg_need_free_memory = static_cast<double>(exceeded_memorys[i]) /
-                                      total_exceeded_memory * request_free_memory;
+        if (exceeded_memorys[i] == 0) {
+            continue;
+        }
+
+        // todo: GC according to resource group priority
+        int64_t tg_need_free_memory =
+                gc_all_exceeded ? exceeded_memorys[i]
+                                : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
+                                          request_free_memory /* exceeded memory as a weight */;
         total_free_memory +=
                 task_groups[i]->soft_memory_limit_gc(tg_need_free_memory, used_memorys[i]);
     }

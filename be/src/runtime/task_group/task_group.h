@@ -87,9 +87,9 @@ public:
 
     uint64_t id() const { return _id; }
 
-    bool enable_overcommit() const {
+    bool enable_memory_overcommit() const {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _enable_overcommit;
+        return _enable_memory_overcommit;
     };
 
     bool memory_limit() const {
@@ -109,8 +109,10 @@ public:
 
     void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
-    int64_t memory_limit_gc();
+    // Once the total used memory exceeds memory_limit, the excess memory will be GC.
+    int64_t hard_memory_limit_gc();
 
+    // GC some excess memory according to the policy.
     int64_t soft_memory_limit_gc(int64_t request_free_memory, int64_t used_memory);
 
 private:
@@ -121,7 +123,7 @@ private:
     std::string _name;
     std::atomic<uint64_t> _cpu_share;
     int64_t _memory_limit; // bytes
-    bool _enable_overcommit;
+    bool _enable_memory_overcommit;
     int64_t _version;
     TaskGroupEntity _task_entity;
 
@@ -136,7 +138,7 @@ struct TaskGroupInfo {
     uint64_t cpu_share;
     int64_t version;
     int64_t memory_limit;
-    bool enable_overcommit;
+    bool enable_memory_overcommit;
 
     static Status parse_group_info(const TPipelineResourceGroup& resource_group,
                                    TaskGroupInfo* task_group_info);
