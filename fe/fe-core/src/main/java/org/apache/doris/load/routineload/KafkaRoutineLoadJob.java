@@ -601,7 +601,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException {
         Map<String, String> jobProperties = stmt.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) stmt.getDataSourceProperties();
-        if (dataSourceProperties.isOffsetsForTimes()) {
+        if (null != dataSourceProperties && dataSourceProperties.isOffsetsForTimes()) {
             // if the partition offset is set by timestamp, convert it to real offset
             convertTimestampToOffset(dataSourceProperties);
         }
@@ -635,40 +635,38 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KafkaDataSourceProperties dataSourceProperties)
             throws DdlException {
+        if (null != dataSourceProperties) {
+            List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+            Map<String, String> customKafkaProperties = Maps.newHashMap();
 
-        List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
-        Map<String, String> customKafkaProperties = Maps.newHashMap();
+            if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
+                kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
+                customKafkaProperties = dataSourceProperties.getCustomKafkaProperties();
+            }
 
-        if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
-            kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
-            customKafkaProperties = dataSourceProperties.getCustomKafkaProperties();
+            // modify partition offset first
+            if (!kafkaPartitionOffsets.isEmpty()) {
+                // we can only modify the partition that is being consumed
+                ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
+            }
+
+            if (!customKafkaProperties.isEmpty()) {
+                this.customProperties.putAll(customKafkaProperties);
+                convertCustomProperties(true);
+            }
+            // modify broker list and topic
+            if (!Strings.isNullOrEmpty(dataSourceProperties.getBrokerList())) {
+                this.brokerList = dataSourceProperties.getBrokerList();
+            }
+            if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
+                this.topic = dataSourceProperties.getTopic();
+            }
         }
-
-        // modify partition offset first
-        if (!kafkaPartitionOffsets.isEmpty()) {
-            // we can only modify the partition that is being consumed
-            ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
-        }
-
-        if (!customKafkaProperties.isEmpty()) {
-            this.customProperties.putAll(customKafkaProperties);
-            convertCustomProperties(true);
-        }
-
         if (!jobProperties.isEmpty()) {
             Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
             modifyCommonJobProperties(copiedJobProperties);
             this.jobProperties.putAll(copiedJobProperties);
         }
-
-        // modify broker list and topic
-        if (!Strings.isNullOrEmpty(dataSourceProperties.getBrokerList())) {
-            this.brokerList = dataSourceProperties.getBrokerList();
-        }
-        if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
-            this.topic = dataSourceProperties.getTopic();
-        }
-
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
                 this.id, jobProperties, dataSourceProperties);
     }
