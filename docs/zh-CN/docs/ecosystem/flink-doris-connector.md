@@ -56,77 +56,15 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 
 准备工作
 
-1.修改`custom_env.sh.tpl`文件，重命名为`custom_env.sh`
+1. 修改`custom_env.sh.tpl`文件，重命名为`custom_env.sh`
 
-2.指定thrift安装目录
+2. 在源码目录下执行：
+`sh build.sh`
+根据提示输入你需要的 flink 版本进行编译。
 
-```bash
-##源文件内容
-#export THRIFT_BIN=
-#export MVN_BIN=
-#export JAVA_HOME=
+编译成功后，会在 `dist` 目录生成目标jar包，如：`flink-doris-connector-1.3.0-SNAPSHOT.jar`。
+将此文件复制到 `Flink` 的 `classpath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `lib/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
 
-##修改如下,MacOS为例
-export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-#export MVN_BIN=
-#export JAVA_HOME=
-```
-
-安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
- Windows: 
-    1.下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`(下载目录自己指定)
-    2.修改thrift-0.13.0.exe 为 thrift
- 
- MacOS: 
-    1. 下载：`brew install thrift@0.13.0`
-    2. 默认下载地址：/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-    
- 
- 注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.13.0`
- 参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
- 
- Linux:
-  ```bash
-    1. wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz  # 下载源码包
-    2. yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++  # 安装依赖
-    3. tar zxvf thrift-0.13.0.tar.gz
-    4. cd thrift-0.13.0
-    5. ./configure --without-tests
-    6. make
-    7. make install
-    8. thrift --version  # 安装完成后查看版本
-   ```
-   注：如果编译过Doris，则不需要安装thrift,可以直接使用 `$DORIS_HOME/thirdparty/installed/bin/thrift`
-
-在源码目录下执行：
-
-```bash
-sh build.sh
-
-  Usage:
-    build.sh --flink version # specify flink version (after flink-doris-connector v1.2 and flink-1.15, there is no need to provide scala version)
-    build.sh --tag           # this is a build from tag
-  e.g.:
-    build.sh --flink 1.16.0
-    build.sh --tag
-```
-然后按照你需要版本执行命令编译即可,例如：
-`sh build.sh --flink 1.16.0`
-
-编译成功后，会在 `target/` 目录下生成文件，如：`flink-doris-connector-1.16-1.3.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `classpath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `lib/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
-
-**备注**
-
-1. Doris FE 要在配置中配置启用 http v2
-
-​       conf/fe.conf
-
-```
-enable_http_server_v2 = true
-```
 
 ## 使用 Maven 管理
 
