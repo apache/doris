@@ -81,7 +81,7 @@ public:
     std::vector<int> _deleted_values;
     Cache* _cache;
 
-    CacheTest() : _cache(new_lru_cache("test", kCacheSize)) { _s_current = this; }
+    CacheTest() : _cache(new_lru_cache("test", kCacheSize, 16, true)) { _s_current = this; }
 
     ~CacheTest() { delete _cache; }
 
@@ -237,7 +237,7 @@ TEST_F(CacheTest, Usage) {
     cache.set_capacity(1040);
 
     // The lru usage is handle_size + charge.
-    // handle_size = sizeof(handle) - 1 + key size = 104 - 1 + 3 = 106
+    // handle_size = sizeof(handle) - 1 + key size = 112 - 1 + 3 = 114
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
     ASSERT_EQ(214, cache.get_usage()); // 100 + 114
@@ -248,7 +248,7 @@ TEST_F(CacheTest, Usage) {
 
     CacheKey key3("300");
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(934, cache.get_usage()); // 214 + 314(d) + 406
+    ASSERT_EQ(942, cache.get_usage()); // 214 + 314(d) + 414
 
     CacheKey key4("400");
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
@@ -256,11 +256,11 @@ TEST_F(CacheTest, Usage) {
 
     CacheKey key5("500");
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    ASSERT_EQ(928, cache.get_usage()); // 314(d) + 614, evict 506
+    ASSERT_EQ(928, cache.get_usage()); // 314(d) + 614, evict 514
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    ASSERT_EQ(1028, cache.get_usage()); // 314(d) + 714, evict 506
+    ASSERT_EQ(1028, cache.get_usage()); // 314(d) + 714, evict 514
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
