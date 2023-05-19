@@ -59,7 +59,8 @@ public enum ExpressionEvaluator {
      */
     public Expression eval(Expression expression) {
 
-        if (!expression.isConstant() || expression instanceof AggregateFunction) {
+        if (expression instanceof AggregateFunction
+                || (!expression.getArguments().isEmpty() && expression.isConstant())) {
             return expression;
         }
 
