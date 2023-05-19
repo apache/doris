@@ -326,13 +326,28 @@ void MemInfo::init() {
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1;
     }
 
+    // Expect vm overcommit memory value to be 1, system will no longer throw bad_alloc, memory alloc are always accepted,
+    // memory limit check is handed over to Doris Allocator, make sure throw exception position is controllable,
+    // otherwise bad_alloc can be thrown anywhere and it will be difficult to achieve exception safety.
+    std::ifstream sys_vm("/proc/sys/vm/overcommit_memory", std::ios::in);
+    std::string vm_overcommit;
+    getline(sys_vm, vm_overcommit);
+    if (sys_vm.is_open()) sys_vm.close();
+    if (std::stoi(vm_overcommit) == 2) {
+        std::cout << "/proc/sys/vm/overcommit_memory: " << vm_overcommit
+                  << ", expect is 1, memory limit check is handed over to Doris Allocator, "
+                     "otherwise BE may crash even with remaining memory"
+                  << std::endl;
+    }
+
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
               << ", Mem Limit: " << _s_mem_limit_str
               << ", origin config value: " << config::mem_limit
               << ", System Mem Available Min Reserve: "
               << PrettyPrinter::print(_s_sys_mem_available_low_water_mark, TUnit::BYTES)
               << ", Vm Min Free KBytes: "
-              << PrettyPrinter::print(_s_vm_min_free_kbytes, TUnit::BYTES);
+              << PrettyPrinter::print(_s_vm_min_free_kbytes, TUnit::BYTES)
+              << ", Vm Overcommit Memory: " << vm_overcommit;
     _s_initialized = true;
 }
 #else
