@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,12 +18,16 @@
 suite("test_date_acquire") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+
+    def res = sql 'select now(), now(3), curdate(), current_date(), curtime(), current_time(), current_timestamp(), current_timestamp(3)'
+    assertTrue(res.contains('now()') && res.contains('now(3)') && res.contains('curdate()') && res.contains('current_date()')
+            && res.contains('curtime()') && res.contains('current_time()') && res.contains('current_timestamp()') && res.contains('current_timestamp(3)'))
+
     sql "set enable_fold_constant_by_be=true"
 
-    explain {
-        sql 'select now(), now(3), curdate(), current_date(), curtime(), current_time(), current_timestamp(), current_timestamp(3)'
-        contains('')
-    }
+    res = sql 'select now(), now(3), curdate(), current_date(), curtime(), current_time(), current_timestamp(), current_timestamp(3)'
+    assertFalse(res.contains('now()') || res.contains('now(3)') || res.contains('curdate()') || res.contains('current_date()')
+            || res.contains('curtime()') || res.contains('current_time()') || res.contains('current_timestamp()') || res.contains('current_timestamp(3)'))
 
     qt_sql11 "select from_unixtime(1553152255)"
     qt_sql12 "select unix_timestamp(1553152255)"
