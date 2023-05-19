@@ -237,9 +237,9 @@ Status VExpr::create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprN
     DCHECK(root_expr != nullptr);
     DCHECK(ctx != nullptr);
     *root_expr = root;
-    *ctx = pool->add(VExprContext::create_unique(root).release());
     // short path for leaf node
     if (root_children <= 0) {
+        *ctx = pool->add(VExprContext::create_unique(root).release());
         return Status::OK();
     }
 
@@ -266,6 +266,7 @@ Status VExpr::create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprN
             s.push({expr, num_children});
         }
     }
+    *ctx = pool->add(VExprContext::create_unique(root).release());
     return Status::OK();
 }
 
@@ -448,11 +449,8 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
 }
 
 Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const {
-    bool arguments_is_const = VectorizedUtils::all_arguments_are_constant(block, arguments);
-    if (arguments_is_const != is_constant()) {
-        return Status::InternalError(
-                "const check failed, expr={}, expr_is_constant={}, arguments_is_const={}",
-                debug_string(), is_constant(), arguments_is_const);
+    if (is_constant() && !VectorizedUtils::all_arguments_are_constant(block, arguments)) {
+        return Status::InternalError("const check failed, expr={}", debug_string());
     }
     return Status::OK();
 }

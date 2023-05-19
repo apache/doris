@@ -89,6 +89,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
+    _function_name = _fn.name.function_name;
     _can_fast_execute = _function->can_fast_execute();
 
     return Status::OK();

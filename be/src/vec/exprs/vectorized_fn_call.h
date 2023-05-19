@@ -56,6 +56,12 @@ public:
     }
     const std::string& expr_name() const override;
     std::string debug_string() const override;
+    bool is_constant() const override {
+        if (_function_name == "rand" || _function_name == "random") {
+            return false;
+        }
+        return VExpr::is_constant();
+    }
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
 
     bool fast_execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -65,5 +71,6 @@ private:
     FunctionBasePtr _function;
     bool _can_fast_execute = false;
     std::string _expr_name;
+    std::string _function_name;
 };
 } // namespace doris::vectorized
