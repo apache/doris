@@ -219,7 +219,7 @@ Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view) {
                 fmt::format("Failed to fetch schema info, {}", res.status.error_msgs[0]));
     }
     for (const auto& column : res.allColumns) {
-        schema_view->column_name_to_column[to_lower(column.column_name)] = column;
+        schema_view->column_name_to_column[column.column_name] = column;
     }
     schema_view->schema_version = res.schema_version;
     return Status::OK();
@@ -268,7 +268,7 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
                             res.allColumns.size(), column_type_names.size()));
     }
     for (const auto& column : res.allColumns) {
-        schema_view->column_name_to_column[to_lower(column.column_name)] = column;
+        schema_view->column_name_to_column[column.column_name] = column;
     }
     schema_view->schema_version = res.schema_version;
     return Status::OK();

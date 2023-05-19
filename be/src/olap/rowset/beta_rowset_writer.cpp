@@ -41,6 +41,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -132,7 +133,9 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
         return Status::OK();
     }
     if (UNLIKELY(_segment_writer == nullptr)) {
-        RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, nullptr));
+        FlushContext ctx;
+        ctx.block = block;
+        RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, &ctx));
     }
     return _add_block(block, &_segment_writer);
 }

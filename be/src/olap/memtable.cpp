@@ -479,6 +479,7 @@ Status MemTable::_do_flush() {
     }
     vectorized::Block block = _output_mutable_block.to_block();
     FlushContext ctx;
+    ctx.block = &block;
     if (_tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
         RETURN_IF_ERROR(unfold_variant_column(block, &ctx));

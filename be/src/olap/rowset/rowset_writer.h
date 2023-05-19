@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 
+#include "common/factory_creator.h"
 #include "gutil/macros.h"
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
@@ -33,7 +34,9 @@ class MemTable;
 
 // Context for single memtable flush
 struct FlushContext {
-    TabletSchemaSPtr flush_schema;
+    ENABLE_FACTORY_CREATOR(FlushContext);
+    TabletSchemaSPtr flush_schema = nullptr;
+    const vectorized::Block* block = nullptr;
 };
 
 class RowsetWriter {
