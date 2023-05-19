@@ -1188,6 +1188,9 @@ public class OlapScanNode extends ScanNode {
         if (pushDownAggNoGroupingOp != null) {
             output.append(prefix).append("pushAggOp=").append(pushDownAggNoGroupingOp).append("\n");
         }
+        if (isPointQuery()) {
+            output.append(prefix).append("SHORT-CIRCUIT");
+        }
 
         return output.toString();
     }
