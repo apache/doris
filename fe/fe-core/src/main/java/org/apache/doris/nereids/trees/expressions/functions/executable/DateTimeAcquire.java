@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.TimeZone;
 
 /**
@@ -37,12 +38,12 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "now", argTypes = {}, returnType = "DATETIME")
     public static Expression now() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now());
+        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(getTimeZone()));
     }
 
     @ExecFunction(name = "now", argTypes = {"INT"}, returnType = "DATETIMEV2")
     public static Expression now(IntegerLiteral precision) {
-        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(),
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(getTimeZone()),
                 precision.getValue());
     }
 
@@ -51,12 +52,12 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "current_timestamp", argTypes = {}, returnType = "DATETIME")
     public static Expression currentTimestamp() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now());
+        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(getTimeZone()));
     }
 
     @ExecFunction(name = "current_timestamp", argTypes = {"INT"}, returnType = "DATETIMEV2")
     public static Expression currentTimestamp(IntegerLiteral precision) {
-        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(), precision.getValue());
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(getTimeZone()), precision.getValue());
     }
 
     /**
@@ -64,12 +65,12 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "localtime", argTypes = {}, returnType = "DATETIME")
     public static Expression localTime() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(TimeZone.getDefault().toZoneId()));
+        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(getTimeZone()));
     }
 
     @ExecFunction(name = "localtimestamp", argTypes = {}, returnType = "DATETIME")
     public static Expression localTimestamp() {
-        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(TimeZone.getDefault().toZoneId()));
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(getTimeZone()));
     }
 
     /**
@@ -77,12 +78,12 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "curdate", argTypes = {}, returnType = "DATE")
     public static Expression curDate() {
-        return DateLiteral.fromJavaDateType(LocalDateTime.now());
+        return DateLiteral.fromJavaDateType();
     }
 
     @ExecFunction(name = "current_date", argTypes = {}, returnType = "DATE")
     public static Expression currentDate() {
-        return DateLiteral.fromJavaDateType(LocalDateTime.now());
+        return DateLiteral.fromJavaDateType(LocalDateTime.now(getTimeZone()));
     }
 
     /**
@@ -90,11 +91,15 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "curtime", argTypes = {}, returnType = "DATETIME")
     public static Expression curTime() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now());
+        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(getTimeZone()));
     }
 
     @ExecFunction(name = "current_time", argTypes = {}, returnType = "DATETIME")
     public static Expression currentTime() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now());
+        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(getTimeZone()));
+    }
+
+    private static ZoneId getTimeZone() {
+        return DateTimeExtractAndTransform.getTimeZone();
     }
 }
