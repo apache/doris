@@ -446,6 +446,7 @@ Status MemTable::flush() {
     // and use the ids to load segment data file for calc delete bitmap.
     int64_t atomic_num_segments_before_flush = _rowset_writer->get_atomic_num_segment();
     RETURN_IF_ERROR(_do_flush(duration_ns));
+    delta_writer_callback(_merged_rows);
     int64_t atomic_num_segments_after_flush = _rowset_writer->get_atomic_num_segment();
     if (!_tablet_schema->is_partial_update()) {
         RETURN_IF_ERROR(_generate_delete_bitmap(atomic_num_segments_before_flush,

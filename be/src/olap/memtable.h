@@ -20,12 +20,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <vector>
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/olap_common.h"
 #include "olap/skiplist.h"
 #include "olap/tablet.h"
@@ -109,6 +111,8 @@ public:
     int64_t flush_size() const { return _flush_size; }
     int64_t merged_rows() const { return _merged_rows; }
 
+    void set_callback(std::function<void(int64_t)> callback) { delta_writer_callback = callback; }
+
 private:
     Status _do_flush(int64_t& duration_ns);
 
@@ -191,6 +195,7 @@ private:
     void _aggregate();
     void prepare_block_for_flush(vectorized::Block& in_block);
     bool _is_first_insertion;
+    std::function<void(int64_t)> delta_writer_callback;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
