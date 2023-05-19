@@ -253,7 +253,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         LOG(WARNING) << "failed to submit routine load task: " << ctx->brief();
         ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
         _task_map.erase(ctx->id);
-        return Status::InternalError("failed to submit routine load task");
+        return Status::InternalError("failed to submit routine load task:" + ctx->error_msg);
     } else {
         LOG(INFO) << "submit a new routine load task: " << ctx->brief()
                   << ", current tasks num: " << _task_map.size();
@@ -376,6 +376,7 @@ void RoutineLoadTaskExecutor::err_handler(std::shared_ptr<StreamLoadContext> ctx
                                           const std::string& err_msg) {
     LOG(WARNING) << err_msg << ", routine load task: " << ctx->brief(true);
     ctx->status = st;
+    ctx->error_msg = err_msg;
     if (ctx->need_rollback) {
         _exec_env->stream_load_executor()->rollback_txn(ctx.get());
         ctx->need_rollback = false;
