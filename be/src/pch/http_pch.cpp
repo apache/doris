@@ -1,7 +1,4 @@
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
-#include "http/http_handler.h"
-#include "http/http_handler_with_auth.h"
 #include "http/http_headers.h"
 #include "http/http_method.h"
 #include "http/http_request.h"
