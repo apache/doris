@@ -138,27 +138,6 @@ public:
             return Status::InternalError("Compound operator must be AND or OR.");
         }
 
-        if (_children[0]->is_nullable()) {
-            // true and null = null
-            // false and null = false
-            // true or null = true
-            // false or null = null
-            // For simplicity, we directly treat null as false, this logic only used for compound predicate.
-            get_rhs_colum();
-            uint8* __restrict null_dst = _get_null_map(lhs_column);
-            uint8* __restrict null_src = _get_null_map(rhs_column);
-            if (*result_column_id == rhs_id) {
-                std::swap(null_dst, null_src);
-                std::swap(data, data_rhs);
-            }
-
-            if (_op == TExprOpcode::COMPOUND_AND) {
-                for (size_t i = 0; i < size; i++) {
-                    data[i] &= (!null_dst[i] & !null_src[i]);
-                }
-            }
-        }
-
         return Status::OK();
     }
 
@@ -188,12 +167,25 @@ private:
 
     uint8* _get_raw_data(ColumnPtr column) const {
         if (column->is_nullable()) {
-            return assert_cast<ColumnUInt8*>(
-                           assert_cast<ColumnNullable*>(column->assume_mutable().get())
-                                   ->get_nested_column_ptr()
-                                   .get())
-                    ->get_data()
-                    .data();
+            // true and null = null
+            // false and null = false
+            // true or null = true
+            // false or null = null
+            // For simplicity, we directly treat null as false, this logic only used for compound predicate.
+            size_t size = column->size();
+            uint8* null_map = _get_null_map(column);
+            uint8* data = assert_cast<ColumnUInt8*>(
+                                  assert_cast<ColumnNullable*>(column->assume_mutable().get())
+                                          ->get_nested_column_ptr()
+                                          .get())
+                                  ->get_data()
+                                  .data();
+
+            for (size_t i = 0; i < size; i++) {
+                data[i] &= !null_map[i];
+                null_map[i] = 0;
+            }
+            return data;
         } else {
             return assert_cast<ColumnUInt8*>(column->assume_mutable().get())->get_data().data();
         }
