@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -116,11 +117,17 @@ public class AdjustNullable extends DefaultPlanRewriter<Void> implements CustomR
     public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Void context) {
         repeat = (LogicalRepeat<? extends Plan>) super.visit(repeat, context);
         Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(repeat);
-        List<NamedExpression> newOutputs = updateExpressions(repeat.getOutputExpressions(), exprIdSlotMap);
-        List<List<Expression>> newGroupingSets = repeat.getGroupingSets().stream()
-                .map(l -> updateExpressions(l, exprIdSlotMap))
-                .collect(ImmutableList.toImmutableList());
-        return repeat.withGroupSetsAndOutput(newGroupingSets, newOutputs).recomputeLogicalProperties();
+        Set<Expression> flattenGroupingSetExpr = ImmutableSet.copyOf(
+                ExpressionUtils.flatExpressions(repeat.getGroupingSets()));
+        List<NamedExpression> newOutputs = Lists.newArrayList();
+        for (NamedExpression output : repeat.getOutputExpressions()) {
+            if (flattenGroupingSetExpr.contains(output)) {
+                newOutputs.add(output);
+            } else {
+                newOutputs.add(updateExpression(output, exprIdSlotMap));
+            }
+        }
+        return repeat.withGroupSetsAndOutput(repeat.getGroupingSets(), newOutputs).recomputeLogicalProperties();
     }
 
     @Override
@@ -178,7 +185,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Void> implements CustomR
     }
 
     private <T extends Expression> T updateExpression(T input, Map<ExprId, Slot> exprIdSlotMap) {
-        return (T) input.rewriteDownShortCircuit(e -> SlotReferenceReplacer.INSTANCE.visit(e, exprIdSlotMap));
+        return (T) input.rewriteDownShortCircuit(e -> e.accept(SlotReferenceReplacer.INSTANCE, exprIdSlotMap));
     }
 
     private <T extends Expression> List<T> updateExpressions(List<T> inputs, Map<ExprId, Slot> exprIdSlotMap) {
