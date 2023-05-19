@@ -19,26 +19,27 @@ suite("test_date_acquire") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    def res = sql 'select now(), now(3), curdate(), current_date(), curtime(), current_time(), current_timestamp(), current_timestamp(3)'
-    assertTrue(res.contains('now()') && res.contains('now(3)') && res.contains('curdate()') && res.contains('current_date()')
-            && res.contains('curtime()') && res.contains('current_time()') && res.contains('current_timestamp()') && res.contains('current_timestamp(3)'))
+    String res = sql 'explain select now(), now(3), curdate(), current_date(), curtime(), current_time(), current_timestamp(), current_timestamp(3)'
+    assertTrue(res.contains('now() | now(3) | current_date() | current_date() | current_time() | current_time() | now() | now(3)'))
 
     sql "set enable_fold_constant_by_be=true"
 
-    res = sql 'select now(), now(3), curdate(), current_date(), curtime(), current_time(), current_timestamp(), current_timestamp(3)'
-    assertFalse(res.contains('now()') || res.contains('now(3)') || res.contains('curdate()') || res.contains('current_date()')
-            || res.contains('curtime()') || res.contains('current_time()') || res.contains('current_timestamp()') || res.contains('current_timestamp(3)'))
-
-    qt_sql11 "select from_unixtime(1553152255)"
-    qt_sql12 "select unix_timestamp(1553152255)"
+    test {
+        sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
+        result([['2019-03-21 15:10:55', 1196389819]])
+    }
 
     sql "set time_zone='+00:00'"
 
-    qt_sql21 "select from_unixtime(1553152255)"
-    qt_sql22 "select unix_timestamp(1553152255)"
+    test {
+        sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
+        result([['2019-03-21 07:10:55', 1196418619]])
+    }
 
     sql "set time_zone='+04:00'"
 
-    qt_sql31 "select from_unixtime(1553152255)"
-    qt_sql32 "select unix_timestamp(1553152255)"
+    test {
+        sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
+        result([['2019-03-21 11:10:55', 1196404219]])
+    }
 }
