@@ -73,8 +73,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class FunctionCallExpr extends Expr {
     public static final ImmutableSet<String> STDDEV_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER)
-            .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop")
-            .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
+            .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop").add("variance").add("variance_pop")
+            .add("variance_pop").add("var_samp").add("var_pop").add("variance_samp").add("avg_weighted").build();
     public static final Map<String, java.util.function.BiFunction<ArrayList<Expr>, Type, Type>> PRECISION_INFER_RULE;
     public static final java.util.function.BiFunction<ArrayList<Expr>, Type, Type> DEFAULT_PRECISION_INFER_RULE;
     public static final ImmutableSet<String> ROUND_FUNCTION_SET = new ImmutableSortedSet.Builder(
@@ -1367,10 +1367,13 @@ public class FunctionCallExpr extends Expr {
             System.arraycopy(childTypes, 0, newChildTypes, 0, newChildTypes.length);
             fn = getBuiltinFunction(fnName.getFunction(), newChildTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction().toLowerCase()) && children.size() == 1
+        } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction().toLowerCase())
                 && collectChildReturnTypes()[0].isDecimalV3()) {
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[] { Type.DOUBLE },
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            Type[] childrenTypes = collectChildReturnTypes();
+            Type[] args = new Type[childrenTypes.length];
+            args[0] = Type.DOUBLE;
+            System.arraycopy(childrenTypes, 1, args, 1, childrenTypes.length - 1);
+            fn = getBuiltinFunction(fnName.getFunction(), args, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
