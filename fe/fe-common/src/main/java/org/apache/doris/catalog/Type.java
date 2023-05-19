@@ -149,6 +149,10 @@ public abstract class Type {
         numericDateTimeTypes = Lists.newArrayList();
         numericDateTimeTypes.add(DATE);
         numericDateTimeTypes.add(DATETIME);
+        numericDateTimeTypes.add(DATEV2);
+        numericDateTimeTypes.add(DATETIMEV2);
+        numericDateTimeTypes.add(TIME);
+        numericDateTimeTypes.add(TIMEV2);
         numericDateTimeTypes.addAll(numericTypes);
 
         trivialTypes = Lists.newArrayList();
