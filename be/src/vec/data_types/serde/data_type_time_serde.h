@@ -51,7 +51,7 @@ private:
                                             int row_idx, int start, int end, int scale,
                                             bool col_const) const {
         int buf_ret = 0;
-        auto& data = static_cast<const ColumnVector<Float64>&>(column).get_data();
+        auto& data = assert_cast<const ColumnVector<Float64>&>(column).get_data();
         for (int i = start; i < end; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");

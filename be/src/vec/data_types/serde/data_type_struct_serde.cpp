@@ -61,7 +61,7 @@ Status DataTypeStructSerDe::_write_column_to_mysql(
         const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
         int start, int end, int scale, bool col_const) const {
     int buf_ret = 0;
-    auto& col = static_cast<const ColumnStruct&>(column);
+    auto& col = assert_cast<const ColumnStruct&>(column);
     for (ssize_t i = start; i < end; ++i) {
         if (0 != buf_ret) {
             return Status::InternalError("pack mysql buffer failed.");

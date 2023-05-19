@@ -97,11 +97,8 @@ Status DataTypeArraySerDe::_write_column_to_mysql(
             return Status::InternalError("pack mysql buffer failed.");
         }
         const auto col_index = index_check_const(i, col_const);
-        LOG(WARNING) << "amory: " << col_index;
         result[row_idx].open_dynamic_mode();
         buf_ret = result[row_idx].push_string("[", 1);
-        LOG(WARNING) << "amory row: " << col_index << " with offsets: " << offsets[col_index - 1]
-                     << ":" << offsets[col_index];
         for (int j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
             if (j != offsets[col_index - 1]) {
                 buf_ret = result[row_idx].push_string(", ", 2);
