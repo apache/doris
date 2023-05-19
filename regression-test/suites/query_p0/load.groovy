@@ -53,7 +53,7 @@ suite("load_test_query_db") {
             `k11` datetime null comment "",
             `k7` varchar(20) null comment "",
             `k8` double max null comment "",
-            `k9` float replace null comment "",
+            `k9` float sum null comment "",
             `k12` string replace_if_not_null null comment "",
             `k13` largeint(40) replace null comment ""
         ) engine=olap
@@ -72,7 +72,7 @@ suite("load_test_query_db") {
             `k11` datetime null comment "",
             `k7` varchar(20) null comment "",
             `k8` double max null comment "",
-            `k9` float replace null comment "",
+            `k9` float sum null comment "",
             `k12` string replace null comment "",
             `k13` largeint(40) replace null comment ""
         ) engine=olap
