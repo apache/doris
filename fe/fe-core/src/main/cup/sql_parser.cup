@@ -911,6 +911,7 @@ nonterminal ExplainOptions opt_explain_options;
 nonterminal Boolean opt_tmp;
 
 nonterminal OutFileClause opt_outfile;
+nonterminal Map<String, String> opt_datasource_properties;
 
 nonterminal Boolean opt_signed_unsigned;
 
