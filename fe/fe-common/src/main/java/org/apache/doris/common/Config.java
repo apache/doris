@@ -1968,6 +1968,13 @@ public class Config extends ConfigBase {
      * optimization of table structures
      *
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true)
     public static boolean enable_query_hit_stats = false;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，" + "以及不可查询的具体原因。",
+            "When set to true, if a query is unable to select a healthy replica, "
+                    + "the detailed information of all the replicas of the tablet,"
+                    + " including the specific reason why they are unqueryable, will be printed out."})
+    public static boolean show_details_for_unaccessible_tablet = false;
 }
