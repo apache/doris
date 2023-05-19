@@ -29,10 +29,12 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -107,6 +109,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         state.addTableIndexes(physicalOlapTableSink.getTargetTable());
 
         txn.executeInsertIntoSelectCommand(executor);
+        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+            try {
+                String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
+                Env.getCurrentGlobalTransactionMgr().abortTransaction(
+                        physicalOlapTableSink.getDatabase().getId(), txn.getTxnId(),
+                        (errMsg == null ? "unknown reason" : errMsg));
+            } catch (Exception abortTxnException) {
+                LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier(), abortTxnException);
+            }
+        }
     }
 
     @Override
