@@ -347,7 +347,7 @@ The automatic update feature involves the following parameters in fe.conf:
 2. `hms_events_polling_interval_ms`: This specifies the interval between two readings, which is set to 10000 by default. (Unit: millisecond) 
 3. `hms_events_batch_size_per_rpc`: This specifies the maximum number of events that are read at a time, which is set to 500 by default.
 
-To enable automatic update, you need to modify the hive-site.xml of HMS and then restart HMS:
+To enable automatic update, you need to modify the hive-site.xml of HMS and then restart HMS and HiveServer2:
 
 ```
 <property>
