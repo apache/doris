@@ -27,6 +27,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "testutil/test_util.h"
+#include "util/time.h"
 
 using namespace doris;
 using namespace std;
