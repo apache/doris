@@ -541,6 +541,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
+        rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs/native/"
     fi
 
     if [[ "${BUILD_JAVA_UDF}" -eq 0 ]]; then
