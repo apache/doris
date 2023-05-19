@@ -369,22 +369,19 @@ TEST_F(CacheTest, PruneIfLazyMode) {
 }
 
 TEST_F(CacheTest, EvictExpired) {
-    CacheKey k0("100");
-    CacheKey k1("101");
-    CacheKey kw("102");
-    Insert(k0, 100, 1);
-    Insert(k1, 101, 1);
+    Insert(100, 100, 1);
+    Insert(101, 101, 1);
     sleep(1);
     auto t1 = MonotonicSeconds();
     Insert(k2, 102, 1);
     _cache->evict_expired(1.0, t1);
-    ASSERT_EQ(-1, Lookup(k0));
-    ASSERT_EQ(-1, Lookup(k1));
-    ASSERT_EQ(102, Lookup(k2));
+    ASSERT_EQ(-1, Lookup(100));
+    ASSERT_EQ(-1, Lookup(101));
+    ASSERT_EQ(102, Lookup(102));
     sleep(1);
     auto t2 = MonotonicSeconds();
     _cache->evict_expired(1.0, t2);
-    ASSERT_EQ(-1, Lookup(k2));
+    ASSERT_EQ(-1, Lookup(102));
 }
 
 TEST_F(CacheTest, HeavyEntries) {
