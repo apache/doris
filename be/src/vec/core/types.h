@@ -117,6 +117,9 @@ using Float64 = double;
 
 using String = std::string;
 
+using IPv4 = UInt32;
+using IPv6 = UInt128;
+
 /** Note that for types not used in DB, IsNumber is false.
   */
 template <typename T>
@@ -289,8 +292,6 @@ using DateTime = Int64;
 using DateV2 = UInt32;
 using DateTimeV2 = UInt64;
 
-using IPv4 = UInt32;
-using IPv6 = UInt128;
 
 struct Int128I {};
 

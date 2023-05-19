@@ -70,6 +70,8 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_LARGEINT:
     case TYPE_DATE:
     case TYPE_DATEV2:
+    case TYPE_IPV4:
+    case TYPE_IPV6:
         return true;
 
     case INVALID_TYPE:
@@ -209,6 +211,19 @@ struct PrimitiveTypeTraits<TYPE_LARGEINT> {
     using CppType = __int128_t;
     using ColumnType = vectorized::ColumnInt128;
 };
+
+template <>
+struct PrimitiveTypeTraits<TYPE_IPV4> {
+    using CppType = uint32_t;
+    using ColumnType = vectorized::ColumnUInt32;
+};
+
+template <>
+struct PrimitiveTypeTraits<TYPE_IPV6> {
+    using CppType = vectorized::UInt128;
+    using ColumnType = vectorized::ColumnUInt128;
+};
+
 template <>
 struct PrimitiveTypeTraits<TYPE_CHAR> {
     using CppType = StringRef;

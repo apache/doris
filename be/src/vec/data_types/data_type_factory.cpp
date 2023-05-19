@@ -289,6 +289,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::IPv4:
         nested = std::make_shared<vectorized::DataTypeIPv4>();
         break;
+    case TypeIndex::IPv6:
+        nested = std::make_shared<vectorized::DataTypeIPv6>();
+        break;
     case TypeIndex::Float32:
         nested = std::make_shared<vectorized::DataTypeFloat32>();
         break;
@@ -383,6 +386,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         break;
     case FieldType::OLAP_FIELD_TYPE_IPV4:
         result = std::make_shared<vectorized::DataTypeIPv4>();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        result = std::make_shared<vectorized::DataTypeIPv6>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATE:
         result = std::make_shared<vectorized::DataTypeDate>();

@@ -392,6 +392,14 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 auto decimal_str = decimal_val.to_string(scale);
                 buf_ret = rows_buffer[i].push_string(decimal_str.c_str(), decimal_str.length());
             }
+            if constexpr (type == TYPE_IPV4) {
+                buf_ret = rows_buffer[i].push_int(data[col_index]);
+            }
+            if constexpr (type == TYPE_IPV6) {
+                UInt128 ipv6 = data[col_index];
+                std::string ipv6_str = ipv6.to_hex_string();
+                buf_ret = rows_buffer[i].push_string(ipv6_str.c_str(), ipv6_str.length());
+            }
         }
     }
     if (0 != buf_ret) {
@@ -680,6 +688,26 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_LARGEINT, false>(
                         column_ptr, result, rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_IPV4: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_IPV4, true>(column_ptr, result,
+                                                                        rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_IPV4, false>(column_ptr, result,
+                                                                         rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_IPV6: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_IPV6, true>(column_ptr, result,
+                                                                         rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_IPV6, false>(column_ptr, result,
+                                                                          rows_buffer, col_const);
             }
             break;
         }
