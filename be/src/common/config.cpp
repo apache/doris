@@ -389,7 +389,7 @@ DEFINE_mInt32(cumulative_compaction_trace_threshold, "10");
 DEFINE_mBool(disable_compaction_trace_log, "true");
 
 // Interval to picking rowset to compact, in milliseconds
-DEFINE_mInt64(pick_rowset_to_compact_interval, "3600000");
+DEFINE_mInt64(pick_rowset_to_compact_interval, "86400000");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DEFINE_Int32(max_meta_checkpoint_threads, "-1");
