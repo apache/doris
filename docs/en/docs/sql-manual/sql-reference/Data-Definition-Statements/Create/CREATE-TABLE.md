@@ -188,6 +188,10 @@ distribution_desc
     * AGGREGATE KEY: The specified column is the dimension column.
     * UNIQUE KEY: The subsequent specified column is the primary key column.
 
+    <version since="2.0">
+    NOTE: when `experimental_enable_duplicate_without_keys_by_default = true`, will create a duplicate model without sorting columns and prefix indexes by default.
+    </version>
+
     Example:
 
     ```
@@ -702,7 +706,7 @@ NOTE: Multi Partition can be mixed with conventional manual creation of partitio
 
 <version since="2.0">
 
-14. Add a duplicate without SORTING COLUMN table
+14. Add a duplicate without sorting column table
 
 ```sql
     CREATE TABLE example_db.table_hash

@@ -189,6 +189,10 @@ distribution_desc
     * AGGREGATE KEY：其后指定的列为维度列。
     * UNIQUE KEY：其后指定的列为主键列。
 
+    <version since="2.0">
+    注：当`experimental_enable_duplicate_without_keys_by_default = true`, 默认创建没有排序列的DUPLICATE表。
+    </version>
+
     示例：
     
     ```
