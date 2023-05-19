@@ -57,7 +57,7 @@ public:
     const std::string& expr_name() const override;
     std::string debug_string() const override;
     bool is_constant() const override {
-        if (_function_name == "rand" || _function_name == "random") {
+        if (!_function->is_use_default_implementation_for_constants()) {
             return false;
         }
         return VExpr::is_constant();
