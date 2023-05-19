@@ -106,7 +106,7 @@ set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(ENV{DORIS_HOME} "${BASE_DIR}/..")
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
-set(SRC_DIR "${BASE_DIR}/src/")
+set(SRC_DIR "${BASE_DIR}/src")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
 if (NOT DEFINED ENV{DORIS_THIRDPARTY})
@@ -1013,23 +1013,53 @@ else()
     message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
 endif()
 
-if (ENABLE_PCH) 
-    add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
-    target_precompile_headers(
-        pch
-        PUBLIC
-            ${SRC_DIR}pch/pch.h
-    )
-    if (COMPILER_CLANG)
-        target_compile_options(pch PRIVATE -Xclang -fno-pch-timestamp)
+function(gen_pch_target pch_target instantiate include_pch_target)
+    if(ENABLE_PCH)
+        add_library(${pch_target} OBJECT "${SRC_DIR}/pch/${pch_target}.cpp")
+        if(instantiate)
+            target_compile_options(${pch_target}
+                                    PRIVATE
+                                        "SHELL:-Xclang -fpch-instantiate-templates")
+        endif()
+        target_compile_options(${pch_target}
+                                PRIVATE
+                                    "SHELL:-Winvalid-pch"
+                                    "SHELL:-Xclang -fno-pch-timestamp"
+                                    "SHELL:-Xclang -emit-pch")
+        if(NOT "${include_pch_target}" STREQUAL "")
+            include_pch(${pch_target} ${include_pch_target})
+        endif()
     endif()
-endif()
+endfunction()
 
-function(pch_reuse target)
+function(include_pch target pch_target)
     if (ENABLE_PCH)
-        target_precompile_headers(${target} REUSE_FROM pch)
+        get_target_property(pch_output_dir ${pch_target} BINARY_DIR)
+        set(pch_output_dir ${pch_output_dir}/CMakeFiles/${pch_target}.dir/src/pch)
+        target_compile_options(${target}
+            PRIVATE
+            "SHELL:-Xclang -include-pch -Xclang ${pch_output_dir}/${pch_target}.cpp.o")
+        
+        get_target_property(target_src ${target} SOURCES)
+        foreach(src_file IN LISTS target_src)
+            set_source_files_properties(${src_file} 
+                PROPERTIES OBJECT_DEPENDS "${SRC_DIR}/pch/${pch_target}.cpp;${pch_output_dir}/${pch_target}.cpp.o")
+        endforeach()
     endif()
-endfunction(pch_reuse target)
+endfunction()
+
+
+gen_pch_target(thirdparty_pch true "")
+gen_pch_target(agent_pch true thirdparty_pch)
+gen_pch_target(olap_pch true thirdparty_pch)
+gen_pch_target(util_pch true thirdparty_pch)
+gen_pch_target(exec_pch true thirdparty_pch)
+gen_pch_target(http_pch true thirdparty_pch)
+gen_pch_target(pipeline_pch true thirdparty_pch)
+gen_pch_target(io_pch true thirdparty_pch)
+gen_pch_target(runtime_pch true thirdparty_pch)
+gen_pch_target(service_pch true thirdparty_pch)
+# gen_pch_target(vec_pch false thirdparty_pch)
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)

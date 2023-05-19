@@ -41,16 +41,16 @@ class RuntimeProfile;
 
 namespace doris::vectorized {
 
-#define FOR_LOGICAL_NUMERIC_TYPES(M) \
-    M(TypeIndex::Int8, Int8)         \
-    M(TypeIndex::UInt8, UInt8)       \
-    M(TypeIndex::Int16, Int16)       \
-    M(TypeIndex::UInt16, UInt16)     \
-    M(TypeIndex::Int32, Int32)       \
-    M(TypeIndex::UInt32, UInt32)     \
-    M(TypeIndex::Int64, Int64)       \
-    M(TypeIndex::UInt64, UInt64)     \
-    M(TypeIndex::Float32, Float32)   \
+#define FOR_JNI_LOGICAL_NUMERIC_TYPES(M) \
+    M(TypeIndex::Int8, Int8)             \
+    M(TypeIndex::UInt8, UInt8)           \
+    M(TypeIndex::Int16, Int16)           \
+    M(TypeIndex::UInt16, UInt16)         \
+    M(TypeIndex::Int32, Int32)           \
+    M(TypeIndex::UInt32, UInt32)         \
+    M(TypeIndex::Int64, Int64)           \
+    M(TypeIndex::UInt64, UInt64)         \
+    M(TypeIndex::Float32, Float32)       \
     M(TypeIndex::Float64, Float64)
 
 JniConnector::~JniConnector() {
@@ -212,7 +212,7 @@ Status JniConnector::_fill_column(ColumnPtr& doris_column, DataTypePtr& data_typ
     case NUMERIC_TYPE:                                 \
         return _fill_numeric_column<CPP_NUMERIC_TYPE>( \
                 data_column, reinterpret_cast<CPP_NUMERIC_TYPE*>(_next_meta_as_ptr()), num_rows);
-        FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
+        FOR_JNI_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
     case TypeIndex::Decimal128:
         [[fallthrough]];
@@ -379,7 +379,7 @@ Status JniConnector::generate_meta_info(Block* block, std::unique_ptr<long[]>& m
         meta_data.emplace_back(_get_numeric_data_address<CPP_NUMERIC_TYPE>(data_column)); \
         break;                                                                            \
     }
-            FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
+            FOR_JNI_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
         case TypeIndex::Decimal128:
             [[fallthrough]];
