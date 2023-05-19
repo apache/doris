@@ -305,6 +305,10 @@ DEFINE_Bool(disable_storage_row_cache, "true");
 // Cache for mow primary key storage page size
 DEFINE_String(pk_storage_page_cache_limit, "10%");
 
+DEFINE_Bool(enable_storage_page_cache_expire, "false");
+DEFINE_mInt32(storage_page_cache_expire_second, "7200");
+DEFINE_mDouble(storage_page_cache_evict_ratio, "0.005");
+
 DEFINE_Bool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 

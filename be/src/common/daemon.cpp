@@ -484,7 +484,7 @@ void Daemon::start() {
     if (config::enable_storage_page_cache_expire && !config::disable_storage_page_cache) {
         st = Thread::create(
                 "Daemon", "evict_page_cache_thread", [this]() { this->evict_page_cache_thread(); },
-                &_insert_sentinel_thread);
+                &_evict_page_cache_thread);
 
         CHECK(st.ok()) << st.to_string();
     }
@@ -518,6 +518,9 @@ void Daemon::stop() {
     }
     if (_memory_tracker_profile_refresh_thread) {
         _memory_tracker_profile_refresh_thread->join();
+    }
+    if (_evict_page_cache_thread) {
+        _evict_page_cache_thread->join();
     }
     if (_calculate_metrics_thread) {
         _calculate_metrics_thread->join();
