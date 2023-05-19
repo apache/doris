@@ -502,12 +502,8 @@ if (COMPILER_GCC)
 endif ()
 
 if (COMPILER_CLANG)
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13")
-        message(FATAL_ERROR "Need Clang version at least 13")
-    endif()
-
-    if (NOT OS_MACOSX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16")
-        message(FATAL_ERROR "Doris recommended to use Clang-16 to build backend")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16")
+        message(FATAL_ERROR "Need Clang version at least 16")
     endif()
 
     add_compile_options(-fcolor-diagnostics 
