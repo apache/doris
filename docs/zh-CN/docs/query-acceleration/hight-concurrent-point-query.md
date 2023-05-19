@@ -70,6 +70,7 @@ PROPERTIES (
 1. `enable_unique_key_merge_on_write`应该被开启， 存储引擎需要根据主键来快速点查
 2. 当条件只包含主键时，如`select * from tbl_point_query where key = 123`，类似的查询会走短路径来优化查询
 3. `light_schema_change`应该被开启， 因为主键点查的优化依赖了轻量级 Schema Change 中的`column unique id`来定位列
+4. 只支持单表key列等值查询不支持join、嵌套子查询， **where条件里需要有且仅有key列的等值**， 可以认为是一种key value查询
 
 ## 使用 `PreparedStatement`
 
