@@ -1,0 +1,221 @@
+Subject: [PATCH] Using atomic counters on shared containers Ref: https://github.com/RoaringBitmap/CRoaring/pull/473
+---
+Index: CMakeLists.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	(revision 3cc92d1e19b12ad8b4213d82af181499e46cae4f)
++++ b/CMakeLists.txt	(revision d052b11b4298521ed798c97948ff7e2f913e767a)
+@@ -44,6 +44,8 @@
+ option(ROARING_BUILD_C_AS_CPP "Build library C files using C++ compilation" OFF)
+ option(ROARING_BUILD_C_TESTS_AS_CPP "Build test C files using C++ compilation" OFF)
+ option(ROARING_SANITIZE "Sanitize addresses" OFF)
++option(ROARING_SANITIZE_THREADS "Sanitize threads" OFF)
++
+ option(ENABLE_ROARING_TESTS "If OFF, disable unit tests altogether" ON)
+ 
+ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake")
+Index: include/roaring/containers/containers.h
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/include/roaring/containers/containers.h b/include/roaring/containers/containers.h
+--- a/include/roaring/containers/containers.h	(revision 3cc92d1e19b12ad8b4213d82af181499e46cae4f)
++++ b/include/roaring/containers/containers.h	(revision d052b11b4298521ed798c97948ff7e2f913e767a)
+@@ -55,12 +55,25 @@
+  * A shared container is a wrapper around a container
+  * with reference counting.
+  */
+-
++#if CROARING_C_ATOMIC
++STRUCT_CONTAINER(shared_container_s) {
++    container_t *container;
++    uint8_t typecode;
++    _Atomic(uint32_t) counter;  // to be managed atomically
++};
++#elif CROARING_CPP_ATOMIC
++STRUCT_CONTAINER(shared_container_s) {
++    container_t *container;
++    uint8_t typecode;
++    std::atomic<uint32_t> counter;  // to be managed atomically
++};
++#else
+ STRUCT_CONTAINER(shared_container_s) {
+     container_t *container;
+     uint8_t typecode;
+     uint32_t counter;  // to be managed atomically
+ };
++#endif
+ 
+ typedef struct shared_container_s shared_container_t;
+ 
+Index: include/roaring/portability.h
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/include/roaring/portability.h b/include/roaring/portability.h
+--- a/include/roaring/portability.h	(revision 3cc92d1e19b12ad8b4213d82af181499e46cae4f)
++++ b/include/roaring/portability.h	(revision d052b11b4298521ed798c97948ff7e2f913e767a)
+@@ -13,6 +13,16 @@
+ #define __STDC_FORMAT_MACROS 1
+ #endif // __STDC_FORMAT_MACROS
+ 
++#ifndef CROARING_VISUAL_STUDIO
++#define CROARING_VISUAL_STUDIO 0
++#endif
++#ifndef CROARING_CLANG_VISUAL_STUDIO
++#define CROARING_CLANG_VISUAL_STUDIO 0
++#endif
++#ifndef CROARING_REGULAR_VISUAL_STUDIO
++#define CROARING_REGULAR_VISUAL_STUDIO 0
++#endif
++
+ #if !(defined(_POSIX_C_SOURCE)) || (_POSIX_C_SOURCE < 200809L)
+ #define _POSIX_C_SOURCE 200809L
+ #endif // !(defined(_POSIX_C_SOURCE)) || (_POSIX_C_SOURCE < 200809L)
+@@ -293,5 +303,19 @@
+ #undef CROARING_UNTARGET_REGION
+ #define CROARING_UNTARGET_REGION
+ #endif
++
++#if defined(__cplusplus)
++#define CROARING_CPP_ATOMIC 1
++#define CROARING_C_ATOMIC 0
++#include <atomic>
++#elif defined(__STDC_NO_ATOMICS__) || CROARING_REGULAR_VISUAL_STUDIO
++// https://www.technetworkhub.com/c11-atomics-in-visual-studio-2022-version-17/
++#define CROARING_ATOMIC 0
++#define CROARING_CPP_ATOMIC 0
++#else // C
++#define CROARING_C_ATOMIC 1
++#define CROARING_CPP_ATOMIC 0
++#include <stdatomic.h>
++#endif
+ 
+ #endif /* INCLUDE_PORTABILITY_H_ */
+Index: src/containers/containers.c
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/containers/containers.c b/src/containers/containers.c
+--- a/src/containers/containers.c	(revision 3cc92d1e19b12ad8b4213d82af181499e46cae4f)
++++ b/src/containers/containers.c	(revision d052b11b4298521ed798c97948ff7e2f913e767a)
+@@ -136,7 +136,13 @@
+         shared_container_t *shared_container;
+         if (*typecode == SHARED_CONTAINER_TYPE) {
+             shared_container = CAST_shared(c);
++#if CROARING_C_ATOMIC
++            atomic_fetch_add(&(shared_container->counter), 1);
++#elif CROARING_CPP_ATOMIC
++            std::atomic_fetch_add(&(shared_container->counter), 1);
++#else
+             shared_container->counter += 1;
++#endif
+             return shared_container;
+         }
+         assert(*typecode != SHARED_CONTAINER_TYPE);
+@@ -148,8 +154,13 @@
+ 
+         shared_container->container = c;
+         shared_container->typecode = *typecode;
+-
++#if CROARING_C_ATOMIC
++        atomic_store(&(shared_container->counter), 2);
++#elif CROARING_CPP_ATOMIC
++        std::atomic_store(&(shared_container->counter), 2);
++#else
+         shared_container->counter = 2;
++#endif
+         *typecode = SHARED_CONTAINER_TYPE;
+ 
+         return shared_container;
+@@ -187,12 +198,18 @@
+ container_t *shared_container_extract_copy(
+     shared_container_t *sc, uint8_t *typecode
+ ){
+-    assert(sc->counter > 0);
+     assert(sc->typecode != SHARED_CONTAINER_TYPE);
+-    sc->counter--;
+     *typecode = sc->typecode;
+     container_t *answer;
++#if CROARING_C_ATOMIC
++    if(atomic_fetch_sub(&(sc->counter), 1) == 1) {
++#elif CROARING_CPP_ATOMIC
++    if(std::atomic_fetch_sub(&(sc->counter), 1) == 1) {
++#else
++    assert(sc->counter > 0);
++    sc->counter--;
+     if (sc->counter == 0) {
++#endif
+         answer = sc->container;
+         sc->container = NULL;  // paranoid
+         free(sc);
+@@ -204,9 +221,15 @@
+ }
+ 
+ void shared_container_free(shared_container_t *container) {
++#if CROARING_C_ATOMIC
++    if(atomic_fetch_sub(&(container->counter), 1) == 1) {
++#elif CROARING_CPP_ATOMIC
++    if(std::atomic_fetch_sub(&(container->counter), 1) == 1) {
++#else
+     assert(container->counter > 0);
+     container->counter--;
+     if (container->counter == 0) {
++#endif
+         assert(container->typecode != SHARED_CONTAINER_TYPE);
+         container_free(container->container, container->typecode);
+         container->container = NULL;  // paranoid
+Index: src/roaring.c
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/roaring.c b/src/roaring.c
+--- a/src/roaring.c	(revision 3cc92d1e19b12ad8b4213d82af181499e46cae4f)
++++ b/src/roaring.c	(revision d052b11b4298521ed798c97948ff7e2f913e767a)
+@@ -301,9 +301,20 @@
+                get_full_container_name(ra->containers[i], ra->typecodes[i]),
+                container_get_cardinality(ra->containers[i], ra->typecodes[i]));
+         if (ra->typecodes[i] == SHARED_CONTAINER_TYPE) {
++#if CROARING_C_ATOMIC
++            printf(
++                "(shared count = %" PRIu32 " )",
++                    atomic_load(&(CAST_shared(ra->containers[i])->counter)));
++#elif CROARING_CPP_ATOMIC
++            printf(
++                "(shared count = %" PRIu32 " )",
++                    std::atomic_load(&(CAST_shared(ra->containers[i])->counter)));
++#else
+             printf(
+                 "(shared count = %" PRIu32 " )",
+                     CAST_shared(ra->containers[i])->counter);
++#endif
++
+         }
+ 
+         if (i + 1 < ra->size) {
+Index: tools/cmake/FindOptions.cmake
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/tools/cmake/FindOptions.cmake b/tools/cmake/FindOptions.cmake
+--- a/tools/cmake/FindOptions.cmake	(revision 3cc92d1e19b12ad8b4213d82af181499e46cae4f)
++++ b/tools/cmake/FindOptions.cmake	(revision d052b11b4298521ed798c97948ff7e2f913e767a)
+@@ -12,7 +12,9 @@
+     append(CMAKE_SHARED_LINKER_FLAGS "-fuse-ld=gold")
+   endif()
+ endif()
+-
++if(ROARING_SANITIZE_THREADS)
++  set(ROARING_SANITIZE_FLAGS "-fsanitize=thread -fno-sanitize-recover=all")
++endif()
+ if((NOT MSVC) AND ROARING_ARCH)
+ set(OPT_FLAGS "-march=${ROARING_ARCH}")
+ endif()

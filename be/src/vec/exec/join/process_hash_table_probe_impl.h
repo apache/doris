@@ -502,6 +502,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         }
         int multi_matched_output_row_count = 0;
         if (current_offset < _batch_size) {
+            SCOPED_TIMER(_search_hashtable_timer);
             while (probe_index < probe_rows) {
                 // ignore null rows
                 if constexpr (ignore_null && need_null_map_for_probe) {

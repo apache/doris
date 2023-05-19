@@ -102,22 +102,31 @@ public:
     /**
      * Create an empty bitmap
      */
-    Roaring64Map() = default;
+    Roaring64Map() : copyOnWrite(config::enable_croaring_cow) {}
 
     /**
      * Construct a bitmap from a list of 32-bit integer values.
      */
-    Roaring64Map(size_t n, const uint32_t* data) { addMany(n, data); }
+    Roaring64Map(size_t n, const uint32_t* data) {
+        this->copyOnWrite = config::enable_croaring_cow;
+        addMany(n, data);
+    }
 
     /**
      * Construct a bitmap from a list of 64-bit integer values.
      */
-    Roaring64Map(size_t n, const uint64_t* data) { addMany(n, data); }
+    Roaring64Map(size_t n, const uint64_t* data) {
+        this->copyOnWrite = config::enable_croaring_cow;
+        addMany(n, data);
+    }
 
     /**
      * Construct a 64-bit map from a 32-bit one
      */
-    explicit Roaring64Map(const roaring::Roaring& r) { emplaceOrInsert(0, r); }
+    explicit Roaring64Map(const roaring::Roaring& r) {
+        this->copyOnWrite = config::enable_croaring_cow;
+        emplaceOrInsert(0, r);
+    }
 
     /**
      * Construct a roaring object from the C struct.
@@ -125,19 +134,33 @@ public:
      * Passing a nullptr point is unsafe.
      */
     explicit Roaring64Map(roaring_bitmap_t* s) {
+        this->copyOnWrite = config::enable_croaring_cow;
         roaring::Roaring r(s);
         emplaceOrInsert(0, r);
     }
 
     Roaring64Map(const Roaring64Map& r) : roarings(r.roarings), copyOnWrite(r.copyOnWrite) {}
 
-    Roaring64Map(Roaring64Map&& r) : roarings(r.roarings), copyOnWrite(r.copyOnWrite) {}
+    Roaring64Map(Roaring64Map&& r) : roarings(std::move(r.roarings)), copyOnWrite(r.copyOnWrite) {}
 
     /**
-     * Assignment operator.
+     * Copy Assignment operator.
      */
     Roaring64Map& operator=(const Roaring64Map& r) {
         roarings = r.roarings;
+        this->copyOnWrite = r.copyOnWrite;
+        return *this;
+    }
+
+    /**
+     * Move assignment operator.
+     */
+    Roaring64Map& operator=(Roaring64Map&& r) {
+        if (this != &r) {
+            this->roarings = std::move(r.roarings);
+            this->copyOnWrite = r.copyOnWrite;
+            r.copyOnWrite = false;
+        }
         return *this;
     }
 
@@ -949,10 +972,12 @@ private:
     }
     void emplaceOrInsert(const uint32_t key, const roaring::Roaring& value) {
         roarings.emplace(std::make_pair(key, value));
+        roarings[key].setCopyOnWrite(copyOnWrite);
     }
 
     void emplaceOrInsert(const uint32_t key, roaring::Roaring&& value) {
         roarings.emplace(key, value);
+        roarings[key].setCopyOnWrite(copyOnWrite);
     }
 };
 

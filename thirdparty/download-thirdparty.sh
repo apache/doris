@@ -412,3 +412,13 @@ if [[ "${BRPC_SOURCE}" == 'brpc-1.5.0' ]]; then
     cd -
 fi
 echo "Finished patching ${BRPC_SOURCE}"
+
+if [[ "${CROARINGBITMAP_SOURCE}" == 'CRoaring-0.4.0' ]]; then
+    cd "${TP_SOURCE_DIR}/${CROARINGBITMAP_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/croaring-0.4.0_cow.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${CROARINGBITMAP_SOURCE}"
