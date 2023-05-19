@@ -249,10 +249,7 @@ void MemTable::prepare_block_for_flush(vectorized::Block& in_block) {
                                    row_pos_vec.data() + in_block.rows());
 }
 int MemTable::_sort() {
-    vectorized::Block in_block = _input_mutable_block.to_block();
-    vectorized::MutableBlock mutable_block =
-            vectorized::MutableBlock::build_mutable_block(&in_block);
-    _vec_row_comparator->set_block(&mutable_block);
+    _vec_row_comparator->set_block(&_input_mutable_block);
     auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
     size_t same_keys_num = 0;
     // sort new rows
