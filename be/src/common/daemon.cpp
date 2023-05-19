@@ -483,7 +483,7 @@ void Daemon::start() {
 
     if (config::enable_storage_page_cache_expire && !config::disable_storage_page_cache) {
         st = Thread::create(
-                "Daemon", "evict_expire_thread", [this]() { this->evict_expire_thread(); },
+                "Daemon", "evict_page_cache_thread", [this]() { this->evict_page_cache_thread(); },
                 &_insert_sentinel_thread);
 
         CHECK(st.ok()) << st.to_string();
