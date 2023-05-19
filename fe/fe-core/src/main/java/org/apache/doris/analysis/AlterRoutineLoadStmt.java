@@ -206,6 +206,9 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     }
 
     private void checkDataSourceProperties() throws UserException {
+        if (MapUtils.isEmpty(dataSourceMapProperties)) {
+            return;
+        }
         RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
                 .getJob(getDbName(), getLabel());
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
