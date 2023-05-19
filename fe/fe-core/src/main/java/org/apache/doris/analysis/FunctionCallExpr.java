@@ -1373,8 +1373,10 @@ public class FunctionCallExpr extends Expr {
             childTypes[1] = assignmentCompatibleType;
             childTypes[2] = assignmentCompatibleType;
 
-            argTypes[1] = assignmentCompatibleType;
-            argTypes[2] = assignmentCompatibleType;
+            if (childTypes[1].isDecimalV3() && childTypes[2].isDecimalV3()) {
+                argTypes[1] = assignmentCompatibleType;
+                argTypes[2] = assignmentCompatibleType;
+            }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             if (assignmentCompatibleType.isDatetimeV2()) {
@@ -1395,8 +1397,10 @@ public class FunctionCallExpr extends Expr {
             childTypes[0] = assignmentCompatibleType;
             childTypes[1] = assignmentCompatibleType;
 
-            argTypes[0] = assignmentCompatibleType;
-            argTypes[1] = assignmentCompatibleType;
+            if (childTypes[1].isDecimalV3() && childTypes[0].isDecimalV3()) {
+                argTypes[1] = assignmentCompatibleType;
+                argTypes[0] = assignmentCompatibleType;
+            }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("coalesce") && children.size() > 1) {
