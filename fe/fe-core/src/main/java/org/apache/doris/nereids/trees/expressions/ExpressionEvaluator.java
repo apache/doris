@@ -48,15 +48,19 @@ import java.util.List;
 public enum ExpressionEvaluator {
     INSTANCE;
 
-    private ImmutableMultimap<String, FunctionInvoker> functions;
-    // the not eval non-empty arguments datetime function 
-    private ImmutableSet<String> noEvalDateTimeFunction = ImmutableSet.<String>builder()
+    private final ImmutableSet<String> noEvalDateTimeFunction = ImmutableSet.<String>builder()
             .add("now")
             .add("current_timestamp")
             .build();
+    private ImmutableMultimap<String, FunctionInvoker> functions;
+    // the not eval non-empty arguments datetime function
 
     ExpressionEvaluator() {
         registerFunctions();
+    }
+
+    public boolean isNoEvalDateTimeFunction(String funcName) {
+        return noEvalDateTimeFunction.contains(funcName);
     }
 
     /**
