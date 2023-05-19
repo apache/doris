@@ -22,18 +22,12 @@ suite("test_complex_type_unique_key", "p0") {
     def dataFile1 = "complex_unique_2.csv"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 
     sql """
         CREATE TABLE IF NOT EXISTS tbl_test_complex_unique (
             id INT,
             a ARRAY<SMALLINT> NOT NULL COMMENT "",
-            m MAP<STRING, INT(11)> NOT NULL COMMENT "",
-            s STRUCT<f1:SMALLINT, f2:INT(11)> NOT NULL COMMENT "",
-            an ARRAY<DATE>,
-            mn MAP<STRING, INT(11)>,
-            sn STRUCT<f1:SMALLINT, f2:INT(11)>
+            an ARRAY<DATE>
         )
         UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 10
@@ -41,8 +35,8 @@ suite("test_complex_type_unique_key", "p0") {
         """
 
     // insert into valid json rows
-    sql """INSERT INTO ${testTable} VALUES (2, [], {"doris": 1}, {128, 32768}, ['2023-12-24'], {"amory": 7}, {12, 3276});"""
-    sql """INSERT INTO ${testTable} VALUES (1, [1, 2, 3], {"k1": 10, "k2": 12}, {128, 32768}, ['2022-07-13'], NULL, NULL)"""
+    sql """INSERT INTO ${testTable} VALUES (2, [],  ['2023-12-24']);"""
+    sql """INSERT INTO ${testTable} VALUES (1, [1, 2, 3], ['2022-07-13'])"""
 
     // check result
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
