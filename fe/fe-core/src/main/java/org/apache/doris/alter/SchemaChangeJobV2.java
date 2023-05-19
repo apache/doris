@@ -938,6 +938,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("replay finished schema change job: {} table id: {}", jobId, tableId);
+        changeTableState(dbId, tableId, OlapTableState.NORMAL);
+        LOG.info("set table's state to NORMAL when replay finished, table id: {}, job id: {}", tableId, jobId);
     }
 
     /**
@@ -949,6 +951,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         this.errMsg = replayedJob.errMsg;
         LOG.info("replay cancelled schema change job: {}", jobId);
+        changeTableState(dbId, tableId, OlapTableState.NORMAL);
+        LOG.info("set table's state to NORMAL when replay cancelled, table id: {}, job id: {}", tableId, jobId);
     }
 
     @Override
