@@ -390,6 +390,17 @@ Status VCollectIterator::_topn_next(Block* block) {
                 }
                 sorted_row_pos.erase(first, sorted_row_pos.end());
                 // TODO: mutable_block should also shrink
+                if (mutable_block.size() > _topn_limit * 2) {
+                    Block tmp_block = mutable_block.to_block();
+                    mutable_block.clear();
+                    for (auto it = sorted_row_pos.begin(); i != sorted_row_pos.end(); i++) {
+                        mutable_block.add_row(&tmp_block, *it);
+                    }
+                    sorted_row_pos.clear();
+                    for (size_t i = 0; i < _topn_limit; i++) {
+                        sorted_row_pos.insert(i);
+                    }
+                }
             }
 
             // update runtime_predicate
