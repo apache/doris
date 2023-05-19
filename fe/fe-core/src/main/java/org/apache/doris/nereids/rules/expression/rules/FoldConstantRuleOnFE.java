@@ -330,7 +330,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         boundFunction = rewriteChildren(boundFunction, context);
         // functions related to current/local/now will be calculated by be.
         if (boundFunction.getArguments().isEmpty()
-                || ExpressionEvaluator.INSTANCE.isNoEvalDateTimeFunction(boundFunction.getName()) {
+                || ExpressionEvaluator.INSTANCE.isNoEvalDateTimeFunction(boundFunction.getName())) {
             return boundFunction;
         }
         Optional<Expression> checkedExpr = preProcess(boundFunction);
