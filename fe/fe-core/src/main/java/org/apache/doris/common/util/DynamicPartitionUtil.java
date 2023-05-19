@@ -228,14 +228,14 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT, val);
         }
         ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, db.getClusterName(), null);
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
     }
 
     private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, Database db) throws DdlException {
         if (replicaAlloc.getTotalReplicaNum() <= 0) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, db.getClusterName(), null);
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
     }
 
     private static void checkHotPartitionNum(String val) throws DdlException {

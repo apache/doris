@@ -228,8 +228,8 @@ public class SystemInfoServiceTest {
         Assert.assertNotNull(Env.getCurrentSystemInfo().getBackend(backendId));
         Assert.assertNotNull(Env.getCurrentSystemInfo().getBackendWithHeartbeatPort("192.168.0.1", 1234));
 
-        Assert.assertTrue(Env.getCurrentSystemInfo().getBackendIds(false).size() == 1);
-        Assert.assertTrue(Env.getCurrentSystemInfo().getBackendIds(false).get(0) == backendId);
+        Assert.assertTrue(Env.getCurrentSystemInfo().getAllBackendIds(false).size() == 1);
+        Assert.assertTrue(Env.getCurrentSystemInfo().getAllBackendIds(false).get(0) == backendId);
 
         Assert.assertTrue(Env.getCurrentSystemInfo().getBackendReportVersion(backendId) == 0L);
 

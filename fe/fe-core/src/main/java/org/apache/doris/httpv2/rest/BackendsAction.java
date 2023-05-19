@@ -81,7 +81,7 @@ public class BackendsAction extends RestBaseController {
 
         BackendInfo backendInfo = new BackendInfo();
         backendInfo.backends = Lists.newArrayList();
-        List<Long> beIds = Env.getCurrentSystemInfo().getBackendIds(needAlive);
+        List<Long> beIds = Env.getCurrentSystemInfo().getAllBackendIds(needAlive);
         for (Long beId : beIds) {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
             if (be != null) {
