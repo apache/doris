@@ -2723,15 +2723,16 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
                                                         &loc);
                     if (st.ok()) {
                         delete_bitmap->add({rowset_id, loc.segment_id, 0}, loc.row_id);
-                        ++row_id;
-                        continue;
                     } else if (st.is<ALREADY_EXIST>()) {
                         delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
-                        ++row_id;
-                        continue;
+                    } else if (!st.is_not_found()) {
+                        // some unexpected error
+                        LOG(WARNING) << "some unexpected error happen while looking up keys "
+                                     << "in pre segments: " << st;
+                        return st;
                     }
-                    // some unexpected error
-                    return st;
+                    ++row_id;
+                    continue;
                 }
                 // same row in segments should be filtered
                 if (delete_bitmap->contains({rowset_id, seg->id(), 0}, row_id)) {
