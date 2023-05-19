@@ -1411,3 +1411,8 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Default value: false
 
 </version>
+
+#### `enable_query_memory_overcommit`
+
+* Description: If true, when the process does not exceed the soft mem limit, the query memory will not be limited; when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently used memory and the exec_mem_limit will be canceled. If false, cancel query when the memory used exceeds exec_mem_limit.
+* Default value: true
