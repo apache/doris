@@ -356,7 +356,7 @@ void LRUCache::_evict_from_lru(size_t total_size, LRUHandle** to_remove_head,
            _lru_normal.next != &_lru_normal) {
         LRUHandle* old = _lru_normal.next;
         DCHECK(old->priority == CachePriority::NORMAL);
-        if (before_seconds > 0 && remove_handle->use_time > before_seconds) {
+        if (before_seconds > 0 && old->use_time > before_seconds) {
             break;
         }
         _evict_one_entry(old);
@@ -368,7 +368,7 @@ void LRUCache::_evict_from_lru(size_t total_size, LRUHandle** to_remove_head,
            _lru_durable.next != &_lru_durable) {
         LRUHandle* old = _lru_durable.next;
         DCHECK(old->priority == CachePriority::DURABLE);
-        if (before_seconds > 0 && remove_handle->use_time > before_seconds) {
+        if (before_seconds > 0 && old->use_time > before_seconds) {
             break;
         }
         _evict_one_entry(old);
