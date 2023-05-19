@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -28,6 +31,7 @@ import org.apache.doris.nereids.txn.Transaction;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -93,7 +97,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
                 physicalOlapTableSink.getDatabase().getId(),
                 ctx.getExecTimeout(),
                 ctx.getSessionVariable().getSendBatchParallelism(), false);
+
         sink.complete();
+        TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
+                physicalOlapTableSink.getDatabase().getId(),
+                txn.getTxnId());
+        if (state == null) {
+            throw new DdlException("txn does not exist: " + txn.getTxnId());
+        }
+        state.addTableIndexes(physicalOlapTableSink.getTargetTable());
 
         txn.executeInsertIntoSelectCommand(executor);
     }
