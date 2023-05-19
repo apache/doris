@@ -1299,7 +1299,7 @@ alter_stmt ::=
         RESULT = new AlterResourceGroupStmt(resourceGroupName, properties);
     :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
-      key_value_map:datasourceProperties
+      opt_datasource_properties:datasourceProperties
     {:
         RESULT = new AlterRoutineLoadStmt(jobLabel, jobProperties, datasourceProperties);
     :}
@@ -1340,6 +1340,17 @@ alter_stmt ::=
     :}
     ;
 
+opt_datasource_properties ::=
+    // empty
+    {:
+        RESULT = new HashMap<String, String>();
+    :}
+    | KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
+    {:
+        Map<String, String> properties = new HashMap<String, String>(customProperties);
+        RESULT = properties;
+    :}
+    ;
 quantity ::=
     INTEGER_LITERAL:number
     {:
