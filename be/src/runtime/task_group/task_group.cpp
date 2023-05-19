@@ -146,22 +146,14 @@ void TaskGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> me
     _mem_tracker_limiter_pool[group_num].trackers.erase(mem_tracker_ptr);
 }
 
-int64_t TaskGroup::hard_memory_limit_gc() {
-    const auto& [memory_limit, name] = _memory_limit_and_name();
-    auto used = memory_used();
-    return MemTrackerLimiter::tg_memory_limit_gc(used - memory_limit, used, _id, name, memory_limit,
-                                                 _mem_tracker_limiter_pool);
-}
-
-int64_t TaskGroup::soft_memory_limit_gc(int64_t request_free_memory, int64_t used_memory) {
-    const auto& [memory_limit, name] = _memory_limit_and_name();
-    return MemTrackerLimiter::tg_memory_limit_gc(request_free_memory, used_memory, _id, name,
-                                                 memory_limit, _mem_tracker_limiter_pool);
-}
-
-std::pair<int64_t, std::string> TaskGroup::_memory_limit_and_name() {
-    std::shared_lock<std::shared_mutex> rl {_mutex};
-    return {_memory_limit, _name};
+void TaskGroup::task_group_info(TaskGroupInfo* tg_info) const {
+    std::shared_lock<std::shared_mutex> r_lock(_mutex);
+    tg_info->id = _id;
+    tg_info->name = _name;
+    tg_info->cpu_share = _cpu_share;
+    tg_info->memory_limit = _memory_limit;
+    tg_info->enable_memory_overcommit = _enable_memory_overcommit;
+    tg_info->version = _version;
 }
 
 Status TaskGroupInfo::parse_group_info(const TPipelineResourceGroup& resource_group,

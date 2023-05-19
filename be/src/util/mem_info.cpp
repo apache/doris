@@ -239,7 +239,12 @@ int64_t MemInfo::tg_hard_memory_limit_gc() {
 
     int64_t total_free_memory = 0;
     for (const auto& task_group : task_groups) {
-        total_free_memory += task_group->hard_memory_limit_gc();
+        taskgroup::TaskGroupInfo tg_info;
+        task_group->task_group_info(&tg_info);
+        auto used = task_group->memory_used();
+        total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
+                used - tg_info.memory_limit, used, tg_info.id, tg_info.name, tg_info.memory_limit,
+                task_group->mem_tracker_limiter_pool());
     }
     return total_free_memory;
 }
@@ -276,8 +281,12 @@ int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory) {
                 gc_all_exceeded ? exceeded_memorys[i]
                                 : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
                                           request_free_memory /* exceeded memory as a weight */;
-        total_free_memory +=
-                task_groups[i]->soft_memory_limit_gc(tg_need_free_memory, used_memorys[i]);
+        auto task_group = task_groups[i];
+        taskgroup::TaskGroupInfo tg_info;
+        task_group->task_group_info(&tg_info);
+        total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
+                tg_need_free_memory, used_memorys[i], tg_info.id, tg_info.name,
+                tg_info.memory_limit, task_group->mem_tracker_limiter_pool());
     }
     return total_free_memory;
 }

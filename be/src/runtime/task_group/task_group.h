@@ -109,15 +109,13 @@ public:
 
     void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
-    // Once the total used memory exceeds memory_limit, the excess memory will be GC.
-    int64_t hard_memory_limit_gc();
+    void task_group_info(TaskGroupInfo* tg_info) const;
 
-    // GC some excess memory according to the policy.
-    int64_t soft_memory_limit_gc(int64_t request_free_memory, int64_t used_memory);
+    std::vector<TgTrackerLimiterGroup>& mem_tracker_limiter_pool() {
+        return _mem_tracker_limiter_pool;
+    }
 
 private:
-    std::pair<int64_t, std::string> _memory_limit_and_name();
-
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
@@ -136,9 +134,9 @@ struct TaskGroupInfo {
     uint64_t id;
     std::string name;
     uint64_t cpu_share;
-    int64_t version;
     int64_t memory_limit;
     bool enable_memory_overcommit;
+    int64_t version;
 
     static Status parse_group_info(const TPipelineResourceGroup& resource_group,
                                    TaskGroupInfo* task_group_info);
