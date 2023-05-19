@@ -297,8 +297,8 @@ void Daemon::evict_page_cache_thread() {
             index_cache->evict_expired(ratio, expire_before);
         }
         auto* pk_cache = cache->get_pk_index_page_cache();
-        if (index_cache != nullptr) {
-            index_cache->evict_expired(ratio, expire_before);
+        if (pk_cache != nullptr) {
+            pk_cache->evict_expired(ratio, expire_before);
         }
     }
 }
