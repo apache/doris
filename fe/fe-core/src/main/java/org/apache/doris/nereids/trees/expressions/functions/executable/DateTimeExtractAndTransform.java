@@ -465,14 +465,6 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: unix_timestamp
      */
-    @ExecFunction(name = "unix_timestamp", argTypes = {}, returnType = "INT")
-    public static Expression unixTimestamp() {
-        return new IntegerLiteral(getTimestamp(LocalDateTime.now()));
-    }
-
-    /**
-     * date transformation function: unix_timestamp
-     */
     @ExecFunction(name = "unix_timestamp", argTypes = {"DATE"}, returnType = "INT")
     public static Expression unixTimestamp(DateLiteral date) {
         return new IntegerLiteral(getTimestamp(date.toJavaDateType()));
@@ -521,14 +513,6 @@ public class DateTimeExtractAndTransform {
                 .atZone(getTimeZone())
                 .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
                 .toLocalDateTime()).getSeconds());
-    }
-
-    /**
-     * date transformation function: utc_timestamp
-     */
-    @ExecFunction(name = "utc_timestamp", argTypes = {}, returnType = "INT")
-    public static Expression utcTimestamp() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now());
     }
 
     /**

@@ -22,7 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.ExecutableFunctions;
@@ -35,6 +34,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -49,6 +49,11 @@ public enum ExpressionEvaluator {
     INSTANCE;
 
     private ImmutableMultimap<String, FunctionInvoker> functions;
+    // the not eval non-empty arguments datetime function 
+    private ImmutableSet<String> noEvalDateTimeFunction = ImmutableSet.<String>builder()
+            .add("now")
+            .add("current_timestamp")
+            .build();
 
     ExpressionEvaluator() {
         registerFunctions();
@@ -141,7 +146,6 @@ public enum ExpressionEvaluator {
                 ExecutableFunctions.class,
                 DateLiteral.class,
                 DateTimeArithmetic.class,
-                DateTimeAcquire.class,
                 NumericArithmetic.class
         );
         for (Class cls : classes) {
