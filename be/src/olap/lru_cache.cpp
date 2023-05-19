@@ -259,35 +259,9 @@ void LRUCache::evict_expired(double ratio, int64_t expire_before) {
     {
         std::lock_guard lock(_mutex);
         if (_cache_value_check_timestamp) {
-            _evict_from_lru_with_time(e->total_size, &to_remove_head, expire_before);
+            _evict_from_lru_with_time(total_size, &to_remove_head, expire_before);
         } else {
-            auto target_usage = _usage > total_size ? _usage - total_size : 0;
-            LRUHandle* cur = &_lru;
-            // 1. evict normal cache entries
-            while (_usage > target_usage && cur->next != &_lru) {
-                LRUHandle* old = cur->next;
-                if (old->priority == CachePriority::DURABLE) {
-                    cur = cur->next;
-                    continue;
-                }
-                if (old->use_time >= expire_before) {
-                    break;
-                }
-                _evict_one_entry(old);
-                old->next = to_remove_head;
-                to_remove_head = old;
-            }
-            // 2. evict durable cache entries if need
-            while (_usage > target_usage && _lru.next != &_lru) {
-                LRUHandle* old = _lru.next;
-                if (old->use_time >= expire_before) {
-                    break;
-                }
-                DCHECK(old->priority == CachePriority::DURABLE);
-                _evict_one_entry(old);
-                old->next = to_remove_head;
-                to_remove_head = old;
-            }
+            _evict_from_lru(total_size, &to_remove_head, expire_before);
         }
     }
     auto cost_mills = MonotonicMillis() - start;
@@ -375,12 +349,16 @@ void LRUCache::_evict_from_lru_with_time(size_t total_size, LRUHandle** to_remov
     }
 }
 
-void LRUCache::_evict_from_lru(size_t total_size, LRUHandle** to_remove_head) {
+void LRUCache::_evict_from_lru(size_t total_size, LRUHandle** to_remove_head,
+                               int64_t before_seconds) {
     // 1. evict normal cache entries
     while ((_usage + total_size > _capacity || _check_element_count_limit()) &&
            _lru_normal.next != &_lru_normal) {
         LRUHandle* old = _lru_normal.next;
         DCHECK(old->priority == CachePriority::NORMAL);
+        if (before_seconds > 0 && remove_handle->use_time > before_seconds) {
+            break;
+        }
         _evict_one_entry(old);
         old->next = *to_remove_head;
         *to_remove_head = old;
@@ -390,6 +368,9 @@ void LRUCache::_evict_from_lru(size_t total_size, LRUHandle** to_remove_head) {
            _lru_durable.next != &_lru_durable) {
         LRUHandle* old = _lru_durable.next;
         DCHECK(old->priority == CachePriority::DURABLE);
+        if (before_seconds > 0 && remove_handle->use_time > before_seconds) {
+            break;
+        }
         _evict_one_entry(old);
         old->next = *to_remove_head;
         *to_remove_head = old;

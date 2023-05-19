@@ -363,7 +363,7 @@ private:
     void _lru_remove(LRUHandle* e);
     void _lru_append(LRUHandle* list, LRUHandle* e);
     bool _unref(LRUHandle* e);
-    void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
+    void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head, int64_t before_seconds = 0);
     void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head,
                                    int64_t before_seconds = 0);
     void _evict_one_entry(LRUHandle* e);
