@@ -44,7 +44,7 @@ namespace doris::vectorized {
 DataTypeNullable::DataTypeNullable(const DataTypePtr& nested_data_type_)
         : nested_data_type {nested_data_type_} {
     if (!nested_data_type->can_be_inside_nullable()) {
-        LOG(FATAL) << fmt::format("Nested type {} cannot be inside Nullable type",
+        LOG(FATAL) << fmt::format("Nested type {} cannot be inside Nullable type1",
                                   nested_data_type->get_name());
     }
 }
