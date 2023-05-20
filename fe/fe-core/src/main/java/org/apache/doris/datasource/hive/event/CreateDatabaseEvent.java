@@ -51,7 +51,7 @@ public class CreateDatabaseEvent extends MetastoreEvent {
                     .createExternalDatabase(dbName, catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"));
+                    debugString("Failed to process event"), e);
         }
     }
 }
