@@ -24,14 +24,30 @@
 #include <new>
 #include <string>
 
+#if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
+#include <unistd.h>
+#else
+#include <mach/vm_page_size.h>
+#endif
+
 #include "common/logging.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/sse_util.hpp"
 
-namespace doris {
+namespace {
 
-#define PAGE_SIZE (4 * 1024) // 4K
+int get_page_size() {
+#if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
+    return getpagesize();
+#else
+    return vm_page_size;
+#endif
+}
+
+} // namespace
+
+namespace doris {
 
 uint8_t* SystemAllocator::allocate(size_t length) {
     return allocate_via_malloc(length);
@@ -44,7 +60,7 @@ void SystemAllocator::free(uint8_t* ptr) {
 uint8_t* SystemAllocator::allocate_via_malloc(size_t length) {
     void* ptr = nullptr;
     // try to use a whole page instead of parts of one page
-    int res = posix_memalign(&ptr, PAGE_SIZE, length);
+    int res = posix_memalign(&ptr, get_page_size(), length);
     if (res != 0) {
         char buf[64];
         auto err = fmt::format("fail to allocate mem via posix_memalign, res={}, errmsg={}.", res,
