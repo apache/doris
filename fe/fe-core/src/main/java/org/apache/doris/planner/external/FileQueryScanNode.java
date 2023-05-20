@@ -235,7 +235,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 if (broker == null) {
                     throw new UserException("No alive broker.");
                 }
-                params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+                params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
         } else if (locationType == TFileType.FILE_S3) {
             params.setProperties(locationProperties);
