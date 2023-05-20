@@ -421,6 +421,7 @@ terminal String
     KW_INVERTED,
     KW_JOB,
     KW_JOIN,
+    KW_JSON,
     KW_JSONB,
     KW_KEY,
     KW_KEYS,
@@ -1730,7 +1731,7 @@ opt_mv_refersh_info ::=
     :}
     | KW_NEVER KW_REFRESH
     {:
-        RESULT = new MVRefreshInfo(false);
+        RESULT = new MVRefreshInfo(true);
     :}
     ;
 
@@ -5995,6 +5996,8 @@ type ::=
   {: RESULT = Type.QUANTILE_STATE; :}
   | KW_STRING
   {: RESULT = ScalarType.createStringType(); :}
+  | KW_JSON
+  {: RESULT = ScalarType.createJsonbType(); :}
   | KW_JSONB
   {: RESULT = ScalarType.createJsonbType(); :}
   | KW_TEXT
@@ -7215,6 +7218,8 @@ keyword ::=
     | KW_ISOLATION:id
     {: RESULT = id; :}
     | KW_JOB:id
+    {: RESULT = id; :}
+    | KW_JSON:id
     {: RESULT = id; :}
     | KW_JSONB:id
     {: RESULT = id; :}

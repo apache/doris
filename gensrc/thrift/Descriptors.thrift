@@ -187,6 +187,15 @@ struct TOlapTablePartitionParam {
     7: optional list<string> partition_columns
 }
 
+struct TOlapTableIndex {
+  1: optional string index_name
+  2: optional list<string> columns
+  3: optional TIndexType index_type
+  4: optional string comment
+  5: optional i64 index_id
+  6: optional map<string, string> properties
+}
+
 struct TOlapTableIndexSchema {
     1: required i64 id
     2: required list<string> columns
@@ -208,15 +217,6 @@ struct TOlapTableSchemaParam {
     7: optional bool is_dynamic_schema
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
-}
-
-struct TOlapTableIndex {
-  1: optional string index_name
-  2: optional list<string> columns
-  3: optional TIndexType index_type
-  4: optional string comment
-  5: optional i64 index_id
-  6: optional map<string, string> properties
 }
 
 struct TTabletLocation {

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property;
 
 import org.apache.doris.datasource.property.constants.CosProperties;
+import org.apache.doris.datasource.property.constants.GCSProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -37,6 +38,7 @@ public class S3ClientBEProperties {
             return getBeAWSPropertiesFromS3(properties);
         } else if (properties.containsKey(ObsProperties.ENDPOINT)
                 || properties.containsKey(OssProperties.ENDPOINT)
+                || properties.containsKey(GCSProperties.ENDPOINT)
                 || properties.containsKey(CosProperties.ENDPOINT)) {
             return getBeAWSPropertiesFromS3(S3Properties.prefixToS3(properties));
         }

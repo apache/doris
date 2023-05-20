@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 
@@ -74,16 +75,18 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         boolean isSelectUnpartition = olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
                 || olapScan.getSelectedPartitionIds().size() == 1;
         if (isBelongStableCG || isSelectUnpartition) {
-            if (!(distributionInfo instanceof HashDistributionInfo)) {
+            if (!(distributionInfo instanceof HashDistributionInfo)
+                    || olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+                // TODO if a mv is selected, we ignore base table's distributionInfo for now
+                // need improve this to handle the case if mv's distributionInfo is the same as base table
                 return DistributionSpecAny.INSTANCE;
             }
             HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
             List<Slot> output = olapScan.getOutput();
             List<ExprId> hashColumns = Lists.newArrayList();
-            List<Column> schemaColumns = olapScan.getTable().getFullSchema();
-            for (int i = 0; i < schemaColumns.size(); i++) {
+            for (int i = 0; i < output.size(); i++) {
                 for (Column column : hashDistributionInfo.getDistributionColumns()) {
-                    if (schemaColumns.get(i).equals(column)) {
+                    if (((SlotReference) output.get(i)).getColumn().get().equals(column)) {
                         hashColumns.add(output.get(i).getExprId());
                     }
                 }

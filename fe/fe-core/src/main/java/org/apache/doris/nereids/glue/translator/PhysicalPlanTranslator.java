@@ -146,7 +146,6 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
@@ -172,7 +171,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -392,8 +390,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //  so complex aggregate plan than legacy planner, and should add forbid parallel scan hint when
         //  generate physical aggregate plan.
         if (leftMostNode instanceof OlapScanNode && aggregate.getAggregateParam().needColocateScan) {
-            currentFragment.getPlanRoot().setShouldColoScan();
-            currentFragment.setHasColocatePlanNode(!ConnectContext.get().getSessionVariable().enablePipelineEngine());
+            currentFragment.setHasColocatePlanNode(true);
         }
         setPlanRoot(currentFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
@@ -548,7 +545,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Create OlapScanNode
         List<Slot> slotList = new ImmutableList.Builder<Slot>()
                 .addAll(olapScan.getOutput())
-                .addAll(filterSlotsOfSelectedIndex(olapScan.getNonUserVisibleOutput(), olapScan))
                 .build();
         Set<ExprId> deferredMaterializedExprIds = Collections.emptySet();
         if (olapScan.getMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS).isPresent()) {
@@ -559,20 +555,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, deferredMaterializedExprIds, context);
         if (olapScan.getMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS).isPresent()) {
             injectRowIdColumnSlot(tupleDescriptor);
-        }
-
-        // Use column with the same name in selected materialized index meta for slot desc,
-        // to get the correct col unique id.
-        if (olapScan.getSelectedIndexId() != olapTable.getBaseIndexId()) {
-            Map<String, Column> indexCols = olapTable.getSchemaByIndexId(olapScan.getSelectedIndexId())
-                    .stream()
-                    .collect(Collectors.toMap(Column::getName, Function.identity()));
-            tupleDescriptor.getSlots().forEach(slotDesc -> {
-                Column column = slotDesc.getColumn();
-                if (column != null && indexCols.containsKey(column.getName())) {
-                    slotDesc.setColumn(indexCols.get(column.getName()));
-                }
-            });
         }
         tupleDescriptor.setTable(olapTable);
 
@@ -2299,15 +2281,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         public List<List<Expression>> getResultExpressions() {
             return resultExpressions;
         }
-    }
-
-    private List<Slot> filterSlotsOfSelectedIndex(List<Slot> slots, PhysicalOlapScan olapScan) {
-        ImmutableSet<Column> selectIndexColumns = ImmutableSet.copyOf(olapScan.getTable()
-                .getIndexIdToMeta().get(olapScan.getSelectedIndexId()).getSchema());
-        return slots.stream()
-                .filter(slot -> ((SlotReference) slot).getColumn().isPresent()
-                        && selectIndexColumns.contains(((SlotReference) slot).getColumn().get()))
-                .collect(ImmutableList.toImmutableList());
     }
 
     private PlanFragment createPlanFragment(PlanNode planNode, DataPartition dataPartition, AbstractPlan physicalPlan) {

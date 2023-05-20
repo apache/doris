@@ -167,6 +167,17 @@ Status RowGroupReader::init(
             }
         }
     }
+    // Add predicate_partition_columns in _slot_id_to_filter_conjuncts(single slot conjuncts)
+    // to _filter_conjuncts, others should be added from not_single_slot_filter_conjuncts.
+    for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
+        auto& [value, slot_desc] = kv.second;
+        auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
+        if (iter != _slot_id_to_filter_conjuncts->end()) {
+            for (VExprContext* ctx : iter->second) {
+                _filter_conjuncts.push_back(ctx);
+            }
+        }
+    }
     RETURN_IF_ERROR(_rewrite_dict_predicates());
     return Status::OK();
 }

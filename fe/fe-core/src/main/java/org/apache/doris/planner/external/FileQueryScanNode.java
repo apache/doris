@@ -32,6 +32,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -235,7 +236,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 if (broker == null) {
                     throw new UserException("No alive broker.");
                 }
-                params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+                params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
         } else if (locationType == TFileType.FILE_S3) {
             params.setProperties(locationProperties);
@@ -352,7 +353,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected static Optional<TFileType> getTFileType(String location) {
         if (location != null && !location.isEmpty()) {
-            if (FeConstants.isObjStorage(location)) {
+            if (S3Util.isObjStorage(location)) {
                 return Optional.of(TFileType.FILE_S3);
             } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
                 return Optional.of(TFileType.FILE_HDFS);

@@ -103,7 +103,7 @@ DEFINE_mInt32(hash_table_double_grow_degree, "31");
 
 DEFINE_mInt32(max_fill_rate, "2");
 
-DEFINE_mInt32(double_resize_threshold, "20");
+DEFINE_mInt32(double_resize_threshold, "23");
 // Expand the hash table before inserting data, the maximum expansion size.
 // There are fewer duplicate keys, reducing the number of resize hash tables
 // There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
@@ -301,6 +301,9 @@ DEFINE_Int32(index_page_cache_percentage, "10");
 DEFINE_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_Bool(disable_storage_row_cache, "true");
+
+// Cache for mow primary key storage page size
+DEFINE_String(pk_storage_page_cache_limit, "10%");
 
 DEFINE_Bool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
@@ -706,9 +709,6 @@ DEFINE_Int32(aws_log_level, "3");
 // the buffer size when read data from remote storage like s3
 DEFINE_mInt32(remote_storage_read_buffer_mb, "16");
 
-// Print more detailed logs, more detailed records, etc.
-DEFINE_mBool(memory_debug, "false");
-
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
@@ -953,6 +953,8 @@ DEFINE_Bool(enable_file_cache_query_limit, "false");
 // inverted index searcher cache
 // cache entry stay time after lookup, default 1h
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "3600");
+// cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
+DEFINE_mInt32(index_cache_entry_no_visit_gc_time_s, "3600");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
@@ -992,6 +994,9 @@ DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
+
+//disable shrink memory by default
+DEFINE_Bool(enable_shrink_memory, "false");
 
 #ifdef BE_TEST
 // test s3

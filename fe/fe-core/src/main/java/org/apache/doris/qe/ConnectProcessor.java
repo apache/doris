@@ -574,7 +574,7 @@ public class ConnectProcessor {
             case COM_QUERY:
             case COM_STMT_PREPARE:
                 ctx.initTracer("trace");
-                Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").startSpan();
+                Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
                 try (Scope scope = rootSpan.makeCurrent()) {
                     handleQuery();
                 } catch (Exception e) {

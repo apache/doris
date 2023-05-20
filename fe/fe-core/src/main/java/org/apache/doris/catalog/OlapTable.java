@@ -1454,6 +1454,14 @@ public class OlapTable extends Table {
         return dataSize;
     }
 
+    public long getRemoteDataSize() {
+        long remoteDataSize = 0;
+        for (Partition partition : getAllPartitions()) {
+            remoteDataSize += partition.getRemoteDataSize();
+        }
+        return remoteDataSize;
+    }
+
     public long getReplicaCount() {
         long replicaCount = 0;
         for (Partition partition : getAllPartitions()) {

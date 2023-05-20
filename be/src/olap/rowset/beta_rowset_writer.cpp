@@ -693,6 +693,9 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
     writer_options.is_direct_write = _context.is_direct_write;
+    if (is_segcompaction) {
+        writer_options.is_direct_write = false;
+    }
 
     if (is_segcompaction) {
         writer->reset(new segment_v2::SegmentWriter(

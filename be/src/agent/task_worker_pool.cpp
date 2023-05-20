@@ -135,99 +135,96 @@ void TaskWorkerPool::start() {
     if (_thread_model == ThreadModel::SINGLE_THREAD) {
         _worker_count = 1;
     }
-    std::function<void()> cb;
     switch (_task_worker_type) {
     case TaskWorkerType::CREATE_TABLE:
-        _worker_count = config::create_tablet_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_create_tablet_worker_thread_callback, this);
         break;
     case TaskWorkerType::DROP_TABLE:
-        _worker_count = config::drop_tablet_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_drop_tablet_worker_thread_callback, this);
         break;
     case TaskWorkerType::PUSH:
     case TaskWorkerType::REALTIME_PUSH:
         _worker_count =
                 config::push_worker_count_normal_priority + config::push_worker_count_high_priority;
-        cb = std::bind<void>(&TaskWorkerPool::_push_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_push_worker_thread_callback, this);
         break;
     case TaskWorkerType::PUBLISH_VERSION:
         _worker_count = config::publish_version_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_publish_version_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_publish_version_worker_thread_callback, this);
         break;
     case TaskWorkerType::CLEAR_TRANSACTION_TASK:
         _worker_count = config::clear_transaction_task_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_clear_transaction_task_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_clear_transaction_task_worker_thread_callback,
+                              this);
         break;
     case TaskWorkerType::DELETE:
         _worker_count = config::delete_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_push_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_push_worker_thread_callback, this);
         break;
     case TaskWorkerType::ALTER_TABLE:
         _worker_count = config::alter_tablet_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_alter_tablet_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_alter_tablet_worker_thread_callback, this);
         break;
     case TaskWorkerType::ALTER_INVERTED_INDEX:
         _worker_count = config::alter_inverted_index_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_alter_inverted_index_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_alter_inverted_index_worker_thread_callback, this);
         break;
     case TaskWorkerType::CLONE:
         _worker_count = config::clone_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_clone_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_clone_worker_thread_callback, this);
         break;
     case TaskWorkerType::STORAGE_MEDIUM_MIGRATE:
         _worker_count = config::storage_medium_migrate_count;
-        cb = std::bind<void>(&TaskWorkerPool::_storage_medium_migrate_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_storage_medium_migrate_worker_thread_callback,
+                              this);
         break;
     case TaskWorkerType::CHECK_CONSISTENCY:
         _worker_count = config::check_consistency_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_check_consistency_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_check_consistency_worker_thread_callback, this);
         break;
     case TaskWorkerType::REPORT_TASK:
-        cb = std::bind<void>(&TaskWorkerPool::_report_task_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_report_task_worker_thread_callback, this);
         break;
     case TaskWorkerType::REPORT_DISK_STATE:
-        cb = std::bind<void>(&TaskWorkerPool::_report_disk_state_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_report_disk_state_worker_thread_callback, this);
         break;
     case TaskWorkerType::REPORT_OLAP_TABLE:
-        cb = std::bind<void>(&TaskWorkerPool::_report_tablet_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_report_tablet_worker_thread_callback, this);
         break;
     case TaskWorkerType::UPLOAD:
         _worker_count = config::upload_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_upload_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_upload_worker_thread_callback, this);
         break;
     case TaskWorkerType::DOWNLOAD:
         _worker_count = config::download_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_download_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_download_worker_thread_callback, this);
         break;
     case TaskWorkerType::MAKE_SNAPSHOT:
         _worker_count = config::make_snapshot_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_make_snapshot_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_make_snapshot_thread_callback, this);
         break;
     case TaskWorkerType::RELEASE_SNAPSHOT:
         _worker_count = config::release_snapshot_worker_count;
-        cb = std::bind<void>(&TaskWorkerPool::_release_snapshot_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_release_snapshot_thread_callback, this);
         break;
     case TaskWorkerType::MOVE:
         _worker_count = 1;
-        cb = std::bind<void>(&TaskWorkerPool::_move_dir_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_move_dir_thread_callback, this);
         break;
     case TaskWorkerType::UPDATE_TABLET_META_INFO:
         _worker_count = 1;
-        cb = std::bind<void>(&TaskWorkerPool::_update_tablet_meta_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_update_tablet_meta_worker_thread_callback, this);
         break;
     case TaskWorkerType::SUBMIT_TABLE_COMPACTION:
         _worker_count = 1;
-        cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback,
-                             this);
+        _cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback,
+                              this);
         break;
     case TaskWorkerType::PUSH_STORAGE_POLICY:
         _worker_count = 1;
-        cb = std::bind<void>(&TaskWorkerPool::_push_storage_policy_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_push_storage_policy_worker_thread_callback, this);
         break;
     case TaskWorkerType::PUSH_COOLDOWN_CONF:
         _worker_count = 1;
-        cb = std::bind<void>(&TaskWorkerPool::_push_cooldown_conf_worker_thread_callback, this);
+        _cb = std::bind<void>(&TaskWorkerPool::_push_cooldown_conf_worker_thread_callback, this);
         break;
     default:
         // pass
@@ -242,7 +239,7 @@ void TaskWorkerPool::start() {
             .build(&_thread_pool);
 
     for (int i = 0; i < _worker_count; i++) {
-        auto st = _thread_pool->submit_func(cb);
+        auto st = _thread_pool->submit_func(_cb);
         CHECK(st.ok()) << st;
     }
 #endif
@@ -366,133 +363,6 @@ uint32_t TaskWorkerPool::_get_next_task_index(int32_t thread_count,
     }
 
     return index;
-}
-
-void TaskWorkerPool::_create_tablet_worker_thread_callback() {
-    while (_is_work) {
-        TAgentTaskRequest agent_task_req;
-        TCreateTabletReq create_tablet_req;
-        {
-            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            _worker_thread_condition_variable.wait(
-                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
-            if (!_is_work) {
-                return;
-            }
-
-            agent_task_req = _tasks.front();
-            create_tablet_req = agent_task_req.create_tablet_req;
-            _tasks.pop_front();
-        }
-
-        scoped_refptr<Trace> trace(new Trace);
-        MonotonicStopWatch watch;
-        watch.start();
-        SCOPED_CLEANUP({
-            if (watch.elapsed_time() / 1e9 > config::agent_task_trace_threshold_sec) {
-                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
-            }
-        });
-        ADOPT_TRACE(trace.get());
-
-        DorisMetrics::instance()->create_tablet_requests_total->increment(1);
-        TRACE("start to create tablet $0", create_tablet_req.tablet_id);
-
-        std::vector<TTabletInfo> finish_tablet_infos;
-        VLOG_NOTICE << "create tablet: " << create_tablet_req;
-        Status status = _env->storage_engine()->create_tablet(create_tablet_req);
-        if (!status.ok()) {
-            DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
-            LOG_WARNING("failed to create tablet")
-                    .tag("signature", agent_task_req.signature)
-                    .tag("tablet_id", create_tablet_req.tablet_id)
-                    .error(status);
-        } else {
-            ++_s_report_version;
-            // get path hash of the created tablet
-            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                    create_tablet_req.tablet_id);
-            DCHECK(tablet != nullptr);
-            TTabletInfo tablet_info;
-            tablet_info.tablet_id = tablet->table_id();
-            tablet_info.schema_hash = tablet->schema_hash();
-            tablet_info.version = create_tablet_req.version;
-            // Useless but it is a required field in TTabletInfo
-            tablet_info.version_hash = 0;
-            tablet_info.row_count = 0;
-            tablet_info.data_size = 0;
-            tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
-            tablet_info.__set_replica_id(tablet->replica_id());
-            finish_tablet_infos.push_back(tablet_info);
-            LOG_INFO("successfully create tablet")
-                    .tag("signature", agent_task_req.signature)
-                    .tag("tablet_id", create_tablet_req.tablet_id);
-        }
-
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
-        finish_task_request.__set_backend(BackendOptions::get_local_backend());
-        finish_task_request.__set_report_version(_s_report_version);
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
-        finish_task_request.__set_task_status(status.to_thrift());
-
-        _finish_task(finish_task_request);
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
-    }
-}
-
-void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
-    while (_is_work) {
-        TAgentTaskRequest agent_task_req;
-        TDropTabletReq drop_tablet_req;
-        {
-            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            _worker_thread_condition_variable.wait(
-                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
-            if (!_is_work) {
-                return;
-            }
-
-            agent_task_req = _tasks.front();
-            drop_tablet_req = agent_task_req.drop_tablet_req;
-            _tasks.pop_front();
-        }
-
-        Status status;
-        TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                drop_tablet_req.tablet_id, false);
-        if (dropped_tablet != nullptr) {
-            status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                    drop_tablet_req.tablet_id, drop_tablet_req.replica_id,
-                    drop_tablet_req.is_drop_table_or_partition);
-        } else {
-            status = Status::NotFound("could not find tablet {}", drop_tablet_req.tablet_id);
-        }
-        if (status.ok()) {
-            // if tablet is dropped by fe, then the related txn should also be removed
-            StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
-                    dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
-                    drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
-            LOG_INFO("successfully drop tablet")
-                    .tag("signature", agent_task_req.signature)
-                    .tag("tablet_id", drop_tablet_req.tablet_id);
-        } else {
-            LOG_WARNING("failed to drop tablet")
-                    .tag("signature", agent_task_req.signature)
-                    .tag("tablet_id", drop_tablet_req.tablet_id)
-                    .error(status);
-        }
-
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(BackendOptions::get_local_backend());
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
-        finish_task_request.__set_task_status(status.to_thrift());
-
-        _finish_task(finish_task_request);
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
-    }
 }
 
 void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
@@ -1877,6 +1747,139 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
                 Tablet::async_write_cooldown_meta(tablet);
             }
         }
+    }
+}
+
+CreateTableTaskPool::CreateTableTaskPool(ExecEnv* env, ThreadModel thread_model)
+        : TaskWorkerPool(TaskWorkerType::CREATE_TABLE, env, *env->master_info(), thread_model) {
+    _worker_count = config::create_tablet_worker_count;
+    _cb = [this]() { _create_tablet_worker_thread_callback(); };
+}
+
+void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        TCreateTabletReq create_tablet_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
+            if (!_is_work) {
+                return;
+            }
+            agent_task_req = _tasks.front();
+            create_tablet_req = agent_task_req.create_tablet_req;
+            _tasks.pop_front();
+        }
+        scoped_refptr<Trace> trace(new Trace);
+        MonotonicStopWatch watch;
+        watch.start();
+        SCOPED_CLEANUP({
+            if (watch.elapsed_time() / 1e9 > config::agent_task_trace_threshold_sec) {
+                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+            }
+        });
+        ADOPT_TRACE(trace.get());
+        DorisMetrics::instance()->create_tablet_requests_total->increment(1);
+        TRACE("start to create tablet $0", create_tablet_req.tablet_id);
+        std::vector<TTabletInfo> finish_tablet_infos;
+        VLOG_NOTICE << "create tablet: " << create_tablet_req;
+        Status status = _env->storage_engine()->create_tablet(create_tablet_req);
+        if (!status.ok()) {
+            DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
+            LOG_WARNING("failed to create tablet")
+                    .tag("signature", agent_task_req.signature)
+                    .tag("tablet_id", create_tablet_req.tablet_id)
+                    .error(status);
+        } else {
+            ++_s_report_version;
+            // get path hash of the created tablet
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                    create_tablet_req.tablet_id);
+            DCHECK(tablet != nullptr);
+            TTabletInfo tablet_info;
+            tablet_info.tablet_id = tablet->table_id();
+            tablet_info.schema_hash = tablet->schema_hash();
+            tablet_info.version = create_tablet_req.version;
+            // Useless but it is a required field in TTabletInfo
+            tablet_info.version_hash = 0;
+            tablet_info.row_count = 0;
+            tablet_info.data_size = 0;
+            tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
+            tablet_info.__set_replica_id(tablet->replica_id());
+            finish_tablet_infos.push_back(tablet_info);
+            LOG_INFO("successfully create tablet")
+                    .tag("signature", agent_task_req.signature)
+                    .tag("tablet_id", create_tablet_req.tablet_id);
+        }
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
+        finish_task_request.__set_backend(BackendOptions::get_local_backend());
+        finish_task_request.__set_report_version(_s_report_version);
+        finish_task_request.__set_task_type(agent_task_req.task_type);
+        finish_task_request.__set_signature(agent_task_req.signature);
+        finish_task_request.__set_task_status(status.to_thrift());
+        _finish_task(finish_task_request);
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+    }
+}
+
+DropTableTaskPool::DropTableTaskPool(ExecEnv* env, ThreadModel thread_model)
+        : TaskWorkerPool(TaskWorkerType::DROP_TABLE, env, *env->master_info(), thread_model) {
+    _worker_count = config::drop_tablet_worker_count;
+    _cb = [this]() { _drop_tablet_worker_thread_callback(); };
+}
+
+void DropTableTaskPool::_drop_tablet_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        TDropTabletReq drop_tablet_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            drop_tablet_req = agent_task_req.drop_tablet_req;
+            _tasks.pop_front();
+        }
+
+        Status status;
+        TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                drop_tablet_req.tablet_id, false);
+        if (dropped_tablet != nullptr) {
+            status = StorageEngine::instance()->tablet_manager()->drop_tablet(
+                    drop_tablet_req.tablet_id, drop_tablet_req.replica_id,
+                    drop_tablet_req.is_drop_table_or_partition);
+        } else {
+            status = Status::NotFound("could not find tablet {}", drop_tablet_req.tablet_id);
+        }
+        if (status.ok()) {
+            // if tablet is dropped by fe, then the related txn should also be removed
+            StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
+                    dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
+                    drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
+            LOG_INFO("successfully drop tablet")
+                    .tag("signature", agent_task_req.signature)
+                    .tag("tablet_id", drop_tablet_req.tablet_id);
+        } else {
+            LOG_WARNING("failed to drop tablet")
+                    .tag("signature", agent_task_req.signature)
+                    .tag("tablet_id", drop_tablet_req.tablet_id)
+                    .error(status);
+        }
+
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(BackendOptions::get_local_backend());
+        finish_task_request.__set_task_type(agent_task_req.task_type);
+        finish_task_request.__set_signature(agent_task_req.signature);
+        finish_task_request.__set_task_status(status.to_thrift());
+
+        _finish_task(finish_task_request);
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
 }
 

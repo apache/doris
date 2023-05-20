@@ -41,7 +41,7 @@ public:
     PageBase() : _data(nullptr), _size(0), _capacity(0) {}
 
     PageBase(size_t b) : _size(b), _capacity(b) {
-        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
+        _data = new char[_capacity];
         ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(_capacity);
     }
 
@@ -51,7 +51,7 @@ public:
     ~PageBase() {
         if (_data != nullptr) {
             DCHECK(_capacity != 0 && _size != 0);
-            TAllocator::free(_data, _capacity);
+            delete[] _data;
             ExecEnv::GetInstance()->page_no_cache_mem_tracker()->release(_capacity);
         }
     }
@@ -105,13 +105,15 @@ public:
 
     // Create global instance of this class
     static void create_global_cache(size_t capacity, int32_t index_cache_percentage,
+                                    int64_t pk_index_cache_capacity,
                                     uint32_t num_shards = kDefaultNumShards);
 
     // Return global instance.
     // Client should call create_global_cache before.
     static StoragePageCache* instance() { return _s_instance; }
 
-    StoragePageCache(size_t capacity, int32_t index_cache_percentage, uint32_t num_shards);
+    StoragePageCache(size_t capacity, int32_t index_cache_percentage,
+                     int64_t pk_index_cache_capacity, uint32_t num_shards);
 
     // Lookup the given page in the cache.
     //
@@ -151,6 +153,10 @@ private:
     int32_t _index_cache_percentage = 0;
     std::unique_ptr<Cache> _data_page_cache = nullptr;
     std::unique_ptr<Cache> _index_page_cache = nullptr;
+    // Cache data for primary key index data page, seperated from data
+    // page cache to make it for flexible. we need this cache When construct
+    // delete bitmap in unique key with mow
+    std::unique_ptr<Cache> _pk_index_page_cache = nullptr;
 
     Cache* _get_page_cache(segment_v2::PageTypePB page_type) {
         switch (page_type) {
@@ -159,6 +165,8 @@ private:
         }
         case segment_v2::INDEX_PAGE:
             return _index_page_cache.get();
+        case segment_v2::PRIMARY_KEY_INDEX_PAGE:
+            return _pk_index_page_cache.get();
         default:
             return nullptr;
         }

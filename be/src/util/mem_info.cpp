@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/segment_loader.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -113,6 +114,21 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
                 StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
         StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
     }
+
+    if (segment_v2::InvertedIndexSearcherCache::instance()->mem_consumption() > min_free_size) {
+        freed_mem += segment_v2::InvertedIndexSearcherCache::instance()->prune();
+    }
+
+    if (segment_v2::InvertedIndexQueryCache::instance()->mem_consumption() > min_free_size) {
+        freed_mem += segment_v2::InvertedIndexQueryCache::instance()->prune();
+    }
+
+    if (StoragePageCache::instance()->get_page_cache_mem_consumption(
+                segment_v2::PRIMARY_KEY_INDEX_PAGE) > min_free_size) {
+        freed_mem += StoragePageCache::instance()->get_page_cache_mem_consumption(
+                segment_v2::PRIMARY_KEY_INDEX_PAGE);
+        StoragePageCache::instance()->prune(segment_v2::PRIMARY_KEY_INDEX_PAGE);
+    }
 }
 
 // step1: free all cache
@@ -138,6 +154,8 @@ bool MemInfo::process_minor_gc() {
     // TODO add freed_mem
     SegmentLoader::instance()->prune();
 
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
+            "Before free top memory overcommit query in Minor GC", MemTrackerLimiter::Type::QUERY);
     if (config::enable_query_memroy_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
@@ -179,11 +197,16 @@ bool MemInfo::process_full_gc() {
         }
     }
 
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory query in Full GC",
+                                                        MemTrackerLimiter::Type::QUERY);
     freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
                                                           vm_rss_str, mem_available_str);
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
+
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
+            "Before free top memory overcommit load in Full GC", MemTrackerLimiter::Type::LOAD);
     if (config::enable_query_memroy_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
                 _s_process_full_gc_size - freed_mem, vm_rss_str, mem_available_str);
@@ -191,6 +214,9 @@ bool MemInfo::process_full_gc() {
             return true;
         }
     }
+
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory load in Full GC",
+                                                        MemTrackerLimiter::Type::LOAD);
     freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem,
                                                          vm_rss_str, mem_available_str);
     if (freed_mem > _s_process_full_gc_size) {
@@ -300,13 +326,28 @@ void MemInfo::init() {
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1;
     }
 
+    // Expect vm overcommit memory value to be 1, system will no longer throw bad_alloc, memory alloc are always accepted,
+    // memory limit check is handed over to Doris Allocator, make sure throw exception position is controllable,
+    // otherwise bad_alloc can be thrown anywhere and it will be difficult to achieve exception safety.
+    std::ifstream sys_vm("/proc/sys/vm/overcommit_memory", std::ios::in);
+    std::string vm_overcommit;
+    getline(sys_vm, vm_overcommit);
+    if (sys_vm.is_open()) sys_vm.close();
+    if (std::stoi(vm_overcommit) == 2) {
+        std::cout << "/proc/sys/vm/overcommit_memory: " << vm_overcommit
+                  << ", expect is 1, memory limit check is handed over to Doris Allocator, "
+                     "otherwise BE may crash even with remaining memory"
+                  << std::endl;
+    }
+
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
               << ", Mem Limit: " << _s_mem_limit_str
               << ", origin config value: " << config::mem_limit
               << ", System Mem Available Min Reserve: "
               << PrettyPrinter::print(_s_sys_mem_available_low_water_mark, TUnit::BYTES)
               << ", Vm Min Free KBytes: "
-              << PrettyPrinter::print(_s_vm_min_free_kbytes, TUnit::BYTES);
+              << PrettyPrinter::print(_s_vm_min_free_kbytes, TUnit::BYTES)
+              << ", Vm Overcommit Memory: " << vm_overcommit;
     _s_initialized = true;
 }
 #else

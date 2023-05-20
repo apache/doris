@@ -188,6 +188,19 @@ std::string MemTrackerLimiter::type_log_usage(MemTracker::Snapshot snapshot) {
                        print_bytes(snapshot.peak_consumption), snapshot.peak_consumption);
 }
 
+std::string MemTrackerLimiter::type_detail_usage(const std::string& msg, Type type) {
+    std::string detail = fmt::format("{}, Type:{}, Memory Tracker Summary", msg, type_string(type));
+    for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
+        std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
+        for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
+            if (tracker->type() == type) {
+                detail += "\n    " + MemTrackerLimiter::log_usage(tracker->make_snapshot());
+            }
+        }
+    }
+    return detail;
+}
+
 void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     if (_enable_print_log_usage) {
         _enable_print_log_usage = false;
@@ -233,6 +246,7 @@ std::string MemTrackerLimiter::log_process_usage_str(const std::string& msg, boo
 }
 
 void MemTrackerLimiter::print_log_process_usage(const std::string& msg, bool with_stacktrace) {
+    // The default interval between two prints is 100ms (config::memory_maintenance_sleep_time_ms).
     if (MemTrackerLimiter::_enable_print_log_process_usage) {
         MemTrackerLimiter::_enable_print_log_process_usage = false;
         LOG(WARNING) << log_process_usage_str(msg, with_stacktrace);
@@ -273,14 +287,13 @@ std::string MemTrackerLimiter::process_mem_log_str() {
             MemInfo::refresh_interval_memory_growth);
 }
 
-std::string MemTrackerLimiter::process_limit_exceeded_errmsg_str(int64_t bytes) {
+std::string MemTrackerLimiter::process_limit_exceeded_errmsg_str() {
     return fmt::format(
             "process memory used {} exceed limit {} or sys mem available {} less than low "
-            "water mark {}, failed alloc size {}",
+            "water mark {}",
             PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
             MemInfo::sys_mem_available_str(),
-            PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
-            print_bytes(bytes));
+            PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
 }
 
 std::string MemTrackerLimiter::query_tracker_limit_exceeded_str(

@@ -342,6 +342,10 @@ DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_Bool(disable_storage_row_cache);
 
+// Cache for mow primary key storage page size, it's seperated from
+// storage_page_cache_limit
+DECLARE_String(pk_storage_page_cache_limit);
+
 DECLARE_Bool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
 
@@ -742,9 +746,6 @@ DECLARE_Int32(aws_log_level);
 // the buffer size when read data from remote storage like s3
 DECLARE_mInt32(remote_storage_read_buffer_mb);
 
-// Print more detailed logs, more detailed records, etc.
-DECLARE_mBool(memory_debug);
-
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
@@ -968,6 +969,8 @@ DECLARE_Bool(enable_file_cache_query_limit);
 // inverted index searcher cache
 // cache entry stay time after lookup, default 1h
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
+// cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
+DECLARE_mInt32(index_cache_entry_no_visit_gc_time_s);
 // inverted index searcher cache size
 DECLARE_String(inverted_index_searcher_cache_limit);
 // set `true` to enable insert searcher into cache when write inverted index data
@@ -1007,6 +1010,9 @@ DECLARE_mInt32(s3_write_buffer_size);
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DECLARE_mInt32(s3_write_buffer_whole_size);
+
+//enable shrink memory
+DECLARE_Bool(enable_shrink_memory);
 
 #ifdef BE_TEST
 // test s3

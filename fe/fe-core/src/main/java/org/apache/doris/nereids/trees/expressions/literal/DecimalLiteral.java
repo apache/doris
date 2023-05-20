@@ -33,8 +33,7 @@ public class DecimalLiteral extends Literal {
     private final BigDecimal value;
 
     public DecimalLiteral(BigDecimal value) {
-        super(DecimalV2Type.createDecimalV2Type(value));
-        this.value = Objects.requireNonNull(value);
+        this(DecimalV2Type.createDecimalV2Type(value), value);
     }
 
     public DecimalLiteral(DecimalV2Type dataType, BigDecimal value) {
