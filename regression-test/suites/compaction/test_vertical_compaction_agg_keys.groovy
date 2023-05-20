@@ -20,52 +20,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_vertical_compaction_agg_keys") {
     def tableName = "vertical_compaction_agg_keys_regression_test"
 
-    def set_be_config = { ->
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
-        for (String[] backend in backends) {
-            StringBuilder setConfigCommand = new StringBuilder();
-            setConfigCommand.append("curl -X POST http://")
-            setConfigCommand.append(backend[2])
-            setConfigCommand.append(":")
-            setConfigCommand.append(backend[5])
-            setConfigCommand.append("/api/update_config?")
-            String command1 = setConfigCommand.toString() + "enable_vertical_compaction=true"
-            logger.info(command1)
-            def process1 = command1.execute()
-            int code = process1.waitFor()
-            assertEquals(code, 0)
-        }
-    }
-    def reset_be_config = { ->
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
-        for (String[] backend in backends) {
-            StringBuilder setConfigCommand = new StringBuilder();
-            setConfigCommand.append("curl -X POST http://")
-            setConfigCommand.append(backend[2])
-            setConfigCommand.append(":")
-            setConfigCommand.append(backend[5])
-            setConfigCommand.append("/api/update_config?")
-            String command1 = setConfigCommand.toString() + "enable_vertical_compaction=false"
-            logger.info(command1)
-            def process1 = command1.execute()
-            int code = process1.waitFor()
-            assertEquals(code, 0)
-        }
-    }
-
     try {
-        //BackendId,Cluster,IP,HeartbeatPort,BePort,HttpPort,BrpcPort,LastStartTime,LastHeartbeat,Alive,SystemDecommissioned,ClusterDecommissioned,TabletNum,DataUsedCapacity,AvailCapacity,TotalCapacity,UsedPct,MaxDiskUsedPct,Tag,ErrMsg,Version,Status
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
         String backend_id;
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
-        for (String[] backend in backends) {
-            backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[5])
-        }
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
         backend_id = backendId_to_backendIP.keySet()[0]
         StringBuilder showConfigCommand = new StringBuilder();
@@ -91,7 +50,6 @@ suite("test_vertical_compaction_agg_keys") {
                 disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
             }
         }
-        set_be_config.call()
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -251,6 +209,5 @@ suite("test_vertical_compaction_agg_keys") {
         qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
-        //reset_be_config.call()
     }
 }

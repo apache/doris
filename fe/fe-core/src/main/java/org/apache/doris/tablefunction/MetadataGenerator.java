@@ -145,8 +145,8 @@ public class MetadataGenerator {
             return errorResult("backends metadata param is not set.");
         }
         TBackendsMetadataParams backendsParam = params.getBackendsMetadataParams();
-        final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
-        List<Long> backendIds = clusterInfoService.getAllBackendIds(false);
+        final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        List<Long> backendIds = systemInfoService.getAllBackendIds(false);
 
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         long start = System.currentTimeMillis();
@@ -154,7 +154,7 @@ public class MetadataGenerator {
 
         List<TRow> dataBatch = Lists.newArrayList();
         for (long backendId : backendIds) {
-            Backend backend = clusterInfoService.getBackend(backendId);
+            Backend backend = systemInfoService.getBackend(backendId);
             if (backend == null) {
                 continue;
             }
@@ -165,7 +165,6 @@ public class MetadataGenerator {
 
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setLongVal(backendId));
-            trow.addToColumnValue(new TCell().setStringVal(SystemInfoService.DEFAULT_CLUSTER));
             trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
             if (Strings.isNullOrEmpty(backendsParam.cluster_name)) {
                 trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
@@ -291,3 +290,4 @@ public class MetadataGenerator {
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 }
+

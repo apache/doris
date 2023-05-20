@@ -577,7 +577,7 @@ public class Backend implements Writable {
     }
 
     public String getHealthyStatus() {
-        return "Backend [id=" + id + ", isDecommission: " + isDecommissioned + ", backendState: " + backendState
+        return "Backend [id=" + id + ", isDecommission: " + isDecommissioned
                 + ", backendStatus: " + backendStatus + ", isAlive: " + isAlive.get() + ", lastUpdateTime: "
                 + TimeUtils.longToTimeString(lastUpdateMs);
     }
