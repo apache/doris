@@ -40,7 +40,11 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+<<<<<<< HEAD
 import java.util.Collections;
+=======
+import java.util.HashMap;
+>>>>>>> baece0a81a (fix regression test fail with mysql-jdbc-connector-8)
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -272,6 +276,37 @@ public abstract class JdbcClient {
             }
         });
         return isExist[0];
+    }
+
+    /**
+     * get all columns like DatabaseMetaData.getColumns in mysql-jdbc-connector
+     */
+    private Map<String, String> getJdbcColumnsTypeInfo(String dbName, String tableName) {
+        Connection conn = getConnection();
+        ResultSet resultSet = null;
+        Map<String, String> fieldtoType = new HashMap<String, String>();
+
+        StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
+        queryBuf.append(tableName);
+        queryBuf.append(" FROM ");
+        queryBuf.append(dbName);
+        try (Statement stmt = conn.createStatement()) {
+            resultSet = stmt.executeQuery(queryBuf.toString());
+            while (resultSet.next()) {
+                // get column name
+                String fieldName = resultSet.getString("Field");
+                // get original type name
+                String typeName = resultSet.getString("Type");
+                fieldtoType.put(fieldName, typeName);
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get column list from jdbc for table %s:%s", tableName,
+                Util.getRootCauseMessage(e));
+        } finally {
+            close(resultSet, conn);
+        }
+
+        return fieldtoType;
     }
 
     /**
