@@ -106,6 +106,23 @@ If the data is stored on S3, the following parameters can be used in properties:
 "s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
 
+#### Google Dataproc Metastore 作为元数据服务
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    "type"="iceberg",
+    "iceberg.catalog.type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.1:9083",
+    "gs.endpoint" = "https://storage.googleapis.com",
+    "gs.region" = "us-east-1",
+    "gs.access_key" = "ak",
+    "gs.secret_key" = "sk",
+    "use_path_style" = "true"
+);
+```
+
+`hive.metastore.uris`: Dataproc Metastore URI，See in Metastore Services ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
+
 ## Column type mapping
 
 Consistent with Hive Catalog, please refer to the **column type mapping** section in [Hive Catalog](./hive.md).
