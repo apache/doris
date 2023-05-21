@@ -46,8 +46,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
@@ -555,6 +557,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         out.writeLong(id);
         Text.writeString(out, fullQualifiedName);
         // write tables
+        discardHudiTable();
         int numTables = nameToTable.size();
         out.writeInt(numTables);
         for (Map.Entry<String, Table> entry : nameToTable.entrySet()) {
@@ -576,6 +579,18 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         dbProperties.write(out);
     }
 
+    private void discardHudiTable() {
+        Iterator<Entry<String, Table>> iterator = nameToTable.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, Table> entry = iterator.next();
+            if (entry.getValue().getType() == TableType.HUDI) {
+                LOG.warn("hudi table is deprecated, discard it. table name: {}", entry.getKey());
+                iterator.remove();
+                idToTable.remove(entry.getValue().getId());
+            }
+        }
+    }
+
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -586,10 +601,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
             Table table = Table.read(in);
-            if (table.getType() == TableType.HUDI) {
-                LOG.warn("read a HUDI table {}, id: {}, discard it.", table.getName(), table.getId());
-                continue;
-            }
             table.setQualifiedDbName(fullQualifiedName);
             String tableName = table.getName();
             nameToTable.put(tableName, table);

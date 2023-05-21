@@ -1219,10 +1219,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
-        if (table.getType() == TableType.HUDI) {
-            LOG.warn("replay creating HUDI table {}, id {}, discard it.", table.getName(), table.getId());
-            return;
-        }
+
         Database db = this.fullNameToDb.get(dbName);
         try {
             db.createTableWithLock(table, true, false);
