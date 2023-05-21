@@ -334,7 +334,7 @@ void MemTable::_aggregate() {
                         _arena->aligned_alloc(_total_size_of_aggregate_states, 16),
                         _offsets_of_aggregate_states.data());
                 for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
-                    auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
+                    auto col_ptr = mutable_block.mutable_columns()[cid].get();
                     auto data = prev_row->agg_places(cid);
                     _agg_functions[cid]->create(data);
                     _agg_functions[cid]->add(
