@@ -415,8 +415,12 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)) {
-            return Type.DECIMALV2;
+                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)
+                || (t1 == PrimitiveType.LARGEINT || t1 == PrimitiveType.DECIMALV2)
+                && (t2 == PrimitiveType.LARGEINT || t2 == PrimitiveType.DECIMALV2)) {
+            // only decimalv3 can hold big and large int
+            return ScalarType.createDecimalType(PrimitiveType.DECIMAL128, ScalarType.MAX_DECIMAL128_PRECISION,
+                    ScalarType.MAX_DECIMALV2_SCALE);
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
