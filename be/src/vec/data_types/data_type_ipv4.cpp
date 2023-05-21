@@ -38,7 +38,7 @@ std::string DataTypeIPv4::to_string(const IColumn& column, size_t row_num) const
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
-    UInt32 value = assert_cast<const ColumnUInt32&>(*ptr).get_element(row_num);
+    IPv4 value = assert_cast<const ColumnIPv4&>(*ptr).get_element(row_num);
     return convert_ipv4_to_string(value);
 }
 
@@ -48,14 +48,14 @@ void DataTypeIPv4::to_string(const IColumn& column, size_t row_num, BufferWritab
 }
 
 Status DataTypeIPv4::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnUInt32*>(column);
+    auto* column_data = static_cast<ColumnIPv4*>(column);
     StringParser::ParseResult result;
-    UInt32 val = StringParser::string_to_unsigned_int<UInt32>(rb.position(), rb.count(), &result);
+    IPv4 val = StringParser::string_to_unsigned_int<IPv4>(rb.position(), rb.count(), &result);
     column_data->insert_value(val);
     return Status::OK();
 }
 
-std::string DataTypeIPv4::convert_ipv4_to_string(UInt32 ipv4) {
+std::string DataTypeIPv4::convert_ipv4_to_string(IPv4 ipv4) {
     std::stringstream ss;
     ss << ((ipv4 >> 24) & 0xFF) << '.'
        << ((ipv4 >> 16) & 0xFF) << '.'
@@ -64,16 +64,16 @@ std::string DataTypeIPv4::convert_ipv4_to_string(UInt32 ipv4) {
     return ss.str();
 }
 
-bool DataTypeIPv4::convert_string_to_ipv4(UInt32& x, std::string ipv4) {
+bool DataTypeIPv4::convert_string_to_ipv4(IPv4& x, std::string ipv4) {
     const static int IPV4_PARTS_NUM = 4;
-    UInt32 parts[IPV4_PARTS_NUM];
+    IPv4 parts[IPV4_PARTS_NUM];
     int part_index = 0;
     std::stringstream ss(ipv4);
     std::string part;
     StringParser::ParseResult result;
 
     while (std::getline(ss, part, '.')) {
-        UInt32 val = StringParser::string_to_unsigned_int<UInt32>(part.data(), part.size(), &result);
+        IPv4 val = StringParser::string_to_unsigned_int<IPv4>(part.data(), part.size(), &result);
         if (UNLIKELY(result != StringParser::PARSE_SUCCESS) || val > 255) {
             return false;
         }
@@ -89,7 +89,7 @@ bool DataTypeIPv4::convert_string_to_ipv4(UInt32& x, std::string ipv4) {
 }
 
 MutableColumnPtr DataTypeIPv4::create_column() const {
-    return DataTypeNumberBase<UInt32>::create_column();
+    return ColumnIPv4::create();
 }
 
 } // namespace doris::vectorized

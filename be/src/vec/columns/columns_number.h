@@ -54,6 +54,9 @@ using ColumnDecimal64 = ColumnDecimal<Decimal64>;
 using ColumnDecimal128 = ColumnDecimal<Decimal128>;
 using ColumnDecimal128I = ColumnDecimal<Decimal128I>;
 
+using ColumnIPv4 = ColumnVector<IPv4>;
+using ColumnIPv6 = ColumnVector<IPv6>;
+
 template <typename T>
 struct IsFixLenColumnType {
     static constexpr bool value = false;

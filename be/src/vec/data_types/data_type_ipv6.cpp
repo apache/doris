@@ -37,7 +37,7 @@ std::string DataTypeIPv6::to_string(const IColumn& column, size_t row_num) const
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
-    UInt128 value = assert_cast<const ColumnUInt128&>(*ptr).get_element(row_num);
+    IPv6 value = assert_cast<const ColumnIPv6&>(*ptr).get_element(row_num);
     return convert_ipv6_to_string(value);
 }
 
@@ -47,8 +47,8 @@ void DataTypeIPv6::to_string(const IColumn& column, size_t row_num, BufferWritab
 }
 
 Status DataTypeIPv6::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnUInt128*>(column);
-    UInt128 value;
+    auto* column_data = static_cast<ColumnIPv6*>(column);
+    IPv6 value;
     if (!convert_string_to_ipv6(value, rb.to_string())) {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                "Invalid value: {} for type IPv6", rb.to_string());
@@ -57,12 +57,12 @@ Status DataTypeIPv6::from_string(ReadBuffer& rb, IColumn* column) const {
     return Status::OK();
 }
 
-std::string DataTypeIPv6::convert_ipv6_to_string(UInt128 ipv6) {
+std::string DataTypeIPv6::convert_ipv6_to_string(IPv6 ipv6) {
     std::stringstream ss;
     ss << std::hex << std::setfill('0');
 
     for (int i = 7; i >= 0; i--) {
-        UInt16 field = (i < 4) ? ((ipv6.low >> (16 * i)) & 0xFFFF) : ((ipv6.high >> (16 * (i - 4))) & 0xFFFF);
+        UInt16 field = (i < 4) ? ((ipv6.high >> (16 * i)) & 0xFFFF) : ((ipv6.low >> (16 * (i - 4))) & 0xFFFF);
         ss << std::setw(4) << field;
         if (i != 0) {
             ss << ":";
@@ -72,7 +72,7 @@ std::string DataTypeIPv6::convert_ipv6_to_string(UInt128 ipv6) {
     return ss.str();
 }
 
-bool DataTypeIPv6::convert_string_to_ipv6(UInt128& x, std::string ipv6) {
+bool DataTypeIPv6::convert_string_to_ipv6(IPv6& x, std::string ipv6) {
     std::stringstream ss(ipv6);
 
     UInt16 fields[8];
@@ -99,7 +99,7 @@ bool DataTypeIPv6::convert_string_to_ipv6(UInt128& x, std::string ipv6) {
 }
 
 MutableColumnPtr DataTypeIPv6::create_column() const {
-    return DataTypeNumberBase<UInt128>::create_column();
+    return ColumnIPv6::create();
 }
 
 } // namespace doris::vectorized

@@ -37,6 +37,8 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
+#include "runtime/ipv4_value.h"
+#include "runtime/ipv6_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -393,11 +395,13 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 buf_ret = rows_buffer[i].push_string(decimal_str.c_str(), decimal_str.length());
             }
             if constexpr (type == TYPE_IPV4) {
-                buf_ret = rows_buffer[i].push_int(data[col_index]);
+                IPv4Value ipv4_val(data[col_index]);
+                auto ipv4_str = ipv4_val.to_string();
+                buf_ret = rows_buffer[i].push_string(ipv4_str.c_str(), ipv4_str.length());
             }
             if constexpr (type == TYPE_IPV6) {
-                UInt128 ipv6 = data[col_index];
-                std::string ipv6_str = ipv6.to_hex_string();
+                IPv6Value ipv6_val(data[col_index]);
+                auto ipv6_str = ipv6_val.to_string();
                 buf_ret = rows_buffer[i].push_string(ipv6_str.c_str(), ipv6_str.length());
             }
         }
