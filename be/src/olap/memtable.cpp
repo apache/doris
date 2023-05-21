@@ -253,24 +253,25 @@ int MemTable::_sort() {
     _vec_row_comparator->set_block(&_input_mutable_block);
     auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
     size_t same_keys_num = 0;
+    bool is_dup = (_keys_type == KeysType::DUP_KEYS);
     // sort new rows
     std::sort(new_row_it, _row_in_blocks.end(),
-              [this, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
+              [this, is_dup, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
                   auto value = (*(this->_vec_row_comparator))(l, r);
                   if (value == 0) {
                       same_keys_num++;
-                      return l->_row_pos > r->_row_pos;
+                      return is_dup ? l->_row_pos > r->_row_pos : l->_row_pos < r->_row_pos ;
                   } else {
                       return value < 0;
                   }
               });
     // merge new rows and old rows
     std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end(),
-                       [this, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
+                       [this, is_dup, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
                            auto value = (*(this->_vec_row_comparator))(l, r);
                            if (value == 0) {
                                same_keys_num++;
-                               return l->_row_pos > r->_row_pos;
+                               return is_dup ? l->_row_pos > r->_row_pos : l->_row_pos < r->_row_pos ;
                            } else {
                                return value < 0;
                            }
