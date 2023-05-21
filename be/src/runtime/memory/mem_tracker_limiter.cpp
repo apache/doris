@@ -514,7 +514,7 @@ int64_t MemTrackerLimiter::tg_memory_limit_gc(
                 MemTracker::print_bytes(mem_consumption), BackendOptions::get_localhost(),
                 MemTracker::print_bytes(used_memory), MemTracker::print_bytes(memory_limit));
     };
-    if (config::enable_query_memroy_overcommit) {
+    if (config::enable_query_memory_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 need_free_mem - freed_mem, query_type, tracker_limiter_groups, cancel_str);
     }
