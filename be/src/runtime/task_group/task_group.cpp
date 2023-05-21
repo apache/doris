@@ -30,7 +30,6 @@
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "service/backend_options.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 
@@ -39,6 +38,7 @@ namespace taskgroup {
 
 const static std::string CPU_SHARE = "cpu_share";
 const static std::string MEMORY_LIMIT = "memory_limit";
+const static std::string ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
 
 pipeline::PipelineTask* TaskGroupEntity::take() {
     if (_queue.empty()) {
@@ -81,15 +81,18 @@ TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
           _name(tg_info.name),
           _cpu_share(tg_info.cpu_share),
           _memory_limit(tg_info.memory_limit),
+          _enable_memory_overcommit(tg_info.enable_memory_overcommit),
           _version(tg_info.version),
           _task_entity(this),
           _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM) {}
 
 std::string TaskGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
-    return fmt::format("TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, version = {}]",
-                       _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
-                       _version);
+    return fmt::format(
+            "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
+            "{}, version = {}]",
+            _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
+            _enable_memory_overcommit ? "true" : "false", _version);
 }
 
 void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
@@ -108,6 +111,7 @@ void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
         _name = tg_info.name;
         _version = tg_info.version;
         _memory_limit = tg_info.memory_limit;
+        _enable_memory_overcommit = tg_info.enable_memory_overcommit;
         if (_cpu_share != tg_info.cpu_share) {
             ExecEnv::GetInstance()->pipeline_task_group_scheduler()->update_tg_cpu_share(
                     tg_info, shared_from_this());
@@ -117,6 +121,17 @@ void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
 
 void TaskGroup::update_cpu_share_unlock(const TaskGroupInfo& tg_info) {
     _cpu_share = tg_info.cpu_share;
+}
+
+int64_t TaskGroup::memory_used() {
+    int64_t used_memory = 0;
+    for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
+        std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
+        for (const auto& tracker : mem_tracker_group.trackers) {
+            used_memory += tracker->consumption();
+        }
+    }
+    return used_memory;
 }
 
 void TaskGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
@@ -131,16 +146,14 @@ void TaskGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> me
     _mem_tracker_limiter_pool[group_num].trackers.erase(mem_tracker_ptr);
 }
 
-int64_t TaskGroup::memory_limit_gc() {
-    std::string name;
-    int64_t memory_limit;
-    {
-        std::shared_lock<std::shared_mutex> rl {_mutex};
-        name = _name;
-        memory_limit = _memory_limit;
-    }
-    return MemTrackerLimiter::tg_memory_limit_gc(_id, name, memory_limit,
-                                                 _mem_tracker_limiter_pool);
+void TaskGroup::task_group_info(TaskGroupInfo* tg_info) const {
+    std::shared_lock<std::shared_mutex> r_lock(_mutex);
+    tg_info->id = _id;
+    tg_info->name = _name;
+    tg_info->cpu_share = _cpu_share;
+    tg_info->memory_limit = _memory_limit;
+    tg_info->enable_memory_overcommit = _enable_memory_overcommit;
+    tg_info->version = _version;
 }
 
 Status TaskGroupInfo::parse_group_info(const TPipelineResourceGroup& resource_group,
@@ -174,6 +187,12 @@ Status TaskGroupInfo::parse_group_info(const TPipelineResourceGroup& resource_gr
         return Status::InternalError(ss.str());
     }
     task_group_info->memory_limit = mem_limit;
+
+    auto enable_memory_overcommit_iter = resource_group.properties.find(ENABLE_MEMORY_OVERCOMMIT);
+    task_group_info->enable_memory_overcommit =
+            enable_memory_overcommit_iter != resource_group.properties.end() &&
+            enable_memory_overcommit_iter->second ==
+                    "true" /* fe guarantees it is 'true' or 'false' */;
     return Status::OK();
 }
 
