@@ -40,15 +40,14 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /*
- * Load statistics of a cluster with specified tag
+ * Load statistics with specified tag
  */
-public class ClusterLoadStatistic {
-    private static final Logger LOG = LogManager.getLogger(ClusterLoadStatistic.class);
+public class LoadStatisticForTag {
+    private static final Logger LOG = LogManager.getLogger(LoadStatisticForTag.class);
 
     private final SystemInfoService infoService;
     private final TabletInvertedIndex invertedIndex;
 
-    private final String clusterName;
     private final Tag tag;
 
     private final Map<TStorageMedium, Long> totalCapacityMap = Maps.newHashMap();
@@ -64,16 +63,11 @@ public class ClusterLoadStatistic {
     private Map<TStorageMedium, TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo>> skewMaps
             = Maps.newHashMap();
 
-    public ClusterLoadStatistic(String clusterName, Tag tag, SystemInfoService infoService,
-                                TabletInvertedIndex invertedIndex) {
-        this.clusterName = clusterName;
+    public LoadStatisticForTag(Tag tag, SystemInfoService infoService,
+            TabletInvertedIndex invertedIndex) {
         this.tag = tag;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
-    }
-
-    public String getClusterName() {
-        return clusterName;
     }
 
     public Tag getTag() {
@@ -81,7 +75,7 @@ public class ClusterLoadStatistic {
     }
 
     public void init() {
-        List<Backend> backends = infoService.getBackendsByTagInCluster(clusterName, tag);
+        List<Backend> backends = infoService.getBackendsByTag(tag);
         for (Backend backend : backends) {
             if (backend.isDecommissioned()) {
                 // Skip the decommission backend.
@@ -94,7 +88,7 @@ public class ClusterLoadStatistic {
             if (!backend.isMixNode()) {
                 continue;
             }
-            BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(), backend.getOwnerClusterName(),
+            BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(),
                     backend.getLocationTag(), infoService, invertedIndex);
             try {
                 beStatistic.init();
@@ -279,7 +273,7 @@ public class ClusterLoadStatistic {
         return newDiff < currentDiff;
     }
 
-    public List<List<String>> getClusterStatistic(TStorageMedium medium) {
+    public List<List<String>> getStatistic(TStorageMedium medium) {
         List<List<String>> statistics = Lists.newArrayList();
 
         for (BackendLoadStatistic beStatistic : beLoadStatistics) {
@@ -374,8 +368,8 @@ public class ClusterLoadStatistic {
         sortBeStats(mid, medium);
         sortBeStats(high, medium);
 
-        LOG.debug("after adjust, cluster {} backend classification low/mid/high: {}/{}/{}, medium: {}",
-                clusterName, low.size(), mid.size(), high.size(), medium);
+        LOG.debug("after adjust, backends' classification low/mid/high: {}/{}/{}, medium: {}",
+                low.size(), mid.size(), high.size(), medium);
     }
 
     public List<BackendLoadStatistic> getSortedBeLoadStats(TStorageMedium medium) {
