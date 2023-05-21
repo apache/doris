@@ -110,3 +110,6 @@ under the License.
     ```
     'fs.defaultFS' = 'hdfs://<your_nameservice_or_actually_HDFS_IP_and_port>'
     ```
+12. 在hive上可以查到hudi表分区字段的值，但是在doris查不到。
+
+    通过Flink Datastram方式写入HUDI时，需要在hudi表结构的avsc里添加上分区字段，仅配置hoodie.datasource.hive_sync.partition_fields时，hudi能够自定生成分区字段，但doris里无法获取到。
