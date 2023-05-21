@@ -85,9 +85,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
     protected static final String DEFAULT_COLUMN_SEPARATOR = ",";
     protected static final String DEFAULT_LINE_DELIMITER = "\n";
-    protected static final String FORMAT = "format";
-    protected static final String COLUMN_SEPARATOR = "column_separator";
-    protected static final String LINE_DELIMITER = "line_delimiter";
+    public static final String FORMAT = "format";
+    public static final String COLUMN_SEPARATOR = "column_separator";
+    public static final String LINE_DELIMITER = "line_delimiter";
     protected static final String JSON_ROOT = "json_root";
     protected static final String JSON_PATHS = "jsonpaths";
     protected static final String STRIP_OUTER_ARRAY = "strip_outer_array";

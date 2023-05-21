@@ -33,6 +33,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The Implement of table valued function
@@ -70,7 +71,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         Map<String, String> tvfParams = getValidParams(params);
         forceVirtualHosted = isVirtualHosted(tvfParams);
         s3uri = getS3Uri(tvfParams);
-        String endpoint = getEndpointFromUri();
+        final String endpoint = Optional.ofNullable(params.get(S3Properties.ENDPOINT)).orElse(getEndpointFromUri());
         CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(endpoint,
                 S3Properties.getRegionOfEndpoint(endpoint),
                 tvfParams.get(S3Properties.ACCESS_KEY),
