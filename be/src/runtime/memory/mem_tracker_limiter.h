@@ -200,7 +200,8 @@ public:
     }
 
     static int64_t tg_memory_limit_gc(
-            uint64_t id, const std::string& name, int64_t memory_limit,
+            int64_t request_free_memory, int64_t used_memory, uint64_t id, const std::string& name,
+            int64_t memory_limit,
             std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups);
 
     // only for Type::QUERY or Type::LOAD.

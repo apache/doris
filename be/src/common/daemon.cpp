@@ -230,7 +230,8 @@ void Daemon::memory_gc_thread() {
         auto sys_mem_available = doris::MemInfo::sys_mem_available();
         auto proc_mem_no_allocator_cache = doris::MemInfo::proc_mem_no_allocator_cache();
 
-        auto tg_free_mem = taskgroup::TaskGroupManager::instance()->memory_limit_gc();
+        // GC excess memory for resource groups that not enable overcommit
+        auto tg_free_mem = doris::MemInfo::tg_hard_memory_limit_gc();
         sys_mem_available += tg_free_mem;
         proc_mem_no_allocator_cache -= tg_free_mem;
 

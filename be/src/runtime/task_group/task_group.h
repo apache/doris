@@ -87,6 +87,18 @@ public:
 
     uint64_t id() const { return _id; }
 
+    bool enable_memory_overcommit() const {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _enable_memory_overcommit;
+    };
+
+    bool memory_limit() const {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _memory_limit;
+    };
+
+    int64_t memory_used();
+
     std::string debug_string() const;
 
     void check_and_update(const TaskGroupInfo& tg_info);
@@ -97,7 +109,11 @@ public:
 
     void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
-    int64_t memory_limit_gc();
+    void task_group_info(TaskGroupInfo* tg_info) const;
+
+    std::vector<TgTrackerLimiterGroup>& mem_tracker_limiter_pool() {
+        return _mem_tracker_limiter_pool;
+    }
 
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
@@ -105,6 +121,7 @@ private:
     std::string _name;
     std::atomic<uint64_t> _cpu_share;
     int64_t _memory_limit; // bytes
+    bool _enable_memory_overcommit;
     int64_t _version;
     TaskGroupEntity _task_entity;
 
@@ -117,8 +134,9 @@ struct TaskGroupInfo {
     uint64_t id;
     std::string name;
     uint64_t cpu_share;
-    int64_t version;
     int64_t memory_limit;
+    bool enable_memory_overcommit;
+    int64_t version;
 
     static Status parse_group_info(const TPipelineResourceGroup& resource_group,
                                    TaskGroupInfo* task_group_info);
