@@ -85,6 +85,8 @@ class VExprContext;
 
 namespace stream_load {
 
+class OpenPartitionClosure;
+
 // The counter of add_batch rpc of a single node
 struct AddBatchCounter {
     // total execution time of a add_batch rpc
@@ -211,6 +213,8 @@ public:
 
     void open();
 
+    void open_partition(int64_t partition_id);
+
     Status init(RuntimeState* state);
 
     Status open_wait();
@@ -312,6 +316,7 @@ protected:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
+    std::unordered_set<std::unique_ptr<OpenPartitionClosure>> _open_partition_closures;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in
@@ -456,7 +461,7 @@ public:
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
-    void _send_batch_process(RuntimeState* state);
+    void _send_batch_process();
 
 private:
     friend class VNodeChannel;
@@ -494,6 +499,8 @@ private:
     Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
                        bool& stop_processing, bool& is_continue);
+
+    void _open_partition(const VOlapTablePartition* partition);
 
     std::shared_ptr<MemTracker> _mem_tracker;
 
@@ -535,8 +542,7 @@ private:
     // index_channel
     std::vector<std::shared_ptr<IndexChannel>> _channels;
 
-    CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _sender_thread;
+    bthread_t _sender_thread = 0;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
     std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
@@ -599,6 +605,8 @@ private:
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
 
     RuntimeState* _state = nullptr;
+
+    std::unordered_set<int64_t> _opened_partitions;
 };
 
 } // namespace stream_load

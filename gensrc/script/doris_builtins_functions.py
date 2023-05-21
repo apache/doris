@@ -689,6 +689,7 @@ visible_functions = [
     [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_STRING'], ''],
 
     [['array_first_index'], 'BIGINT', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
+    [['array_count'], 'BIGINT', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
 
     [['array_shuffle', 'shuffle'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], ''],
     [['array_shuffle', 'shuffle'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], ''],
@@ -1532,6 +1533,9 @@ visible_functions = [
     [['width_bucket'], 'BIGINT', ['BIGINT','BIGINT','BIGINT','BIGINT'], ''],
     [['width_bucket'], 'BIGINT', ['FLOAT','FLOAT','FLOAT','BIGINT'], ''],
     [['width_bucket'], 'BIGINT', ['DOUBLE','DOUBLE','DOUBLE','BIGINT'], ''],
+    [['width_bucket'], 'BIGINT', ['DECIMAL32','DECIMAL32','DECIMAL32','BIGINT'], ''],
+    [['width_bucket'], 'BIGINT', ['DECIMAL64','DECIMAL64','DECIMAL64','BIGINT'], ''],
+    [['width_bucket'], 'BIGINT', ['DECIMAL128','DECIMAL128','DECIMAL128','BIGINT'], ''],
     [['width_bucket'], 'BIGINT', ['DECIMALV2','DECIMALV2','DECIMALV2','BIGINT'], ''],
     [['width_bucket'], 'BIGINT', ['DATE','DATE','DATE','BIGINT'], ''],
     [['width_bucket'], 'BIGINT', ['DATEV2','DATEV2','DATEV2','BIGINT'], ''],
@@ -1622,7 +1626,7 @@ visible_functions = [
     [['field'], 'INT', ['VARCHAR', '...'], ''],
     [['field'], 'INT', ['STRING', '...'], ''],
 
-    # Jsonb functions
+    # JSON functions
     [['jsonb_parse'], 'JSONB', ['VARCHAR'], ''],
     [['jsonb_parse_error_to_null'], 'JSONB', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['jsonb_parse_error_to_value'], 'JSONB', ['VARCHAR', 'VARCHAR'], ''],
@@ -1654,6 +1658,38 @@ visible_functions = [
     [['jsonb_extract_double'], 'DOUBLE', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
     [['jsonb_extract_string'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['jsonb_extract_string'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+
+    [['json_parse'], 'JSONB', ['VARCHAR'], ''],
+    [['json_parse_error_to_null'], 'JSONB', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_parse_error_to_value'], 'JSONB', ['VARCHAR', 'VARCHAR'], ''],
+    [['json_parse_error_to_invalid'], 'JSONB', ['VARCHAR'], ''],
+    [['json_parse_nullable'], 'JSONB', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_parse_nullable_error_to_null'], 'JSONB', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_parse_nullable_error_to_value'], 'JSONB', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_parse_nullable_error_to_invalid'], 'JSONB', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_parse_notnull'], 'JSONB', ['VARCHAR'], ''],
+    [['json_parse_notnull_error_to_value'], 'JSONB', ['VARCHAR', 'VARCHAR'], ''],
+    [['json_parse_notnull_error_to_invalid'], 'JSONB', ['VARCHAR'], ''],
+
+    [['json_exists_path'], 'BOOLEAN', ['JSONB', 'VARCHAR'], ''],
+    [['json_exists_path'], 'BOOLEAN', ['JSONB', 'STRING'], ''],
+    [['json_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['json_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+
+    [['jsonb_extract'], 'JSONB', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['jsonb_extract'], 'JSONB', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['json_extract_isnull'], 'BOOLEAN', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_extract_isnull'], 'BOOLEAN', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['json_extract_bool'], 'BOOLEAN', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_extract_bool'], 'BOOLEAN', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['json_extract_int'], 'INT', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_extract_int'], 'INT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['json_extract_bigint'], 'BIGINT', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_extract_bigint'], 'BIGINT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['json_extract_double'], 'DOUBLE', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_extract_double'], 'DOUBLE', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['json_extract_string'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_extract_string'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
     # Json functions
     [['get_json_int'], 'INT', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1822,6 +1858,9 @@ visible_functions = [
     # search functions
     [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], 'ALWAYS_NOT_NULLABLE'],
     [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], 'ALWAYS_NOT_NULLABLE'],
+    [['like'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
+    [['rlike'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
+    [['regexp'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
 
     [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE'],
 

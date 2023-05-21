@@ -115,7 +115,7 @@ public:
     // For MemTrackerLimiter
     MemTracker() { _parent_group_num = -1; }
 
-    ~MemTracker();
+    virtual ~MemTracker();
 
     static std::string print_bytes(int64_t bytes) {
         return bytes >= 0 ? PrettyPrinter::print(bytes, TUnit::BYTES)
@@ -154,13 +154,13 @@ public:
     static void refresh_all_tracker_profile();
 
 public:
-    Snapshot make_snapshot() const;
+    virtual Snapshot make_snapshot() const;
     // Specify group_num from mem_tracker_pool to generate snapshot.
     static void make_group_snapshot(std::vector<Snapshot>* snapshots, int64_t group_num,
                                     std::string parent_label);
     static std::string log_usage(MemTracker::Snapshot snapshot);
 
-    std::string debug_string() {
+    virtual std::string debug_string() {
         std::stringstream msg;
         msg << "label: " << _label << "; "
             << "consumption: " << consumption() << "; "

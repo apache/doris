@@ -504,11 +504,11 @@ public class SparkLoadJob extends BulkLoadJob {
                                         FsBroker fsBroker = Env.getCurrentEnv().getBrokerMgr().getBroker(
                                                 brokerDesc.getName(), backend.getHost());
                                         tBrokerScanRange.getBrokerAddresses().add(
-                                                new TNetworkAddress(fsBroker.ip, fsBroker.port));
+                                                new TNetworkAddress(fsBroker.host, fsBroker.port));
 
                                         LOG.debug("push task for replica {}, broker {}:{},"
                                                         + " backendId {}, filePath {}, fileSize {}",
-                                                replicaId, fsBroker.ip,
+                                                replicaId, fsBroker.host,
                                                 fsBroker.port, backendId, tBrokerRangeDesc.path,
                                                 tBrokerRangeDesc.file_size);
 

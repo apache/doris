@@ -249,7 +249,6 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
 
 Status VAnalyticEvalNode::alloc_resource(RuntimeState* state) {
     {
-        START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         RETURN_IF_ERROR(ExecNode::alloc_resource(state));
         RETURN_IF_CANCELLED(state);
@@ -297,7 +296,6 @@ void VAnalyticEvalNode::release_resource(RuntimeState* state) {
     if (is_closed()) {
         return;
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::close");
 
     VExpr::close(_partition_by_eq_expr_ctxs, state);
     VExpr::close(_order_by_eq_expr_ctxs, state);
@@ -327,8 +325,6 @@ bool VAnalyticEvalNode::can_read() {
 }
 
 Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
-                                 "VAnalyticEvalNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
 
@@ -539,14 +535,12 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
     Block block;
     RETURN_IF_CANCELLED(state);
     do {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _children[0]->get_next_after_projects(
-                        state, &block, &_input_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                _children[0]->get_next_span(), _input_eos);
+        RETURN_IF_ERROR(_children[0]->get_next_after_projects(
+                state, &block, &_input_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
     } while (!_input_eos && block.rows() == 0);
 
     RETURN_IF_ERROR(sink(state, &block, _input_eos));

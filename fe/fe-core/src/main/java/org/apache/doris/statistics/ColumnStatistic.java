@@ -145,17 +145,17 @@ public class ColumnStatistic {
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
-            if (!StatisticsUtil.isNullOrEmpty(min)) {
+            if (min != null) {
                 columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
                 columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
             } else {
-                columnStatisticBuilder.setMinValue(Double.NaN);
+                columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
             }
-            if (!StatisticsUtil.isNullOrEmpty(max)) {
+            if (max != null) {
                 columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
                 columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
             } else {
-                columnStatisticBuilder.setMinValue(Double.NaN);
+                columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
             columnStatisticBuilder.setSelectivity(1.0);
             columnStatisticBuilder.setOriginalNdv(ndv);
@@ -276,15 +276,19 @@ public class ColumnStatistic {
         JSONObject statistic = new JSONObject();
         statistic.put("Ndv", ndv);
         if (Double.isInfinite(minValue)) {
-            statistic.put("MinValueInfinite", true);
+            statistic.put("MinValueType", "Infinite");
+        } else if (Double.isNaN(minValue)) {
+            statistic.put("MinValueType", "Invalid");
         } else {
-            statistic.put("MinValueInfinite", false);
+            statistic.put("MinValueType", "Normal");
             statistic.put("MinValue", minValue);
         }
         if (Double.isInfinite(maxValue)) {
-            statistic.put("MaxValueInfinite", true);
+            statistic.put("MaxValueType", "Infinite");
+        } else if (Double.isNaN(maxValue)) {
+            statistic.put("MaxValueType", "Invalid");
         } else {
-            statistic.put("MaxValueInfinite", false);
+            statistic.put("MaxValueType", "Normal");
             statistic.put("MaxValue", maxValue);
         }
         statistic.put("Selectivity", selectivity);
@@ -305,8 +309,34 @@ public class ColumnStatistic {
     // Histogram is got by other place
     public static ColumnStatistic fromJson(String statJson) {
         JSONObject stat = new JSONObject(statJson);
-        Double minValue = stat.getBoolean("MinValueInfinite") ? Double.NEGATIVE_INFINITY : stat.getDouble("MinValue");
-        Double maxValue = stat.getBoolean("MaxValueInfinite") ? Double.POSITIVE_INFINITY : stat.getDouble("MaxValue");
+        Double minValue;
+        switch (stat.getString("MinValueType")) {
+            case "Infinite":
+                minValue = Double.NEGATIVE_INFINITY;
+                break;
+            case "Invalid":
+                minValue = Double.NaN;
+                break;
+            case "Normal":
+                minValue = stat.getDouble("MinValue");
+                break;
+            default:
+                throw new RuntimeException(String.format("Min value does not get anytype"));
+        }
+        Double maxValue;
+        switch (stat.getString("MaxValueType")) {
+            case "Infinite":
+                maxValue = Double.POSITIVE_INFINITY;
+                break;
+            case "Invalid":
+                maxValue = Double.NaN;
+                break;
+            case "Normal":
+                maxValue = stat.getDouble("MaxValue");
+                break;
+            default:
+                throw new RuntimeException(String.format("Min value does not get anytype"));
+        }
         return new ColumnStatistic(
             stat.getDouble("Count"),
             stat.getDouble("Ndv"),

@@ -45,6 +45,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -277,6 +278,25 @@ public class Tablet extends MetaObject implements Writable {
         return allQueryableReplica;
     }
 
+    public String getDetailsStatusForQuery(long visibleVersion) {
+        StringBuilder sb = new StringBuilder("Visible Replicas:");
+        sb.append("Visible version: ").append(visibleVersion);
+        sb.append(", Replicas: ");
+        for (Replica replica : replicas) {
+            sb.append(replica.toString());
+        }
+        sb.append(", Backends: ");
+        for (Replica replica : replicas) {
+            Backend be = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
+            if (be == null) {
+                sb.append("Backend [id=" + id + ", not exists]");
+            } else {
+                sb.append(be.getHealthyStatus());
+            }
+        }
+        return sb.toString();
+    }
+
     public Replica getReplicaById(long replicaId) {
         for (Replica replica : replicas) {
             if (replica.getId() == replicaId) {
@@ -415,6 +435,20 @@ public class Tablet extends MetaObject implements Writable {
         LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
                 .mapToLong(Replica::getDataSize);
         return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+    }
+
+    public long getRemoteDataSize() {
+        // if CooldownReplicaId is not init
+        if (cooldownReplicaId <= 0) {
+            return 0;
+        }
+        for (Replica r : replicas) {
+            if (r.getId() == cooldownReplicaId) {
+                return r.getRemoteDataSize();
+            }
+        }
+        // return replica with max remoteDataSize
+        return replicas.stream().max(Comparator.comparing(Replica::getRemoteDataSize)).get().getRemoteDataSize();
     }
 
     public long getRowCount(boolean singleReplica) {

@@ -117,8 +117,8 @@ public class MetadataGenerator {
                     LocalDateTime committedAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(
                             snapshot.timestampMillis()), TimeUtils.getTimeZone().toZoneId());
                     long encodedDatetime = convertToDateTimeV2(committedAt.getYear(), committedAt.getMonthValue(),
-                            committedAt.getDayOfMonth(), committedAt.getHour(),
-                            committedAt.getMinute(), committedAt.getSecond());
+                            committedAt.getDayOfMonth(), committedAt.getHour(), committedAt.getMinute(),
+                            committedAt.getSecond(), committedAt.getNano() / 1000);
 
                     trow.addToColumnValue(new TCell().setLongVal(encodedDatetime));
                     trow.addToColumnValue(new TCell().setLongVal(snapshot.snapshotId()));
@@ -168,11 +168,6 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(backendId));
             trow.addToColumnValue(new TCell().setStringVal(backend.getOwnerClusterName()));
             trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
-            if (backend.getHost() != null) {
-                trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
-            } else {
-                trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
-            }
             if (Strings.isNullOrEmpty(backendsParam.cluster_name)) {
                 trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
                 trow.addToColumnValue(new TCell().setIntVal(backend.getBePort()));
@@ -255,11 +250,10 @@ public class MetadataGenerator {
         for (List<String> rGroupsInfo : resourceGroupsInfo) {
             TRow trow = new TRow();
             Long id = Long.valueOf(rGroupsInfo.get(0));
-            int value = Integer.valueOf(rGroupsInfo.get(3));
             trow.addToColumnValue(new TCell().setLongVal(id));
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1)));
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(2)));
-            trow.addToColumnValue(new TCell().setIntVal(value));
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(3)));
             dataBatch.add(trow);
         }
 
@@ -303,8 +297,9 @@ public class MetadataGenerator {
         return hiveCatalog.loadTable(TableIdentifier.of(db, tbl));
     }
 
-    private static long convertToDateTimeV2(int year, int month, int day, int hour, int minute, int second) {
-        return (long) second << 20 | (long) minute << 26 | (long) hour << 32
+    private static long convertToDateTimeV2(
+            int year, int month, int day, int hour, int minute, int second, int microsecond) {
+        return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 }

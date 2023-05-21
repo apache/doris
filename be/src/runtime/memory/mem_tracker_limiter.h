@@ -28,6 +28,7 @@
 #include <list>
 #include <memory>
 #include <ostream>
+#include <queue>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -41,6 +42,21 @@
 
 namespace doris {
 
+constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
+
+namespace taskgroup {
+struct TgTrackerLimiterGroup;
+class TaskGroup;
+using TaskGroupPtr = std::shared_ptr<TaskGroup>;
+} // namespace taskgroup
+
+class MemTrackerLimiter;
+
+struct TrackerLimiterGroup {
+    std::list<MemTrackerLimiter*> trackers;
+    std::mutex group_lock;
+};
+
 // Track and limit the memory usage of process and query.
 // Contains an limit, arranged into a tree structure.
 //
@@ -49,7 +65,7 @@ namespace doris {
 // will be recorded on this Query, otherwise it will be recorded in Orphan Tracker by default.
 class MemTrackerLimiter final : public MemTracker {
 public:
-    enum Type {
+    enum class Type {
         GLOBAL = 0,        // Life cycle is the same as the process, e.g. Cache and default Orphan
         QUERY = 1,         // Count the memory consumption of all Query tasks.
         LOAD = 2,          // Count the memory consumption of all Load tasks.
@@ -76,9 +92,6 @@ public:
                           {Type::EXPERIMENTAL,
                            std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)}};
 
-    inline static const std::string TypeString[] = {
-            "global", "query", "load", "compaction", "schema_change", "clone", "experimental"};
-
 public:
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
     MemTrackerLimiter(Type type, const std::string& label = std::string(), int64_t byte_limit = -1,
@@ -86,6 +99,28 @@ public:
                       const std::string& profile_counter_name = "PeakMemoryUsage");
 
     ~MemTrackerLimiter();
+
+    static std::string type_string(Type type) {
+        switch (type) {
+        case Type::GLOBAL:
+            return "global";
+        case Type::QUERY:
+            return "query";
+        case Type::LOAD:
+            return "load";
+        case Type::COMPACTION:
+            return "compaction";
+        case Type::SCHEMA_CHANGE:
+            return "schema_change";
+        case Type::CLONE:
+            return "clone";
+        case Type::EXPERIMENTAL:
+            return "experimental";
+        default:
+            LOG(FATAL) << "not match type of mem tracker limiter :" << static_cast<int>(type);
+        }
+        __builtin_unreachable();
+    }
 
     static bool sys_mem_exceed_limit_check(int64_t bytes);
 
@@ -118,7 +153,7 @@ public:
     static void refresh_global_counter();
     static void refresh_all_tracker_profile();
 
-    Snapshot make_snapshot() const;
+    Snapshot make_snapshot() const override;
     // Returns a list of all the valid tracker snapshots.
     static void make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots);
     static void make_type_snapshots(std::vector<MemTracker::Snapshot>* snapshots, Type type);
@@ -126,6 +161,7 @@ public:
     static std::string log_usage(MemTracker::Snapshot snapshot);
     std::string log_usage() { return log_usage(make_snapshot()); }
     static std::string type_log_usage(MemTracker::Snapshot snapshot);
+    static std::string type_detail_usage(const std::string& msg, Type type);
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
     static void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }
@@ -137,6 +173,12 @@ public:
     static int64_t free_top_memory_query(int64_t min_free_mem, const std::string& vm_rss_str,
                                          const std::string& mem_available_str,
                                          Type type = Type::QUERY);
+
+    template <typename TrackerGroups>
+    static int64_t free_top_memory_query(
+            int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
+            const std::function<std::string(int64_t, const std::string&)>& cancel_msg);
+
     static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& vm_rss_str,
                                         const std::string& mem_available_str) {
         return free_top_memory_query(min_free_mem, vm_rss_str, mem_available_str, Type::LOAD);
@@ -146,10 +188,21 @@ public:
     static int64_t free_top_overcommit_query(int64_t min_free_mem, const std::string& vm_rss_str,
                                              const std::string& mem_available_str,
                                              Type type = Type::QUERY);
+
+    template <typename TrackerGroups>
+    static int64_t free_top_overcommit_query(
+            int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
+            const std::function<std::string(int64_t, const std::string&)>& cancel_msg);
+
     static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& vm_rss_str,
                                             const std::string& mem_available_str) {
         return free_top_overcommit_query(min_free_mem, vm_rss_str, mem_available_str, Type::LOAD);
     }
+
+    static int64_t tg_memory_limit_gc(
+            uint64_t id, const std::string& name, int64_t memory_limit,
+            std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups);
+
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
         if (label.rfind("Query#Id=", 0) != 0 && label.rfind("Load#Id=", 0) != 0) {
@@ -162,7 +215,7 @@ public:
     }
 
     static std::string process_mem_log_str();
-    static std::string process_limit_exceeded_errmsg_str(int64_t bytes);
+    static std::string process_limit_exceeded_errmsg_str();
     // Log the memory usage when memory limit is exceeded.
     std::string query_tracker_limit_exceeded_str(const std::string& tracker_limit_exceeded,
                                                  const std::string& last_consumer_tracker,
@@ -170,12 +223,12 @@ public:
     std::string tracker_limit_exceeded_str();
     std::string tracker_limit_exceeded_str(int64_t bytes);
 
-    std::string debug_string() {
+    std::string debug_string() override {
         std::stringstream msg;
         msg << "limit: " << _limit << "; "
             << "consumption: " << _consumption->current_value() << "; "
             << "label: " << _label << "; "
-            << "type: " << TypeString[_type] << "; ";
+            << "type: " << type_string(_type) << "; ";
         return msg.str();
     }
 

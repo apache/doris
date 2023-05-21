@@ -32,6 +32,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -172,11 +173,8 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
     // Direct malloc or new large memory, unable to catch std::bad_alloc, BE may OOM.
     if (size > 4294967296) { // 4G
         _stop_consume = true;
-        LOG(WARNING) << fmt::format("MemHook alloc large memory: {}.", size);
-        if (config::memory_debug) {
-            doris::MemTrackerLimiter::print_log_process_usage(
-                    fmt::format("MemHook alloc large memory: {}.", size));
-        }
+        LOG(WARNING) << fmt::format("MemHook alloc large memory: {}, stacktrace:\n{}", size,
+                                    get_stack_trace());
         _stop_consume = false;
     }
 }

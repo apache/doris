@@ -37,7 +37,7 @@
 #include "util/defer_op.h" // IWYU pragma: keep
 
 // Used to observe the memory usage of the specified code segment
-#ifdef USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
 // Count a code segment memory (memory malloc - memory free) to int64_t
 // Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT(&scope_mem); xxx; xxx; }
 #define SCOPED_MEM_COUNT(scope_mem) \
@@ -56,7 +56,7 @@
 #endif
 
 // Used to observe query/load/compaction/e.g. execution thread memory usage and respond when memory exceeds the limit.
-#ifdef USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
 // Attach to query/load/compaction/e.g. when thread starts.
 // This will save some info about a working thread in the thread context.
 // And count the memory during thread execution (is actually also the code segment that executes the function)

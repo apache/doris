@@ -1993,7 +1993,7 @@ void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint1
         if (!iter.second.first) {
             // predicate not in compound query
             block->get_by_name(iter.first).column =
-                    vectorized::DataTypeUInt8().create_column_const(block->rows(), 1u);
+                    vectorized::DataTypeUInt8().create_column_const(block->rows(), (uint8_t)1);
             continue;
         }
         _build_index_result_column(sel_rowid_idx, select_size, block, iter.first,

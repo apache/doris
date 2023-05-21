@@ -125,7 +125,6 @@ set(VEC_FILES
   data_types/data_type_time.cpp
   data_types/data_type_object.cpp
   exec/vaggregation_node.cpp
-  exec/varrow_scanner.cpp
   exec/vsort_node.cpp
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
@@ -138,7 +137,6 @@ set(VEC_FILES
   exec/vrepeat_node.cpp
   exec/vtable_function_node.cpp
   exec/vjdbc_connector.cpp
-  exec/vparquet_scanner.cpp
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
   exec/join/vnested_loop_join_node.cpp
@@ -211,6 +209,7 @@ set(VEC_FILES
   functions/array/function_array_pushfront.cpp
   functions/array/function_array_first_index.cpp
   functions/array/function_array_cum_sum.cpp
+  functions/array/function_array_count.cpp
   functions/function_map.cpp
   functions/function_struct.cpp
   exprs/table_function/vexplode_json_array.cpp

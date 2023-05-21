@@ -95,4 +95,4 @@ jobs:
           tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
           popd
 
-          ENABLE_PCH=OFF ./run-be-ut.sh --run -j "$(nproc)" --clean
+          ./run-be-ut.sh --run -j "$(nproc)" --clean

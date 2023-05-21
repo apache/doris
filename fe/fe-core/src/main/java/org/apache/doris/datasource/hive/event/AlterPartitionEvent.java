@@ -87,11 +87,11 @@ public class AlterPartitionEvent extends MetastoreTableEvent {
             } else {
                 Env.getCurrentEnv().getCatalogMgr()
                         .refreshExternalPartitions(catalogName, dbName, hmsTbl.getTableName(),
-                                Lists.newArrayList(partitionNameAfter));
+                                Lists.newArrayList(partitionNameAfter), true);
             }
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"));
+                    debugString("Failed to process event"), e);
         }
     }
 }

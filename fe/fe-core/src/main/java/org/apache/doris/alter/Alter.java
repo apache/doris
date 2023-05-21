@@ -18,6 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
@@ -260,7 +261,7 @@ public class Alter {
                     }
                 } else if (alterClause instanceof DropPartitionFromIndexClause) {
                     // do nothing
-                } else if (alterClause instanceof AddPartitionClause) {
+                } else if (alterClause instanceof AddPartitionClause || alterClause instanceof AddPartitionLikeClause) {
                     needProcessOutsideTableLock = true;
                 } else {
                     throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -484,6 +485,12 @@ public class Alter {
                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
                 Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionClause) alterClause);
+            } else if (alterClause instanceof AddPartitionLikeClause) {
+                if (!((AddPartitionLikeClause) alterClause).getIsTempPartition()) {
+                    DynamicPartitionUtil.checkAlterAllowed(
+                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
+                }
+                Env.getCurrentEnv().addPartitionLike(db, tableName, (AddPartitionLikeClause) alterClause);
             } else if (alterClause instanceof ModifyPartitionClause) {
                 ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                 Map<String, String> properties = clause.getProperties();
@@ -522,7 +529,7 @@ public class Alter {
             olapTable = (MaterializedView) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
 
             // 2. drop old job and kill the associated tasks
-            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl());
+            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl(), isReplay);
 
             // 3. overwrite the refresh info in the memory of fe.
             olapTable.writeLock();

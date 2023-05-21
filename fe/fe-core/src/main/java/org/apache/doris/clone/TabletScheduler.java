@@ -1311,11 +1311,15 @@ public class TabletScheduler extends MasterDaemon {
         List<RootPathLoadStatistic> allFitPaths = Lists.newArrayList();
         for (BackendLoadStatistic bes : beStatistics) {
             if (!bes.isAvailable()) {
+                LOG.debug("backend {} is not available, skip. tablet: {}", bes.getBeId(), tabletCtx.getTabletId());
                 continue;
             }
 
             // exclude BE which already has replica of this tablet or another BE at same host has this replica
             if (tabletCtx.filterDestBE(bes.getBeId())) {
+                LOG.debug("backend {} already has replica of this tablet or another BE "
+                                + "at same host has this replica, skip. tablet: {}",
+                        bes.getBeId(), tabletCtx.getTabletId());
                 continue;
             }
 
@@ -1323,9 +1327,13 @@ public class TabletScheduler extends MasterDaemon {
             // Else, check the tag.
             if (forColocate) {
                 if (!tabletCtx.getColocateBackendsSet().contains(bes.getBeId())) {
+                    LOG.debug("backend {} is not in colocate backend set, skip. tablet: {}",
+                            bes.getBeId(), tabletCtx.getTabletId());
                     continue;
                 }
             } else if (!bes.getTag().equals(tag)) {
+                LOG.debug("backend {}'s tag {} is not equal to tablet's tag {}, skip. tablet: {}",
+                        bes.getBeId(), bes.getTag(), tag, tabletCtx.getTabletId());
                 continue;
             }
 
@@ -1334,6 +1342,7 @@ public class TabletScheduler extends MasterDaemon {
                     resultPaths, tabletCtx.getTabletStatus() != TabletStatus.REPLICA_RELOCATING
                     /* if REPLICA_RELOCATING, then it is not a supplement task */);
             if (!st.ok()) {
+                LOG.debug("unable to find path for tablet: {}. {}", tabletCtx, st);
                 // This is to solve, when we decommission some BEs with SSD disks,
                 // if there are no SSD disks on the remaining BEs, it will be impossible to select a
                 // suitable destination path.
@@ -1361,31 +1370,50 @@ public class TabletScheduler extends MasterDaemon {
         // we try to find a path with specified media type, if not find, arbitrarily use one.
         for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
             if (rootPathLoadStatistic.getStorageMedium() != tabletCtx.getStorageMedium()) {
+                LOG.debug("backend {}'s path {}'s storage medium {} "
+                                + "is not equal to tablet's storage medium {}, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        rootPathLoadStatistic.getStorageMedium(), tabletCtx.getStorageMedium(),
+                        tabletCtx.getTabletId());
                 continue;
             }
 
             PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
+                LOG.debug("backend {}'s path {}'s slot is null, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        tabletCtx.getTabletId());
                 continue;
             }
 
             long pathHash = slot.takeSlot(rootPathLoadStatistic.getPathHash());
-            if (pathHash != -1) {
-                return rootPathLoadStatistic;
+            if (pathHash == -1) {
+                LOG.debug("backend {}'s path {}'s slot is full, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        tabletCtx.getTabletId());
+                continue;
             }
+            return rootPathLoadStatistic;
         }
 
         // no root path with specified media type is found, get arbitrary one.
         for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
             PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
+                LOG.debug("backend {}'s path {}'s slot is null, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        tabletCtx.getTabletId());
                 continue;
             }
 
             long pathHash = slot.takeSlot(rootPathLoadStatistic.getPathHash());
-            if (pathHash != -1) {
-                return rootPathLoadStatistic;
+            if (pathHash == -1) {
+                LOG.debug("backend {}'s path {}'s slot is full, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        tabletCtx.getTabletId());
+                continue;
             }
+            return rootPathLoadStatistic;
         }
 
         throw new SchedException(Status.SCHEDULE_FAILED, "unable to find dest path which can be fit in");
@@ -1712,10 +1740,12 @@ public class TabletScheduler extends MasterDaemon {
 
             Slot slot = pathSlots.get(pathHash);
             if (slot == null) {
+                LOG.debug("path {} is not exist", pathHash);
                 return -1;
             }
             slot.rectify();
             if (slot.available <= 0) {
+                LOG.debug("path {} has no available slot", pathHash);
                 return -1;
             }
             slot.available--;

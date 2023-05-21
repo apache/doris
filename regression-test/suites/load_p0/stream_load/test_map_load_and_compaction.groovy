@@ -104,7 +104,7 @@ suite("test_map_load_and_compaction", "p0") {
         String[][] tablets = sql """ show tablets from ${testTable}; """
         String[] tablet = tablets[0]
         // check rowsets number
-        String compactionStatus = tablet[17]
+        String compactionStatus = tablet[18]
         checkCompactionStatus.call(compactionStatus, 6)
 
         // trigger compaction

@@ -227,7 +227,7 @@ public class OlapTableSink extends DataSink {
                 column.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }
-            for (Index index : table.getIndexes()) {
+            for (Index index : indexMeta.getIndexes()) {
                 TOlapTableIndex tIndex = index.toThrift();
                 indexDesc.add(tIndex);
             }

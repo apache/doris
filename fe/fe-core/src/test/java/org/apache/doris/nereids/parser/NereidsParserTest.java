@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -256,7 +257,7 @@ public class NereidsParserTest extends ParserTestBase {
                 .stream()
                 .mapToLong(e -> e.<Set<DecimalLiteral>>collect(DecimalLiteral.class::isInstance).size())
                 .sum();
-        Assertions.assertEquals(doubleCount, 1);
+        Assertions.assertEquals(doubleCount, Config.enable_decimal_conversion ? 0 : 1);
     }
 
     @Test

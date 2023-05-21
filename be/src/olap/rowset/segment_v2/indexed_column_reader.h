@@ -129,6 +129,8 @@ public:
     // After one seek, we can only call this function once to read data
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst);
 
+    void set_is_pk_index(bool is_pk) { _is_pk_index = is_pk; }
+
 private:
     Status _read_data_page(const PagePointer& pp);
 
@@ -147,6 +149,8 @@ private:
     ordinal_t _current_ordinal = 0;
     // iterator owned compress codec, should NOT be shared by threads, initialized before used
     BlockCompressionCodec* _compress_codec = nullptr;
+
+    bool _is_pk_index = false;
 };
 
 } // namespace segment_v2

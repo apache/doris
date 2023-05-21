@@ -196,7 +196,7 @@ suite("test_compaction_uniq_keys_with_delete") {
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             StringBuilder sb = new StringBuilder();
-            def compactionStatusUrlIndex = 17
+            def compactionStatusUrlIndex = 18
             sb.append("curl -X GET ")
             sb.append(tablet[compactionStatusUrlIndex])
             String command = sb.toString()

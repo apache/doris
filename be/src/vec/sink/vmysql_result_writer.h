@@ -80,10 +80,14 @@ private:
     RuntimeProfile::Counter* _result_send_timer = nullptr;
     // number of sent rows
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
+    // size of sent data
+    RuntimeProfile::Counter* _bytes_sent_counter = nullptr;
     // for synchronized results
     ResultList _results;
     // If true, no block will be sent
     bool _is_dry_run = false;
+
+    uint64_t _bytes_sent = 0;
 };
 } // namespace vectorized
 } // namespace doris

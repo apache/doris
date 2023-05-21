@@ -84,6 +84,8 @@ suite("test_export_basic", "p0") {
     sql """ INSERT INTO ${table_export_name} VALUES
             ${sb.toString()}
         """
+    def insert_res = sql "show last insert;"
+    logger.info("insert result: " + insert_res.toString())
     qt_select_export """ SELECT * FROM ${table_export_name} t ORDER BY id; """
 
 

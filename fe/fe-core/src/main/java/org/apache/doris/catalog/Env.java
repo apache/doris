@@ -24,6 +24,7 @@ import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
@@ -171,6 +172,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
+import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
@@ -210,6 +212,7 @@ import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.StatisticsAutoAnalyzer;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
+import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
@@ -330,6 +333,8 @@ public class Env {
     // set to true after finished replay all meta and ready to serve
     // set to false when catalog is not ready.
     private AtomicBoolean isReady = new AtomicBoolean(false);
+    // set to true after http server start
+    private AtomicBoolean httpReady = new AtomicBoolean(false);
     // set to true if FE can offer READ service.
     // canRead can be true even if isReady is false.
     // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
@@ -436,6 +441,8 @@ public class Env {
     private AtomicLong stmtIdCounter;
 
     private ResourceGroupMgr resourceGroupMgr;
+
+    private QueryStats queryStats;
 
     private StatisticsCleaner statisticsCleaner;
 
@@ -651,6 +658,7 @@ public class Env {
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.resourceGroupMgr = new ResourceGroupMgr();
+        this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
     }
@@ -912,6 +920,14 @@ public class Env {
 
     public boolean isReady() {
         return isReady.get();
+    }
+
+    public boolean isHttpReady() {
+        return httpReady.get();
+    }
+
+    public void setHttpReady(boolean httpReady) {
+        this.httpReady.set(httpReady);
     }
 
     private void getClusterIdAndRole() throws IOException {
@@ -2713,6 +2729,11 @@ public class Env {
         getInternalCatalog().addPartition(db, tableName, addPartitionClause);
     }
 
+    public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
+            throws DdlException {
+        getInternalCatalog().addPartitionLike(db, tableName, addPartitionLikeClause);
+    }
+
     public void replayAddPartition(PartitionPersistInfo info) throws MetaNotFoundException {
         getInternalCatalog().replayAddPartition(info);
     }
@@ -4177,6 +4198,9 @@ public class Env {
             if (column != null) {
                 column.setName(newColName);
                 hasColumn = true;
+                Env.getCurrentEnv().getQueryStats()
+                        .rename(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId(),
+                                table.getId(), entry.getKey(), colName, newColName);
             }
         }
         if (!hasColumn) {
@@ -5229,7 +5253,6 @@ public class Env {
         return analysisManager;
     }
 
-
     public GlobalFunctionMgr getGlobalFunctionMgr() {
         return globalFunctionMgr;
     }
@@ -5244,5 +5267,14 @@ public class Env {
 
     public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
         return statisticsAutoAnalyzer;
+    }
+
+    public QueryStats getQueryStats() {
+        return queryStats;
+    }
+
+    public void cleanQueryStats(CleanQueryStatsInfo info) throws DdlException {
+        queryStats.clear(info);
+        editLog.logCleanQueryStats(info);
     }
 }

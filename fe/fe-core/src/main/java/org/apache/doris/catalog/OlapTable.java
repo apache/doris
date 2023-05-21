@@ -290,13 +290,28 @@ public class OlapTable extends Table {
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
-                null, null);
+                null, null, null); // indexes is null by default
+    }
+
+    public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
+            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, List<Index> indexes) {
+        setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
+                keysType,
+                null, null, indexes);
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt,
             Analyzer analyzer) {
+        setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
+                keysType, origStmt, analyzer, null); // indexes is null by default
+    }
+
+    public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
+            int schemaHash,
+            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt,
+            Analyzer analyzer, List<Index> indexes) {
         // Nullable when meta comes from schema change log replay.
         // The replay log only save the index id, so we need to get name by id.
         if (indexName == null) {
@@ -319,7 +334,7 @@ public class OlapTable extends Table {
         }
 
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion,
-                schemaHash, shortKeyColumnCount, storageType, keysType, origStmt);
+                schemaHash, shortKeyColumnCount, storageType, keysType, origStmt, indexes);
         try {
             indexMeta.parseStmt(analyzer);
         } catch (Exception e) {
@@ -1437,6 +1452,14 @@ public class OlapTable extends Table {
             dataSize += partition.getDataSize();
         }
         return dataSize;
+    }
+
+    public long getRemoteDataSize() {
+        long remoteDataSize = 0;
+        for (Partition partition : getAllPartitions()) {
+            remoteDataSize += partition.getRemoteDataSize();
+        }
+        return remoteDataSize;
     }
 
     public long getReplicaCount() {

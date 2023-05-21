@@ -65,6 +65,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
+    public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
     public static final String SQL_MODE = "sql_mode";
@@ -303,7 +304,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
-    public static final String DUMP_NEREIDS = "dump_nereids";
+    public static final String ENABLE_MINIDUMP = "enable_minidump";
 
     public static final String TRACE_NEREIDS = "trace_nereids";
 
@@ -366,6 +367,14 @@ public class SessionVariable implements Serializable, Writable {
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
     public int queryTimeoutS = 300;
+
+    // The global max_execution_time value provides the default for the session value for new connections.
+    // The session value applies to SELECT executions executed within the session that include
+    // no MAX_EXECUTION_TIME(N) optimizer hint or for which N is 0.
+    // https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html
+    // So that it is == query timeout in doris
+    @VariableMgr.VarAttr(name = MAX_EXECUTION_TIME, fuzzy = true, setter = "setMaxExecutionTimeMS")
+    public int maxExecutionTimeMS = -1;
 
     @VariableMgr.VarAttr(name = INSERT_TIMEOUT)
     public int insertTimeoutS = 14400;
@@ -860,8 +869,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
     public boolean dumpNereidsMemo = false;
 
-    @VariableMgr.VarAttr(name = DUMP_NEREIDS)
-    public boolean dumpNereids = false;
+    @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
+    public boolean enableMinidump = false;
 
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
@@ -1051,6 +1060,10 @@ public class SessionVariable implements Serializable, Writable {
         return queryTimeoutS;
     }
 
+    public int getMaxExecutionTimeMS() {
+        return maxExecutionTimeMS;
+    }
+
     public int getInsertTimeoutS() {
         return insertTimeoutS;
     }
@@ -1208,6 +1221,16 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setQueryTimeoutS(int queryTimeoutS) {
         this.queryTimeoutS = queryTimeoutS;
+    }
+
+    public void setMaxExecutionTimeMS(int maxExecutionTimeMS) {
+        this.maxExecutionTimeMS = maxExecutionTimeMS;
+        this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+    }
+
+    public void setMaxExecutionTimeMS(String maxExecutionTimeMS) {
+        this.maxExecutionTimeMS = Integer.valueOf(maxExecutionTimeMS);
+        this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
     }
 
     public String getResourceGroup() {
@@ -2077,12 +2100,12 @@ public class SessionVariable implements Serializable, Writable {
         return "";
     }
 
-    public boolean isDumpNereids() {
-        return dumpNereids;
+    public boolean isEnableMinidump() {
+        return enableMinidump;
     }
 
-    public void setDumpNereids(boolean dumpNereids) {
-        this.dumpNereids = dumpNereids;
+    public void setEnableMinidump(boolean enableMinidump) {
+        this.enableMinidump = enableMinidump;
     }
 
     public boolean isTraceNereids() {
