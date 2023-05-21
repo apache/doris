@@ -260,22 +260,23 @@ int MemTable::_sort() {
                   auto value = (*(this->_vec_row_comparator))(l, r);
                   if (value == 0) {
                       same_keys_num++;
-                      return is_dup ? l->_row_pos > r->_row_pos : l->_row_pos < r->_row_pos ;
+                      return is_dup ? l->_row_pos > r->_row_pos : l->_row_pos < r->_row_pos;
                   } else {
                       return value < 0;
                   }
               });
     // merge new rows and old rows
-    std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end(),
-                       [this, is_dup, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
-                           auto value = (*(this->_vec_row_comparator))(l, r);
-                           if (value == 0) {
-                               same_keys_num++;
-                               return is_dup ? l->_row_pos > r->_row_pos : l->_row_pos < r->_row_pos ;
-                           } else {
-                               return value < 0;
-                           }
-                       });
+    std::inplace_merge(
+            _row_in_blocks.begin(), new_row_it, _row_in_blocks.end(),
+            [this, is_dup, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
+                auto value = (*(this->_vec_row_comparator))(l, r);
+                if (value == 0) {
+                    same_keys_num++;
+                    return is_dup ? l->_row_pos > r->_row_pos : l->_row_pos < r->_row_pos;
+                } else {
+                    return value < 0;
+                }
+            });
     _last_sorted_pos = _row_in_blocks.size();
     return same_keys_num;
 }
