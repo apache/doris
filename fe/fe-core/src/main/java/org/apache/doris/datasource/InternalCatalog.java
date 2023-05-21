@@ -1041,7 +1041,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
             // check cluster capacity
-            Env.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
+            Env.getCurrentSystemInfo().checkAvailableCapacity();
             // check db quota
             db.checkQuota();
         }
@@ -2508,7 +2508,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         if (Config.enable_round_robin_create_tablet) {
             for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
-                int startPos = Env.getCurrentSystemInfo().getStartPosOfRoundRobin(entry.getKey(), clusterName,
+                int startPos = Env.getCurrentSystemInfo().getStartPosOfRoundRobin(entry.getKey(),
                         tabletMeta.getStorageMedium());
                 if (startPos == -1) {
                     throw new DdlException("The number of BEs that match the policy is insufficient");
@@ -2533,21 +2533,20 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (Config.enable_round_robin_create_tablet) {
                     if (!Config.disable_storage_medium_check) {
                         chosenBackendIds = Env.getCurrentSystemInfo()
-                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, clusterName,
-                                        tabletMeta.getStorageMedium(), nextIndexs);
+                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium(),
+                                        nextIndexs);
                     } else {
                         chosenBackendIds = Env.getCurrentSystemInfo()
-                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, clusterName, null,
+                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, null,
                                         nextIndexs);
                     }
                 } else {
                     if (!Config.disable_storage_medium_check) {
                         chosenBackendIds = Env.getCurrentSystemInfo()
-                                .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName,
-                                        tabletMeta.getStorageMedium());
+                                .selectBackendIdsForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium());
                     } else {
                         chosenBackendIds = Env.getCurrentSystemInfo()
-                                .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName, null);
+                                .selectBackendIdsForReplicaCreation(replicaAlloc, null);
                     }
                 }
 

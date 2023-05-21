@@ -1099,8 +1099,6 @@ public enum ErrorCode {
             "There is %d instance already"),
     ERR_CLUSTER_ALTER_BE_IN_DECOMMISSION(5059, new byte[]{'4', '2', '0', '0', '0'},
             "Cluster '%s' has backends in decommission"),
-    ERR_WRONG_CLUSTER_NAME(5062, new byte[]{'4', '2', '0', '0', '0'},
-            "Incorrect cluster name '%s'(name 'default_cluster' is a reserved name)"),
     ERR_WRONG_NAME_FORMAT(5063, new byte[]{'4', '2', '0', '0', '0'},
             "Incorrect %s name '%s'"),
     ERR_COMMON_ERROR(5064, new byte[]{'4', '2', '0', '0', '0'},

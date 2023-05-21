@@ -148,7 +148,7 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
 
         Map<String, Expression> resultMap = new HashMap<>();
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new UserException("No alive backends");
             }
