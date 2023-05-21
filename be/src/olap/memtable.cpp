@@ -255,22 +255,22 @@ int MemTable::_sort() {
     size_t same_keys_num = 0;
     // sort new rows
     std::sort(new_row_it, _row_in_blocks.end(),
-              [this, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
-                  auto value = (*(this->_vec_row_comparator))(l, r);
-                  if (value == 0) {
-                      same_keys_num++;
-                      return l->_row_pos > r->_row_pos;
-                  } else {
-                      return value < 0;
-                  }
-              });
+                     [this, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
+                         auto value = (*(this->_vec_row_comparator))(l, r);
+                         if (value == 0) {
+                             same_keys_num++;
+                             return l->_row_pos < r->_row_pos;
+                         } else {
+                             return value < 0;
+                         }
+                     });
     // merge new rows and old rows
     std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end(),
                        [this, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
                            auto value = (*(this->_vec_row_comparator))(l, r);
                            if (value == 0) {
                                same_keys_num++;
-                               return l->_row_pos > r->_row_pos;
+                               return l->_row_pos < r->_row_pos;
                            } else {
                                return value < 0;
                            }
@@ -301,6 +301,9 @@ void MemTable::finalize_one_row(RowInBlock* row,
                 function->add(agg_place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                               row_pos, nullptr);
             }
+        }
+        if constexpr (is_final) {
+            row->remove_init_agg();
         }
     } else {
         // move columns for rows do not need agg

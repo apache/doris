@@ -64,6 +64,8 @@ struct RowInBlock {
     char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
 
     inline bool has_init_agg() const { return _has_init_agg; }
+
+    inline void remove_init_agg() { _has_init_agg = false; }
 };
 
 class RowInBlockComparator {
