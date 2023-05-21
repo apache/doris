@@ -66,4 +66,10 @@ suite("test_json_function") {
     qt_sql "SELECT json_extract(null, '\$.id');"
     qt_sql "SELECT json_extract('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k1', '\$.k2');"
     qt_sql "SELECT json_extract('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k2.k21', '\$.k2.k22', '\$.k2.k22[1]');"
+
+    qt_sql "SELECT '{\"id\": 123, \"name\": \"doris\"}'->'\$.name';"
+    qt_sql "SELECT null->'\$.id';"
+    qt_sql "SELECT '{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }'->'\$.k2';"
+    qt_sql "SELECT '{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }'->'\$.k2.k22[2]';"
+    qt_sql "SELECT json_extract('{\"id\": 123, \"name\": \"doris\"}', '\$.id', '\$.name')->'\$.[0]';"
 }
