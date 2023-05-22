@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -38,11 +37,6 @@ public class DecimalLiteral extends Literal {
     }
 
     public DecimalLiteral(DecimalV2Type dataType, BigDecimal value) {
-        super(dataType);
-        this.value = Objects.requireNonNull(value.setScale(dataType.getScale(), RoundingMode.DOWN));
-    }
-
-    public DecimalLiteral(DecimalV3Type dataType, BigDecimal value) {
         super(dataType);
         this.value = Objects.requireNonNull(value.setScale(dataType.getScale(), RoundingMode.DOWN));
     }

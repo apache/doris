@@ -495,6 +495,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return result;
     }
 
+    public Expr getChildWithoutCast(int i) {
+        Preconditions.checkArgument(i < children.size(), "child index {0} out of range {1}", i, children.size());
+        Expr child = children.get(i);
+        return child instanceof CastExpr ? child.children.get(0) : child;
+    }
+
     /**
      * Helper function: analyze list of exprs
      *

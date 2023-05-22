@@ -1125,16 +1125,30 @@ public class ScalarType extends Type {
             return t1.isDecimalV2() ? t1 : t2;
         }
 
-        if ((t1.isDecimalV3() && t2.isFixedPointType()) || (t2.isDecimalV3() && t1.isFixedPointType())) {
-            int integerPart = t1.precision - t1.scale;
-            if (t2.isScalarType(PrimitiveType.TINYINT) || t2.isScalarType(PrimitiveType.SMALLINT)) {
+        if ((t1.isDecimalV3() && t2.isFixedPointType())
+                || (t2.isDecimalV3() && t1.isFixedPointType())) {
+            int precision;
+            int scale;
+            ScalarType intType;
+            if (t1.isDecimalV3()) {
+                precision = t1.precision;
+                scale = t1.scale;
+                intType = t2;
+            } else {
+                precision = t2.precision;
+                scale = t2.scale;
+                intType = t1;
+            }
+            int integerPart = precision - scale;
+            if (intType.isScalarType(PrimitiveType.TINYINT)
+                    || intType.isScalarType(PrimitiveType.SMALLINT)) {
                 integerPart = Math.max(integerPart, new BigDecimal(Short.MAX_VALUE).precision());
-            } else if (t2.isScalarType(PrimitiveType.INT)) {
+            } else if (intType.isScalarType(PrimitiveType.INT)) {
                 integerPart = Math.max(integerPart, new BigDecimal(Integer.MAX_VALUE).precision());
             } else {
-                integerPart = ScalarType.MAX_DECIMAL128_PRECISION - t1.scale;
+                integerPart = ScalarType.MAX_DECIMAL128_PRECISION - scale;
             }
-            return ScalarType.createDecimalV3Type(t1.scale + integerPart, t1.scale);
+            return ScalarType.createDecimalV3Type(scale + integerPart, scale);
         }
 
         if (t1.isDecimalV3() && t2.isDecimalV3()) {

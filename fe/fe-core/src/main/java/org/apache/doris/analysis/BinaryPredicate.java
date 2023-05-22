@@ -414,10 +414,10 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
-        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)
-                || (t1 == PrimitiveType.LARGEINT || t1 == PrimitiveType.DECIMALV2)
-                && (t2 == PrimitiveType.LARGEINT || t2 == PrimitiveType.DECIMALV2)) {
+        if ((t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.DECIMALV2)
+                || (t2 == PrimitiveType.BIGINT && t1 == PrimitiveType.DECIMALV2)
+                || (t1 == PrimitiveType.LARGEINT && t2 == PrimitiveType.DECIMALV2)
+                || (t2 == PrimitiveType.LARGEINT && t1 == PrimitiveType.DECIMALV2)) {
             // only decimalv3 can hold big and large int
             return ScalarType.createDecimalType(PrimitiveType.DECIMAL128, ScalarType.MAX_DECIMAL128_PRECISION,
                     ScalarType.MAX_DECIMALV2_SCALE);
@@ -449,7 +449,8 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         if ((t1.isDecimalV3Type() && !t2.isStringType() && !t2.isFloatingPointType())
                 || (t2.isDecimalV3Type() && !t1.isStringType() && !t1.isFloatingPointType())) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
+            return Type.getAssignmentCompatibleType(getChild(0).getType().getResultType(),
+                    getChild(1).getType().getResultType(), false);
         }
 
         return Type.DOUBLE;
@@ -607,9 +608,9 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     public Range<LiteralExpr> convertToRange() {
-        Preconditions.checkState(getChild(0) instanceof SlotRef);
-        Preconditions.checkState(getChild(1) instanceof LiteralExpr);
-        LiteralExpr literalExpr = (LiteralExpr) getChild(1);
+        Preconditions.checkState(getChildWithoutCast(0) instanceof SlotRef);
+        Preconditions.checkState(getChildWithoutCast(1) instanceof LiteralExpr);
+        LiteralExpr literalExpr = (LiteralExpr) getChildWithoutCast(1);
         switch (op) {
             case EQ:
                 return Range.singleton(literalExpr);
