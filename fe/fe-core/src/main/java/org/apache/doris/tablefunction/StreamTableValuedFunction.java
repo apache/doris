@@ -17,9 +17,38 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.thrift.TFileType;
+
+import java.util.List;
+
 /**
  * The Implement of table valued function
- * stream().
+ * stream(xxx).
  */
-public class StreamTableValuedFunction {
+public class StreamTableValuedFunction extends ExternalFileTableValuedFunction{
+    public static final String NAME = "Stream";
+
+    public StreamTableValuedFunction(List<String> params){
+
+    }
+    @Override
+    public TFileType getTFileType() {
+        return null;
+    }
+
+    @Override
+    public String getFilePath() {
+        return null;
+    }
+
+    @Override
+    public BrokerDesc getBrokerDesc() {
+        return null;
+    }
+
+    @Override
+    public String getTableName() {
+        return null;
+    }
 }
