@@ -31,6 +31,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -49,6 +50,7 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/core/block.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 
@@ -76,6 +78,12 @@ public:
 
     std::unique_ptr<vectorized::Block> get_block();
 
+    const vectorized::DataTypeSerDeSPtrs& get_data_type_serdes() const { return _data_type_serdes; }
+
+    const std::unordered_map<uint32_t, uint32_t>& get_col_uid_to_idx() const {
+        return _col_uid_to_idx;
+    }
+
     // do not touch block after returned
     void return_block(std::unique_ptr<vectorized::Block>& block);
 
@@ -92,6 +100,8 @@ private:
     std::vector<std::unique_ptr<vectorized::Block>> _block_pool;
     std::vector<vectorized::VExprContext*> _output_exprs_ctxs;
     int64_t _create_timestamp = 0;
+    vectorized::DataTypeSerDeSPtrs _data_type_serdes;
+    std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;
 };
 
 // RowCache is a LRU cache for row store

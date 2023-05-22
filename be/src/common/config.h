@@ -116,8 +116,6 @@ DECLARE_String(memory_mode);
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-// `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G).
-// 6.4G is the maximum memory reserved for the system by default.
 DECLARE_String(mem_limit);
 
 // Soft memory limit as a fraction of hard memory limit.
@@ -141,6 +139,11 @@ DECLARE_mInt64(mmap_threshold); // bytes
 // Increase can reduce the number of hash table resize, but may waste more memory.
 DECLARE_mInt32(hash_table_double_grow_degree);
 
+// The max fill rate for hash table
+DECLARE_mInt32(max_fill_rate);
+
+DECLARE_mInt32(double_resize_threshold);
+
 // Expand the hash table before inserting data, the maximum expansion size.
 // There are fewer duplicate keys, reducing the number of resize hash tables
 // There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
@@ -161,7 +164,7 @@ DECLARE_mString(process_full_gc_size);
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
-DECLARE_mBool(enable_query_memroy_overcommit);
+DECLARE_mBool(enable_query_memory_overcommit);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
@@ -339,6 +342,10 @@ DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_Bool(disable_storage_row_cache);
 
+// Cache for mow primary key storage page size, it's seperated from
+// storage_page_cache_limit
+DECLARE_String(pk_storage_page_cache_limit);
+
 DECLARE_Bool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
 
@@ -481,7 +488,7 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
-// The configuration is used to enable lazy open feature, and the default value is true.
+// The configuration is used to enable lazy open feature, and the default value is false.
 // When there is mixed deployment in the upgraded version, it needs to be set to false.
 DECLARE_mBool(enable_lazy_open_partition);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
@@ -576,7 +583,7 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
-DECLARE_mInt32(memory_gc_sleep_time_s);
+DECLARE_mInt32(memory_gc_sleep_time_ms);
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 DECLARE_mInt64(load_channel_memory_refresh_sleep_time_ms);
@@ -739,9 +746,6 @@ DECLARE_Int32(aws_log_level);
 // the buffer size when read data from remote storage like s3
 DECLARE_mInt32(remote_storage_read_buffer_mb);
 
-// Print more detailed logs, more detailed records, etc.
-DECLARE_mBool(memory_debug);
-
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
@@ -784,6 +788,10 @@ DECLARE_Int64(download_cache_buffer_size);
 // will run out of memory.
 // When doing compaction, each segment may take at least 1MB buffer.
 DECLARE_mInt32(max_segment_num_per_rowset);
+
+// Store segment without compression if a segment is smaller than
+// segment_compression_threshold_kb.
+DECLARE_mInt32(segment_compression_threshold_kb);
 
 // The connection timeout when connecting to external table such as odbc table.
 DECLARE_mInt32(external_table_connect_timeout_sec);
@@ -953,6 +961,7 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DECLARE_String(file_cache_path);
+DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
@@ -960,6 +969,8 @@ DECLARE_Bool(enable_file_cache_query_limit);
 // inverted index searcher cache
 // cache entry stay time after lookup, default 1h
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
+// cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
+DECLARE_mInt32(index_cache_entry_no_visit_gc_time_s);
 // inverted index searcher cache size
 DECLARE_String(inverted_index_searcher_cache_limit);
 // set `true` to enable insert searcher into cache when write inverted index data
@@ -999,6 +1010,9 @@ DECLARE_mInt32(s3_write_buffer_size);
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DECLARE_mInt32(s3_write_buffer_whole_size);
+
+//enable shrink memory
+DECLARE_Bool(enable_shrink_memory);
 
 #ifdef BE_TEST
 // test s3

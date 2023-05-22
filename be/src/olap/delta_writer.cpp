@@ -45,6 +45,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
@@ -141,8 +142,8 @@ Status DeltaWriter::init() {
     if (!config::disable_auto_compaction &&
         _tablet->exceed_version_limit(config::max_tablet_version_num - 100)) {
         //trigger compaction
-        StorageEngine::instance()->submit_compaction_task(_tablet,
-                                                          CompactionType::CUMULATIVE_COMPACTION);
+        StorageEngine::instance()->submit_compaction_task(
+                _tablet, CompactionType::CUMULATIVE_COMPACTION, true);
         if (_tablet->version_count() > config::max_tablet_version_num) {
             LOG(WARNING) << "failed to init delta writer. version count: "
                          << _tablet->version_count()
@@ -225,7 +226,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
     _mem_table->insert(block, row_idxs, is_append);
 
-    if (UNLIKELY(_mem_table->need_agg())) {
+    if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {
@@ -400,8 +401,11 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
             SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
             return Status::OK();
         }
-        RETURN_IF_ERROR(_tablet->calc_delete_bitmap(_cur_rowset, segments, nullptr, _delete_bitmap,
-                                                    _cur_max_version, true));
+        if (segments.size() > 1) {
+            // calculate delete bitmap between segments
+            RETURN_IF_ERROR(_tablet->calc_delete_bitmap(_cur_rowset, segments, nullptr,
+                                                        _delete_bitmap, _cur_max_version, true));
+        }
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
                 _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
@@ -556,6 +560,14 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         _unfinished_slave_node.insert(node_info.id());
     }
 
+    std::vector<int64_t> indices_ids;
+    auto tablet_schema = _cur_rowset->rowset_meta()->tablet_schema();
+    for (auto& column : tablet_schema->columns()) {
+        const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
+        if (index_meta) {
+            indices_ids.emplace_back(index_meta->index_id());
+        }
+    }
     PTabletWriteSlaveRequest request;
     RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
     request.set_allocated_rowset_meta(&rowset_meta_pb);
@@ -572,6 +584,22 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         segment_name << _cur_rowset->rowset_id() << "_" << segment_id << ".dat";
         int64_t segment_size = std::filesystem::file_size(tablet_path + "/" + segment_name.str());
         request.mutable_segments_size()->insert({segment_id, segment_size});
+
+        if (!indices_ids.empty()) {
+            for (auto index_id : indices_ids) {
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                        tablet_path + "/" + segment_name.str(), index_id);
+                int64_t size = std::filesystem::file_size(inverted_index_file);
+                PTabletWriteSlaveRequest::IndexSize index_size;
+                index_size.set_indexid(index_id);
+                index_size.set_size(size);
+                // Fetch the map value for the current segment_id.
+                // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
+                auto& index_size_map_value = (*request.mutable_inverted_indices_size())[segment_id];
+                // Add the new index size to the map value.
+                *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
+            }
+        }
     }
     RefCountClosure<PTabletWriteSlaveResult>* closure =
             new RefCountClosure<PTabletWriteSlaveResult>();

@@ -49,7 +49,8 @@ VExprContext::VExprContext(VExpr* expr)
 VExprContext::~VExprContext() {
     // Do not delete this code, this code here is used to check if forget to close the opened context
     // Or there will be memory leak
-    DCHECK(!_prepared || _closed) << get_stack_trace();
+    DCHECK(!_prepared || _closed) << get_stack_trace() << " prepare:" << _prepared
+                                  << " closed:" << _closed << " expr:" << _root->debug_string();
 }
 
 doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {

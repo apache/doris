@@ -354,12 +354,9 @@ void TaskScheduler::shutdown() {
     }
 }
 
-void TaskScheduler::try_update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                                          taskgroup::TaskGroupPtr& task_group) {
-    if (!task_group->check_version(task_group_info._version)) {
-        return;
-    }
-    _task_queue->update_task_group(task_group_info, task_group);
+void TaskScheduler::update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                                        taskgroup::TaskGroupPtr task_group) {
+    _task_queue->update_tg_cpu_share(task_group_info, task_group);
 }
 
 } // namespace doris::pipeline

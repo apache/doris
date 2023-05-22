@@ -192,6 +192,39 @@ suite("test_broker_load_p2", "p2") {
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
                     ]
 
+    def task_info = ["cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
+    ]
+
     def error_msg = ["",
                     "",
                     "",
@@ -278,10 +311,12 @@ suite("test_broker_load_p2", "p2") {
                     String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
+                        assertTrue(result[0][6].contains(task_info[i]))
                         assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5] + ", label: $label")
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
+                        assertTrue(result[0][6].contains(task_info[i]))
                         assertTrue(result[0][7].contains(error_msg[i]))
                         break;
                     }

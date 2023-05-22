@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.external.hive.util.HiveUtil;
@@ -296,7 +297,7 @@ public class HiveMetaStoreCache {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
-            String finalLocation = convertToS3IfNecessary(key.location);
+            String finalLocation = S3Util.convertToS3IfNecessary(key.location);
             JobConf jobConf = getJobConf();
             // For Tez engine, it may generate subdirectories for "union" query.
             // So there may be files and directories in the table directory at the same time. eg:
@@ -343,23 +344,6 @@ public class HiveMetaStoreCache {
         } finally {
             Thread.currentThread().setContextClassLoader(classLoader);
         }
-    }
-
-    // convert oss:// to s3://
-    private String convertToS3IfNecessary(String location) {
-        LOG.debug("try convert location to s3 prefix: " + location);
-        if (location.startsWith(FeConstants.FS_PREFIX_COS)
-                || location.startsWith(FeConstants.FS_PREFIX_BOS)
-                || location.startsWith(FeConstants.FS_PREFIX_OSS)
-                || location.startsWith(FeConstants.FS_PREFIX_S3A)
-                || location.startsWith(FeConstants.FS_PREFIX_S3N)) {
-            int pos = location.indexOf("://");
-            if (pos == -1) {
-                throw new RuntimeException("No '://' found in location: " + location);
-            }
-            return "s3" + location.substring(pos);
-        }
-        return location;
     }
 
     private JobConf getJobConf() {
@@ -571,8 +555,8 @@ public class HiveMetaStoreCache {
     }
 
     public void dropPartitionsCache(String dbName, String tblName, List<String> partitionNames,
-            List<Type> partitionColumnTypes, boolean invalidPartitionCache) {
-        PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, partitionColumnTypes);
+                                    boolean invalidPartitionCache) {
+        PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, null);
         HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
         if (partitionValues == null) {
             return;
@@ -595,17 +579,22 @@ public class HiveMetaStoreCache {
             idToPartitionItemBefore.remove(partitionId);
             partitionValuesMap.remove(partitionId);
             List<UniqueId> uniqueIds = idToUniqueIdsMapBefore.remove(partitionId);
-            if (key.types.size() > 1) {
-                for (UniqueId uniqueId : uniqueIds) {
+            for (UniqueId uniqueId : uniqueIds) {
+                if (uidToPartitionRangeBefore != null) {
                     Range<PartitionKey> range = uidToPartitionRangeBefore.remove(uniqueId);
-                    rangeToIdBefore.remove(range);
+                    if (range != null) {
+                        rangeToIdBefore.remove(range);
+                    }
                 }
-            } else {
-                for (UniqueId uniqueId : uniqueIds) {
+
+                if (singleUidToColumnRangeMapBefore != null) {
                     Range<ColumnBound> range = singleUidToColumnRangeMapBefore.remove(uniqueId);
-                    singleColumnRangeMapBefore.remove(range);
+                    if (range != null) {
+                        singleColumnRangeMapBefore.remove(range);
+                    }
                 }
             }
+
             if (invalidPartitionCache) {
                 invalidatePartitionCache(dbName, tblName, partitionName);
             }

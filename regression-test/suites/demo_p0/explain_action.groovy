@@ -16,6 +16,10 @@
 // under the License.
 
 suite("explain_action") {
+
+    // this case check explain, so we disable nereids
+    sql """set enable_nereids_planner=false"""
+
     explain {
         sql("select 100")
 

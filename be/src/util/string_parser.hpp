@@ -272,7 +272,7 @@ T StringParser::string_to_int_internal(const char* s, int len, ParseResult* resu
     switch (*s) {
     case '-':
         negative = true;
-        max_val = StringParser::numeric_limits<T>(false) + 1;
+        max_val += 1;
         [[fallthrough]];
     case '+':
         ++i;

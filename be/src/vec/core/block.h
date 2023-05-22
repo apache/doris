@@ -121,7 +121,11 @@ public:
     void initialize_index_by_name();
 
     /// References are invalidated after calling functions above.
-    ColumnWithTypeAndName& get_by_position(size_t position) { return data[position]; }
+    ColumnWithTypeAndName& get_by_position(size_t position) {
+        DCHECK(data.size() > position)
+                << ", data.size()=" << data.size() << ", position=" << position;
+        return data[position];
+    }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
 
     // need exception safety

@@ -249,12 +249,14 @@ export CMAKE_CMD
 
 GENERATOR="Unix Makefiles"
 BUILD_SYSTEM="make"
-if ninja --version 2>/dev/null; then
+if NINJA_VERSION="$(ninja --version 2>/dev/null)"; then
+    echo "ninja ${NINJA_VERSION}"
     GENERATOR="Ninja"
     BUILD_SYSTEM="ninja"
 fi
 
-if ccache --version >/dev/null; then
+if CCACHE_VERSION="$(ccache --version 2>/dev/null)"; then
+    echo "${CCACHE_VERSION}" | head -n 1
     # shellcheck disable=2034
     CMAKE_USE_CCACHE="-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
 fi

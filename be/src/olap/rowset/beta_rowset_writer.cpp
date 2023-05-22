@@ -421,7 +421,6 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
             max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }
-
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
         auto s = (*segment_writer)->append_block(block, row_offset, input_row_num);
         if (UNLIKELY(!s.ok())) {
@@ -694,6 +693,9 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
     writer_options.is_direct_write = _context.is_direct_write;
+    if (is_segcompaction) {
+        writer_options.is_direct_write = false;
+    }
 
     if (is_segcompaction) {
         writer->reset(new segment_v2::SegmentWriter(

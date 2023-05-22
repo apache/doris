@@ -71,9 +71,11 @@ import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.HudiScanNode;
+import org.apache.doris.planner.external.MaxComputeScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TNullSide;
 import org.apache.doris.thrift.TPushAggOp;
 
@@ -1992,9 +1994,6 @@ public class SingleNodePlanner {
                 throw new RuntimeException("Hive external table is not supported, try to use hive catalog please");
             case ICEBERG:
                 throw new RuntimeException("Iceberg external table is not supported, use iceberg catalog please");
-            case HUDI:
-                throw new UserException(
-                        "Hudi table is no longer supported. Use Multi Catalog feature to connect to Hudi");
             case JDBC:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;
@@ -2020,6 +2019,11 @@ public class SingleNodePlanner {
             case ICEBERG_EXTERNAL_TABLE:
                 scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
+            case MAX_COMPUTE_EXTERNAL_TABLE:
+                // TODO: support max compute scan node
+                scanNode = new MaxComputeScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "MCScanNode",
+                        StatisticalType.MAX_COMPUTE_SCAN_NODE, true);
+                break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
                 break;
@@ -2030,7 +2034,7 @@ public class SingleNodePlanner {
                 scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             default:
-                break;
+                throw new UserException("Not supported table type" + tblRef.getTable().getType());
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
                 || scanNode instanceof FileQueryScanNode) {

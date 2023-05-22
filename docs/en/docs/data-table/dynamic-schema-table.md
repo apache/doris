@@ -33,6 +33,10 @@ A dynamic schema table is a special kind of table which schema expands automatic
 - Static column, column specified during table creation, such as partition columns, primary key columns
 - Dynamic column, columns automatically recognized and added during import
 
+## Specifies the dynamic table identity
+- Method 1: By adding ... to the last column.
+- Method 2: By specifying "dynamic_schema" = "true" in properties
+
 ## Create dynamic table
 
 ```sql
@@ -40,6 +44,7 @@ CREATE DATABASE test_dynamic_table;
 
 -- Create table and specify static column types, import will automatically convert to the type of static column
 -- Choose random bucketing
+-- Method 1: By ... Identifies the table as a dynamic table
 CREATE TABLE IF NOT EXISTS test_dynamic_table (
                 qid bigint,
                 `answers.date` array<datetime>,
@@ -49,6 +54,19 @@ CREATE TABLE IF NOT EXISTS test_dynamic_table (
 DUPLICATE KEY(`qid`)
 DISTRIBUTED BY RANDOM BUCKETS 5 
 properties("replication_num" = "1");
+
+-- Method 2: By specifying "dynamic_schema" = "true" in properties
+CREATE TABLE IF NOT EXISTS test_dynamic_table (
+                qid bigint,
+                `answers.date` array<datetime>,
+                `title` string
+        )
+DUPLICATE KEY(`qid`)
+DISTRIBUTED BY RANDOM BUCKETS 5 
+properties(
+    "replication_num" = "1",
+    "dynamic_schema" = "true"
+);
 
 -- Three Columns are added to the table by default, and their types are specified
 mysql> DESC test_dynamic_table;

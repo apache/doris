@@ -140,6 +140,8 @@ public class ScalarType extends Type {
                 return createDecimalV3Type(precision, scale);
             case DECIMALV2:
                 return createDecimalType(precision, scale);
+            case DATETIMEV2:
+                return createDatetimeV2Type(scale);
             default:
                 return createType(type);
         }
@@ -238,7 +240,7 @@ public class ScalarType extends Type {
                 return CHAR;
             case "VARCHAR":
                 return createVarcharType();
-            case "JSONB":
+            case "JSON":
                 return createJsonbType();
             case "STRING":
             case "TEXT":
@@ -546,7 +548,7 @@ public class ScalarType extends Type {
         } else if (type == PrimitiveType.STRING) {
             return "TEXT";
         } else if (type == PrimitiveType.JSONB) {
-            return "JSONB";
+            return "JSON";
         }
         return type.toString();
     }
@@ -631,7 +633,7 @@ public class ScalarType extends Type {
                 stringBuilder.append("text");
                 break;
             case JSONB:
-                stringBuilder.append("jsonb");
+                stringBuilder.append("json");
                 break;
             case ARRAY:
                 stringBuilder.append(type.toString().toLowerCase());

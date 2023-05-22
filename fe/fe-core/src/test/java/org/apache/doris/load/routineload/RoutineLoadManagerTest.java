@@ -276,10 +276,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                systemInfoService.getClusterBackendIds(anyString, true);
-                minTimes = 0;
-                result = beIds;
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = beIds;
             }
@@ -315,7 +312,7 @@ public class RoutineLoadManagerTest {
     public void testGetMinTaskBeIdWhileClusterDeleted() {
         new Expectations() {
             {
-                systemInfoService.getClusterBackendIds(anyString, true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = null;
             }
@@ -346,10 +343,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                systemInfoService.getClusterBackendIds(anyString, true);
-                minTimes = 0;
-                result = beIds;
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = beIds;
                 routineLoadJob.getBeCurrentTasksNumMap();
@@ -390,7 +384,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = beIds;
             }
@@ -435,7 +429,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 returns(oldBeIds, newBeIds);
             }

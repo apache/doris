@@ -249,6 +249,7 @@ Status Segment::load_index() {
             opts.page_pointer = PagePointer(_footer.short_key_index_page());
             opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
             OlapReaderStatistics tmp_stats;
+            opts.use_page_cache = true;
             opts.stats = &tmp_stats;
             opts.type = INDEX_PAGE;
             Slice body;

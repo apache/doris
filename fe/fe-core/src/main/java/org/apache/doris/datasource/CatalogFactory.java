@@ -113,6 +113,9 @@ public class CatalogFactory {
             case "iceberg":
                 catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props);
                 break;
+            case "max_compute":
+                catalog = new MaxComputeExternalCatalog(catalogId, name, resource, props);
+                break;
             case "test":
                 if (!FeConstants.runningUnitTest) {
                     throw new DdlException("test catalog is only for FE unit test");

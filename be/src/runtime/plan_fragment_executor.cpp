@@ -99,7 +99,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
         tracer = telemetry::get_tracer(print_id(_query_id));
     }
-    START_AND_SCOPE_SPAN(tracer, span, "PlanFragmentExecutor::prepare");
+    _span = tracer->StartSpan("Plan_fragment_executor");
+    OpentelemetryScope scope {_span};
 
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
@@ -224,7 +225,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up profile counters
     profile()->add_child(_plan->runtime_profile(), true, nullptr);
-    profile()->add_info_string("DoriBeVersion", version::doris_build_short_hash());
+    profile()->add_info_string("DorisBeVersion", version::doris_build_short_hash());
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
@@ -305,7 +306,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             return Status::OK();
         }
         RETURN_IF_ERROR(_sink->open(runtime_state()));
-        auto sink_send_span_guard = Defer {[this]() { this->_sink->end_send_span(); }};
         doris::vectorized::Block block;
         bool eos = false;
 
@@ -348,14 +348,12 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block* block, bool* eos) {
     while (!_done) {
         block->clear_column_data(_plan->row_desc().num_materialized_slots());
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _plan->get_next_after_projects(
-                        _runtime_state.get(), block, &_done,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _plan, std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                _plan->get_next_span(), _done);
+        RETURN_IF_ERROR(_plan->get_next_after_projects(
+                _runtime_state.get(), block, &_done,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _plan, std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
         if (block->rows() > 0) {
             COUNTER_UPDATE(_rows_produced_counter, block->rows());
@@ -564,7 +562,7 @@ void PlanFragmentExecutor::close() {
                   << print_id(_runtime_state->fragment_instance_id());
     }
 
-    profile()->add_to_span();
+    profile()->add_to_span(_span);
     _closed = true;
 }
 

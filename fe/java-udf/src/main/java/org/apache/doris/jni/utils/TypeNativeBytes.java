@@ -62,8 +62,13 @@ public class TypeNativeBytes {
     }
 
     public static long convertToDateTimeV2(int year, int month, int day, int hour, int minute, int second) {
-        // todo: Has lost precision ? How about millisecond, microsecond ...
         return (long) second << 20 | (long) minute << 26 | (long) hour << 32
+                | (long) day << 37 | (long) month << 42 | (long) year << 46;
+    }
+
+    public static long convertToDateTimeV2(int year, int month, int day, int hour, int minute, int second,
+            int microsecond) {
+        return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 
@@ -91,10 +96,11 @@ public class TypeNativeBytes {
         int hour = (int) ((time >> 32) & 0X1F);
         int minute = (int) ((time >> 26) & 0X3F);
         int second = (int) ((time >> 20) & 0X3F);
+        int microsecond = (int) (time & 0XFFFFF);
 
         LocalDateTime value;
         try {
-            value = LocalDateTime.of(year, month, day, hour, minute, second);
+            value = LocalDateTime.of(year, month, day, hour, minute, second, microsecond * 1000);
         } catch (DateTimeException e) {
             value = LocalDateTime.MAX;
         }

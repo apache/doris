@@ -45,9 +45,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/proto_util.h"
 #include "util/telemetry/telemetry.h"
-#include "vec/columns/column.h"
 #include "vec/common/sip_hash.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
@@ -480,7 +478,6 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
 }
 
 Status VDataStreamSender::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::open");
     DCHECK(state != nullptr);
     int local_size = 0;
     for (int i = 0; i < _channels.size(); ++i) {
@@ -498,7 +495,6 @@ Status VDataStreamSender::open(RuntimeState* state) {
 }
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VDataStreamSender::send")
     SCOPED_TIMER(_profile->total_time_counter());
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
@@ -635,7 +631,6 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
 
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::close");
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
         Status st = _channels[i]->close(state);

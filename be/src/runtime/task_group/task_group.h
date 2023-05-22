@@ -25,6 +25,7 @@
 #include <queue>
 #include <shared_mutex>
 #include <string>
+#include <unordered_set>
 
 #include "common/status.h"
 
@@ -35,13 +36,12 @@ class PipelineTask;
 }
 
 class TPipelineResourceGroup;
+class MemTrackerLimiter;
 
 namespace taskgroup {
 
 class TaskGroup;
 struct TaskGroupInfo;
-
-const static std::string CPU_SHARE = "cpu_share";
 
 class TaskGroupEntity {
 public:
@@ -72,9 +72,14 @@ private:
 
 using TGEntityPtr = TaskGroupEntity*;
 
-class TaskGroup {
+struct TgTrackerLimiterGroup {
+    std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
+    std::mutex group_lock;
+};
+
+class TaskGroup : public std::enable_shared_from_this<TaskGroup> {
 public:
-    TaskGroup(uint64_t id, std::string name, uint64_t cpu_share, int64_t version);
+    explicit TaskGroup(const TaskGroupInfo& tg_info);
 
     TaskGroupEntity* task_entity() { return &_task_entity; }
 
@@ -82,28 +87,56 @@ public:
 
     uint64_t id() const { return _id; }
 
-    std::string debug_string() const;
+    bool enable_memory_overcommit() const {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _enable_memory_overcommit;
+    };
 
-    bool check_version(int64_t version) const;
+    bool memory_limit() const {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _memory_limit;
+    };
+
+    int64_t memory_used();
+
+    std::string debug_string() const;
 
     void check_and_update(const TaskGroupInfo& tg_info);
 
+    void update_cpu_share_unlock(const TaskGroupInfo& tg_info);
+
+    void add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
+
+    void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
+
+    void task_group_info(TaskGroupInfo* tg_info) const;
+
+    std::vector<TgTrackerLimiterGroup>& mem_tracker_limiter_pool() {
+        return _mem_tracker_limiter_pool;
+    }
+
 private:
-    mutable std::shared_mutex mutex;
+    mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
     std::atomic<uint64_t> _cpu_share;
-    TaskGroupEntity _task_entity;
+    int64_t _memory_limit; // bytes
+    bool _enable_memory_overcommit;
     int64_t _version;
+    TaskGroupEntity _task_entity;
+
+    std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
 };
 
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
 
 struct TaskGroupInfo {
-    uint64_t _id;
-    std::string _name;
-    uint64_t _cpu_share;
-    int64_t _version;
+    uint64_t id;
+    std::string name;
+    uint64_t cpu_share;
+    int64_t memory_limit;
+    bool enable_memory_overcommit;
+    int64_t version;
 
     static Status parse_group_info(const TPipelineResourceGroup& resource_group,
                                    TaskGroupInfo* task_group_info);

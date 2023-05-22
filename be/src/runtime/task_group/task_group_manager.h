@@ -33,6 +33,9 @@ public:
 
     TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
 
+    void get_resource_groups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
+                             std::vector<TaskGroupPtr>* task_groups);
+
 private:
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;

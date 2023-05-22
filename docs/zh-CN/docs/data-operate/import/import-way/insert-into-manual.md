@@ -207,7 +207,7 @@ TransactionStatus: VISIBLE
 
   默认为 false。可通过 `SET enable_insert_strict = true;` 来设置。 
 
-+ query\_timeout
++ insert\_timeout
 
   Insert Into 本身也是一个 SQL 命令，Insert Into 语句受到 Session 变量 <version since="dev" type="inline">`insert_timeout`</version> 的限制。可以通过 `SET insert_timeout = xxx;` 来增加超时时间，单位是秒。
 

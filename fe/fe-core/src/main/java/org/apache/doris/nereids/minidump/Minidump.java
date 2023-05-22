@@ -138,15 +138,16 @@ public class Minidump {
         ConnectContext connectContext = new ConnectContext();
         connectContext.setSessionVariable(minidump.getSessionVariable());
         connectContext.setTables(minidump.getTables());
-        connectContext.getSessionVariable().setDumpNereids(false);
+        connectContext.getSessionVariable().setEnableMinidump(false);
         connectContext.setDatabase(minidump.getDbName());
         connectContext.getSessionVariable().setPlanNereidsDump(true);
-        connectContext.getSessionVariable().enableNereidsTimeout = true;
+        connectContext.getSessionVariable().enableNereidsTimeout = false;
         connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         connectContext.getSessionVariable().setEnableNereidsTrace(false);
         connectContext.getSessionVariable().setNereidsTraceEventMode("all");
         connectContext.getTotalColumnStatisticMap().putAll(minidump.getTotalColumnStatisticMap());
         connectContext.getTotalHistogramMap().putAll(minidump.getTotalHistogramMap());
+        connectContext.setThreadLocalInfo();
         Env.getCurrentEnv().setColocateTableIndex(minidump.getColocateTableIndex());
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(minidump.getSql());

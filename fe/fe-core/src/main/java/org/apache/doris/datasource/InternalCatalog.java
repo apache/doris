@@ -128,9 +128,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
-import org.apache.doris.external.hudi.HudiProperty;
-import org.apache.doris.external.hudi.HudiTable;
-import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.mtmv.MTMVJobFactory;
@@ -1041,7 +1038,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
             // check cluster capacity
-            Env.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
+            Env.getCurrentSystemInfo().checkAvailableCapacity();
             // check db quota
             db.checkQuota();
         }
@@ -1076,9 +1073,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             return;
         } else if (engineName.equalsIgnoreCase("iceberg")) {
             IcebergCatalogMgr.createIcebergTable(db, stmt);
-            return;
-        } else if (engineName.equalsIgnoreCase("hudi")) {
-            createHudiTable(db, stmt);
             return;
         } else if (engineName.equalsIgnoreCase("jdbc")) {
             createJdbcTable(db, stmt);
@@ -1225,6 +1219,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
+
         Database db = this.fullNameToDb.get(dbName);
         try {
             db.createTableWithLock(table, true, false);
@@ -2087,7 +2082,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         int schemaHash = Util.generateSchemaHash();
         olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash, shortKeyColumnCount,
-                baseIndexStorageType, keysType);
+                baseIndexStorageType, keysType, olapTable.getIndexes());
 
         for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
             AddRollupClause addRollupClause = (AddRollupClause) alterClause;
@@ -2110,7 +2105,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
-                    rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
+                    rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType, null);
         }
 
         // analyse sequence map column
@@ -2419,52 +2414,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
     }
 
-    private void createHudiTable(Database db, CreateTableStmt stmt) throws DdlException {
-        String tableName = stmt.getTableName();
-        List<Column> columns = stmt.getColumns();
-        long tableId = Env.getCurrentEnv().getNextId();
-        HudiTable hudiTable = new HudiTable(tableId, tableName, columns, stmt.getProperties());
-        hudiTable.setComment(stmt.getComment());
-        // check hudi properties in create stmt.
-        HudiUtils.validateCreateTable(hudiTable);
-        // check hudi table whether exists in hive database
-        HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HMSProperties.HIVE_METASTORE_URIS,
-                hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS));
-        PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
-        if (!client.tableExists(hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName())) {
-            throw new DdlException(
-                    String.format("Table [%s] dose not exist in Hive Metastore.", hudiTable.getHmsTableIdentifer()));
-        }
-
-        org.apache.hadoop.hive.metastore.api.Table hiveTable = client.getTable(
-                hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName());
-        if (!HudiUtils.isHudiTable(hiveTable)) {
-            throw new DdlException(String.format("Table [%s] is not a hudi table.", hudiTable.getHmsTableIdentifer()));
-        }
-        // after support snapshot query for mor, we should remove the check.
-        if (HudiUtils.isHudiRealtimeTable(hiveTable)) {
-            throw new DdlException(String.format("Can not support hudi realtime table.", hudiTable.getHmsTableName()));
-        }
-        // check table's schema when user specify the schema
-        if (!hudiTable.getFullSchema().isEmpty()) {
-            HudiUtils.validateColumns(hudiTable, hiveTable);
-        }
-        switch (hiveTable.getTableType()) {
-            case "EXTERNAL_TABLE":
-            case "MANAGED_TABLE":
-                break;
-            case "VIRTUAL_VIEW":
-            default:
-                throw new DdlException("unsupported hudi table type [" + hiveTable.getTableType() + "].");
-        }
-        // check hive table if exists in doris database
-        if (!db.createTableWithLock(hudiTable, false, stmt.isSetIfNotExists()).first) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-        }
-        LOG.info("successfully create table[{}-{}]", tableName, tableId);
-    }
-
     private void createJdbcTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
         List<Column> columns = stmt.getColumns();
@@ -2508,7 +2457,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         if (Config.enable_round_robin_create_tablet) {
             for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
-                int startPos = Env.getCurrentSystemInfo().getStartPosOfRoundRobin(entry.getKey(), clusterName,
+                int startPos = Env.getCurrentSystemInfo().getStartPosOfRoundRobin(entry.getKey(),
                         tabletMeta.getStorageMedium());
                 if (startPos == -1) {
                     throw new DdlException("The number of BEs that match the policy is insufficient");
@@ -2533,21 +2482,20 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (Config.enable_round_robin_create_tablet) {
                     if (!Config.disable_storage_medium_check) {
                         chosenBackendIds = Env.getCurrentSystemInfo()
-                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, clusterName,
-                                        tabletMeta.getStorageMedium(), nextIndexs);
+                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium(),
+                                        nextIndexs);
                     } else {
                         chosenBackendIds = Env.getCurrentSystemInfo()
-                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, clusterName, null,
+                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, null,
                                         nextIndexs);
                     }
                 } else {
                     if (!Config.disable_storage_medium_check) {
                         chosenBackendIds = Env.getCurrentSystemInfo()
-                                .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName,
-                                        tabletMeta.getStorageMedium());
+                                .selectBackendIdsForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium());
                     } else {
                         chosenBackendIds = Env.getCurrentSystemInfo()
-                                .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName, null);
+                                .selectBackendIdsForReplicaCreation(replicaAlloc, null);
                     }
                 }
 
@@ -2875,9 +2823,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             newChecksum ^= db.getId();
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
-            if (db.getDbState() == DbState.LINK) {
-                fullNameToDb.put(db.getAttachDb(), db);
-            }
             Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
         }
         // ATTN: this should be done after load Db, and before loadAlterJob

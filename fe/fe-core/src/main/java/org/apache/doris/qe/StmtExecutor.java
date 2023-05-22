@@ -115,6 +115,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -406,16 +407,17 @@ public class StmtExecutor {
                     || (parsedStmt == null && sessionVariable.isEnableNereidsPlanner())) {
                 try {
                     executeByNereids(queryId);
-                } catch (NereidsException e) {
+                } catch (NereidsException | ParseException e) {
                     if (context.getMinidump() != null) {
                         MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
                     }
                     // try to fall back to legacy planner
                     LOG.warn("nereids cannot process statement\n" + originStmt.originStmt
                             + "\n because of " + e.getMessage(), e);
-                    if (!context.getSessionVariable().enableFallbackToOriginalPlanner) {
+                    if (e instanceof NereidsException
+                            && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                        throw e.getException();
+                        throw ((NereidsException) e).getException();
                     }
                     LOG.info("fall back to legacy planner");
                     parsedStmt = null;
@@ -532,11 +534,15 @@ public class StmtExecutor {
         if (parsedStmt != null) {
             return;
         }
-        List<StatementBase> statements = new NereidsParser().parseSQL(originStmt.originStmt);
+        List<StatementBase> statements;
+        try {
+            statements = new NereidsParser().parseSQL(originStmt.originStmt);
+        } catch (Exception e) {
+            throw new ParseException("Nereids parse failed. " + e.getMessage());
+        }
         if (statements.size() <= originStmt.idx) {
-            throw new NereidsException(
-                    new AnalysisException("Nereids parse failed. Parser get " + statements.size() + " statements,"
-                            + " but we need at least " + originStmt.idx + " statements."));
+            throw new ParseException("Nereids parse failed. Parser get " + statements.size() + " statements,"
+                            + " but we need at least " + originStmt.idx + " statements.");
         }
         parsedStmt = statements.get(originStmt.idx);
     }
@@ -590,18 +596,6 @@ public class StmtExecutor {
         // set isQuery first otherwise this state will be lost if some error occurs
         if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
-        }
-        if (parsedStmt instanceof UnifiedLoadStmt) {
-            // glue code for unified load
-            final UnifiedLoadStmt unifiedLoadStmt = (UnifiedLoadStmt) parsedStmt;
-            unifiedLoadStmt.init();
-            final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
-            parsedStmt = proxyStmt;
-            if (!(proxyStmt instanceof LoadStmt)) {
-                Preconditions.checkState(
-                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needLoadManager(),
-                        new IllegalStateException("enable_unified_load=true, should be external insert stmt"));
-            }
         }
 
         try {
@@ -867,14 +861,24 @@ public class StmtExecutor {
             }
         }
 
+        // convert unified load stmt here
+        if (parsedStmt instanceof UnifiedLoadStmt) {
+            // glue code for unified load
+            final UnifiedLoadStmt unifiedLoadStmt = (UnifiedLoadStmt) parsedStmt;
+            unifiedLoadStmt.init();
+            final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
+            parsedStmt = proxyStmt;
+            if (!(proxyStmt instanceof LoadStmt)) {
+                Preconditions.checkState(
+                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needLoadManager(),
+                        "enable_unified_load=true, should be external insert stmt");
+            }
+        }
+
         if (parsedStmt instanceof QueryStmt
                 || (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager())
                 || parsedStmt instanceof CreateTableAsSelectStmt
                 || parsedStmt instanceof InsertOverwriteTableStmt) {
-            if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
-                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
-                        .getResourceGroup(context.sessionVariable.resourceGroup));
-            }
             Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
             Set<String> parentViewNameSet = Sets.newHashSet();
@@ -1059,6 +1063,11 @@ public class StmtExecutor {
                 if (explainOptions != null) {
                     parsedStmt.setIsExplain(explainOptions);
                 }
+            }
+            if (parsedStmt instanceof QueryStmt && Config.enable_resource_group
+                    && context.sessionVariable.enablePipelineEngine()) {
+                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
+                        .getResourceGroup(context.sessionVariable.resourceGroup));
             }
         }
         profile.getSummaryProfile().setQueryAnalysisFinishTime();

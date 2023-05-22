@@ -173,14 +173,13 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         break;
     }
     case TYPE_DATETIMEV2: {
-        vectorized::VecDateTimeValue ts_slot;
-        if (!ts_slot.from_date_str(data, len)) {
+        vectorized::DateV2Value<vectorized::DateTimeV2ValueType> ts_slot;
+        if (!ts_slot.from_date_str(data, len, slot_desc->type().scale)) {
             parse_result = StringParser::PARSE_FAILURE;
             insert_after_parse_failure = false;
             break;
         }
-        ts_slot.to_datetime();
-        uint64_t num = ts_slot.to_datetime_v2();
+        uint64_t num = ts_slot.to_date_int_val();
         reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(num);
         break;
     }
