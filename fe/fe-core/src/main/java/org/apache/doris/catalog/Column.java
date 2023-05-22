@@ -390,6 +390,14 @@ public class Column implements Writable, GsonPostProcessable {
         return this.aggregationType;
     }
 
+    public String getAggregationString() {
+        if (getAggregationType() == AggregateType.GENERIC_AGGREGATION) {
+            return getGenericAggregationString();
+        } else {
+            return getAggregationType().name();
+        }
+    }
+
     public boolean isAggregated() {
         return aggregationType != null && aggregationType != AggregateType.NONE;
     }
