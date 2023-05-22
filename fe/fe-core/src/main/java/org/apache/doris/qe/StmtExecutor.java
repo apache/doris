@@ -23,6 +23,7 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
+import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.DdlStmt;
@@ -872,10 +873,10 @@ public class StmtExecutor {
             unifiedLoadStmt.init();
             final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
             parsedStmt = proxyStmt;
-            if (!(proxyStmt instanceof LoadStmt)) {
+            if (!(proxyStmt instanceof LoadStmt) && !(proxyStmt instanceof CreateRoutineLoadStmt)) {
                 Preconditions.checkState(
-                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needLoadManager(),
-                        "enable_unified_load=true, should be external insert stmt");
+                        parsedStmt instanceof InsertStmt,
+                        "enable_unified_load=true, should be insert stmt");
             }
         }
 

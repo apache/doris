@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.constants.S3Properties.Env;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
@@ -65,7 +66,7 @@ public class S3LoadStmt extends NativeInsertStmt {
         final SelectStmt selectStmt = new SelectStmt(
                 selectList, fromClause, /*TODO(tsy): think about PRECEDING FILTER*/dataDescription.getWhereExpr(),
                 null, null,
-                Lists.newArrayList(orderByElement), null
+                Lists.newArrayList(orderByElement), LimitElement.NO_LIMIT
         );
         return new InsertSource(selectStmt);
     }
@@ -79,7 +80,9 @@ public class S3LoadStmt extends NativeInsertStmt {
         params.put(S3TableValuedFunction.S3_URI, s3FilePath);
 
         final Map<String, String> dataDescProp = dataDescription.getProperties();
-        params.putAll(dataDescProp);
+        if (dataDescProp != null) {
+            params.putAll(dataDescProp);
+        }
 
         params.put(ExternalFileTableValuedFunction.FORMAT, dataDescription.getFileFormat());
         params.put(ExternalFileTableValuedFunction.COLUMN_SEPARATOR, dataDescription.getColumnSeparator());
@@ -89,6 +92,7 @@ public class S3LoadStmt extends NativeInsertStmt {
 
         final Map<String, String> s3ResourceProp = brokerDesc.getProperties();
         S3Properties.convertToStdProperties(s3ResourceProp);
+        s3ResourceProp.keySet().removeIf(Env.FS_KEYS::contains);
         params.putAll(s3ResourceProp);
 
         try {
