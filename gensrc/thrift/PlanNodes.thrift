@@ -286,9 +286,18 @@ struct TIcebergFileDesc {
     5: optional Exprs.TExpr file_select_conjunct;
 }
 
+struct THudiFileDesc {
+    1: optional string basePath;
+    2: optional string dataFilePath;
+    3: optional list<string> deltaFilePaths;
+    // Deprecated
+    4: optional Exprs.TExpr file_select_conjunct;
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
+    3: optional THudiFileDesc hudi_params
 }
 
 struct TFileScanRangeParams {
