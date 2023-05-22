@@ -158,7 +158,8 @@ public class S3Properties extends BaseProperties {
         // Try to convert env properties to uniform properties
         // compatible with old version
         S3Properties.convertToStdProperties(properties);
-        if (properties.containsKey(S3Properties.Env.ENDPOINT)) {
+        if (properties.containsKey(S3Properties.Env.ENDPOINT)
+                    && !properties.containsKey(S3Properties.ENDPOINT)) {
             for (String field : S3Properties.Env.REQUIRED_FIELDS) {
                 checkRequiredProperty(properties, field);
             }
@@ -193,12 +194,18 @@ public class S3Properties extends BaseProperties {
     }
 
     public static void convertToStdProperties(Map<String, String> properties) {
-        properties.putIfAbsent(S3Properties.ENDPOINT, properties.get(S3Properties.Env.ENDPOINT));
+        if (properties.containsKey(S3Properties.Env.ENDPOINT)) {
+            properties.putIfAbsent(S3Properties.ENDPOINT, properties.get(S3Properties.Env.ENDPOINT));
+        }
         if (properties.containsKey(S3Properties.Env.REGION)) {
             properties.putIfAbsent(S3Properties.REGION, properties.get(S3Properties.Env.REGION));
         }
-        properties.putIfAbsent(S3Properties.ACCESS_KEY, properties.get(S3Properties.Env.ACCESS_KEY));
-        properties.putIfAbsent(S3Properties.SECRET_KEY, properties.get(S3Properties.Env.SECRET_KEY));
+        if (properties.containsKey(S3Properties.Env.ACCESS_KEY)) {
+            properties.putIfAbsent(S3Properties.ACCESS_KEY, properties.get(S3Properties.Env.ACCESS_KEY));
+        }
+        if (properties.containsKey(S3Properties.Env.SECRET_KEY)) {
+            properties.putIfAbsent(S3Properties.SECRET_KEY, properties.get(S3Properties.Env.SECRET_KEY));
+        }
         if (properties.containsKey(S3Properties.Env.TOKEN)) {
             properties.putIfAbsent(S3Properties.SESSION_TOKEN, properties.get(S3Properties.Env.TOKEN));
         }
