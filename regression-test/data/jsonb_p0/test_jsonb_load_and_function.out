@@ -4519,3 +4519,26 @@ false
 27	{"k1":"v1","k2":200}	null
 28	{"a.b.c":{"k1.a1":"v31","k2":300},"a":"niu"}	null
 
+-- !select --
+1	\N	\N
+2	null	null
+3	true	null
+4	false	null
+5	100	null
+6	10000	null
+7	1000000000	null
+8	1152921504606846976	null
+9	6.18	null
+10	"abcd"	null
+11	{}	null
+12	{"k1":"v31","k2":300}	null
+13	[]	null
+14	[123,456]	null
+15	["abc","def"]	null
+16	[null,true,false,100,6.18,"abc"]	null
+17	[{"k1":"v41","k2":400},1,"a",3.14]	null
+18	{"k1":"v31","k2":300,"a1":[{"k1":"v41","k2":400},1,"a",3.14]}	"v41"
+26	\N	\N
+27	{"k1":"v1","k2":200}	null
+28	{"a.b.c":{"k1.a1":"v31","k2":300},"a":"niu"}	null
+

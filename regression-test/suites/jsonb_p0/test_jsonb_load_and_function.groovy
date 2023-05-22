@@ -439,4 +439,5 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select """SELECT id, j, j->'\$.[1]' FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, j->null FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, j->'\$.a1[0].k2' FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, j->'\$.a1[0]'->'\$.k1' FROM ${testTable} ORDER BY id"""
 }

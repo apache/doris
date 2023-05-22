@@ -6358,7 +6358,7 @@ non_pred_expr ::=
   {:
     RESULT = new FunctionCallExpr("concat", exprs);
   :}
-	| expr:e ARROW expr:index
+  | expr:e ARROW expr:index
   {: 
     ArrayList<Expr> exprs = new ArrayList<>();
     exprs.add(e);
