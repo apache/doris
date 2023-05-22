@@ -155,7 +155,7 @@ static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
         if (res != GEO_PARSE_OK) {
             return res;
         }
-        if (i != 0 && !loops[0]->Contains(loops[i].get())) {
+        if (i != 0 && !loops[0]->Contains(*loops[i])) {
             return GEO_PARSE_POLYGON_NOT_HOLE;
         }
     }
@@ -355,7 +355,7 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
-        return _polygon->Contains(other->polygon());
+        return _polygon->Contains(*other->polygon());
     }
     default:
         return false;
