@@ -169,6 +169,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
 
+    public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
+
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
@@ -619,6 +621,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
     private boolean enableBushyTree = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
+    private boolean enablePartitionTopN = true;
 
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
     private boolean enableInferPredicate = true;
@@ -1602,6 +1607,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableBushyTree(boolean enableBushyTree) {
         this.enableBushyTree = enableBushyTree;
+    }
+
+    public boolean isEnablePartitionTopN() {
+        return enablePartitionTopN;
+    }
+
+    public void setEnablePartitionTopN(boolean enablePartitionTopN) {
+        this.enablePartitionTopN = enablePartitionTopN;
     }
 
     public boolean isReturnObjectDataAsBinary() {

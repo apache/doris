@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -172,6 +173,9 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
      */
     public static Plan pushPartitionLimitThroughWindow(LogicalWindow<Plan> window, long partitionLimit,
                                                        boolean hasGlobalLimit) {
+        if (!ConnectContext.get().getSessionVariable().isEnablePartitionTopN()) {
+            return null;
+        }
         // We have already done such optimization rule, so just ignore it.
         if (window.child(0) instanceof LogicalPartitionTopN) {
             return null;
