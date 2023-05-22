@@ -75,7 +75,7 @@ public class S3LoadStmt extends NativeInsertStmt {
         final Map<String, String> params = Maps.newHashMap();
 
         final List<String> filePaths = dataDescription.getFilePaths();
-        Preconditions.checkState(filePaths.size() == 1, "there should be one and only file path");
+        Preconditions.checkState(filePaths.size() == 1, "there should be only one file path");
         final String s3FilePath = filePaths.get(0);
         params.put(S3TableValuedFunction.S3_URI, s3FilePath);
 
