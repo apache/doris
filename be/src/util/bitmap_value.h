@@ -1953,7 +1953,7 @@ public:
     }
 
     BitmapValueIterator operator++(int) { // i++, must return orig. value
-        CHECK(!_end) << "should not forward when iterator ends";
+        CHECK(!_end) << "should not forward when iterator ends1";
         BitmapValueIterator orig(*this);
         switch (_bitmap._type) {
         case BitmapValue::BitmapDataType::SINGLE:
