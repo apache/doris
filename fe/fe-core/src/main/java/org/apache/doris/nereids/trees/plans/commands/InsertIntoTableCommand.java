@@ -108,7 +108,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         }
         state.addTableIndexes(physicalOlapTableSink.getTargetTable());
 
-        txn.executeInsertIntoSelectCommand(executor);
+        txn.executeInsertIntoTableCommand(executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
