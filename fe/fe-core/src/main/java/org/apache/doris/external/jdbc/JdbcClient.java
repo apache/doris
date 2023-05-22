@@ -40,11 +40,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-<<<<<<< HEAD
 import java.util.Collections;
-=======
-import java.util.HashMap;
->>>>>>> baece0a81a (fix regression test fail with mysql-jdbc-connector-8)
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
