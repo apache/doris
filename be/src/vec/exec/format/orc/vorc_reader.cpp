@@ -244,6 +244,7 @@ Status OrcReader::init_reader(
         VExprContext* vconjunct_ctx) {
     _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.vconjunct_ctx = vconjunct_ctx;
+    _text_converter.reset(new TextConverter('\\'));
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     RETURN_IF_ERROR(_create_file_reader());
     RETURN_IF_ERROR(_init_read_columns());
