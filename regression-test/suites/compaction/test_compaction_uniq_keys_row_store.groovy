@@ -37,16 +37,10 @@ suite("test_compaction_uniq_keys_row_store") {
     }
 
     try {
-        //BackendId,Cluster,IP,HeartbeatPort,BePort,HttpPort,BrpcPort,LastStartTime,LastHeartbeat,Alive,SystemDecommissioned,ClusterDecommissioned,TabletNum,DataUsedCapacity,AvailCapacity,TotalCapacity,UsedPct,MaxDiskUsedPct,Tag,ErrMsg,Version,Status
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
         String backend_id;
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
-        for (String[] backend in backends) {
-            backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[5])
-        }
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
         backend_id = backendId_to_backendIP.keySet()[0]
         StringBuilder showConfigCommand = new StringBuilder();
@@ -168,7 +162,7 @@ suite("test_compaction_uniq_keys_row_store") {
         sql """ INSERT INTO ${tableName} VALUES
              (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.028', '2017-10-01 11:11:11.018', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
             """
-        //TabletId,ReplicaIdBackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
+        //TabletId,ReplicaIdBackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
         tablets = sql """ show tablets from ${tableName}; """
 
         checkValue()
@@ -236,7 +230,7 @@ suite("test_compaction_uniq_keys_row_store") {
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             StringBuilder sb = new StringBuilder();
-            def compactionStatusUrlIndex = 17
+            def compactionStatusUrlIndex = 18
             sb.append("curl -X GET ")
             sb.append(tablet[compactionStatusUrlIndex])
             String command = sb.toString()

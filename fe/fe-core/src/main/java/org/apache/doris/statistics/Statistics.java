@@ -211,4 +211,20 @@ public class Statistics {
         return colStats.isUnKnown;
     }
 
+    /**
+     * merge this and other colStats.ndv, choose min
+     * @param other
+     */
+    public void updateNdv(Statistics other) {
+        for (Expression expr : expressionToColumnStats.keySet()) {
+            ColumnStatistic otherColStats = other.findColumnStatistics(expr);
+            if (otherColStats != null) {
+                ColumnStatistic thisColStats = expressionToColumnStats.get(expr);
+                if (thisColStats.ndv > otherColStats.ndv) {
+                    expressionToColumnStats.put(expr,
+                            new ColumnStatisticBuilder(thisColStats).setNdv(otherColStats.ndv).build());
+                }
+            }
+        }
+    }
 }

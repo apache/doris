@@ -20,7 +20,6 @@ package org.apache.doris.resource.resourcegroup;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
@@ -34,17 +33,20 @@ public class ResourceGroupTest {
     public void testCreateNormal() throws DdlException {
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(ResourceGroup.CPU_SHARE, "10");
+        properties1.put(ResourceGroup.MEMORY_LIMIT, "30%");
         String name1 = "g1";
         ResourceGroup group1 = ResourceGroup.create(name1, properties1);
         Assert.assertEquals(name1, group1.getName());
-        Assert.assertEquals(1, group1.getProperties().size());
+        Assert.assertEquals(2, group1.getProperties().size());
         Assert.assertTrue(group1.getProperties().containsKey(ResourceGroup.CPU_SHARE));
+        Assert.assertTrue(Math.abs(group1.getMemoryLimitPercent() - 30) < 1e-6);
     }
 
     @Test(expected = DdlException.class)
     public void testNotSupportProperty() throws DdlException {
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(ResourceGroup.CPU_SHARE, "10");
+        properties1.put(ResourceGroup.MEMORY_LIMIT, "30%");
         properties1.put("share", "10");
         String name1 = "g1";
         ResourceGroup.create(name1, properties1);
@@ -61,12 +63,13 @@ public class ResourceGroupTest {
     public void testCpuShareValue() {
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(ResourceGroup.CPU_SHARE, "0");
+        properties1.put(ResourceGroup.MEMORY_LIMIT, "30%");
         String name1 = "g1";
         try {
             ResourceGroup.create(name1, properties1);
             Assert.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains(ResourceGroup.CPU_SHARE + " requires a positive integer."));
+            Assert.assertTrue(e.getMessage().contains("requires a positive integer."));
         }
 
         properties1.put(ResourceGroup.CPU_SHARE, "cpu");
@@ -74,7 +77,7 @@ public class ResourceGroupTest {
             ResourceGroup.create(name1, properties1);
             Assert.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains(ResourceGroup.CPU_SHARE + " requires a positive integer."));
+            Assert.assertTrue(e.getMessage().contains("requires a positive integer."));
         }
     }
 
@@ -82,19 +85,13 @@ public class ResourceGroupTest {
     public void testGetProcNodeData() throws DdlException {
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(ResourceGroup.CPU_SHARE, "10");
+        properties1.put(ResourceGroup.MEMORY_LIMIT, "30%");
         String name1 = "g1";
         ResourceGroup group1 = ResourceGroup.create(name1, properties1);
 
         BaseProcResult result = new BaseProcResult();
         group1.getProcNodeData(result);
         List<List<String>> rows = result.getRows();
-        Assert.assertEquals(1, rows.size());
-        List<List<String>> expectedRows = Lists.newArrayList();
-        expectedRows.add(Lists.newArrayList(String.valueOf(group1.getId()), name1, ResourceGroup.CPU_SHARE, "10"));
-        for (int i = 0; i < expectedRows.size(); ++i) {
-            for (int j = 0; j < expectedRows.get(i).size(); ++j) {
-                Assert.assertEquals(expectedRows.get(i).get(j), rows.get(i).get(j));
-            }
-        }
+        Assert.assertEquals(2, rows.size());
     }
 }

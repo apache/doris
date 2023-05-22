@@ -482,6 +482,10 @@ public class EditLog {
                     MetaContext.get().setMetaVersion(version);
                     break;
                 }
+                case OperationType.OP_CREATE_CLUSTER: {
+                    // Do nothing
+                    break;
+                }
                 case OperationType.OP_ADD_BROKER: {
                     final BrokerMgr.ModifyBrokerInfo param = (BrokerMgr.ModifyBrokerInfo) journal.getData();
                     env.getBrokerMgr().replayAddBrokers(param.brokerName, param.brokerAddresses);
@@ -856,6 +860,11 @@ public class EditLog {
                 case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
                     final AlterLightSchemaChangeInfo info = (AlterLightSchemaChangeInfo) journal.getData();
                     env.getSchemaChangeHandler().replayAlterLightSchChange(info);
+                    break;
+                }
+                case OperationType.OP_CLEAN_QUERY_STATS: {
+                    final CleanQueryStatsInfo info = (CleanQueryStatsInfo) journal.getData();
+                    env.getQueryStats().clear(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
@@ -1712,5 +1721,9 @@ public class EditLog {
 
     public void logAlterMTMV(AlterMultiMaterializedView log) {
         logEdit(OperationType.OP_ALTER_MTMV_STMT, log);
+    }
+
+    public void logCleanQueryStats(CleanQueryStatsInfo log) {
+        logEdit(OperationType.OP_CLEAN_QUERY_STATS, log);
     }
 }

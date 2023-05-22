@@ -31,6 +31,7 @@ import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
@@ -71,6 +72,7 @@ import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
+import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateTableInfo;
@@ -386,6 +388,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_META_VERSION: {
                 data = new Text();
                 ((Text) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_CLUSTER: {
+                data = Cluster.read(in);
                 isRead = true;
                 break;
             }
@@ -774,6 +781,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
                 data = AlterLightSchemaChangeInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CLEAN_QUERY_STATS: {
+                data = CleanQueryStatsInfo.read(in);
                 isRead = true;
                 break;
             }

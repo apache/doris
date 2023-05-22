@@ -222,7 +222,7 @@ public class HiveMetaStoreClientHelper {
         while (queue.peek() != null) {
             RemoteFiles locs = queue.poll();
             try {
-                for (RemoteFile fileLocation : locs.locations()) {
+                for (RemoteFile fileLocation : locs.files()) {
                     Path filePath = fileLocation.getPath();
                     // hdfs://host:port/path/to/partition/file_name
                     String fullUri = filePath.toString();
@@ -700,7 +700,8 @@ public class HiveMetaStoreClientHelper {
      * Convert hive type to doris type.
      */
     public static Type hiveTypeToDorisType(String hiveType) {
-        return hiveTypeToDorisType(hiveType, 0);
+        // use the largest scale as default time scale.
+        return hiveTypeToDorisType(hiveType, 6);
     }
 
     /**

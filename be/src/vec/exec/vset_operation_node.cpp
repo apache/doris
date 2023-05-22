@@ -181,7 +181,6 @@ Status VSetOperationNode<is_intersect>::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode<is_intersect>::close");
     return ExecNode::close(state);
 }
 
@@ -222,7 +221,6 @@ Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode<is_intersect>::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
 
@@ -237,16 +235,12 @@ Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
         while (!eos) {
             release_block_memory(_probe_block, i);
             RETURN_IF_CANCELLED(state);
-            RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(i)->get_next_after_projects(
-                            state, &_probe_block, &eos,
-                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
-                                                           bool*)) &
-                                              ExecNode::get_next,
-                                      _children[i], std::placeholders::_1, std::placeholders::_2,
-                                      std::placeholders::_3)),
-                    child(i)->get_next_span(), eos);
-
+            RETURN_IF_ERROR(child(i)->get_next_after_projects(
+                    state, &_probe_block, &eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[i], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
             RETURN_IF_ERROR(sink_probe(state, i, &_probe_block, eos));
         }
     }
@@ -257,7 +251,6 @@ template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::get_next(RuntimeState* state, Block* output_block,
                                                  bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExceptNode::get_next");
     return pull(state, output_block, eos);
 }
 
@@ -447,14 +440,12 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
     while (!eos) {
         block.clear_column_data();
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &block, &eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, &block, &eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         if (eos) {
             child(0)->close(state);
         }

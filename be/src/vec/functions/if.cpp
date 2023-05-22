@@ -159,7 +159,8 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr type = nullptr;
         get_least_supertype(DataTypes {arguments[1], arguments[2]}, &type);
-        DCHECK_NE(type, nullptr);
+        DCHECK_NE(type, nullptr) << " arguments[1]: " << arguments[1]->get_name()
+                                 << " arguments[2]: " << arguments[2]->get_name();
         return type;
     }
 

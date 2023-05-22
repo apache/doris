@@ -31,6 +31,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.time.ZoneId;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.TimeZone;
@@ -177,4 +179,28 @@ public class TimeUtilsTest {
         }
     }
 
+    @Test
+    public void testGetHourAsDate() {
+        Calendar calendar = Calendar.getInstance();
+        Date date = TimeUtils.getHourAsDate("1");
+        calendar.setTime(date);
+        Assert.assertEquals(1, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("10");
+        calendar.setTime(date);
+        Assert.assertEquals(10, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("24");
+        calendar.setTime(date);
+        Assert.assertEquals(0, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("05");
+        calendar.setTime(date);
+        Assert.assertEquals(5, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("0");
+        calendar.setTime(date);
+        Assert.assertEquals(0, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("13");
+        calendar.setTime(date);
+        Assert.assertEquals(13, calendar.get(Calendar.HOUR_OF_DAY));
+        Assert.assertNull(TimeUtils.getHourAsDate("111"));
+        Assert.assertNull(TimeUtils.getHourAsDate("-1"));
+    }
 }

@@ -519,7 +519,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
-                Status st = _submit_compaction_task(tablet, compaction_type);
+                Status st = _submit_compaction_task(tablet, compaction_type, false);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit compaction task for tablet: "
                                  << tablet->tablet_id() << ", err: " << st;
@@ -664,7 +664,7 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
 }
 
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
-                                              CompactionType compaction_type) {
+                                              CompactionType compaction_type, bool force) {
     bool already_exist = _push_tablet_into_submitted_compaction(tablet, compaction_type);
     if (already_exist) {
         return Status::AlreadyExist(
@@ -673,7 +673,10 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     }
     int64_t permits = 0;
     Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
-    if (st.ok() && permits > 0 && _permit_limiter.request(permits)) {
+    if (st.ok() && permits > 0) {
+        if (!force) {
+            _permit_limiter.request(permits);
+        }
         std::unique_ptr<ThreadPool>& thread_pool =
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
@@ -712,14 +715,14 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     }
 }
 
-Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
-                                             CompactionType compaction_type) {
+Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
+                                             bool force) {
     _update_cumulative_compaction_policy();
     if (tablet->get_cumulative_compaction_policy() == nullptr) {
         tablet->set_cumulative_compaction_policy(_cumulative_compaction_policy);
     }
     tablet->set_skip_compaction(false);
-    return _submit_compaction_task(tablet, compaction_type);
+    return _submit_compaction_task(tablet, compaction_type, force);
 }
 
 Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,

@@ -62,7 +62,7 @@ public class DropTableEvent extends MetastoreTableEvent {
             Env.getCurrentEnv().getCatalogMgr().dropExternalTable(dbName, tableName, catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"));
+                    debugString("Failed to process event"), e);
         }
     }
 }

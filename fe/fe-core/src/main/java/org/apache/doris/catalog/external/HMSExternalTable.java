@@ -39,6 +39,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
@@ -57,6 +58,9 @@ public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
+
+    private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
+    private static final String TBL_PROP_INSERT_ONLY = "insert_only";
 
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
@@ -141,6 +145,27 @@ public class HMSExternalTable extends ExternalTable {
      * Support managed_table and external_table.
      */
     private boolean supportedHiveTable() {
+        boolean isTxnTbl = AcidUtils.isTransactionalTable(remoteTable);
+        if (isTxnTbl) {
+            // Only support "insert_only" transactional table
+            // There are 2 types of parameter:
+            //  "transactional_properties" = "insert_only",
+            //  or,
+            //  "insert_only" = "true"
+            // And must check "insert_only" first, because "transactional_properties" may be "default"
+            Map<String, String> parameters = remoteTable.getParameters();
+            if (parameters.containsKey(TBL_PROP_INSERT_ONLY)) {
+                if (!parameters.get(TBL_PROP_INSERT_ONLY).equalsIgnoreCase("true")) {
+                    return false;
+                }
+            } else if (parameters.containsKey(TBL_PROP_TXN_PROPERTIES)) {
+                if (!parameters.get(TBL_PROP_TXN_PROPERTIES).equalsIgnoreCase(TBL_PROP_INSERT_ONLY)) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
         LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
@@ -165,6 +190,10 @@ public class HMSExternalTable extends ExternalTable {
         makeSureInitialized();
         getFullSchema();
         return partitionColumns;
+    }
+
+    public boolean isHiveTransactionalTable() {
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
     }
 
     @Override
@@ -344,9 +373,10 @@ public class HMSExternalTable extends ExternalTable {
         for (FieldSchema field : hmsSchema) {
             tmpSchema.add(new Column(field.getName(),
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
-                    IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS), true, null,
+                            IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
+                    true, null,
                     true, null, field.getComment(), true, null,
-                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null));
+                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null, null, null, null));
         }
         return tmpSchema;
     }

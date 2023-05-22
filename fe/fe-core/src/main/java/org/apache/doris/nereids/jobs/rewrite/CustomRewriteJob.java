@@ -31,6 +31,9 @@ import java.util.function.Supplier;
 
 /**
  * Custom rewrite the plan.
+ * Just pass the plan node to the 'CustomRewriter', and the 'CustomRewriter' rule will handle it.
+ * The 'CustomRewriter' rule use the 'Visitor' design pattern to implement the rule.
+ * You can check the 'CustomRewriter' interface to see which rules use this way to do rewrite.
  */
 public class CustomRewriteJob implements RewriteJob {
     private final RuleType ruleType;

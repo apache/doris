@@ -187,7 +187,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     boolean isChanged = broker.handleHbResponse(hbResponse);
                     if (hbResponse.getStatus() != HbStatus.OK) {
                         // invalid all connections cached in ClientPool
-                        ClientPool.brokerPool.clearPool(new TNetworkAddress(broker.ip, broker.port));
+                        ClientPool.brokerPool.clearPool(new TNetworkAddress(broker.host, broker.port));
                     }
                     return isChanged;
                 }
@@ -352,7 +352,7 @@ public class HeartbeatMgr extends MasterDaemon {
         @Override
         public HeartbeatResponse call() {
             TPaloBrokerService.Client client = null;
-            TNetworkAddress addr = new TNetworkAddress(broker.ip, broker.port);
+            TNetworkAddress addr = new TNetworkAddress(broker.host, broker.port);
             boolean ok = false;
             try {
                 client = ClientPool.brokerPool.borrowObject(addr);
@@ -362,13 +362,13 @@ public class HeartbeatMgr extends MasterDaemon {
                 ok = true;
 
                 if (status.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                    return new BrokerHbResponse(brokerName, broker.ip, broker.port, status.getMessage());
+                    return new BrokerHbResponse(brokerName, broker.host, broker.port, status.getMessage());
                 } else {
-                    return new BrokerHbResponse(brokerName, broker.ip, broker.port, System.currentTimeMillis());
+                    return new BrokerHbResponse(brokerName, broker.host, broker.port, System.currentTimeMillis());
                 }
 
             } catch (Exception e) {
-                return new BrokerHbResponse(brokerName, broker.ip, broker.port,
+                return new BrokerHbResponse(brokerName, broker.host, broker.port,
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
                 if (ok) {

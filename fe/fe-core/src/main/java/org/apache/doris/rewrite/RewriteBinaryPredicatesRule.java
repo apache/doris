@@ -27,6 +27,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
@@ -123,6 +124,7 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
         if (expr0 instanceof CastExpr && (expr0.getType() == Type.DECIMALV2 || expr0.getType().isDecimalV3())
                 && expr0.getChild(0) instanceof SlotRef
                 && expr0.getChild(0).getType().getResultType() == Type.BIGINT
+                && expr0.getChild(0).getType().getPrimitiveType() != PrimitiveType.BOOLEAN
                 && expr1 instanceof DecimalLiteral) {
             return rewriteBigintSlotRefCompareDecimalLiteral(expr0,
                     expr0.getChild(0).getType(), (DecimalLiteral) expr1, op);

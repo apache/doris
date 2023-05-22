@@ -30,22 +30,20 @@ import java.util.List;
 import java.util.stream.Stream;
 
 /**
- * optimization.
  * Merge nodes of the same type and same qualifier.
- *
+ * <p>
  * eg: select k1, k2 from t1 union select 1, 2 union select d1, d2 from t2;
- * before:
- *                          logicalUnion()
- *                      /                    \
- *              logicalUnion()           logicalProject
- *              /           \
- *    logicalProject  logicalOneRowRelation
- *
- * after:
- *      2. MERGE_SET_OPERATION
- *                              logicalUnion()
- *                  /                 \                 \
- *         logicalProject     logicalOneRowRelation     logicalProject
+ * <pre>
+ *     union
+ *    /    \
+ *   union  scan3
+ *   /   \
+ * scan1 scan2
+ * -->
+ *      union
+ *     /  |  \
+ * scan1 scan2 scan3
+ * </pre>
  */
 public class MergeSetOperations implements RewriteRuleFactory {
     @Override
@@ -72,22 +70,17 @@ public class MergeSetOperations implements RewriteRuleFactory {
     /** canMerge */
     public static boolean canMerge(LogicalSetOperation parent) {
         Plan left = parent.child(0);
-        if (canMerge(parent, left)) {
-            return true;
-        }
         Plan right = parent.child(1);
-        if (canMerge(parent, right)) {
-            return true;
-        }
-        return false;
+
+        return canMerge(parent, left) || canMerge(parent, right);
     }
 
-    public static final boolean canMerge(LogicalSetOperation parent, Plan child) {
+    public static boolean canMerge(LogicalSetOperation parent, Plan child) {
         return child.getClass().equals(parent.getClass())
                 && isSameQualifierOrChildQualifierIsAll(parent, (LogicalSetOperation) child);
     }
 
-    public static final boolean isSameQualifierOrChildQualifierIsAll(LogicalSetOperation parentSetOperation,
+    public static boolean isSameQualifierOrChildQualifierIsAll(LogicalSetOperation parentSetOperation,
                                                          LogicalSetOperation childSetOperation) {
         return parentSetOperation.getQualifier() == childSetOperation.getQualifier()
                 || childSetOperation.getQualifier() == Qualifier.ALL;

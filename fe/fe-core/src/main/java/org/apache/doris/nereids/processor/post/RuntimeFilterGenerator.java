@@ -20,6 +20,7 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -39,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableSet;
@@ -115,8 +118,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         continue;
                     }
                     Slot olapScanSlot = aliasTransferMap.get(unwrappedSlot).second;
+                    long buildSideNdv = getBuildSideNdv(join, equalTo);
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                            equalTo.right(), olapScanSlot, type, i, join);
+                            equalTo.right(), olapScanSlot, type, i, join, buildSideNdv);
                     ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
                     ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
                     ctx.setTargetsOnScanNode(aliasTransferMap.get(unwrappedSlot).first, olapScanSlot);
@@ -124,6 +128,17 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             }
         }
         return join;
+    }
+
+    private long getBuildSideNdv(PhysicalHashJoin<? extends Plan, ? extends Plan> join, EqualTo equalTo) {
+        AbstractPlan right = (AbstractPlan) join.right();
+        //make ut test friendly
+        if (right.getStats() == null) {
+            return -1L;
+        }
+        ExpressionEstimation estimator = new ExpressionEstimation();
+        ColumnStatistic buildColStats = equalTo.right().accept(estimator, right.getStats());
+        return buildColStats.isUnKnown ? -1 : Math.max(1, (long) buildColStats.ndv);
     }
 
     @Override
@@ -154,7 +169,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         for (int i = 0; i < bitmapRFCount; i++) {
             Expression bitmapRuntimeFilterCondition = bitmapRuntimeFilterConditions.get(i);
             boolean isNot = bitmapRuntimeFilterCondition instanceof Not;
-            BitmapContains bitmapContains = null;
+            BitmapContains bitmapContains;
             if (bitmapRuntimeFilterCondition instanceof Not) {
                 bitmapContains = (BitmapContains) bitmapRuntimeFilterCondition.child(0);
             } else {
@@ -167,7 +182,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     Slot olapScanSlot = aliasTransferMap.get(targetSlot).second;
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                             bitmapContains.child(0), olapScanSlot,
-                            bitmapContains.child(1), type, i, join, isNot);
+                            bitmapContains.child(1), type, i, join, isNot, -1L);
                     ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
                     ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
                     ctx.setTargetsOnScanNode(aliasTransferMap.get(targetSlot).first, olapScanSlot);

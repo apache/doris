@@ -31,7 +31,7 @@ Apache Doris is a high-performance, real-time analytic database based on the MPP
 
 ## Download Doris
 
-Doris runs on a Linux environment, CentOS 7.x or Ubuntu 16.04 or higher is recommended, and you need to have a Java runtime environment installed (the minimum JDK version required is 8). To check the version of Java you have installed, run the following command.
+Doris runs on a Linux environment, CentOS 7.x or Ubuntu 16.04 or higher is recommended, and you need to have a Java runtime environment installed (the JDK version required is 8). To check the version of Java you have installed, run the following command.
 
 ```
 java -version

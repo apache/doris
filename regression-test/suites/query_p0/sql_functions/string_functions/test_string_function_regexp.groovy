@@ -33,12 +33,20 @@ suite("test_string_function_regexp") {
             ("Emmy eillish"),
             ("It's true")
         """
+    // regexp as keyword
     qt_sql "SELECT k FROM ${tbName} WHERE k regexp '^billie' ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k regexp 'ok\$' ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k regexp concat('^', k) order by k;"
 
     qt_sql "SELECT k FROM ${tbName} WHERE k not regexp '^billie' ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k not regexp 'ok\$' ORDER BY k;"
+
+    // regexp as function
+    qt_sql "SELECT k FROM ${tbName} WHERE regexp(k, '^billie') ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE regexp(k, 'ok\$') ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE regexp(k, concat('^', k)) order by k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE not regexp(k, '^billie') ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE not regexp(k, 'ok\$') ORDER BY k;"
 
 
     qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 1);"
@@ -79,23 +87,42 @@ suite("test_string_function_regexp") {
 
     def tableName= "test"
     sql "use test_query_db"
-    //regexp
-    qt_sql "select * from ${tableName} where lower(k7) regexp'.*o4\$' order by k1, k2, k3, k4"
-    qt_sql "select * from ${tableName} where lower(k7) regexp'[yun]+nk' order by k1, k2, k3, k4"
-    qt_sql"select * from ${tableName} where lower(k7) regexp'^[a-z]+[0-9]?\$' order by k1, k2, k3, k4"
-    qt_sql"select * from ${tableName} where lower(k7) regexp'^[a-z]+[0-9]+[a-z]+\$' order by k1, k2, k3, k4"
-    qt_sql"select * from ${tableName} where lower(k7) regexp'wang(juoo|yu)[0-9]+\$' order by k1, k2, k3, k4"
-    qt_sql"select * from ${tableName} where lower(k7) regexp'^[a-o]+[0-9]+[a-z]?\$' order by k1, k2, k3, k4"
-    qt_sql"select count(*) from ${tableName} where k1<10 and lower(k6) regexp '^t'"
 
-    //not regexp
-    qt_sql"select * from ${tableName} where lower(k7) not regexp'.*o4\$' order by k1, k2, k3, k4"
-    qt_sql"select * from ${tableName} where lower(k7) not regexp'[yun]+nk' order by k1, k2, k3, k4"
-    qt_sql"select * from ${tableName} where lower(k7) not regexp'wang(juoo|yu)[0-9]+\$' order by k1, k2, k3, k4"
-    qt_sql"select * from ${tableName} where lower(k7) not regexp'^[a-z]+[0-9]?\$' order by k1, k2, k3, k4"
-    qt_sql"select * from ${tableName} where lower(k7) not regexp'^[a-z]+[0-9]+[a-z]+\$' order by k1, k2, k3, k4"
-    qt_sql"select * from ${tableName} where lower(k7) not regexp'^[a-o]+[0-9]+[a-z]?\$' order by k1, k2, k3, k4"
-    qt_sql"select count(*) from ${tableName} where k1<10 and lower(k6) not regexp '^t'"
+    //regexp as keyword
+    qt_sql "select * from ${tableName} where lower(k7) regexp '.*o4\$' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) regexp '[yun]+nk' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) regexp '^[a-z]+[0-9]?\$' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) regexp '^[a-z]+[0-9]+[a-z]+\$' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) regexp 'wang(juoo|yu)[0-9]+\$' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) regexp '^[a-o]+[0-9]+[a-z]?\$' order by k1, k2, k3, k4"
+    qt_sql "select count(*) from ${tableName} where k1<10 and lower(k6) regexp '^t'"
+
+    //not regexp as keyword
+    qt_sql "select * from ${tableName} where lower(k7) not regexp '.*o4\$' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) not regexp '[yun]+nk' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) not regexp 'wang(juoo|yu)[0-9]+\$' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) not regexp '^[a-z]+[0-9]?\$' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) not regexp '^[a-z]+[0-9]+[a-z]+\$' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) not regexp '^[a-o]+[0-9]+[a-z]?\$' order by k1, k2, k3, k4"
+    qt_sql "select count(*) from ${tableName} where k1<10 and lower(k6) not regexp '^t'"
+
+    //regexp as function
+    qt_sql "select * from ${tableName} where regexp(lower(k7), '.*o4\$') order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where regexp(lower(k7), '[yun]+nk') order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where regexp(lower(k7), '^[a-z]+[0-9]?\$') order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where regexp(lower(k7), '^[a-z]+[0-9]+[a-z]+\$') order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where regexp(lower(k7), 'wang(juoo|yu)[0-9]+\$') order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where regexp(lower(k7), '^[a-o]+[0-9]+[a-z]?\$') order by k1, k2, k3, k4"
+    qt_sql "select count(*) from ${tableName} where k1<10 and regexp(lower(k6), '^t')"
+
+    //not regexp as function
+    qt_sql "select * from ${tableName} where not regexp(lower(k7), '.*o4\$') order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where not regexp(lower(k7), '[yun]+nk') order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where not regexp(lower(k7), 'wang(juoo|yu)[0-9]+\$') order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where not regexp(lower(k7), '^[a-z]+[0-9]?\$') order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where not regexp(lower(k7), '^[a-z]+[0-9]+[a-z]+\$') order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where not regexp(lower(k7), '^[a-o]+[0-9]+[a-z]?\$') order by k1, k2, k3, k4"
+    qt_sql "select count(*) from ${tableName} where k1<10 and regexp(lower(k6), '^t')"
 
     def tbName2 = "test_string_function_field"
     sql "DROP TABLE IF EXISTS ${tbName2}"

@@ -22,13 +22,10 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.URI;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
@@ -61,7 +58,7 @@ public class ScalarFunction extends Function {
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs,
             boolean userVisible) {
-        this(fnName, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, userVisible, false);
+        this(fnName, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, userVisible, true);
     }
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs,
@@ -110,7 +107,6 @@ public class ScalarFunction extends Function {
             String name, Type retType, NullableMode nullableMode,
             ArrayList<Type> argTypes, boolean hasVarArgs,
             String symbol, String prepareFnSymbol, String closeFnSymbol, boolean userVisible) {
-        Preconditions.checkNotNull(symbol);
         ScalarFunction fn = new ScalarFunction(
                 new FunctionName(name), argTypes, retType, hasVarArgs, userVisible);
         fn.symbolName = symbol;
@@ -126,164 +122,16 @@ public class ScalarFunction extends Function {
     }
 
     /**
-     * Creates a builtin scalar operator function. This is a helper that wraps a few steps
+     * Creates a builtin scalar operator function. This is a helper that wraps a few
+     * steps
      * into one call.
      * TODO: this needs to be kept in sync with what generates the be operator
-     * implementations. (gen_functions.py). Is there a better way to coordinate this.
+     * implementations. (gen_functions.py). Is there a better way to coordinate
+     * this.
      */
     public static ScalarFunction createBuiltinOperator(
             String name, ArrayList<Type> argTypes, Type retType, NullableMode nullableMode) {
-        // Operators have a well defined symbol based on the function name and type.
-        // Convert Add(TINYINT, TINYINT) --> Add_TinyIntVal_TinyIntVal
-        String beFn = name;
-        boolean usesDecimal = false;
-        boolean usesDecimalV2 = false;
-        for (int i = 0; i < argTypes.size(); ++i) {
-            switch (argTypes.get(i).getPrimitiveType()) {
-                case BOOLEAN:
-                    beFn += "_boolean_val";
-                    break;
-                case TINYINT:
-                    beFn += "_tiny_int_val";
-                    break;
-                case SMALLINT:
-                    beFn += "_small_int_val";
-                    break;
-                case INT:
-                    beFn += "_int_val";
-                    break;
-                case BIGINT:
-                    beFn += "_big_int_val";
-                    break;
-                case LARGEINT:
-                    beFn += "_large_int_val";
-                    break;
-                case FLOAT:
-                    beFn += "_float_val";
-                    break;
-                case DOUBLE:
-                case TIME:
-                case TIMEV2:
-                    beFn += "_double_val";
-                    break;
-                case CHAR:
-                case VARCHAR:
-                case HLL:
-                case BITMAP:
-                case STRING:
-                case QUANTILE_STATE:
-                    beFn += "_string_val";
-                    break;
-                case DATE:
-                case DATETIME:
-                case DATEV2:
-                case DATETIMEV2:
-                    beFn += "_datetime_val";
-                    break;
-                case DECIMALV2:
-                case DECIMAL32:
-                case DECIMAL64:
-                case DECIMAL128:
-                    beFn += "_decimalv2_val";
-                    usesDecimalV2 = true;
-                    break;
-                case JSONB:
-                    beFn += "_jsonb_val";
-                    break;
-                default:
-                    Preconditions.checkState(false, "Argument type not supported: " + argTypes.get(i));
-            }
-        }
-        String beClass = usesDecimal ? "DecimalOperators" : "Operators";
-        if (usesDecimalV2) {
-            beClass = "DecimalV2Operators";
-        }
-        String symbol = "doris::" + beClass + "::" + beFn;
-        return createBuiltinOperator(name, symbol, argTypes, retType, nullableMode);
-    }
-
-    public static ScalarFunction createVecBuiltinOperator(
-            String name, ArrayList<Type> argTypes, Type retType) {
-        return createVecBuiltinOperator(name, argTypes, retType, NullableMode.DEPEND_ON_ARGUMENT);
-    }
-
-    /**
-     * Creates a builtin scala vec operator function. This is a helper that wraps a few steps
-     * into one call.
-     * TODO: this needs to be kept in sync with what generates the be operator
-     * implementations. (gen_functions.py). Is there a better way to coordinate this.
-     */
-    public static ScalarFunction createVecBuiltinOperator(
-            String name, ArrayList<Type> argTypes, Type retType, NullableMode nullableMode) {
-        StringBuilder beFn = new StringBuilder(name);
-        boolean usesDecimal = false;
-        boolean usesDecimalV2 = false;
-
-        // just mock a fake symbol for vec function, we treat
-        // all argument is same as first argument
-        for (int i = 0; i < argTypes.size(); ++i) {
-            switch (argTypes.get(0).getPrimitiveType()) {
-                case BOOLEAN:
-                    beFn.append("_boolean_val");
-                    break;
-                case TINYINT:
-                    beFn.append("_tiny_int_val");
-                    break;
-                case SMALLINT:
-                    beFn.append("_small_int_val");
-                    break;
-                case INT:
-                    beFn.append("_int_val");
-                    break;
-                case BIGINT:
-                    beFn.append("_big_int_val");
-                    break;
-                case LARGEINT:
-                    beFn.append("_large_int_val");
-                    break;
-                case FLOAT:
-                    beFn.append("_float_val");
-                    break;
-                case DOUBLE:
-                case TIME:
-                case TIMEV2:
-                    beFn.append("_double_val");
-                    break;
-                case CHAR:
-                case VARCHAR:
-                case HLL:
-                case BITMAP:
-                    beFn.append("_string_val");
-                    break;
-                case JSONB:
-                    beFn.append("_jsonb_val");
-                    break;
-                case LAMBDA_FUNCTION:
-                    beFn.append("_lambda_function");
-                    break;
-                case DATE:
-                case DATETIME:
-                case DATEV2:
-                case DATETIMEV2:
-                    beFn.append("_datetime_val");
-                    break;
-                case DECIMALV2:
-                case DECIMAL32:
-                case DECIMAL64:
-                case DECIMAL128:
-                    beFn.append("_decimalv2_val");
-                    usesDecimalV2 = true;
-                    break;
-                default:
-                    Preconditions.checkState(false, "Argument type not supported: " + argTypes.get(i));
-            }
-        }
-        String beClass = usesDecimal ? "DecimalOperators" : "Operators";
-        if (usesDecimalV2) {
-            beClass = "DecimalV2Operators";
-        }
-        String symbol = "doris::" + beClass + "::" + beFn;
-        return createVecBuiltinOperator(name, symbol, argTypes, retType, nullableMode);
+        return createBuiltinOperator(name, null, argTypes, retType, nullableMode);
     }
 
     public static ScalarFunction createBuiltinOperator(
@@ -303,41 +151,6 @@ public class ScalarFunction extends Function {
                 new FunctionName(name), argTypes, retType, hasVarArgs, userVisible);
         fn.symbolName = symbol;
         fn.nullableMode = nullableMode;
-        return fn;
-    }
-
-    public static ScalarFunction createVecBuiltinOperator(
-            String name, String symbol, ArrayList<Type> argTypes, Type retType, NullableMode nullableMode) {
-        return createVecBuiltin(name, null, symbol, null, argTypes, false, retType, false, nullableMode);
-    }
-
-    // TODO: This method should not be here, move to other place in the future
-    public static ScalarFunction createVecBuiltin(String name, String prepareFnSymbolBName, String symbol,
-            String closeFnSymbolName, ArrayList<Type> argTypes, boolean hasVarArgs, Type retType, boolean userVisible,
-            NullableMode nullableMode) {
-        ScalarFunction fn = new ScalarFunction(new FunctionName(name), argTypes, retType, hasVarArgs, userVisible,
-                true);
-        if (prepareFnSymbolBName != null) {
-            fn.prepareFnSymbol = prepareFnSymbolBName;
-        }
-        fn.symbolName = symbol;
-        if (closeFnSymbolName != null) {
-            fn.closeFnSymbol = closeFnSymbolName;
-        }
-        fn.nullableMode = nullableMode;
-        return fn;
-    }
-
-    /**
-     * Create a function that is used to search the catalog for a matching builtin. Only
-     * the fields necessary for matching function prototypes are specified.
-     */
-    public static ScalarFunction createBuiltinSearchDesc(
-            String name, Type[] argTypes, boolean hasVarArgs) {
-        ArrayList<Type> fnArgs =
-                (argTypes == null) ? new ArrayList<Type>() : Lists.newArrayList(argTypes);
-        ScalarFunction fn = new ScalarFunction(
-                new FunctionName(name), fnArgs, Type.INVALID, hasVarArgs, true);
         return fn;
     }
 
@@ -419,14 +232,8 @@ public class ScalarFunction extends Function {
     public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
         TFunction fn = super.toThrift(realReturnType, realArgTypes);
         fn.setScalarFn(new TScalarFunction());
-        if (getBinaryType() != TFunctionBinaryType.BUILTIN || !VectorizedUtil.isPipeline()) {
+        if (getBinaryType() != TFunctionBinaryType.BUILTIN) {
             fn.getScalarFn().setSymbol(symbolName);
-            if (prepareFnSymbol != null) {
-                fn.getScalarFn().setPrepareFnSymbol(prepareFnSymbol);
-            }
-            if (closeFnSymbol != null) {
-                fn.getScalarFn().setCloseFnSymbol(closeFnSymbol);
-            }
         } else {
             fn.getScalarFn().setSymbol("");
         }

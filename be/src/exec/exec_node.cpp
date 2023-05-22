@@ -120,6 +120,8 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
+    _span = state->get_tracer()->StartSpan(get_name());
+    OpentelemetryScope scope {_span};
     _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
@@ -182,7 +184,7 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
         }
         vectorized::VExpr::close(_projections, state);
 
-        runtime_profile()->add_to_span();
+        runtime_profile()->add_to_span(_span);
         _is_resource_released = true;
     }
 }

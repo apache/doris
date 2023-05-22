@@ -908,8 +908,6 @@ struct TExchangeNode {
   2: optional TSortInfo sort_info
   // This is tHe number of rows to skip before returning results
   3: optional i64 offset
-  // Nodes in this cluster, used for second phase fetch
-  4: optional Descriptors.TPaloNodesInfo nodes_info
 }
 
 struct TOlapRewriteNode {

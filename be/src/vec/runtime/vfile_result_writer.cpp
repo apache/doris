@@ -243,7 +243,7 @@ Status VFileResultWriter::append_block(Block& block) {
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, block,
                                                                        &output_block));
     if (_vfile_writer) {
-        _write_file(output_block);
+        RETURN_IF_ERROR(_write_file(output_block));
     } else {
         RETURN_IF_ERROR(_write_csv_file(output_block));
     }
@@ -380,6 +380,10 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     break;
                 }
                 case TYPE_MAP: {
+                    _plain_text_outstream << col.type->to_string(*col.column, i);
+                    break;
+                }
+                case TYPE_STRUCT: {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
