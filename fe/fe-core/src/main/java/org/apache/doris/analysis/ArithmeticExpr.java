@@ -536,7 +536,7 @@ public class ArithmeticExpr extends Expr {
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (VectorizedUtil.isVectorized()) {
             for (Expr child : children) {
-                if (child instanceof DecimalLiteral && child.getType().isDecimalV3()) {
+                if (child instanceof DecimalLiteral && child.getType().isDecimalV3() && !child.getIsCasted()) {
                     ((DecimalLiteral) child).tryToReduceType();
                 }
             }

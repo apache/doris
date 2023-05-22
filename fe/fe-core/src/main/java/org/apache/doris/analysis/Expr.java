@@ -284,6 +284,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Needed for properly capturing expr precedences in the SQL string.
     protected boolean printSqlInParens = false;
 
+    // The code is used to distinguish whether an expression is explicitly cast or
+    // not. For example, different treatments should be applied to a computed value
+    // of 1.000 and a value of 1.000 obtained through casting.
+    protected boolean isCasted = false;
+
     protected Expr() {
         super();
         type = Type.INVALID;
@@ -307,6 +312,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         fn = other.fn;
         printSqlInParens = other.printSqlInParens;
         children = Expr.cloneList(other.children);
+        isCasted = other.isCasted;
     }
 
     public boolean isAnalyzed() {
@@ -2359,5 +2365,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         return false;
     }
-}
 
+    public void setIsCasted(boolean iscast) {
+        isCasted = iscast;
+    }
+
+    public boolean getIsCasted() {
+        return isCasted;
+    }
+
+}
