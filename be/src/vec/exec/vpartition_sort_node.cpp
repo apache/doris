@@ -222,7 +222,6 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
 }
 
 Status VPartitionSortNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VPartitionSortNode::open");
     VLOG_CRITICAL << "VPartitionSortNode::open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -231,14 +230,12 @@ Status VPartitionSortNode::open(RuntimeState* state) {
     bool eos = false;
     std::unique_ptr<Block> input_block = Block::create_unique();
     do {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, input_block.get(), &eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, input_block.get(), &eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         RETURN_IF_ERROR(sink(state, input_block.get(), eos));
     } while (!eos);
 
@@ -248,7 +245,6 @@ Status VPartitionSortNode::open(RuntimeState* state) {
 }
 
 Status VPartitionSortNode::alloc_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VPartitionSortNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
@@ -279,8 +275,6 @@ Status VPartitionSortNode::get_next(RuntimeState* state, Block* output_block, bo
     if (state == nullptr || output_block == nullptr || eos == nullptr) {
         return Status::InternalError("input is nullptr");
     }
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
-                                 "VPartitionSortNode::get_next");
     VLOG_CRITICAL << "VPartitionSortNode::get_next";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
@@ -316,7 +310,6 @@ Status VPartitionSortNode::close(RuntimeState* state) {
 }
 
 void VPartitionSortNode::release_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::close");
     VExpr::close(_partition_expr_ctxs, state);
     _vsort_exec_exprs.close(state);
     ExecNode::release_resource(state);

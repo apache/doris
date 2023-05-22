@@ -137,7 +137,6 @@ set(VEC_FILES
   exec/vrepeat_node.cpp
   exec/vtable_function_node.cpp
   exec/vjdbc_connector.cpp
-  exec/vparquet_scanner.cpp
   exec/vpartition_sort_node.cpp
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
