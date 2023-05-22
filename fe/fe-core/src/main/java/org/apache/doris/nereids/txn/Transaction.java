@@ -163,7 +163,6 @@ public class Transaction {
                 txnStatus = TransactionStatus.VISIBLE;
             } else {
                 txnStatus = TransactionStatus.COMMITTED;
-                LOG.warn("insert stmt in label: {}, txnId: {} committed but invisible currently", labelName, txnId);
             }
 
         } catch (Throwable t) {
