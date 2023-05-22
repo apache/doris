@@ -22,11 +22,11 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableSet;
@@ -44,30 +44,25 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalSetOperation()).then(filter -> {
-            LogicalSetOperation setOperation = filter.child();
+        return logicalFilter(logicalSetOperation())
+            .whenNot(f -> f.child().getQualifier() == Qualifier.DISTINCT)
+            .then(filter -> {
+                LogicalSetOperation setOperation = filter.child();
 
-            if (setOperation instanceof LogicalUnion && ((LogicalUnion) setOperation).hasPushedFilter()) {
-                return filter;
-            }
+                List<Plan> newChildren = new ArrayList<>();
+                for (Plan child : setOperation.children()) {
+                    Map<Expression, Expression> replaceMap = new HashMap<>();
+                    List<NamedExpression> outputs = setOperation.getOutputs();
+                    List<Slot> childOutputs = child.getOutput();
+                    for (int i = 0; i < outputs.size(); i++) {
+                        replaceMap.put(outputs.get(i), childOutputs.get(i));
+                    }
 
-            List<Plan> newChildren = new ArrayList<>();
-            for (Plan child : setOperation.children()) {
-                Map<Expression, Expression> replaceMap = new HashMap<>();
-                for (int i = 0; i < setOperation.getOutputs().size(); ++i) {
-                    NamedExpression output = setOperation.getOutputs().get(i);
-                    replaceMap.put(output, child.getOutput().get(i));
+                    Set<Expression> newFilterPredicates = filter.getConjuncts().stream().map(conjunct ->
+                            ExpressionUtils.replace(conjunct, replaceMap)).collect(ImmutableSet.toImmutableSet());
+                    newChildren.add(new LogicalFilter<>(newFilterPredicates, child));
                 }
-
-                Set<Expression> newFilterPredicates = filter.getConjuncts().stream().map(conjunct ->
-                        ExpressionUtils.replace(conjunct, replaceMap)).collect(ImmutableSet.toImmutableSet());
-                newChildren.add(new LogicalFilter<>(newFilterPredicates, child));
-            }
-            if (setOperation instanceof LogicalUnion && setOperation.getQualifier() == Qualifier.DISTINCT) {
-                return new LogicalFilter<>(filter.getConjuncts(),
-                        ((LogicalUnion) setOperation).withHasPushedFilter().withChildren(newChildren));
-            }
-            return setOperation.withNewChildren(newChildren);
-        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_SET_OPERATION);
+                return setOperation.withNewChildren(newChildren);
+            }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_SET_OPERATION);
     }
 }
