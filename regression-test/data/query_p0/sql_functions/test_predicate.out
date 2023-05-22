@@ -31,3 +31,18 @@
 
 -- !true_and_false --
 
+-- !not_false --
+1	2	3	\N
+
+-- !not_null --
+
+-- !false_is_null --
+
+-- !null_is_null --
+1	2	3	\N
+
+-- !false_eq_false --
+1	2	3	\N
+
+-- !null_eq_false --
+

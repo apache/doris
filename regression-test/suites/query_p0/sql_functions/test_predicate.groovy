@@ -36,7 +36,7 @@ suite("test_predicate") {
     qt_false_or_null "select * from t1 where abs(k1)!=1 or abs(k1)=null;"
     qt_null_or_false "select * from t1 where abs(k1)=null or abs(k1)!=1;"
     qt_false_or_true "select * from t1 where abs(k1)!=1 or abs(k1)=1;"
-    qt_true_or_false "select * from t1 where abs(k1)=1 or abs(k1)=1;"
+    qt_true_or_false "select * from t1 where abs(k1)=1 or abs(k1)!=1;"
 
     qt_null_and_null "select * from t1 where abs(k1)=null and abs(k1)=null;"
     qt_true_and_null "select * from t1 where abs(k1)=1 and abs(k1)=null;"
@@ -45,4 +45,13 @@ suite("test_predicate") {
     qt_null_and_false "select * from t1 where abs(k1)!=null and abs(k1)=1;"
     qt_false_and_true "select * from t1 where abs(k1)!=1 and abs(k1)=1;"
     qt_true_and_false "select * from t1 where abs(k1)=1 and abs(k1)!=1;"
+
+    qt_not_false "select * from t1 where not (abs(k1)!=1);"
+    qt_not_null "select * from t1 where not (abs(k1)!=1 or null);"
+
+    qt_false_is_null "select * from t1 where (abs(k1)!=1) is null;"
+    qt_null_is_null "select * from t1 where (abs(k1)!=1 or null) is null;"
+
+    qt_false_eq_false "select * from t1 where (abs(k1)!=1)=false;"
+    qt_null_eq_false "select * from t1 where (abs(k1)!=1 or null)=false;"
 }
