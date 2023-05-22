@@ -17,12 +17,18 @@
 
 package org.apache.doris.planner.external;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileFormatType;
+
+import com.google.common.collect.Lists;
+import org.apache.hadoop.mapred.FileSplit;
+import org.apache.hadoop.mapred.InputSplit;
 
 import java.util.Collections;
 import java.util.List;
@@ -47,5 +53,20 @@ public class HudiScanProvider extends HiveScanProvider {
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
         return Collections.emptyList();
+    }
+
+    @Override
+    public List<InputSplit> getSplits(List<Expr> exprs) throws UserException {
+        List<InputSplit> splits = super.getSplits(exprs);
+        List<InputSplit> filterSplits = Lists.newArrayList();
+        for (InputSplit split : splits) {
+            FileSplit fileSplit = (FileSplit) split;
+            // skip hidden files start with "."
+            if (fileSplit.getPath().getName().startsWith(".")) {
+                continue;
+            }
+            filterSplits.add(split);
+        }
+        return filterSplits;
     }
 }
