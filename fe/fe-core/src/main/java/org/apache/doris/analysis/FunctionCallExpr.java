@@ -1422,6 +1422,11 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("array_apply")
+                && ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3()) {
+            uncheckedCastChild(((ArrayType) children.get(0).getType()).getItemType(), 2);
+            fn = getBuiltinFunction(fnName.getFunction(), collectChildReturnTypes(),
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                 fnName.getFunction().toLowerCase())) {
             // order by elements add as child like windows function. so if we get the
@@ -1656,8 +1661,8 @@ public class FunctionCallExpr extends Expr {
                         && ((ArrayType) args[ix]).getItemType().isDecimalV3()))) {
                     continue;
                 } else if (!argTypes[i].matchesType(args[ix])
-                        && (!fn.getReturnType().isDecimalV3OrContainsDecimalV3()
-                                || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
+                        && !(argTypes[i].isDecimalV3OrContainsDecimalV3()
+                        && args[ix].isDecimalV3OrContainsDecimalV3())) {
                     uncheckedCastChild(args[ix], i);
                 }
             }
@@ -1772,6 +1777,8 @@ public class FunctionCallExpr extends Expr {
                 newFields.add(new StructField(fieldType));
             }
             this.type = new StructType(newFields);
+        } else if (fnName.getFunction().equalsIgnoreCase("topn_array")) {
+            this.type = new ArrayType(children.get(0).getType());
         } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                 .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
                 || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")

@@ -53,7 +53,7 @@ public class DecimalLiteral extends Literal {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.DecimalLiteral(value);
+        return new org.apache.doris.analysis.DecimalLiteral(value, dataType.toCatalogDataType());
     }
 
     @Override

@@ -23,7 +23,7 @@ suite("test_struct_functions") {
             CREATE TABLE IF NOT EXISTS ${tableName} (
               `k1` INT(11) NULL,
               `k2` STRUCT<f1:TINYINT,f2:SMALLINT,f3:INT,f4:BIGINT,f5:LARGEINT> NULL,
-              `k3` STRUCT<f1:FLOAT,f2:DOUBLE,f3:DECIMAL(3,3)> NULL,
+              `k3` STRUCT<f1:FLOAT,f2:DOUBLE,f3:DECIMAL(10,3)> NULL,
               `k4` STRUCT<f1:DATE,f2:DATETIME,f3:DATEV2,f4:DATETIMEV2> NULL,
               `k5` STRUCT<f1:CHAR(10),f2:VARCHAR(10),f3:STRING> NOT NULL
             )

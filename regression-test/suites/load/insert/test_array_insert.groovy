@@ -162,8 +162,6 @@ suite("test_array_insert", "load") {
         qt_select "select * from ${testTable02} order by k1"
 
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable01}")
-        try_sql("DROP TABLE IF EXISTS ${testTable02}")
     }
 
     // case4: test the array_sort(collect_list()) result to insert and select

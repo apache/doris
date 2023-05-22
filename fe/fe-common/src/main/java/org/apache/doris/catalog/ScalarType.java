@@ -1118,9 +1118,7 @@ public class ScalarType extends Type {
             return t1.isDecimalV2() ? t1 : t2;
         }
 
-        if ((t1.isDecimalV3() && t2.isFixedPointType()) || (t2.isDecimalV3() && t1.isFixedPointType())) {
-            return t1.isDecimalV3() ? t1 : t2;
-        }
+
 
         if (t1.isDecimalV3() && t2.isDecimalV3()) {
             ScalarType finalType = ScalarType.createDecimalV3Type(Math.max(t1.decimalPrecision() - t1.decimalScale(),
@@ -1136,6 +1134,15 @@ public class ScalarType extends Type {
                 (t1.type.ordinal() < t2.type.ordinal() ? t1.type : t2.type);
         PrimitiveType largerType =
                 (t1.type.ordinal() > t2.type.ordinal() ? t1.type : t2.type);
+        if ((t1.isDecimalV3() && t2.isFixedPointType()) || (t2.isDecimalV3() && t1.isFixedPointType())) {
+            ScalarType compatibleType = createType(compatibilityMatrix[smallerType.ordinal()][largerType.ordinal()]);
+            ScalarType decimalType = t1.isDecimalV3() ? t1 : t2;
+            if (compatibleType.isDecimalV3()) {
+                return ScalarType.createDecimalV3Type(compatibleType.getPrecision(),
+                        decimalType.getScalarScale());
+            }
+            return t1.isDecimalV3() ? t1 : t2;
+        }
         PrimitiveType result = null;
         if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
             return t1.scale > t2.scale ? t1 : t2;
