@@ -2461,5 +2461,9 @@ public class StmtExecutor {
     public SummaryProfile getSummaryProfile() {
         return profile.getSummaryProfile();
     }
+
+    public Profile getProfile() {
+        return profile;
+    }
 }
 
