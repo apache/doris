@@ -33,8 +33,6 @@ public:
 
     bool get_is_injective(const Block&) override { return false; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_string_or_fixed_string(arguments[0]) || is_array(arguments[0]))
                 << fmt::format("Illegal type {} used for argument of function {}",

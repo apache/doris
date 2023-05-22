@@ -122,7 +122,7 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
         APPLY_FOR_PRIMTYPE(M)
 #undef M
     default:
-        DCHECK(false) << "Invalid type.";
+        DCHECK(false) << "Invalid type: " << type_to_string(type);
     }
 
     return nullptr;
@@ -142,7 +142,7 @@ typename Traits::BasePtr create_bitmap_predicate_function(PrimitiveType type) {
     case TYPE_BIGINT:
         return Creator::template create<TYPE_BIGINT>();
     default:
-        DCHECK(false) << "Invalid type.";
+        DCHECK(false) << "Invalid type: " << type_to_string(type);
     }
 
     return nullptr;
