@@ -19,6 +19,7 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -26,12 +27,15 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.Lists;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -265,6 +269,7 @@ public class JoinEstimation {
             return estimateSemiOrAnti(leftStats, rightStats, join);
         } else if (joinType == JoinType.INNER_JOIN) {
             Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
+            innerJoinStats = updateJoinResultStatsByHashJoinCondition(innerJoinStats, join);
             return innerJoinStats;
         } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
             Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
@@ -286,6 +291,36 @@ public class JoinEstimation {
                     .build();
         }
         throw new AnalysisException("join type not supported: " + join.getJoinType());
+    }
+
+    /**
+     * L join R on a = b
+     * after join, a.ndv and b.ndv should be equal to min(a.ndv, b.ndv)
+     */
+    private static Statistics updateJoinResultStatsByHashJoinCondition(Statistics innerStats, Join join) {
+        Map<Expression, ColumnStatistic> updatedCols = new HashMap<>();
+        for (Expression expr : join.getHashJoinConjuncts()) {
+            EqualTo equalTo = (EqualTo) expr;
+            ColumnStatistic leftColStats = ExpressionEstimation.estimate(equalTo.left(), innerStats);
+            ColumnStatistic rightColStats = ExpressionEstimation.estimate(equalTo.right(), innerStats);
+            double minNdv = Math.min(leftColStats.ndv, rightColStats.ndv);
+            leftColStats = new ColumnStatisticBuilder(leftColStats).setNdv(minNdv).build();
+            rightColStats = new ColumnStatisticBuilder(rightColStats).setNdv(minNdv).build();
+            Expression eqLeft = equalTo.left();
+            if (eqLeft instanceof Cast) {
+                eqLeft = eqLeft.child(0);
+            }
+            Expression eqRight = equalTo.right();
+            if (eqRight instanceof Cast) {
+                eqRight = eqRight.child(0);
+            }
+            updatedCols.put(eqLeft, leftColStats);
+            updatedCols.put(eqRight, rightColStats);
+        }
+        updatedCols.entrySet().stream().forEach(
+                entry -> innerStats.addColumnStats(entry.getKey(), entry.getValue())
+        );
+        return innerStats;
     }
 
 }

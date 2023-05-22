@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.collect.ImmutableList;
 
@@ -34,12 +33,9 @@ import java.util.Optional;
 public class BuildAggForUnion extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalUnion().whenNot(LogicalUnion::hasBuildAgg).then(union -> {
-            if (union.getQualifier() == Qualifier.DISTINCT) {
-                return new LogicalAggregate<>(ImmutableList.copyOf(union.getOutputs()), union.getOutputs(),
-                        true, Optional.empty(), union.withHasBuildAgg());
-            }
-            return union;
-        }).toRule(RuleType.BUILD_AGG_FOR_UNION);
+        return logicalUnion().when(union -> union.getQualifier() == Qualifier.DISTINCT)
+                .then(union -> new LogicalAggregate<>(ImmutableList.copyOf(union.getOutputs()), union.getOutputs(),
+                        true, Optional.empty(), union.withAllQualifier()))
+                .toRule(RuleType.BUILD_AGG_FOR_UNION);
     }
 }

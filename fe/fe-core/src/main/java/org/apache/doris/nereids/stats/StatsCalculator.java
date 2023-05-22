@@ -174,6 +174,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         */
         if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
             groupExpression.getOwnerGroup().setStatistics(stats);
+        } else {
+            if (originStats.getRowCount() > stats.getRowCount()) {
+                stats.updateNdv(originStats);
+                groupExpression.getOwnerGroup().setStatistics(stats);
+            } else {
+                originStats.updateNdv(stats);
+            }
         }
         groupExpression.setEstOutputRowCount(stats.getRowCount());
         groupExpression.setStatDerived(true);
