@@ -70,7 +70,6 @@ public class Tablet extends MetaObject implements Writable {
         VERSION_INCOMPLETE, // alive replica num is enough, but version is missing.
         REPLICA_RELOCATING, // replica is healthy, but is under relocating (eg. BE is decommission).
         REDUNDANT, // too much replicas.
-        REPLICA_MISSING_IN_CLUSTER, // not enough healthy replicas in correct cluster.
         REPLICA_MISSING_FOR_TAG, // not enough healthy replicas in backend with specified tag.
         FORCE_REDUNDANT, // some replica is missing or bad, but there is no other backends for repair,
         // at least one replica has to be deleted first to make room for new replica.
@@ -464,12 +463,10 @@ public class Tablet extends MetaObject implements Writable {
      * <p>
      * A tablet is healthy only if
      * 1. healthy replica num is equal to replicationNum
-     * 2. all healthy replicas are in right cluster and tag
+     * 2. all healthy replicas are in right tag
      */
-    public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(
-            SystemInfoService systemInfoService, String clusterName,
-            long visibleVersion, ReplicaAllocation replicaAlloc,
-            List<Long> aliveBeIdsInCluster) {
+    public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(SystemInfoService systemInfoService,
+            long visibleVersion, ReplicaAllocation replicaAlloc, List<Long> aliveBeIds) {
 
 
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
@@ -479,7 +476,6 @@ public class Tablet extends MetaObject implements Writable {
         int alive = 0;
         int aliveAndVersionComplete = 0;
         int stable = 0;
-        int availableInCluster = 0;
 
         Replica needFurtherRepairReplica = null;
         Set<String> hosts = Sets.newHashSet();
@@ -508,12 +504,6 @@ public class Tablet extends MetaObject implements Writable {
             }
             stable++;
 
-            if (!backend.getOwnerClusterName().equals(clusterName)) {
-                // this replica is available, version complete, but not in right cluster
-                continue;
-            }
-            availableInCluster++;
-
             if (replica.needFurtherRepair() && needFurtherRepairReplica == null) {
                 needFurtherRepairReplica = replica;
             }
@@ -530,7 +520,7 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 1. alive replicas are not enough
-        int aliveBackendsNum = aliveBeIdsInCluster.size();
+        int aliveBackendsNum = aliveBeIds.size();
         if (alive < replicationNum && replicas.size() >= aliveBackendsNum
                 && aliveBackendsNum >= replicationNum && replicationNum > 1) {
             // there is no enough backend for us to create a new replica, so we have to delete an existing replica,
@@ -564,10 +554,8 @@ public class Tablet extends MetaObject implements Writable {
 
         // 3. replica is under relocating
         if (stable < replicationNum) {
-            List<Long> replicaBeIds = replicas.stream()
-                    .map(Replica::getBackendId).collect(Collectors.toList());
-            List<Long> availableBeIds = aliveBeIdsInCluster.stream()
-                    .filter(systemInfoService::checkBackendScheduleAvailable)
+            List<Long> replicaBeIds = replicas.stream().map(Replica::getBackendId).collect(Collectors.toList());
+            List<Long> availableBeIds = aliveBeIds.stream().filter(systemInfoService::checkBackendScheduleAvailable)
                     .collect(Collectors.toList());
             if (replicaBeIds.containsAll(availableBeIds)
                     && availableBeIds.size() >= replicationNum
@@ -583,12 +571,7 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
 
-        // 4. healthy replicas in cluster are not enough
-        if (availableInCluster < replicationNum) {
-            return Pair.of(TabletStatus.REPLICA_MISSING_IN_CLUSTER, TabletSchedCtx.Priority.LOW);
-        }
-
-        // 5. got enough healthy replicas, check tag
+        // 4. got enough healthy replicas, check tag
         for (Map.Entry<Tag, Short> alloc : allocMap.entrySet()) {
             if (!currentAllocMap.containsKey(alloc.getKey())
                     || currentAllocMap.get(alloc.getKey()) < alloc.getValue()) {
@@ -604,7 +587,7 @@ public class Tablet extends MetaObject implements Writable {
             return Pair.of(TabletStatus.REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         }
 
-        // 6. find a replica's version count is much more than others, and drop it
+        // 5. find a replica's version count is much more than others, and drop it
         if (Config.repair_slow_replica && versions.size() == replicas.size() && versions.size() > 1) {
             // sort version
             Collections.sort(versions);
@@ -617,7 +600,7 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
 
-        // 7. healthy
+        // 6. healthy
         return Pair.of(TabletStatus.HEALTHY, TabletSchedCtx.Priority.NORMAL);
     }
 

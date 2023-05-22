@@ -30,7 +30,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
-import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -70,9 +69,8 @@ public class PartitionRebalancer extends Rebalancer {
 
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            ClusterLoadStatistic clusterStat, TStorageMedium medium) {
-        String clusterName = clusterStat.getClusterName();
-        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(clusterName, clusterStat.getTag(), medium);
+            LoadStatisticForTag clusterStat, TStorageMedium medium) {
+        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(clusterStat.getTag(), medium);
         Preconditions.checkNotNull(movesInProgress,
                 "clusterStat is got from statisticMap, movesCacheMap should have the same entry");
 
@@ -109,7 +107,7 @@ public class PartitionRebalancer extends Rebalancer {
         }
 
         NavigableSet<Long> skews = clusterBalanceInfo.partitionInfoBySkew.keySet();
-        LOG.debug("Cluster {}-{}: peek max skew {}, assume {} in-progress moves are succeeded {}", clusterName, medium,
+        LOG.debug("Medium {}: peek max skew {}, assume {} in-progress moves are succeeded {}", medium,
                 skews.isEmpty() ? 0 : skews.last(), movesInProgressList.size(), movesInProgressList);
 
         List<TwoDimensionalGreedyRebalanceAlgo.PartitionMove> moves
@@ -147,7 +145,7 @@ public class PartitionRebalancer extends Rebalancer {
             LOG.debug("Picked tablet id for move {}: {}", move, pickedTabletId);
 
             TabletMeta tabletMeta = tabletCandidates.get(pickedTabletId);
-            TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE, clusterName,
+            TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE,
                     tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId(),
                     tabletMeta.getIndexId(), pickedTabletId, null /* replica alloc is not used for balance*/,
                     System.currentTimeMillis());
@@ -165,16 +163,16 @@ public class PartitionRebalancer extends Rebalancer {
 
         if (moves.isEmpty()) {
             // Balanced cluster should not print too much log messages, so we log it with level debug.
-            LOG.debug("Cluster {}-{}: cluster is balanced.", clusterName, medium);
+            LOG.debug("Medium {}: cluster is balanced.", medium);
         } else {
-            LOG.info("Cluster {}-{}: get {} moves, actually select {} alternative tablets to move. Tablets detail: {}",
-                    clusterName, medium, moves.size(), alternativeTablets.size(),
+            LOG.info("Medium {}: get {} moves, actually select {} alternative tablets to move. Tablets detail: {}",
+                    medium, moves.size(), alternativeTablets.size(),
                     alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
         }
         return alternativeTablets;
     }
 
-    private boolean buildClusterInfo(ClusterLoadStatistic clusterStat, TStorageMedium medium,
+    private boolean buildClusterInfo(LoadStatisticForTag clusterStat, TStorageMedium medium,
             List<TabletMove> movesInProgress, ClusterBalanceInfo info, List<Long> toDeleteKeys) {
         Preconditions.checkState(info.beByTotalReplicaCount.isEmpty() && info.partitionInfoBySkew.isEmpty(), "");
 
@@ -233,8 +231,8 @@ public class PartitionRebalancer extends Rebalancer {
     @Override
     protected void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, TabletScheduler.PathSlot> backendsWorkingSlots)
             throws SchedException {
-        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(
-                tabletCtx.getCluster(), tabletCtx.getTag(), tabletCtx.getStorageMedium());
+        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(tabletCtx.getTag(),
+                tabletCtx.getStorageMedium());
         Preconditions.checkNotNull(movesInProgress,
                 "clusterStat is got from statisticMap, movesInProgressMap should have the same entry");
 
@@ -258,16 +256,16 @@ public class PartitionRebalancer extends Rebalancer {
             }
 
             // Choose a path in destination
-            ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
-            Preconditions.checkNotNull(clusterStat, "cluster does not exist: " + tabletCtx.getCluster());
-            BackendLoadStatistic beStat = clusterStat.getBackendLoadStatistic(move.toBe);
+            LoadStatisticForTag loadStat = statisticMap.get(tabletCtx.getTag());
+            Preconditions.checkNotNull(loadStat, "tag does not exist: " + tabletCtx.getTag());
+            BackendLoadStatistic beStat = loadStat.getBackendLoadStatistic(move.toBe);
             Preconditions.checkNotNull(beStat);
             slot = backendsWorkingSlots.get(move.toBe);
             Preconditions.checkNotNull(slot, "unable to get slot of toBe " + move.toBe);
 
             List<RootPathLoadStatistic> paths = beStat.getPathStatistics();
             Set<Long> availPath = paths.stream().filter(path -> path.getStorageMedium() == tabletCtx.getStorageMedium()
-                    && path.isFit(tabletCtx.getTabletSize(), false) == BalanceStatus.OK)
+                            && path.isFit(tabletCtx.getTabletSize(), false) == BalanceStatus.OK)
                     .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toSet());
             long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath);
             if (pathHash == -1) {
@@ -312,7 +310,7 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     @Override
-    public void updateLoadStatistic(Table<String, Tag, ClusterLoadStatistic> statisticMap) {
+    public void updateLoadStatistic(Map<Tag, LoadStatisticForTag> statisticMap) {
         super.updateLoadStatistic(statisticMap);
         movesCacheMap.updateMapping(statisticMap, Config.partition_rebalance_move_expire_after_access);
         // Perform cache maintenance

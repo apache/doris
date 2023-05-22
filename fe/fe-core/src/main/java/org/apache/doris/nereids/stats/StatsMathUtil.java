@@ -58,5 +58,4 @@ public class StatsMathUtil {
         }
         return a / nonZeroDivisor(b);
     }
-
 }
