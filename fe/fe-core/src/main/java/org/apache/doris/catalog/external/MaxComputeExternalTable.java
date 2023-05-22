@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog.external;
 
-import com.aliyun.odps.type.CharTypeInfo;
-import com.aliyun.odps.type.VarcharTypeInfo;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -34,10 +32,12 @@ import org.apache.doris.thrift.TTableType;
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.Table;
 import com.aliyun.odps.type.ArrayTypeInfo;
+import com.aliyun.odps.type.CharTypeInfo;
 import com.aliyun.odps.type.DecimalTypeInfo;
 import com.aliyun.odps.type.MapTypeInfo;
 import com.aliyun.odps.type.StructTypeInfo;
 import com.aliyun.odps.type.TypeInfo;
+import com.aliyun.odps.type.VarcharTypeInfo;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -100,8 +100,7 @@ public class MaxComputeExternalTable extends ExternalTable {
                 CharTypeInfo charType = (CharTypeInfo) typeInfo;
                 return ScalarType.createChar(charType.getLength());
             }
-            case VARCHAR:
-            case STRING: {
+            case VARCHAR: {
                 VarcharTypeInfo varcharType = (VarcharTypeInfo) typeInfo;
                 return ScalarType.createVarchar(varcharType.getLength());
             }

@@ -28,14 +28,12 @@ import com.aliyun.odps.data.ArrowRecordReader;
 import com.aliyun.odps.tunnel.TableTunnel;
 import com.aliyun.odps.type.TypeInfo;
 import com.aliyun.odps.type.TypeInfoFactory;
-import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -48,41 +46,37 @@ public class MaxComputeJniScanner extends JniScanner {
 
     private static final Logger LOG = Logger.getLogger(MaxComputeJniScanner.class);
     private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun.com/api";
-    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun.com";
+    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun-inc.com";
     private static final String REGION = "region";
     private static final String PROJECT = "project";
     private static final String TABLE = "table";
     private static final String ACCESS_KEY = "access_key";
     private static final String SECRET_KEY = "secret_key";
+    private static final String START_OFFSET = "start_offset";
+    private static final String FILE_SIZE = "file_size";
     private final String region;
     private final String project;
     private final String table;
     private final AliyunAccount account;
-    private final MaxComputeColumnValue columnValue = new MaxComputeColumnValue();
-    private int readRows = 0;
+    private MaxComputeColumnValue columnValue;
+    private int readRowsOffset = 0;
+    private long remainBatchRows = 0;
     private long totalRows = 0;
     private TableTunnel.DownloadSession session;
     private ArrowRecordReader curReader;
     private List<Column> columns;
 
     public MaxComputeJniScanner(int batchSize, Map<String, String> params) {
-        LOG.warn("MCJNI REGION: " + params.get(REGION));
-        LOG.warn("MCJNI PROJECT: " + params.get(PROJECT));
-        LOG.warn("MCJNI TABLE: " + params.get(TABLE));
-        LOG.warn("MCJNI ACCESS_KEY: " + params.get(ACCESS_KEY));
-        LOG.warn("MCJNI SECRET_KEY: " + params.get(SECRET_KEY));
-
         region = Objects.requireNonNull(params.get(REGION), "required property '" + REGION + "'.");
         project = Objects.requireNonNull(params.get(PROJECT), "required property '" + PROJECT + "'.");
         table = Objects.requireNonNull(params.get(TABLE), "required property '" + TABLE + "'.");
         String accessKey = Objects.requireNonNull(params.get(ACCESS_KEY), "required property '" + ACCESS_KEY + "'.");
         String secretKey = Objects.requireNonNull(params.get(SECRET_KEY), "required property '" + SECRET_KEY + "'.");
         account = new AliyunAccount(accessKey, secretKey);
-
+        LOG.warn("MCJNI START_OFFSET: " + params.get(START_OFFSET));
+        LOG.warn("MCJNI FILE_SIZE: " + params.get(FILE_SIZE));
         String[] requiredFields = params.get("required_fields").split(",");
         String[] types = params.get("columns_types").split("#");
-        LOG.warn("MCJNI required_fields: " + Arrays.toString(requiredFields));
-        LOG.warn("MCJNI columns_types: " + Arrays.toString(types));
         ColumnType[] columnTypes = new ColumnType[types.length];
         for (int i = 0; i < types.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
@@ -96,7 +90,6 @@ public class MaxComputeJniScanner extends JniScanner {
             }
         }
         initTableInfo(columnTypes, requiredFields, predicates, batchSize);
-        LOG.warn("MCJNI initTableInfo OK");
     }
 
     @Override
@@ -114,13 +107,12 @@ public class MaxComputeJniScanner extends JniScanner {
         odps = new Odps(account);
         odps.setEndpoint(odpsUrlTemplate.replace("{}", region));
         odps.setDefaultProject(project);
-        LOG.warn("MCJNI odpsUrlTemplate: " + odpsUrlTemplate);
         TableTunnel tunnel = new TableTunnel(odps);
         tunnel.setEndpoint(tunnelUrlTemplate.replace("{}", region));
-        LOG.warn("MCJNI tunnelUrlTemplate: " + tunnelUrlTemplate);
         try {
             session = tunnel.createDownloadSession(project, table);
             totalRows = session.getRecordCount();
+            // TODO Use split range
             LOG.warn("MCJNI totalRows: " + totalRows);
         } catch (Exception e) {
             throw new IOException(e);
@@ -129,8 +121,6 @@ public class MaxComputeJniScanner extends JniScanner {
 
     private Column createOdpsColumn(int colIdx, ColumnType dorisType) {
         TypeInfo odpsType;
-        LOG.warn("MCJNI dorisType: " + dorisType.getName());
-        LOG.warn("MCJNI dorisType: " + dorisType.getType());
         switch (dorisType.getType()) {
             case BOOLEAN:
                 odpsType = TypeInfoFactory.BOOLEAN;
@@ -147,6 +137,9 @@ public class MaxComputeJniScanner extends JniScanner {
             case BIGINT:
                 odpsType = TypeInfoFactory.BIGINT;
                 break;
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
             case DECIMALV2:
                 odpsType = TypeInfoFactory.getDecimalTypeInfo(dorisType.getPrecision(), dorisType.getScale());
                 break;
@@ -162,12 +155,15 @@ public class MaxComputeJniScanner extends JniScanner {
             case DATEV2:
                 odpsType = TypeInfoFactory.DATE;
                 break;
+            case CHAR:
+                odpsType = TypeInfoFactory.getCharTypeInfo(dorisType.getLength());
+                break;
             case VARCHAR:
             case STRING:
                 odpsType = TypeInfoFactory.getVarcharTypeInfo(dorisType.getLength());
                 break;
             default:
-                throw new RuntimeException("test error");
+                throw new RuntimeException("Unsupported transform for column type: " + dorisType.getType());
         }
         return new Column(fields[colIdx], odpsType);
     }
@@ -178,16 +174,15 @@ public class MaxComputeJniScanner extends JniScanner {
     }
 
     private boolean nextReader(long start, long size) throws IOException {
-        LOG.warn("MCJNI nextReader()");
         try {
             if (curReader != null) {
                 curReader.close();
             }
-            if (readRows == totalRows) {
+            if (readRowsOffset == totalRows) {
+                LOG.warn("MCJNI EOF");
                 return false;
             }
             curReader = session.openArrowRecordReader(start, size, columns);
-            LOG.warn("MCJNI arrow()");
             return true;
         } catch (Exception e) {
             throw new IOException(e);
@@ -196,30 +191,43 @@ public class MaxComputeJniScanner extends JniScanner {
 
     @Override
     protected int getNext() throws IOException {
-        int start = readRows;
-        long remainRows = totalRows - readRows;
-        int rows = (int) Math.min(batchSize, remainRows);
-        if (!nextReader(start, rows)) {
-            return 0;
+        columnValue = new MaxComputeColumnValue();
+        int start = readRowsOffset;
+        long remainRows = totalRows - readRowsOffset;
+        // TODO: Use split range
+        int expectedRows = (int) Math.min(batchSize, remainRows);
+        if (remainBatchRows <= 0) {
+            // init
+            remainBatchRows = totalRows;
+            if (!nextReader(start, totalRows)) {
+                return 0;
+            }
         }
-        LOG.warn("MCJNI next readr]");
+        int realRows = readVectors(expectedRows);
+        remainBatchRows -= realRows;
+        readRowsOffset += realRows;
+        LOG.warn("MCJNI readRowsOffset: " + readRowsOffset);
+        return realRows;
+    }
+
+    private int readVectors(int expectedRows) throws IOException {
         VectorSchemaRoot batch;
-        while ((batch = curReader.read()) != null) {
+        int curReadRows = 0;
+        while (curReadRows < expectedRows && (batch = curReader.read()) != null) {
             List<FieldVector> fieldVectors = batch.getFieldVectors();
+            int batchRows = 0;
             for (int colIdx = 0; colIdx < fieldVectors.size(); colIdx++) {
                 FieldVector column = fieldVectors.get(colIdx);
-                ArrowBuf buffers = column.getDataBuffer();
-                LOG.warn("MCJNI buffer size: " + buffers.capacity());
-                columnValue.setBuffers(buffers);
-                for (int j = 0; j < rows; j++) {
+                columnValue.reset(column);
+                // LOG.warn("MCJNI read getClass: " + column.getClass());
+                batchRows = column.getValueCount();
+                for (int j = 0; j < batchRows; j++) {
                     // TODO: process null value
                     appendData(colIdx, columnValue);
-                    LOG.warn("MCJNI row: " + j);
                 }
             }
-            LOG.warn("MCJNI read batch");
+            curReadRows += batchRows;
         }
-        readRows += rows;
-        return rows;
+        return curReadRows;
     }
 }

@@ -24,6 +24,8 @@ import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
+import com.aliyun.odps.tunnel.TableTunnel;
+import com.aliyun.odps.tunnel.TunnelException;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
@@ -40,6 +42,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     @SerializedName(value = "secretKey")
     private String secretKey;
     private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun.com/api";
+    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun.com";
 
     public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE);
@@ -74,6 +77,13 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         this.odps = new Odps(account);
         odps.setEndpoint(odpsUrlTemplate.replace("{}", region));
         odps.setDefaultProject(defaultProject);
+    }
+
+    public long getTotalRows(String project, String table) throws TunnelException {
+        makeSureInitialized();
+        TableTunnel tunnel = new TableTunnel(odps);
+        tunnel.setEndpoint(tunnelUrlTemplate.replace("{}", region));
+        return tunnel.createDownloadSession(project, table).getRecordCount();
     }
 
     public Odps getClient() {

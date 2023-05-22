@@ -18,6 +18,12 @@
 package org.apache.doris.jni.vec;
 
 import org.apache.arrow.memory.ArrowBuf;
+import org.apache.arrow.vector.DateDayVector;
+import org.apache.arrow.vector.DateMilliVector;
+import org.apache.arrow.vector.DecimalVector;
+import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.VarBinaryVector;
+import org.apache.arrow.vector.VarCharVector;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -29,15 +35,20 @@ import java.util.List;
  */
 public class MaxComputeColumnValue implements ColumnValue {
     private long offset;
+    private int idx;
     private ArrowBuf buffers;
+    private FieldVector column;
 
     public MaxComputeColumnValue() {
         offset = 0L;
+        idx = 0;
     }
 
-    public void setBuffers(ArrowBuf buffers) {
-        this.buffers = buffers;
+    public void reset(FieldVector column) {
+        this.column = column;
+        this.buffers = column.getDataBuffer();
         this.offset = 0L;
+        this.idx = 0;
     }
 
     @Override
@@ -84,34 +95,39 @@ public class MaxComputeColumnValue implements ColumnValue {
 
     @Override
     public double getDouble() {
-        Double v = buffers.getDouble(offset);
+        double v = buffers.getDouble(offset);
         offset += Double.BYTES;
         return v;
     }
 
     @Override
     public BigDecimal getDecimal() {
-        return BigDecimal.valueOf(getDouble());
+        DecimalVector decimalCol = (DecimalVector) column;
+        return decimalCol.getObject(idx++);
     }
 
     @Override
     public String getString() {
-        return "row";
+        VarCharVector varcharCol = (VarCharVector) column;
+        return varcharCol.getObject(idx++).toString();
     }
 
     @Override
     public LocalDate getDate() {
-        return LocalDate.now();
+        DateDayVector dateCol = (DateDayVector) column;
+        return LocalDate.ofEpochDay(dateCol.getObject(idx++));
     }
 
     @Override
     public LocalDateTime getDateTime() {
-        return LocalDateTime.now();
+        DateMilliVector datetimeCol = (DateMilliVector) column;
+        return datetimeCol.getObject(idx++);
     }
 
     @Override
     public byte[] getBytes() {
-        return "bytes".getBytes();
+        VarBinaryVector binaryCol = (VarBinaryVector) column;
+        return binaryCol.getObject(idx++);
     }
 
     @Override

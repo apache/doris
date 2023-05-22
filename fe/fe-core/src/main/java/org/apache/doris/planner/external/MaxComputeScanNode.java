@@ -28,6 +28,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
+import com.aliyun.odps.tunnel.TunnelException;
 import org.apache.hadoop.fs.Path;
 
 import java.util.ArrayList;
@@ -79,9 +80,36 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         // String splitPath = catalog.getTunnelUrl();
         // TODO: use single max compute scan node rather than file scan node
         com.aliyun.odps.Table odpsTable = table.getOdpsTable();
-        long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
-        result.add(new FileSplit(new Path("/"), 0, 100, 100,
-                modificationTime, new String[] {"172.21.0.101"}, Collections.emptyList()));
+        try {
+            // List<Pair<Long, Long>> sliceRange = new ArrayList<>();
+            long totalRows = catalog.getTotalRows(table.getDbName(), table.getName());
+            //            if (odpsTable.getFileNum() > 1) {
+            //                long fileNum = odpsTable.getFileNum();
+            //                long splitSize = (long) Math.ceil((double) totalRows / fileNum);
+            //                long start = 0;
+            //                for (int i = 0; i < fileNum; i++) {
+            //                    if (start > totalRows) {
+            //                        break;
+            //                    }
+            //                    sliceRange.add(Pair.of(start, splitSize));
+            //                    start += splitSize;
+            //                }
+            //            }
+            long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
+            // if (sliceRange.isEmpty()) {
+            result.add(new FileSplit(new Path("/virtual_path"), 0, totalRows, totalRows,
+                    modificationTime, new String[] {"172.21.0.101"}, Collections.emptyList()));
+            //            } else {
+            //                for (int i = 0; i < sliceRange.size(); i++) {
+            //                    Pair<Long, Long> range = sliceRange.get(i);
+            //                    result.add(new FileSplit(new Path("/virtual_slice_" + i), range.first, range.second,
+            //                    totalRows, modificationTime, new String[]{"172.21.0.101"}, Collections.emptyList()));
+            //                }
+            //            }
+        } catch (TunnelException e) {
+            throw new UserException("Max Compute tunnel SDK exception.", e);
+
+        }
         return result;
     }
 }
