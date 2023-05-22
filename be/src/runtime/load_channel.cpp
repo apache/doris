@@ -103,6 +103,12 @@ Status LoadChannel::open_partition(const OpenPartitionRequest& params) {
         if (it != _tablets_channels.end()) {
             channel = it->second;
         } else {
+            fmt::memory_buffer buf;
+            for (auto tablet : params.tablets()) {
+                fmt::format_to(buf, "tablet id:{}", tablet.tablet_id());
+            }
+            LOG(WARNING) << "should be opened partition index id=" << params.index_id()
+                         << "tablet ids=" << fmt::to_string(buf);
             return Status::InternalError("Partition should be opened");
         }
     }
