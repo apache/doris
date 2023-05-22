@@ -177,7 +177,6 @@ public class PhysicalHashJoin<
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, left(), right());
     }
 
-
     private class ExprComparator implements Comparator<Expression> {
         @Override
         public int compare(Expression e1, Expression e2) {
