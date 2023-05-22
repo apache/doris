@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -108,6 +109,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         }
         state.addTableIndexes(physicalOlapTableSink.getTargetTable());
 
+        executor.setProfileType(ProfileType.LOAD);
         txn.executeInsertIntoTableCommand(executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {

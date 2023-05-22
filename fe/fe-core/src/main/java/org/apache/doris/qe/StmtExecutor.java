@@ -2465,5 +2465,9 @@ public class StmtExecutor {
     public Profile getProfile() {
         return profile;
     }
+
+    public void setProfileType(ProfileType profileType) {
+        this.profileType = profileType;
+    }
 }
 
