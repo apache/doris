@@ -146,6 +146,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RUNTIME_BLOOM_FILTER_MIN_SIZE = "runtime_bloom_filter_min_size";
     // Maximum runtime bloom filter size, in bytes
     public static final String RUNTIME_BLOOM_FILTER_MAX_SIZE = "runtime_bloom_filter_max_size";
+    public static final String USE_RF_DEFAULT = "use_rf_default";
     // Time in ms to wait until runtime filters are delivered.
     public static final String RUNTIME_FILTER_WAIT_TIME_MS = "runtime_filter_wait_time_ms";
     // Maximum number of bloom runtime filters allowed per query

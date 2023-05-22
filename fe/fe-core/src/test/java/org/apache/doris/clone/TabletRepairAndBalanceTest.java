@@ -126,7 +126,7 @@ public class TabletRepairAndBalanceTest {
         Env.getCurrentEnv().createDb(createDbStmt);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = Env.getCurrentSystemInfo().getAllBackends();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
@@ -310,7 +310,7 @@ public class TabletRepairAndBalanceTest {
 
         // check backend get() methods
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        Set<Tag> tags = infoService.getTagsByCluster(SystemInfoService.DEFAULT_CLUSTER);
+        Set<Tag> tags = infoService.getTags();
         Assert.assertEquals(2, tags.size());
 
         // check tablet and replica number

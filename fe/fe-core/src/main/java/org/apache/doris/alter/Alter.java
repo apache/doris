@@ -121,7 +121,7 @@ public class Alter {
         String dbName = stmt.getDBName();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         // check cluster capacity
-        Env.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
+        Env.getCurrentSystemInfo().checkAvailableCapacity();
         // check db quota
         db.checkQuota();
 
@@ -184,7 +184,7 @@ public class Alter {
 
         // check cluster capacity and db quota, only need to check once.
         if (currentAlterOps.needCheckCapacity()) {
-            Env.getCurrentSystemInfo().checkClusterCapacity(clusterName);
+            Env.getCurrentSystemInfo().checkAvailableCapacity();
             db.checkQuota();
         }
 
@@ -789,7 +789,7 @@ public class Alter {
         // get value from properties here
         // 1. replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
-        Env.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
+        Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
         // 2. in memory
         boolean newInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_INMEMORY, false);

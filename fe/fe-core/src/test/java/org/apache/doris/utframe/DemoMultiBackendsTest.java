@@ -40,7 +40,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
@@ -90,7 +89,7 @@ public class DemoMultiBackendsTest {
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 3);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = Env.getCurrentSystemInfo().getAllBackends();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
@@ -199,8 +198,9 @@ public class DemoMultiBackendsTest {
         BackendsProcDir dir = new BackendsProcDir(Env.getCurrentSystemInfo());
         ProcResult result = dir.fetchResult();
         Assert.assertEquals(BackendsProcDir.TITLE_NAMES.size(), result.getColumnNames().size());
-        Assert.assertEquals("{\"location\" : \"default\"}", result.getRows().get(0).get(19));
-        Assert.assertEquals("{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,\"isLoadDisabled\":false}",
+        Assert.assertEquals("{\"location\" : \"default\"}", result.getRows().get(0).get(17));
+        Assert.assertEquals(
+                "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,\"isLoadDisabled\":false}",
                 result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 3));
         Assert.assertEquals("0", result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 2));
         Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 1));

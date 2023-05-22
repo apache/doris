@@ -24,8 +24,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -36,19 +36,29 @@ import java.util.Map;
  */
 public class ResourceGroupsTableValuedFunction extends MetadataTableValuedFunction {
     public static final String NAME = "resource_groups";
-    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX = new ImmutableMap.Builder<String, Integer>()
-            .put("id", 0)
-            .put("name", 1)
-            .put("item", 2)
-            .put("value", 3)
-            .build();
+
+    private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
+            new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("Name", ScalarType.createStringType()),
+            new Column("Item", ScalarType.createStringType()),
+            new Column("Value", ScalarType.createStringType()));
+
+    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
+
+    static {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        for (int i = 0; i < SCHEMA.size(); i++) {
+            builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
+        }
+        COLUMN_TO_INDEX = builder.build();
+    }
 
     public static Integer getColumnIndexFromColumnName(String columnName) {
         return COLUMN_TO_INDEX.get(columnName.toLowerCase());
     }
 
     public ResourceGroupsTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        if (params.size() !=  0) {
+        if (params.size() != 0) {
             throw new AnalysisException("resource groups table-valued-function does not support any params");
         }
     }
@@ -72,11 +82,6 @@ public class ResourceGroupsTableValuedFunction extends MetadataTableValuedFuncti
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        List<Column> resColumns = Lists.newArrayList();
-        resColumns.add(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)));
-        resColumns.add(new Column("Name", ScalarType.createStringType()));
-        resColumns.add(new Column("Item", ScalarType.createStringType()));
-        resColumns.add(new Column("Value", ScalarType.createStringType()));
-        return resColumns;
+        return SCHEMA;
     }
 }
