@@ -47,84 +47,37 @@ Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据�
 
 准备工作
 
-1.修改`custom_env.sh.tpl`文件，重命名为`custom_env.sh`
+1. 修改`custom_env.sh.tpl`文件，重命名为`custom_env.sh`
 
-2.指定thrift安装目录
+2. 在源码目录下执行：
+`sh build.sh`
+根据提示输入你需要的 Scala 与 Spark 版本进行编译。
 
-```bash
-##源文件内容
-#export THRIFT_BIN=
-#export MVN_BIN=
-#export JAVA_HOME=
+编译成功后，会在 `dist` 目录生成目标jar包，如：`spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar`。
+将此文件复制到 `Spark` 的 `ClassPath` 中即可使用 `Spark-Doris-Connector`。例如，`Local` 模式运行的 `Spark`，将此文件放入 `jars/` 文件夹下。`Yarn`集群模式运行的`Spark`，则将此文件放入预部署包中。
 
-##修改如下,MacOS为例
-export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-#export MVN_BIN=
-#export JAVA_HOME=
+例如将 `spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar` 上传到 hdfs并在spark.yarn.jars参数上添加 hdfs上的Jar包路径
 
-安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
- Windows: 
-    1.下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`(下载目录自己指定)
-    2.修改thrift-0.13.0.exe 为 thrift
- 
- MacOS: 
-    1. 下载：`brew install thrift@0.13.0`
-    2. 默认下载地址：/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-    
- 
- 注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.13.0`
- 参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
- 
- Linux:
-    1.下载源码包：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
-    2.安装依赖：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
-    3.`tar zxvf thrift-0.13.0.tar.gz`
-    4.`cd thrift-0.13.0`
-    5.`./configure --without-tests`
-    6.`make`
-    7.`make install`
-   安装完成后查看版本：thrift --version  
-   注：如果编译过Doris，则不需要安装thrift,可以直接使用 $DORIS_HOME/thirdparty/installed/bin/thrift
-```
-
-在源码目录下执行：
-
-```bash
-sh build.sh --spark 2.3.4 --scala 2.11 ## spark 2.3.4, scala 2.11
-sh build.sh --spark 3.1.2 --scala 2.12 ## spark 3.1.2, scala 2.12
-sh build.sh --spark 3.2.0 --scala 2.12 \
---mvn-args "-Dnetty.version=4.1.68.Final -Dfasterxml.jackson.version=2.12.3" ## spark 3.2.0, scala 2.12
-```
-> 注：如果你是从 tag 检出的源码，则可以直接执行 `sh build.sh --tag`，而无需指定 spark 和 scala 的版本。因为 tag 源码中的版本是固定的。
-
-编译成功后，会在 `output/` 目录下生成文件 `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar`。将此文件复制到 `Spark` 的 `ClassPath` 中即可使用 `Spark-Doris-Connector`。例如，`Local` 模式运行的 `Spark`，将此文件放入 `jars/` 文件夹下。`Yarn`集群模式运行的`Spark`，则将此文件放入预部署包中。
-
-例如将 `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar` 上传到 hdfs并在spark.yarn.jars参数上添加 hdfs上的Jar包路径
-
-1. 上传doris-spark-connector-3.1.2-2.12-1.0.0.jar 到hdfs。
+1. 上传spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar 到hdfs。
 
 ```
 hdfs dfs -mkdir /spark-jars/
-hdfs dfs -put /your_local_path/doris-spark-connector-3.1.2-2.12-1.0.0.jar /spark-jars/
+hdfs dfs -put /your_local_path/spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar /spark-jars/
 ```
 
-2. 在集群中添加doris-spark-connector-3.1.2-2.12-1.0.0.jar 依赖。
+2. 在集群中添加spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar 依赖。
 
 ```
-spark.yarn.jars=hdfs:///spark-jars/doris-spark-connector-3.1.2-2.12-1.0.0.jar
+spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar
 ```
 
 ## 使用Maven管理
 
 ```
 <dependency>
-  <groupId>org.apache.doris</groupId>
-  <artifactId>spark-doris-connector-3.1_2.12</artifactId>
-  <!--artifactId>spark-doris-connector-2.3_2.11</artifactId-->
-  <version>1.0.1</version>
+    <groupId>org.apache.doris</groupId>
+    <artifactId>spark-doris-connector-3.1_2.12</artifactId>
+    <version>1.1.0</version>
 </dependency>
 ```
 

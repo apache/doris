@@ -33,12 +33,14 @@ suite("iceberg_partition_upper_case", "p2") {
     def parquet_upper3 = """select k1, k2 from iceberg_partition_upper_case_parquet order by k1;"""
     def parquet_upper4 = """select city from iceberg_partition_upper_case_parquet order by city;"""
     def parquet_upper5 = """select * from iceberg_partition_upper_case_parquet where k1>1 and city='Beijing' order by k1;"""
+    def parquet_upper6 = """select * from iceberg_partition_upper_case_parquet where substring(city, 6)='hai' order by k1;"""
 
     def parquet_lower1 = """select * from iceberg_partition_lower_case_parquet order by k1;"""
     def parquet_lower2 = """select k1, city from iceberg_partition_lower_case_parquet order by k1;"""
     def parquet_lower3 = """select k1, k2 from iceberg_partition_lower_case_parquet order by k1;"""
     def parquet_lower4 = """select city from iceberg_partition_lower_case_parquet order by city;"""
     def parquet_lower5 = """select * from iceberg_partition_lower_case_parquet where k1>1 and city='Beijing' order by k1;"""
+    def parquet_lower6 = """select * from iceberg_partition_lower_case_parquet where substring(city, 6)='hai' order by k1;"""
 
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -71,12 +73,13 @@ suite("iceberg_partition_upper_case", "p2") {
         qt_parquetupper3 parquet_upper3
         qt_parquetupper4 parquet_upper4
         qt_parquetupper5 parquet_upper5
+        qt_parquetupper6 parquet_upper6
         qt_parquetlower1 parquet_lower1
         qt_parquetlower2 parquet_lower2
         qt_parquetlower3 parquet_lower3
         qt_parquetlower4 parquet_lower4
         qt_parquetlower5 parquet_lower5
-
+        qt_parquetlower6 parquet_lower6
     }
 }
 

@@ -604,7 +604,7 @@ public class DeployManager extends MasterDaemon {
     }
 
     private HostInfo convertToHostInfo(FsBroker broker) {
-        return new HostInfo(broker.ip, broker.port);
+        return new HostInfo(broker.host, broker.port);
     }
 
     private HostInfo convertToHostInfo(Backend backend) {

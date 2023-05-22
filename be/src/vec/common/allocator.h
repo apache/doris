@@ -92,7 +92,7 @@ static constexpr int ALLOCATOR_ALIGNMENT_16 = 16;
   * - random hint address for mmap
   * - mmap_threshold for using mmap less or more
   */
-template <bool clear_memory_, bool mmap_populate>
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 class Allocator {
 public:
     void sys_memory_check(size_t size) const;
@@ -110,7 +110,7 @@ public:
         memory_check(size);
         void* buf;
 
-        if (size >= doris::config::mmap_threshold) {
+        if (size >= doris::config::mmap_threshold && use_mmap) {
             if (alignment > MMAP_MIN_ALIGNMENT)
                 throw doris::Exception(
                         doris::ErrorCode::INVALID_ARGUMENT,
@@ -159,7 +159,7 @@ public:
 
     /// Free memory range.
     void free(void* buf, size_t size) {
-        if (size >= doris::config::mmap_threshold) {
+        if (size >= doris::config::mmap_threshold && use_mmap) {
             if (0 != munmap(buf, size)) {
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             } else {
@@ -172,6 +172,12 @@ public:
         } else {
             ::free(buf);
         }
+    }
+
+    // Free memory range by ::free.
+    void free_no_munmap(void* buf) {
+        CHECK(!use_mmap);
+        ::free(buf);
     }
 
     /** Enlarge memory range.
@@ -197,7 +203,7 @@ public:
                 if (new_size > old_size)
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
         } else if (old_size >= doris::config::mmap_threshold &&
-                   new_size >= doris::config::mmap_threshold) {
+                   new_size >= doris::config::mmap_threshold && use_mmap) {
             memory_check(new_size);
             /// Resize mmap'd memory region.
             consume_memory(new_size - old_size);

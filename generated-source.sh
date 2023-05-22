@@ -30,7 +30,15 @@ export DORIS_HOME="${ROOT}"
 
 echo "Build generated code"
 cd "${DORIS_HOME}/gensrc"
-rm -rf "${DORIS_HOME}/gensrc/build"
+
+# if calling from build.sh, no need to clean build/ dir.
+# it will be removed by using `build.sh --clean`.
+# when run this script along, it will always remove the build/ dir.
+if [[ "$#" == 0 ]]; then
+    echo "rm -rf ${DORIS_HOME}/gensrc/build"
+    rm -rf "${DORIS_HOME}/gensrc/build"
+fi
+
 # DO NOT using parallel make(-j) for gensrc
 make
 rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"

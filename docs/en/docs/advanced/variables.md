@@ -220,6 +220,8 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     Usually, only some blocking nodes (such as sorting node, aggregation node, and join node) consume more memory, while in other nodes (such as scan node), data is streamed and does not occupy much memory.
     
     When a `Memory Exceed Limit` error occurs, you can try to increase the parameter exponentially, such as 4G, 8G, 16G, and so on.
+
+    It should be noted that this value may fluctuate by a few MB.
     
 * `forward_to_master`
 

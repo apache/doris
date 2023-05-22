@@ -339,8 +339,10 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
                                                            .assume_mutable()
                                                            .get());
     row_store_column->clear();
+    vectorized::DataTypeSerDeSPtrs serdes =
+            vectorized::create_data_type_serdes(block.get_data_types());
     vectorized::JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
-                                                   _tablet_schema->num_columns());
+                                                   _tablet_schema->num_columns(), serdes);
     VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
                << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
                << watch.elapsed_time() / 1000;
@@ -360,15 +362,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     CHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
     // find missing column cids
-    std::vector<uint32_t> missing_cids;
-    std::vector<uint32_t> including_cids;
-    for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
-        if (_tablet_schema->is_column_missing(i)) {
-            missing_cids.push_back(i);
-        } else {
-            including_cids.push_back(i);
-        }
-    }
+    std::vector<uint32_t> missing_cids = _tablet_schema->get_missing_cids();
+    std::vector<uint32_t> including_cids = _tablet_schema->get_update_cids();
+
     // create full block and fill with input columns
     auto full_block = _tablet_schema->create_block();
     size_t input_id = 0;
@@ -397,7 +393,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default = false;
     std::vector<bool> use_default_flag;
     use_default_flag.reserve(num_rows);
-    for (size_t pos = 0; pos < num_rows; pos++) {
+    for (size_t pos = row_pos; pos < num_rows; pos++) {
         std::string key = _full_encode_keys(key_columns, pos);
         RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
         _maybe_invalid_row_cache(key);
