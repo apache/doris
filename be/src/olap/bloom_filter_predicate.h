@@ -137,8 +137,6 @@ private:
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
-    mutable uint64_t _evaluated_rows = 1;
-    mutable uint64_t _passed_rows = 0;
     mutable bool _always_true = false;
     mutable bool _has_calculate_filter = false;
     int _be_exec_version;

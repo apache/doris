@@ -642,32 +642,26 @@ bool NewOlapScanNode::_is_key_column(const std::string& key_name) {
     return res != _olap_scan_node.key_column_name.end();
 }
 
-void NewOlapScanNode::updata_filter(int id, const std::array<int64_t, 3>& update_info) {
+void NewOlapScanNode::updata_filter(int id, const PredicateFilterInfo& update_info) {
     static std::vector<std::string> PredicateTypeName(20, "Unknow");
     PredicateTypeName[static_cast<int>(PredicateType::BF)] = "BloomFilter";
     PredicateTypeName[static_cast<int>(PredicateType::BITMAP_FILTER)] = "BitmapFilter";
-    // get defult
-    if (_bloom_filter_info.find(id) == _bloom_filter_info.end()) {
-        _bloom_filter_info[id] = {0, 0, 0};
-    }
-
     // update
-    _bloom_filter_info[id][0] += update_info[0];
-    _bloom_filter_info[id][1] += update_info[1];
-    _bloom_filter_info[id][2] = update_info[2];
-
+    _filter_info[id].filtered_row += update_info.filtered_row;
+    _filter_info[id].input_row += update_info.input_row;
+    _filter_info[id].type = update_info.type;
     // to string
-    auto& info = _bloom_filter_info[id];
-    std::string bloom_filter_name = "RuntimeFilterInfo id ";
-    bloom_filter_name += std::to_string(id);
+    auto& info = _filter_info[id];
+    std::string filter_name = "RuntimeFilterInfo id ";
+    filter_name += std::to_string(id);
     std::string info_str;
-    info_str += "type : " + PredicateTypeName[info[2]] + ", ";
-    info_str += "input : " + std::to_string(info[0]) + ", ";
-    info_str += "filtered : " + std::to_string(info[1]);
-    info_str = "[ " + info_str + " ]";
+    info_str += "type = " + PredicateTypeName[info.type] + ", ";
+    info_str += "input = " + std::to_string(info.input_row) + ", ";
+    info_str += "filtered = " + std::to_string(info.filtered_row);
+    info_str = "[" + info_str + "]";
 
     // add info
-    _segment_profile->add_info_string(bloom_filter_name, info_str);
+    _segment_profile->add_info_string(filter_name, info_str);
 }
 
 }; // namespace doris::vectorized

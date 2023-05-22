@@ -89,7 +89,7 @@ protected:
 
     Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
-    void updata_filter(int id, const std::array<int64_t, 3>& info);
+    void updata_filter(int id, const PredicateFilterInfo& info);
 
 private:
     Status _build_key_ranges_and_filters();
@@ -131,7 +131,7 @@ private:
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
     RuntimeProfile::Counter* _expr_filter_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
-    std::map<int, std::array<int64_t, 3>> _bloom_filter_info;
+    std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
