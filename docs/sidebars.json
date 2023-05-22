@@ -786,6 +786,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/CANCEL-ALTER-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COMMENT",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
@@ -821,6 +822,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
@@ -836,6 +838,7 @@
                                     "items": [
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-INDEX",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ENCRYPT-KEY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-DATABASE",
@@ -978,6 +981,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-RESOURCES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-RESOURCE-GROUPS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PARTITIONS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FRONTENDS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-RESTORE",
@@ -1135,6 +1139,7 @@
                         "admin-manual/system-table/rowsets"
                     ]
                 },
+                "admin-manual/resource-group",
                 "admin-manual/multi-tenant",
                 {
                     "type": "category",
