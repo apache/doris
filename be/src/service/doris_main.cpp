@@ -328,6 +328,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    LOG(INFO) << "Current BE git commitID:" << doris::version::doris_build_short_hash();
+
     if (doris::config::enable_fuzzy_mode) {
         LOG(INFO) << "enable_fuzzy_mode is true, set fuzzy configs";
         doris::config::set_fuzzy_configs();
