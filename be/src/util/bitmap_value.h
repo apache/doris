@@ -1144,10 +1144,10 @@ class BitmapValueIterator;
 class BitmapValue {
 public:
     // Construct an empty bitmap.
-    BitmapValue() : _type(EMPTY) {}
+    BitmapValue() : _type(EMPTY), _is_shared(false) {}
 
     // Construct a bitmap with one element.
-    explicit BitmapValue(uint64_t value) : _sv(value), _type(SINGLE) {}
+    explicit BitmapValue(uint64_t value) : _sv(value), _type(SINGLE), _is_shared(false) {}
 
     // Construct a bitmap from serialized data.
     explicit BitmapValue(const char* src) {
@@ -1168,6 +1168,7 @@ public:
     BitmapValue(BitmapValue&& other) {
         _type = other._type;
         _sv = other._sv;
+        _is_shared = other._is_shared;
         _bitmap = std::move(other._bitmap);
     }
 
@@ -1195,7 +1196,7 @@ public:
     }
 
     // Construct a bitmap from given elements.
-    explicit BitmapValue(const std::vector<uint64_t>& bits) {
+    explicit BitmapValue(const std::vector<uint64_t>& bits) : _is_shared(false) {
         switch (bits.size()) {
         case 0:
             _type = EMPTY;
@@ -1295,10 +1296,14 @@ public:
             switch (_type) {
             case EMPTY:
                 _bitmap = rhs._bitmap;
+                const_cast<BitmapValue&>(rhs)._is_shared = true;
+                _is_shared = true;
                 _type = BITMAP;
                 break;
             case SINGLE:
                 _bitmap = rhs._bitmap;
+                const_cast<BitmapValue&>(rhs)._is_shared = true;
+                _is_shared = true;
                 _prepare_bitmap_for_write();
                 _bitmap->add(_sv);
                 _type = BITMAP;
@@ -1449,10 +1454,14 @@ public:
             switch (_type) {
             case EMPTY:
                 _bitmap = rhs._bitmap;
+                const_cast<BitmapValue&>(rhs)._is_shared = true;
+                _is_shared = true;
                 _type = BITMAP;
                 break;
             case SINGLE:
                 _bitmap = rhs._bitmap;
+                const_cast<BitmapValue&>(rhs)._is_shared = true;
+                _is_shared = true;
                 _type = BITMAP;
                 _prepare_bitmap_for_write();
                 if (!rhs._bitmap->contains(_sv)) {
@@ -1933,6 +1942,7 @@ private:
     void _prepare_bitmap_for_write() {
         if (!_bitmap) {
             _bitmap = std::make_shared<detail::Roaring64Map>();
+            _is_shared = false;
             return;
         }
 
