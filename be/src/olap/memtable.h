@@ -29,7 +29,6 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/olap_common.h"
-#include "olap/skiplist.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "runtime/memory/mem_tracker.h"
@@ -113,13 +112,10 @@ public:
     int64_t flush_size() const { return _flush_size; }
     int64_t merged_rows() const { return _merged_rows; }
 
-    void set_callback(std::function<void(int64_t)> callback) { delta_writer_callback = callback; }
+    void set_callback(std::function<void(int64_t)> callback) { _delta_writer_callback = callback; }
 
 private:
     Status _do_flush(int64_t& duration_ns);
-
-private:
-    using VecTable = SkipList<RowInBlock*, RowInBlockComparator>;
 
 private:
     // for vectorized
@@ -191,13 +187,13 @@ private:
     //return number of same keys
     int _sort();
     template <bool is_final>
-    void finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
-                          int row_pos);
+    void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
+                           int row_pos);
     template <bool is_final>
     void _aggregate();
-    void prepare_block_for_flush(vectorized::Block& in_block);
+    void _prepare_block_for_flush(vectorized::Block& in_block);
     bool _is_first_insertion;
-    std::function<void(int64_t)> delta_writer_callback;
+    std::function<void(int64_t)> _delta_writer_callback;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;

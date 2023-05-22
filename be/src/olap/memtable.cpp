@@ -234,7 +234,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
                                  new_row->_row_pos, nullptr);
     }
 }
-void MemTable::prepare_block_for_flush(vectorized::Block& in_block) {
+void MemTable::_prepare_block_for_flush(vectorized::Block& in_block) {
     if (_keys_type == KeysType::DUP_KEYS && _schema->num_key_columns() == 0) {
         // skip sort if the table is dup table without keys
         _output_mutable_block.swap(_input_mutable_block);
@@ -254,36 +254,28 @@ int MemTable::_sort() {
     auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
     size_t same_keys_num = 0;
     bool is_dup = (_keys_type == KeysType::DUP_KEYS);
+    auto cmp_func = [this, is_dup, &same_keys_num](const RowInBlock* l,
+                                                   const RowInBlock* r) -> bool {
+        auto value = (*(this->_vec_row_comparator))(l, r);
+        if (value == 0) {
+            same_keys_num++;
+            return is_dup ? l->_row_pos > r->_row_pos : l->_row_pos < r->_row_pos;
+        } else {
+            return value < 0;
+        }
+    };
     // sort new rows
-    std::sort(new_row_it, _row_in_blocks.end(),
-              [this, is_dup, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
-                  auto value = (*(this->_vec_row_comparator))(l, r);
-                  if (value == 0) {
-                      same_keys_num++;
-                      return is_dup ? l->_row_pos > r->_row_pos : l->_row_pos < r->_row_pos;
-                  } else {
-                      return value < 0;
-                  }
-              });
+    std::sort(new_row_it, _row_in_blocks.end(), cmp_func);
     // merge new rows and old rows
-    std::inplace_merge(
-            _row_in_blocks.begin(), new_row_it, _row_in_blocks.end(),
-            [this, is_dup, &same_keys_num](const RowInBlock* l, const RowInBlock* r) -> bool {
-                auto value = (*(this->_vec_row_comparator))(l, r);
-                if (value == 0) {
-                    same_keys_num++;
-                    return is_dup ? l->_row_pos > r->_row_pos : l->_row_pos < r->_row_pos;
-                } else {
-                    return value < 0;
-                }
-            });
+    std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end(), cmp_func);
     _last_sorted_pos = _row_in_blocks.size();
     return same_keys_num;
 }
 
 template <bool is_final>
-void MemTable::finalize_one_row(RowInBlock* row,
-                                const vectorized::ColumnsWithTypeAndName& block_data, int row_pos) {
+void MemTable::_finalize_one_row(RowInBlock* row,
+                                 const vectorized::ColumnsWithTypeAndName& block_data,
+                                 int row_pos) {
     // move key columns
     for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
         _output_mutable_block.get_column_by_position(i)->insert_from(*block_data[i].column.get(),
@@ -353,7 +345,7 @@ void MemTable::_aggregate() {
             prev_row = _row_in_blocks[i];
             if (!temp_row_in_blocks.empty()) {
                 // no more rows to merge for prev row, finalize it
-                finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos);
+                _finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos);
             }
             temp_row_in_blocks.push_back(prev_row);
             row_pos++;
@@ -361,7 +353,7 @@ void MemTable::_aggregate() {
     }
     if (!temp_row_in_blocks.empty()) {
         // finalize the last low
-        finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos);
+        _finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos);
     }
     if constexpr (!is_final) {
         // if is not final, we collect the agg results to input_block and then continue to insert
@@ -386,7 +378,7 @@ void MemTable::shrink_memtable_by_agg() {
     int same_keys_num = _sort();
     if (same_keys_num == 0) {
         vectorized::Block in_block = _input_mutable_block.to_block();
-        prepare_block_for_flush(in_block);
+        _prepare_block_for_flush(in_block);
     } else {
         _aggregate<false>();
     }
@@ -451,7 +443,7 @@ Status MemTable::flush() {
     // and use the ids to load segment data file for calc delete bitmap.
     int64_t atomic_num_segments_before_flush = _rowset_writer->get_atomic_num_segment();
     RETURN_IF_ERROR(_do_flush(duration_ns));
-    delta_writer_callback(_merged_rows);
+    _delta_writer_callback(_merged_rows);
     int64_t atomic_num_segments_after_flush = _rowset_writer->get_atomic_num_segment();
     if (!_tablet_schema->is_partial_update()) {
         RETURN_IF_ERROR(_generate_delete_bitmap(atomic_num_segments_before_flush,
@@ -471,7 +463,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     int same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         vectorized::Block in_block = _input_mutable_block.to_block();
-        prepare_block_for_flush(in_block);
+        _prepare_block_for_flush(in_block);
     } else {
         _aggregate<true>();
     }
