@@ -118,10 +118,10 @@ public class KafkaRoutineLoadJobTest {
                 Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
-                systemInfoService.getClusterBackendIds(clusterName1, true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = beIds1;
-                systemInfoService.getClusterBackendIds(clusterName2, true);
+                systemInfoService.getAllBackendIds(true);
                 result = beIds2;
                 minTimes = 0;
             }

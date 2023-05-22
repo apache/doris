@@ -583,7 +583,7 @@ public final class MetricRepo {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
 
-        for (Long beId : infoService.getBackendIds(false)) {
+        for (Long beId : infoService.getAllBackendIds(false)) {
             Backend be = infoService.getBackend(beId);
             if (be == null) {
                 continue;

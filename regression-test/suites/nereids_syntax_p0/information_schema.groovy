@@ -17,8 +17,8 @@
 
 suite("information_schema") {
     List<List<Object>> table =  sql """ select * from backends(); """
-    assertTrue(table.size() > 0) // row should > 0
-    assertTrue(table[0].size == 25) // column should be 25
+    assertTrue(table.size() > 0)
+    assertTrue(table[0].size == 23)
 
     sql "SELECT DATABASE();"
     sql "select USER();"

@@ -187,7 +187,7 @@ public class NodeAction extends RestBaseController {
             result.put("frontend", Lists.newArrayList(Config.dump().keySet()));
 
             List<String> beConfigNames = Lists.newArrayList();
-            List<Long> beIds = Env.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> beIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (!beIds.isEmpty()) {
                 Backend be = Env.getCurrentSystemInfo().getBackend(beIds.get(0));
                 String url = "http://" + be.getHost() + ":" + be.getHttpPort() + "/api/show_config";
@@ -232,7 +232,7 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getBeList() {
-        return Env.getCurrentSystemInfo().getBackendIds(false).stream().map(beId -> {
+        return Env.getCurrentSystemInfo().getAllBackendIds(false).stream().map(beId -> {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
             return be.getHost() + ":" + be.getHttpPort();
         }).collect(Collectors.toList());
@@ -578,7 +578,7 @@ public class NodeAction extends RestBaseController {
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
-        List<Pair<String, Integer>> aliveBe = Env.getCurrentSystemInfo().getBackendIds(true).stream().map(beId -> {
+        List<Pair<String, Integer>> aliveBe = Env.getCurrentSystemInfo().getAllBackendIds(true).stream().map(beId -> {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
             return Pair.of(be.getHost(), be.getHttpPort());
         }).collect(Collectors.toList());
@@ -619,8 +619,7 @@ public class NodeAction extends RestBaseController {
             } else if ("DROP".equals(action)) {
                 currentSystemInfo.dropBackends(hostInfos);
             } else if ("DECOMMISSION".equals(action)) {
-                ImmutableMap<Long, Backend> backendsInCluster = currentSystemInfo.getBackendsInCluster(
-                        SystemInfoService.DEFAULT_CLUSTER);
+                ImmutableMap<Long, Backend> backendsInCluster = currentSystemInfo.getAllBackendsMap();
                 backendsInCluster.forEach((k, v) -> {
                     hostInfos.stream()
                             .filter(h -> v.getHost().equals(h.getHost()) && v.getHeartbeatPort() == h.getPort())
