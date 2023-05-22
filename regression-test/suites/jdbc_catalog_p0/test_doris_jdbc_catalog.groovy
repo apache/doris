@@ -18,7 +18,7 @@
 suite("test_doris_jdbc_catalog", "p0") {
     qt_sql """select current_catalog()"""
 
-    String jdbcUrl = context.config.jdbcUrl + "&return_object_data_as_binary=true"
+    String jdbcUrl = context.config.jdbcUrl + "&sessionVariables=return_object_data_as_binary=true"
     String jdbcUser = context.config.jdbcUser
     String jdbcPassword = context.config.jdbcPassword
     String driver_url = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar"
@@ -141,6 +141,7 @@ suite("test_doris_jdbc_catalog", "p0") {
     sql """ insert into ${hllTable} values(5, "2023-01-05", hll_hash("5"));"""
     sql """ insert into ${hllTable} values(6, "2023-01-06", hll_hash("6"));"""
 
+    sql """ set return_object_data_as_binary=true """
     order_qt_tb1 """ select pin_id, hll_union_agg(user_log_acct) from ${hllTable} group by pin_id; """
 
     // query with jdbc external table
