@@ -21,13 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHash;
-import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -41,7 +37,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * logical olap table sink for insert command
@@ -152,10 +147,6 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
      * calculate PhysicalProperties.
      */
     public PhysicalProperties calculatePhysicalProperties() {
-        // it will be used at set physical properties.
-
-        List<ExprId> exprIds = getOutput().subList(0, targetTable.getKeysNum()).stream()
-                .map(NamedExpression::getExprId).collect(Collectors.toList());
-        return PhysicalProperties.createHash(new DistributionSpecHash(exprIds, ShuffleType.NATURAL));
+        return PhysicalProperties.ANY;
     }
 }
