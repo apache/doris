@@ -180,7 +180,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private State state;
     private TabletStatus tabletStatus;
 
-    private String cluster;
     private long dbId;
     private long tblId;
     private long partitionId;
@@ -198,7 +197,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private Replica srcReplica = null;
     private long srcPathHash = -1;
-    // for disk balance to keep src path, and avoid take slot on selectAlternativeTabletsForCluster
+    // for disk balance to keep src path, and avoid take slot on selectAlternativeTablets
     private Replica tempSrcReplica = null;
     private long destBackendId = -1;
     private long destPathHash = -1;
@@ -224,10 +223,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     // tag is only set for BALANCE task, used to identify which resource group this Balance job is in
     private Tag tag;
 
-    public TabletSchedCtx(Type type, String cluster, long dbId, long tblId, long partId,
-                          long idxId, long tabletId, ReplicaAllocation replicaAlloc, long createTime) {
+    public TabletSchedCtx(Type type, long dbId, long tblId, long partId,
+            long idxId, long tabletId, ReplicaAllocation replicaAlloc, long createTime) {
         this.type = type;
-        this.cluster = cluster;
         this.dbId = dbId;
         this.tblId = tblId;
         this.partitionId = partId;
@@ -363,10 +361,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public TStorageMedium getStorageMedium() {
         return storageMedium;
-    }
-
-    public String getCluster() {
-        return cluster;
     }
 
     public long getCreateTime() {
@@ -859,9 +853,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // but there is no other way now.
 
         // if this is a balance task, or this is a repair task with
-        // REPLICA_MISSING/REPLICA_RELOCATING or REPLICA_MISSING_IN_CLUSTER,
+        // REPLICA_MISSING/REPLICA_RELOCATING,
         // we create a new replica with state CLONE
-        if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER
+        if (tabletStatus == TabletStatus.REPLICA_MISSING
                 || tabletStatus == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE
                 || tabletStatus == TabletStatus.COLOCATE_MISMATCH
                 || tabletStatus == TabletStatus.REPLICA_MISSING_FOR_TAG) {
@@ -979,11 +973,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet does not exist");
             }
 
-            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
+            List<Long> aliveBeIds = infoService.getAllBackendIds(true);
             ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
             Pair<TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
-                    infoService, db.getClusterName(), visibleVersion, replicaAlloc,
-                    aliveBeIdsInCluster);
+                    infoService, visibleVersion, replicaAlloc,
+                    aliveBeIds);
             if (pair.first == TabletStatus.HEALTHY) {
                 throw new SchedException(Status.FINISHED, "tablet is healthy");
             }

@@ -81,7 +81,7 @@ public class PublishVersionDaemon extends MasterDaemon {
 
         // ATTN, we publish transaction state to all backends including dead backend, if not publish to dead backend
         // then transaction manager will treat it as success
-        List<Long> allBackends = Env.getCurrentSystemInfo().getBackendIds(false);
+        List<Long> allBackends = Env.getCurrentSystemInfo().getAllBackendIds(false);
         if (allBackends.isEmpty()) {
             LOG.warn("some transaction state need to publish, but no backend exists");
             return;

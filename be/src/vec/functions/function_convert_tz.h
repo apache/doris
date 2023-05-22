@@ -199,7 +199,6 @@ public:
         return Transform::get_variadic_argument_types();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {

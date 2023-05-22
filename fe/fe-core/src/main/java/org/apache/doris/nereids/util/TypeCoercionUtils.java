@@ -798,7 +798,7 @@ public class TypeCoercionUtils {
 
     private static boolean maybeCastToVarchar(DataType t) {
         return t.isVarcharType() || t.isCharType() || t.isTimeType() || t.isTimeV2Type() || t.isJsonType()
-                || t.isHllType() || t.isBitmapType() || t.isQuantileStateType();
+                || t.isHllType() || t.isBitmapType() || t.isQuantileStateType() || t.isAggStateType();
     }
 
     @Developing

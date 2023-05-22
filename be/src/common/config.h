@@ -164,7 +164,7 @@ DECLARE_mString(process_full_gc_size);
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
-DECLARE_mBool(enable_query_memroy_overcommit);
+DECLARE_mBool(enable_query_memory_overcommit);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);

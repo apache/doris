@@ -61,12 +61,10 @@ import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.EvictingQueue;
-import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -127,8 +125,8 @@ public class TabletScheduler extends MasterDaemon {
 
     // be id -> #working slots
     private Map<Long, PathSlot> backendsWorkingSlots = Maps.newConcurrentMap();
-    // cluster name -> Tag -> load statistic
-    private Table<String, Tag, ClusterLoadStatistic> statisticMap = HashBasedTable.create();
+    // Tag -> load statistic
+    private Map<Tag, LoadStatisticForTag> statisticMap = Maps.newHashMap();
     private long lastStatUpdateTime = 0;
 
     private long lastSlotAdjustTime = 0;
@@ -174,7 +172,7 @@ public class TabletScheduler extends MasterDaemon {
      * update working slots at the beginning of each round
      */
     private boolean updateWorkingSlots() {
-        ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(null);
+        ImmutableMap<Long, Backend> backends = infoService.getAllBackendsMap();
         for (Backend backend : backends.values()) {
             if (!backend.hasPathHash() && backend.isAlive()) {
                 // when upgrading, backend may not get path info yet. so return false and wait for next round.
@@ -298,7 +296,7 @@ public class TabletScheduler extends MasterDaemon {
             return;
         }
 
-        updateClusterLoadStatisticsAndPriorityIfNecessary();
+        updateLoadStatisticsAndPriorityIfNecessary();
 
         schedulePendingTablets();
 
@@ -310,12 +308,12 @@ public class TabletScheduler extends MasterDaemon {
     }
 
 
-    private void updateClusterLoadStatisticsAndPriorityIfNecessary() {
+    private void updateLoadStatisticsAndPriorityIfNecessary() {
         if (System.currentTimeMillis() - lastStatUpdateTime < STAT_UPDATE_INTERVAL_MS) {
             return;
         }
 
-        updateClusterLoadStatistic();
+        updateLoadStatistic();
         rebalancer.updateLoadStatistic(statisticMap);
         diskRebalancer.updateLoadStatistic(statisticMap);
 
@@ -325,29 +323,25 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     /**
-     * Here is the only place we update the cluster load statistic info.
+     * Here is the only place we update the load statistic info.
      * We will not update this info dynamically along with the clone job's running.
      * Although it will cause a little bit inaccurate, but is within a controllable range,
      * because we already limit the total number of running clone jobs in cluster by 'backend slots'
      */
-    private void updateClusterLoadStatistic() {
-        Table<String, Tag, ClusterLoadStatistic> newStatisticMap = HashBasedTable.create();
-        Set<String> clusterNames = infoService.getClusterNames();
-        for (String clusterName : clusterNames) {
-            Set<Tag> tags = infoService.getTagsByCluster(clusterName);
-            for (Tag tag : tags) {
-                ClusterLoadStatistic clusterLoadStatistic = new ClusterLoadStatistic(clusterName, tag,
-                        infoService, invertedIndex);
-                clusterLoadStatistic.init();
-                newStatisticMap.put(clusterName, tag, clusterLoadStatistic);
-                LOG.debug("update cluster {} load statistic:\n{}", clusterName, clusterLoadStatistic.getBrief());
-            }
+    private void updateLoadStatistic() {
+        Map<Tag, LoadStatisticForTag> newStatisticMap = Maps.newHashMap();
+        Set<Tag> tags = infoService.getTags();
+        for (Tag tag : tags) {
+            LoadStatisticForTag loadStatistic = new LoadStatisticForTag(tag, infoService, invertedIndex);
+            loadStatistic.init();
+            newStatisticMap.put(tag, loadStatistic);
+            LOG.debug("update load statistic:\n{}", loadStatistic.getBrief());
         }
 
         this.statisticMap = newStatisticMap;
     }
 
-    public Table<String, Tag, ClusterLoadStatistic> getStatisticMap() {
+    public Map<Tag, LoadStatisticForTag> getStatisticMap() {
         return statisticMap;
     }
 
@@ -531,12 +525,12 @@ public class TabletScheduler extends MasterDaemon {
                 statusPair = Pair.of(st, Priority.HIGH);
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
             } else {
-                List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
+                List<Long> aliveBeIds = infoService.getAllBackendIds(true);
                 statusPair = tablet.getHealthStatusWithPriority(
-                        infoService, tabletCtx.getCluster(),
+                        infoService,
                         partition.getVisibleVersion(),
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                        aliveBeIdsInCluster);
+                        aliveBeIds);
             }
 
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE && tableState != OlapTableState.NORMAL) {
@@ -639,9 +633,6 @@ public class TabletScheduler extends MasterDaemon {
                     break;
                 case FORCE_REDUNDANT:
                     handleRedundantReplica(tabletCtx, true);
-                    break;
-                case REPLICA_MISSING_IN_CLUSTER:
-                    handleReplicaClusterMigration(tabletCtx, batchTask);
                     break;
                 case REPLICA_MISSING_FOR_TAG:
                     handleReplicaMissingForTag(tabletCtx, batchTask);
@@ -822,9 +813,8 @@ public class TabletScheduler extends MasterDaemon {
      *  4. replica's state is CLONE or DECOMMISSION
      *  5. replica's last failed version > 0
      *  6. replica with lower version
-     *  7. replica not in right cluster
-     *  8. replica is the src replica of a rebalance task, we can try to get it from rebalancer
-     *  9. replica on higher load backend
+     *  7. replica is the src replica of a rebalance task, we can try to get it from rebalancer
+     *  8. replica on higher load backend
      */
     private void handleRedundantReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         stat.counterReplicaRedundantErr.incrementAndGet();
@@ -837,7 +827,6 @@ public class TabletScheduler extends MasterDaemon {
                 || deleteReplicaWithFailedVersion(tabletCtx, force)
                 || deleteReplicaWithLowerVersion(tabletCtx, force)
                 || deleteReplicaOnSameHost(tabletCtx, force)
-                || deleteReplicaNotInCluster(tabletCtx, force)
                 || deleteReplicaNotInValidTag(tabletCtx, force)
                 || deleteReplicaChosenByRebalancer(tabletCtx, force)
                 || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
@@ -948,7 +937,7 @@ public class TabletScheduler extends MasterDaemon {
                 // delete one replica from replicas on same host.
                 // better to choose high load backend
                 Tag tag = chooseProperTag(tabletCtx, false);
-                ClusterLoadStatistic statistic = statisticMap.get(tabletCtx.getCluster(), tag);
+                LoadStatisticForTag statistic = statisticMap.get(tag);
                 if (statistic == null) {
                     return false;
                 }
@@ -956,21 +945,6 @@ public class TabletScheduler extends MasterDaemon {
             }
         }
 
-        return false;
-    }
-
-    private boolean deleteReplicaNotInCluster(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
-        for (Replica replica : tabletCtx.getReplicas()) {
-            Backend be = infoService.getBackend(replica.getBackendId());
-            if (be == null) {
-                // this case should be handled in deleteBackendDropped()
-                return false;
-            }
-            if (!be.getOwnerClusterName().equals(tabletCtx.getCluster())) {
-                deleteReplicaInternal(tabletCtx, replica, "not in cluster", force);
-                return true;
-            }
-        }
         return false;
     }
 
@@ -1003,7 +977,7 @@ public class TabletScheduler extends MasterDaemon {
 
     private boolean deleteReplicaOnHighLoadBackend(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         Tag tag = chooseProperTag(tabletCtx, false);
-        ClusterLoadStatistic statistic = statisticMap.get(tabletCtx.getCluster(), tag);
+        LoadStatisticForTag statistic = statisticMap.get(tag);
         if (statistic == null) {
             return false;
         }
@@ -1012,7 +986,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     private boolean deleteFromHighLoadBackend(TabletSchedCtx tabletCtx, List<Replica> replicas,
-                                              boolean force, ClusterLoadStatistic statistic) throws SchedException {
+            boolean force, LoadStatisticForTag statistic) throws SchedException {
         Replica chosenReplica = null;
         double maxScore = 0;
         for (Replica replica : replicas) {
@@ -1168,19 +1142,6 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     /**
-     * Cluster migration, which means the tablet has enough healthy replicas,
-     * but some replicas are not in right cluster.
-     * It is just same as 'replica missing'.
-     *
-     * after clone finished, the replica in wrong cluster will be treated as redundant, and will be deleted soon.
-     */
-    private void handleReplicaClusterMigration(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
-            throws SchedException {
-        stat.counterReplicaMissingInClusterErr.incrementAndGet();
-        handleReplicaMissing(tabletCtx, batchTask);
-    }
-
-    /**
      * Missing for tag, which means some of replicas of this tablet are allocated in wrong backend with specified tag.
      * Treat it as replica missing, and in handleReplicaMissing(),
      * it will find a property backend to create new replica.
@@ -1282,10 +1243,10 @@ public class TabletScheduler extends MasterDaemon {
         List<BackendLoadStatistic> beStatistics;
         if (tag != null) {
             Preconditions.checkState(!forColocate);
-            ClusterLoadStatistic statistic = statisticMap.get(tabletCtx.getCluster(), tag);
+            LoadStatisticForTag statistic = statisticMap.get(tag);
             if (statistic == null) {
                 throw new SchedException(Status.UNRECOVERABLE,
-                        String.format("cluster %s for tag %s does not exist.", tabletCtx.getCluster(), tag));
+                        String.format("tag %s does not exist.", tag));
             }
             beStatistics = statistic.getSortedBeLoadStats(null /* sorted ignore medium */);
         } else {
@@ -1295,10 +1256,9 @@ public class TabletScheduler extends MasterDaemon {
             Set<Long> colocateBackendIds = tabletCtx.getColocateBackendsSet();
 
             beStatistics = Lists.newArrayList();
-            Map<Tag, ClusterLoadStatistic> map = statisticMap.row(tabletCtx.getCluster());
-            for (ClusterLoadStatistic clusterStatistic : map.values()) {
+            for (LoadStatisticForTag loadStatisticForTag : statisticMap.values()) {
                 for (long beId : colocateBackendIds) {
-                    BackendLoadStatistic backendLoadStatistic = clusterStatistic.getBackendLoadStatistic(beId);
+                    BackendLoadStatistic backendLoadStatistic = loadStatisticForTag.getBackendLoadStatistic(beId);
                     if (backendLoadStatistic != null) {
                         beStatistics.add(backendLoadStatistic);
                     }

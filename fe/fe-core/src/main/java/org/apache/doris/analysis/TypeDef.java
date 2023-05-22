@@ -43,9 +43,15 @@ import java.util.Set;
 public class TypeDef implements ParseNode {
     private boolean isAnalyzed;
     private final Type parsedType;
+    private boolean isNullable = false;
 
     public TypeDef(Type parsedType) {
         this.parsedType = parsedType;
+    }
+
+    public TypeDef(Type parsedType, boolean isNullable) {
+        this.parsedType = parsedType;
+        this.isNullable = isNullable;
     }
 
     public static TypeDef create(PrimitiveType type) {
@@ -295,6 +301,10 @@ public class TypeDef implements ParseNode {
 
     public Type getType() {
         return parsedType;
+    }
+
+    public boolean getNullable() {
+        return isNullable;
     }
 
     @Override

@@ -75,7 +75,7 @@ public class SystemHandler extends AlterHandler {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         // check if decommission is finished
-        for (Long beId : systemInfoService.getBackendIds(false)) {
+        for (Long beId : systemInfoService.getAllBackendIds(false)) {
             Backend backend = systemInfoService.getBackend(beId);
             if (backend == null || !backend.isDecommissioned()) {
                 continue;
