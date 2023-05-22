@@ -609,6 +609,11 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 return Status::OK();
             }
 
+            if (pdt == PushDownType::ACCEPTABLE && TExprNodeType::MATCH_PRED == cur_expr->node_type()) {
+                *output_expr = conjunct_expr_root; // remaining in conjunct tree
+                return Status::OK();
+            }
+
             if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
                 output_expr = nullptr;
                 return Status::OK();

@@ -803,8 +803,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         Status res = pred->evaluate(*_schema, _inverted_index_iterators[unique_id].get(),
                                     num_rows(), &bitmap);
         if (!res.ok()) {
-            if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
-                 pred->type() != PredicateType::MATCH) ||
+            if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
                 res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
                 (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS &&
                  need_remaining_after_evaluate)) {
@@ -990,12 +989,21 @@ Status SegmentIterator::_init_inverted_index_iterators() {
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
-    for (auto cid : _schema->column_ids()) {
-        int32_t unique_id = _schema->unique_id(cid);
+    for (auto cid : _schema.column_ids()) {
+        int32_t unique_id = _schema.unique_id(cid);
+        auto column_name = _schema.column(cid)->name();
         if (_inverted_index_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
                     _opts.stats, &_inverted_index_iterators[unique_id]));
+        }
+
+        if (_inverted_index_iterators.count(unique_id) > 0
+            && _inverted_index_iterators[unique_id]) {
+            //this column has inverted index
+            auto* inverted_index_iterator = _inverted_index_iterators[unique_id];
+            auto inverted_index_analyser_type = inverted_index_iterator->get_inverted_index_analyser_type();
+            _opts.runtime_state->get_query_ctx()->add_inverted_index_parser(column_name, inverted_index_analyser_type);
         }
     }
     return Status::OK();

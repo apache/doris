@@ -15,134 +15,127 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stddef.h>
+#include "vec/functions/match.h"
 
-#include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
-#include <memory>
-#include <ostream>
-#include <string>
-#include <utility>
-
-#include "common/config.h"
-#include "common/consts.h"
-#include "common/logging.h"
-#include "common/status.h"
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column.h"
-#include "vec/core/block.h"
-#include "vec/core/column_numbers.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/functions/function.h"
-#include "vec/functions/simple_function_factory.h"
-
-namespace doris {
-class FunctionContext;
-} // namespace doris
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::vectorized {
 
-class FunctionMatchBase : public IFunction {
-public:
-    size_t get_number_of_arguments() const override { return 2; }
-
-    String get_name() const override { return "match"; }
-
-    /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeUInt8>();
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        auto match_query_str = block.get_by_position(arguments[1]).to_string(0);
-        std::string column_name = block.get_by_position(arguments[0]).name;
-        auto match_pred_column_name =
-                BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;
-        if (!block.has(match_pred_column_name)) {
-            if (!config::enable_index_apply_preds_except_leafnode_of_andnode) {
-                return Status::Cancelled(
-                        "please check whether turn on the configuration "
-                        "'enable_index_apply_preds_except_leafnode_of_andnode'");
-            }
-            LOG(WARNING) << "execute match query meet error, block no column: "
-                         << match_pred_column_name;
-            return Status::InternalError(
-                    "match query meet error, no match predicate evaluate result column in block.");
+Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                    size_t result, size_t input_rows_count) {
+    auto match_query_str = block.get_by_position(arguments[1]).to_string(0);
+    std::string column_name = block.get_by_position(arguments[0]).name;
+    auto match_pred_column_name =
+            BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;
+    if (!block.has(match_pred_column_name)) {
+        LOG(INFO) << "begin to execute match directly, column_name=" << column_name
+                << ", match_query_str=" << match_query_str;
+        doris::InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
+        if (context) {
+            RuntimeState* state = context->state();
+            DCHECK(nullptr != state);
+            parser_type = state->get_query_ctx()->get_inverted_index_parser(column_name);
         }
+
+        const auto values_col =
+            block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto* values = check_and_get_column<ColumnString>(values_col.get());
+        if (!values) {
+            return Status::InternalError("Not supported input arguments types");
+        }
+        // result column
+        auto res = ColumnUInt8::create();
+        ColumnUInt8::Container& vec_res = res->get_data();
+        // set default value to 0, and match functions only need to set 1/true
+        vec_res.resize_fill(input_rows_count);
+        RETURN_IF_ERROR(execute_match(column_name, match_query_str,
+                                input_rows_count, values, parser_type, vec_res));
+        block.replace_by_position(result, std::move(res));
+    } else {
         auto match_pred_column =
                 block.get_by_name(match_pred_column_name).column->convert_to_full_column_if_const();
-
         block.replace_by_position(result, std::move(match_pred_column));
-        return Status::OK();
     }
-};
 
-class FunctionMatchAny : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_any";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchAny>(); }
+    return Status::OK();
+}
 
-    String get_name() const override { return name; }
-};
+std::vector<std::string> FunctionMatchBase::vectors_intersection(
+        std::vector<std::string>& v1, std::vector<std::string>& v2) {
+    std::vector<std::string> result;
+    std::sort(v1.begin(), v1.end());
+    std::sort(v2.begin(), v2.end());
+    std::set_intersection(v1.begin(), v1.end(), v2.begin(), v2.end(), std::back_inserter(result));
+    return result;
+}
 
-class FunctionMatchAll : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_all";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchAll>(); }
+bool FunctionMatchBase::is_equal_vectors(std::vector<std::string>& v1, std::vector<std::string>& v2) {
+    if (v1.empty() || v2.empty()) {
+        return false;
+    }
 
-    String get_name() const override { return name; }
-};
+    if (v1.size() != v2.size()) {
+        return false;
+    }
 
-class FunctionMatchPhrase : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_phrase";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
+    return std::is_permutation(v1.begin(), v1.end(), v2.begin());
+}
 
-    String get_name() const override { return name; }
-};
+bool FunctionMatchBase::is_subset_vectors(std::vector<std::string>& v1, std::vector<std::string>& v2) {
+    auto vec_inter = vectors_intersection(v1, v2);
+    return is_equal_vectors(vec_inter, v2);
+}
 
-class FunctionMatchElementEQ : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_eq";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
+Status FunctionMatchAny::execute_match(const std::string& column_name,
+                        const std::string& match_query_str,
+                        size_t input_rows_count,
+                        const ColumnString* query_values,
+                        doris::InvertedIndexParserType parser_type,
+                        ColumnUInt8::Container& result) {
+    LOG(INFO) << "begin to run FunctionMatchAny::execute_match";
+    std::vector<std::string> tokens =
+                doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                column_name, match_query_str, doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, parser_type);
+    for (int i = 0; i < input_rows_count; i++) {
+        const auto& str_ref = query_values->get_data_at(i);
+        std::vector<std::string> values =
+                doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                column_name, str_ref.to_string(), doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, parser_type);
+        auto vec_inter = vectors_intersection(values, tokens);
+        if (is_subset_vectors(tokens, vec_inter)) {
+            result[i] = true;
+        }
+    }
 
-    String get_name() const override { return name; }
-};
+    return Status::OK();
+}
 
-class FunctionMatchElementLT : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_lt";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
+Status FunctionMatchAll::execute_match(const std::string& column_name,
+                        const std::string& match_query_str,
+                        size_t input_rows_count,
+                        const ColumnString* query_values,
+                        doris::InvertedIndexParserType parser_type,
+                        ColumnUInt8::Container& result) {
+    LOG(INFO) << "begin to run FunctionMatchAll::execute_match";
+    std::vector<std::string> tokens =
+                doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                column_name, match_query_str, doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, parser_type);
 
-    String get_name() const override { return name; }
-};
+    for (int i = 0; i < input_rows_count; i++) {
+        const auto& str_ref = query_values->get_data_at(i);
+        std::vector<std::string> values =
+                doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                column_name, str_ref.to_string(), doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, parser_type);
+        auto vec_inter = vectors_intersection(values, tokens);
+        if (is_equal_vectors(tokens, vec_inter)) {
+            result[i] = true;
+        }
+    }
 
-class FunctionMatchElementGT : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_gt";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
-
-    String get_name() const override { return name; }
-};
-
-class FunctionMatchElementLE : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_le";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
-
-    String get_name() const override { return name; }
-};
-
-class FunctionMatchElementGE : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_ge";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
-
-    String get_name() const override { return name; }
-};
+    return Status::OK();
+}
 
 void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchAny>();

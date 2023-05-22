@@ -173,6 +173,18 @@ public:
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
+    void add_inverted_index_parser(const std::string& column_name, InvertedIndexParserType parser_type) {
+        _inverted_index_parsers[column_name] = parser_type;
+    }
+
+    InvertedIndexParserType get_inverted_index_parser(const std::string& column_name) {
+        if (_inverted_index_parsers.count(column_name) < 1) {
+            return InvertedIndexParserType::PARSER_UNKNOWN;
+        }
+
+        return _inverted_index_parsers[column_name];
+    }
+
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
@@ -218,6 +230,8 @@ private:
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     vectorized::RuntimePredicate _runtime_predicate;
+    // column_name -> InvertedIndexParserType
+    std::unordered_map<std::string, InvertedIndexParserType> _inverted_index_parsers;
 
     taskgroup::TaskGroupPtr _task_group;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
