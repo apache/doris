@@ -194,7 +194,6 @@ public:
         }
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override {
         // result is null only when all columns is null for bitmap_or.
         // for count functions, result is always not null, and if the bitmap op result is null,
