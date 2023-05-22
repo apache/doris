@@ -53,6 +53,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     private final LogicalPlan logicalQuery;
     private final String labelName;
     private NereidsPlanner planner;
+    private boolean isTxnBegin = false;
 
     /**
      * constructor
@@ -94,9 +95,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) planner.getPhysicalPlan());
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
 
+        Preconditions.checkArgument(!isTxnBegin, "an insert command cannot create more than one txn");
         Transaction txn = new Transaction(ctx,
                 physicalOlapTableSink.getDatabase(),
                 physicalOlapTableSink.getTargetTable(), label, planner);
+        isTxnBegin = true;
 
         sink.init(ctx.queryId(), txn.getTxnId(),
                 physicalOlapTableSink.getDatabase().getId(),
