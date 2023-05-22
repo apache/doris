@@ -35,7 +35,7 @@ struct TTabletStat {
     2: optional i64 data_size
     3: optional i64 row_num
     4: optional i64 version_count
-    5: optional i64 remote_data_size 
+    5: optional i64 remote_data_size
 }
 
 struct TTabletStatResult {
@@ -66,6 +66,7 @@ struct TRoutineLoadTask {
     13: optional PaloInternalService.TExecPlanFragmentParams params
     14: optional PlanNodes.TFileFormatType format
     15: optional PaloInternalService.TPipelineFragmentParams pipeline_params
+    16: optional bool is_multi_table
 }
 
 struct TKafkaMetaProxyRequest {
@@ -168,9 +169,9 @@ service BackendService {
     Status.TStatus erase_export_task(1:Types.TUniqueId task_id);
 
     TTabletStatResult get_tablet_stat();
-    
+
     i64 get_trash_used_capacity();
-    
+
     list<TDiskTrashInfo> get_disk_trash_used_capacity();
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
