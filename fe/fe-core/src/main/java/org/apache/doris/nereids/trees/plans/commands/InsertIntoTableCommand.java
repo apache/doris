@@ -71,8 +71,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (ctx.isTxnModel()) {
-            // in original planner with txn model, we can execute sql like: insert into t select 1, 2, 3
-            // but no data will be inserted, now we adjust forbid it.
+            // in original planner, if is in txn model, insert into select command and tableRef >= 1 will be refused.
+            // we can just run select a one-row-relation like select 1, 2, 3
+            // in StmtExecutor#executeForTxn, select 1, 2, 3 means valueList is null, so the if-clause from line 1556
+            // to 1580 will be skipped and effect rows will be always 0
+            // in nereids, we just forbid it.
             throw new AnalysisException("insert into table command is not supported in txn model");
         }
 
