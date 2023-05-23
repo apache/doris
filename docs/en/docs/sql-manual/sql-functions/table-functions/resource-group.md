@@ -51,21 +51,21 @@ mysql> desc function resource_groups();
 | Field | Type        | Null | Key   | Default | Extra |
 +-------+-------------+------+-------+---------+-------+
 | Id    | BIGINT      | No   | false | NULL    | NONE  |
-| Name  | VARCHAR(64) | No   | false | NULL    | NONE  |
-| Item  | VARCHAR(64) | No   | false | NULL    | NONE  |
-| Value | INT         | No   | false | NULL    | NONE  |
+| Name  | STRING      | No   | false | NULL    | NONE  |
+| Item  | STRING      | No   | false | NULL    | NONE  |
+| Value | STRING      | No   | false | NULL    | NONE  |
 +-------+-------------+------+-------+---------+-------+
 ```
 
 ### example
 ```
 mysql> select * from resource_groups()\G
-+-------+------------+-----------+-------+
-| Id    | Name       | Item      | Value |
-+-------+------------+-----------+-------+
-| 10076 | group_name | cpu_share |     1 |
-| 10077 | group_test | cpu_share |    10 |
-+-------+------------+-----------+-------+
++-------+--------+--------------+-------+
+| Id    | Name   | Item         | Value |
++-------+--------+--------------+-------+
+| 11001 | normal | memory_limit | 100%  |
+| 11001 | normal | cpu_share    | 10    |
++-------+--------+--------------+-------+
 ```
 
 ### keywords

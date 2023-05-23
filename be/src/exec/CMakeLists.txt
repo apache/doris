@@ -22,9 +22,6 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
-    arrow/arrow_reader.cpp
-    arrow/parquet_reader.cpp
-    base_scanner.cpp
     data_sink.cpp
     decompressor.cpp
     exec_node.cpp

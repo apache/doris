@@ -116,6 +116,7 @@ Status RowGroupReader::init(
     _row_descriptor = row_descriptor;
     _col_name_to_slot_id = colname_to_slot_id;
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
+    _text_converter.reset(new TextConverter('\\'));
     if (not_single_slot_filter_conjuncts) {
         _filter_conjuncts.insert(_filter_conjuncts.end(), not_single_slot_filter_conjuncts->begin(),
                                  not_single_slot_filter_conjuncts->end());
@@ -164,6 +165,17 @@ Status RowGroupReader::init(
                 for (VExprContext* ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
                     _filter_conjuncts.push_back(ctx);
                 }
+            }
+        }
+    }
+    // Add predicate_partition_columns in _slot_id_to_filter_conjuncts(single slot conjuncts)
+    // to _filter_conjuncts, others should be added from not_single_slot_filter_conjuncts.
+    for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
+        auto& [value, slot_desc] = kv.second;
+        auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
+        if (iter != _slot_id_to_filter_conjuncts->end()) {
+            for (VExprContext* ctx : iter->second) {
+                _filter_conjuncts.push_back(ctx);
             }
         }
     }

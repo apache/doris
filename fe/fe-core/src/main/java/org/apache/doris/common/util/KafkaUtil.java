@@ -46,7 +46,7 @@ public class KafkaUtil {
             Map<String, String> convertedCustomProperties) throws UserException {
         TNetworkAddress address = null;
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get all partitions. No alive backends");
             }
@@ -92,7 +92,7 @@ public class KafkaUtil {
         TNetworkAddress address = null;
         LOG.debug("begin to get offsets for times of topic: {}, {}", topic, timestampOffsets);
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get offset for times. No alive backends");
             }
@@ -152,7 +152,7 @@ public class KafkaUtil {
         LOG.debug("begin to get latest offsets for partitions {} in topic: {}, task {}, job {}",
                 partitionIds, topic, taskId, jobId);
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get latest offsets. No alive backends");
             }
