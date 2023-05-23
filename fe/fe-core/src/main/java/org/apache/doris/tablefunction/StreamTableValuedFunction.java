@@ -20,16 +20,16 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.thrift.TFileType;
 
-import java.util.List;
+import java.util.Map;
 
 /**
  * The Implement of table valued function
  * stream(xxx).
  */
 public class StreamTableValuedFunction extends ExternalFileTableValuedFunction{
-    public static final String NAME = "Stream";
+    public static final String NAME = "stream";
 
-    public StreamTableValuedFunction(List<String> params){
+    public StreamTableValuedFunction(Map<String, String> params){
 
     }
     @Override
@@ -49,6 +49,6 @@ public class StreamTableValuedFunction extends ExternalFileTableValuedFunction{
 
     @Override
     public String getTableName() {
-        return null;
+        return "StreamTableValuedFunction";
     }
 }

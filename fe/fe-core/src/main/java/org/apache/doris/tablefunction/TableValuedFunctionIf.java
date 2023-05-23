@@ -55,6 +55,8 @@ public abstract class TableValuedFunctionIf {
                 return new BackendsTableValuedFunction(params);
             case ResourceGroupsTableValuedFunction.NAME:
                 return new ResourceGroupsTableValuedFunction(params);
+            case StreamTableValuedFunction.NAME:
+                return new StreamTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }
