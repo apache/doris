@@ -286,7 +286,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
             PlanContext context) {
-        return olapTableSink.getOutputPhysicalProperties();
+        return PhysicalProperties.GATHER;
     }
 
     private boolean isSameHashValue(DataType originType, DataType castType) {

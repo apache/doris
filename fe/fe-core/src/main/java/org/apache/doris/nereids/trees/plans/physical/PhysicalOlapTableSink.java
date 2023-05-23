@@ -181,7 +181,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     /**
      * get output physical properties
      */
-    public PhysicalProperties getOutputPhysicalProperties() {
+    public PhysicalProperties getRequirePhysicalProperties() {
         HashDistributionInfo distributionInfo = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
         List<Column> distributedColumns = distributionInfo.getDistributionColumns();
         List<Integer> columnIndexes = Lists.newArrayList();

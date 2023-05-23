@@ -182,7 +182,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
-        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
         return null;
     }
 
