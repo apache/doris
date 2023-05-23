@@ -1326,7 +1326,7 @@ public class StmtRewriter {
                     .getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
-            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicyCopy(dbId, tableId, user);
+            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
             if (matchPolicy == null) {
                 continue;
             }
@@ -1335,7 +1335,7 @@ public class StmtRewriter {
 
             SelectStmt stmt = new SelectStmt(selectList,
                     new FromClause(Lists.newArrayList(tableRef)),
-                    matchPolicy.getWherePredicate(),
+                    matchPolicy.getWherePredicate().clone(),
                     null,
                     null,
                     null,
