@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.ExecutableFunctions;
@@ -137,6 +138,7 @@ public enum ExpressionEvaluator {
         ImmutableMultimap.Builder<String, FunctionInvoker> mapBuilder =
                 new ImmutableMultimap.Builder<String, FunctionInvoker>();
         List<Class> classes = ImmutableList.of(
+                DateTimeAcquire.class,
                 DateTimeExtractAndTransform.class,
                 ExecutableFunctions.class,
                 DateLiteral.class,
