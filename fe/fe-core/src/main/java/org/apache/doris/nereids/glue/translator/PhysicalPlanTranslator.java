@@ -312,12 +312,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.isSingleReplicaLoad()
         );
 
-        ExchangeNode exchangeNode = ((ExchangeNode) rootFragment.getPlanRoot());
-        PlanFragment currentFragment = new PlanFragment(
-                context.nextFragmentId(),
-                exchangeNode,
-                rootFragment.getDataPartition());
-
         Map<Column, Slot> columnToSlots = Maps.newHashMap();
         Preconditions.checkArgument(olapTableSink.getOutput().size() == olapTableSink.getCols().size(),
                 "this is a bug in insert into command");
@@ -351,11 +345,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(column -> context.findSlotRef(columnToSlots.get(column).getExprId()))
                 .collect(Collectors.toList());
 
-        rootFragment.setPlanRoot(exchangeNode.getChild(0));
-        rootFragment.getPlanRoot().setNumInstances(1);
-        rootFragment.setDestination(exchangeNode);
-        context.addPlanFragment(currentFragment);
-        rootFragment = currentFragment;
+        if (rootFragment.getPlanRoot() instanceof ExchangeNode) {
+            ExchangeNode exchangeNode = ((ExchangeNode) rootFragment.getPlanRoot());
+            PlanFragment currentFragment = new PlanFragment(
+                    context.nextFragmentId(),
+                    exchangeNode,
+                    rootFragment.getDataPartition());
+
+            rootFragment.setPlanRoot(exchangeNode.getChild(0));
+            rootFragment.getPlanRoot().setNumInstances(1);
+            rootFragment.setDestination(exchangeNode);
+            context.addPlanFragment(currentFragment);
+            rootFragment = currentFragment;
+        }
         rootFragment.getPlanRoot().setNumInstances(1);
         rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
         rootFragment.setSink(sink);
